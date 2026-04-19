@@ -68,8 +68,8 @@
                 <div class="section">
                     <h3>Folders</h3>
                     <div class="form-row">
-                        <button class="btn" onclick="openFolder('models')">Open Models</button>
-                        <button class="btn" onclick="openFolder('llama')">Open llama.cpp</button>
+                        <button id="btn-open-models" class="btn" type="button">Open Models</button>
+                        <button id="btn-open-llama" class="btn" type="button">Open llama.cpp</button>
                     </div>
                 </div>
 
@@ -84,8 +84,8 @@
                     <h3>Llama GUI App Updates</h3>
                     <div id="app-update-status" class="status-box"></div>
                     <div class="form-row">
-                        <button id="btn-check-app-update" class="btn">Check App Updates</button>
-                        <button id="btn-update-app" class="btn btn-primary">Update App from GitHub</button>
+                        <button id="btn-check-app-update" class="btn" type="button">Check App Updates</button>
+                        <button id="btn-update-app" class="btn btn-primary" type="button">Update App from GitHub</button>
                     </div>
                     <p class="app-update-note">
                         Repository:

@@ -482,7 +482,14 @@ function openFolder(folder) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder }),
-    }).catch(() => {});
+    })
+        .then(() => {
+            const label = folder === "llama" ? "llama.cpp" : "models";
+            showStatus("info", `Opened ${label} folder.`);
+        })
+        .catch((e) => {
+            showStatus("error", "Failed to open folder: " + e.message);
+        });
 }
 
 async function refreshModels() {
@@ -504,5 +511,3 @@ async function refreshModels() {
     }
 }
 
-document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
-document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);

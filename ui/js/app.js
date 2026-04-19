@@ -745,6 +745,10 @@ function initInstallButtons() {
     document.getElementById("btn-repair").addEventListener("click", repairInstall);
     document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
     document.getElementById("refresh-releases").addEventListener("click", fetchReleases);
+    document.getElementById("btn-open-models").addEventListener("click", () => openFolder("models"));
+    document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));
+    document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
+    document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);
     if (typeof checkAppUpdateStatus === "function") {
         checkAppUpdateStatus();
     }
