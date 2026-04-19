@@ -1,4 +1,4 @@
-# CPPWrap
+# Llama GUI
 
 Lightweight local GUI launcher for `llama.cpp` on Windows.
 

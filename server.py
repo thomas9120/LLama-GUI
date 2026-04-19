@@ -611,7 +611,7 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     server = http.server.HTTPServer(("127.0.0.1", port), Handler)
-    print(f"CPPWrap running at http://127.0.0.1:{port}")
+    print(f"Llama GUI running at http://127.0.0.1:{port}")
     print("Press Ctrl+C to stop the server.")
     try:
         server.serve_forever()
