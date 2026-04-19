@@ -33,6 +33,112 @@ const BUILTIN_SAMPLER_PRESETS = {
     },
 };
 
+const API_ENDPOINTS = [
+    {
+        name: "OpenAI Chat Completions",
+        method: "POST",
+        path: "/v1/chat/completions",
+        compatibility: "OpenAI compatible",
+        detail: "Primary chat endpoint used by most OpenAI-compatible clients.",
+    },
+    {
+        name: "OpenAI Completions",
+        method: "POST",
+        path: "/v1/completions",
+        compatibility: "OpenAI compatible",
+        detail: "Legacy text completion endpoint.",
+    },
+    {
+        name: "OpenAI Embeddings",
+        method: "POST",
+        path: "/v1/embeddings",
+        compatibility: "OpenAI compatible",
+        detail: "Create vector embeddings for retrieval and semantic search.",
+    },
+    {
+        name: "OpenAI Models",
+        method: "GET",
+        path: "/v1/models",
+        compatibility: "OpenAI compatible",
+        detail: "Lists available model aliases exposed by llama-server.",
+    },
+    {
+        name: "Health Check",
+        method: "GET",
+        path: "/health",
+        compatibility: "Native llama-server",
+        detail: "Quick status probe for monitoring and uptime checks.",
+    },
+    {
+        name: "Web UI",
+        method: "GET",
+        path: "/",
+        compatibility: "Native llama-server",
+        detail: "Built-in browser interface.",
+    },
+];
+
+const API_SNIPPETS = [
+    {
+        name: "cURL (Chat Completions)",
+        language: "bash",
+        build: (baseUrl, modelName) => [
+            "curl -X POST \"" + baseUrl + "/v1/chat/completions\" \\",
+            "  -H \"Content-Type: application/json\" \\",
+            "  -H \"Authorization: Bearer YOUR_API_KEY\" \\",
+            "  -d '{",
+            "    \"model\": \"" + modelName + "\",",
+            "    \"messages\": [",
+            "      {\"role\": \"user\", \"content\": \"Write a short hello from llama.cpp\"}",
+            "    ]",
+            "  }'",
+        ].join("\n"),
+    },
+    {
+        name: "Python (OpenAI SDK)",
+        language: "python",
+        build: (baseUrl, modelName) => [
+            "from openai import OpenAI",
+            "",
+            "client = OpenAI(",
+            "    base_url=\"" + baseUrl + "/v1\",",
+            "    api_key=\"YOUR_API_KEY\",",
+            ")",
+            "",
+            "resp = client.chat.completions.create(",
+            "    model=\"" + modelName + "\",",
+            "    messages=[",
+            "        {\"role\": \"user\", \"content\": \"Explain KV cache in one sentence.\"}",
+            "    ],",
+            ")",
+            "",
+            "print(resp.choices[0].message.content)",
+        ].join("\n"),
+    },
+    {
+        name: "JavaScript (fetch)",
+        language: "javascript",
+        build: (baseUrl, modelName) => [
+            "const response = await fetch(\"" + baseUrl + "/v1/chat/completions\", {",
+            "  method: \"POST\",",
+            "  headers: {",
+            "    \"Content-Type\": \"application/json\",",
+            "    \"Authorization\": \"Bearer YOUR_API_KEY\"",
+            "  },",
+            "  body: JSON.stringify({",
+            "    model: \"" + modelName + "\",",
+            "    messages: [",
+            "      { role: \"user\", content: \"Give me 3 bullet points about GGUF.\" }",
+            "    ]",
+            "  })",
+            "});",
+            "",
+            "const data = await response.json();",
+            "console.log(data.choices?.[0]?.message?.content);",
+        ].join("\n"),
+    },
+];
+
 function getSamplerFlags() {
     return FLAGS.filter(f => f.category === "sampling");
 }
@@ -345,11 +451,13 @@ document.addEventListener("DOMContentLoaded", () => {
     initToolSelect();
     initConfigControls();
     initInstallButtons();
+    initApiTab();
     initPresetImport();
     renderFlags();
     refreshModels();
     checkStatus();
     fetchReleases();
+    updateApiEndpoints();
 });
 
 function initTabs() {
@@ -363,6 +471,11 @@ function switchTab(tabId) {
     document.querySelectorAll(".tab-content").forEach(tc => tc.classList.toggle("active", tc.id === "tab-" + tabId));
     if (tabId === "presets") loadPresets();
     if (tabId === "configure") updateCommandPreview();
+    if (tabId === "api") {
+        Promise.resolve(checkStatus()).finally(() => {
+            updateApiEndpoints();
+        });
+    }
 }
 
 function initToolSelect() {
@@ -373,7 +486,17 @@ function initToolSelect() {
         renderFlags();
         updateCommandPreview();
         updateServerAddressPreview();
+        updateApiEndpoints();
     });
+}
+
+function initApiTab() {
+    const copyBaseBtn = document.getElementById("btn-copy-api-base");
+    if (copyBaseBtn) {
+        copyBaseBtn.addEventListener("click", () => {
+            copyText(getServerBaseUrl());
+        });
+    }
 }
 
 function initConfigControls() {
@@ -477,6 +600,121 @@ function updateServerAddressPreview() {
     document.getElementById("server-url").textContent = baseUrl;
     document.getElementById("server-webui").href = baseUrl + "/";
     el.classList.remove("hidden");
+}
+
+function getServerBaseUrl() {
+    const host = String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1";
+    const parsedPort = Number(flagValues.port);
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+    return `http://${host}:${port}`;
+}
+
+function getPreferredApiModelName() {
+    const alias = String(flagValues.alias || "").split(",")[0].trim();
+    if (alias) return alias;
+
+    const modelSel = document.getElementById("model-select");
+    const selectedModel = modelSel && modelSel.value ? String(modelSel.value).trim() : "";
+    if (selectedModel) return selectedModel;
+
+    return "your-model";
+}
+
+function updateApiEndpoints() {
+    const baseUrl = getServerBaseUrl();
+    const modelName = getPreferredApiModelName();
+    const baseLink = document.getElementById("api-base-url");
+    const list = document.getElementById("api-endpoints-list");
+    const snippets = document.getElementById("api-snippets-list");
+    const statusNote = document.getElementById("api-status-note");
+    if (!baseLink || !list || !statusNote || !snippets) return;
+
+    baseLink.href = baseUrl;
+    baseLink.textContent = baseUrl;
+
+    const isRunning = (!document.getElementById("btn-stop").classList.contains("hidden")) || !!(latestStatus && latestStatus.running);
+    const hasApiKey = String(flagValues.api_key || "").trim().length > 0;
+    const modeText = currentTool === "llama-server"
+        ? "Tool mode is set to llama-server."
+        : "Tool mode is set to llama-cli. Switch to llama-server to expose HTTP endpoints.";
+    const runningText = isRunning
+        ? "Server process appears to be running."
+        : "Server process is not running right now.";
+    const authText = hasApiKey
+        ? "API key is configured. Use `Authorization: Bearer <key>` in clients."
+        : "No API key configured. Endpoints are open on this host/port.";
+    statusNote.textContent = `${modeText} ${runningText} ${authText}`;
+
+    list.innerHTML = "";
+    for (const endpoint of API_ENDPOINTS) {
+        const card = document.createElement("div");
+        card.className = "api-card";
+
+        const topRow = document.createElement("div");
+        topRow.className = "api-card-top";
+
+        const title = document.createElement("div");
+        title.className = "api-card-title";
+        title.textContent = endpoint.name;
+
+        const meta = document.createElement("div");
+        meta.className = "api-card-meta";
+        meta.textContent = `${endpoint.method} | ${endpoint.compatibility}`;
+
+        const urlRow = document.createElement("div");
+        urlRow.className = "api-url-row";
+
+        const code = document.createElement("code");
+        code.textContent = baseUrl + endpoint.path;
+
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "btn btn-sm";
+        copyBtn.type = "button";
+        copyBtn.textContent = "Copy";
+        copyBtn.addEventListener("click", () => copyText(baseUrl + endpoint.path));
+
+        const detail = document.createElement("div");
+        detail.className = "api-card-detail";
+        detail.textContent = endpoint.detail;
+
+        topRow.appendChild(title);
+        topRow.appendChild(meta);
+        urlRow.appendChild(code);
+        urlRow.appendChild(copyBtn);
+        card.appendChild(topRow);
+        card.appendChild(urlRow);
+        card.appendChild(detail);
+        list.appendChild(card);
+    }
+
+    snippets.innerHTML = "";
+    for (const snippet of API_SNIPPETS) {
+        const card = document.createElement("div");
+        card.className = "api-snippet";
+
+        const top = document.createElement("div");
+        top.className = "api-snippet-top";
+
+        const title = document.createElement("div");
+        title.className = "api-snippet-title";
+        title.textContent = snippet.name;
+
+        const copyBtn = document.createElement("button");
+        copyBtn.className = "btn btn-sm";
+        copyBtn.type = "button";
+        copyBtn.textContent = "Copy";
+
+        const code = document.createElement("code");
+        code.textContent = snippet.build(baseUrl, modelName);
+
+        copyBtn.addEventListener("click", () => copyText(code.textContent || ""));
+
+        top.appendChild(title);
+        top.appendChild(copyBtn);
+        card.appendChild(top);
+        card.appendChild(code);
+        snippets.appendChild(card);
+    }
 }
 
 function initInstallButtons() {
@@ -805,6 +1043,7 @@ function updateCommandPreview() {
     const cmd = parts.join(" ");
     document.getElementById("command-preview-text").textContent = cmd;
     updateServerAddressPreview();
+    updateApiEndpoints();
 }
 
 function getLaunchArgs() {
@@ -883,6 +1122,7 @@ async function launchLlama() {
                 appendOutput(`Server running at ${baseUrl}`);
                 appendOutput(`Web UI: ${baseUrl}/`);
             }
+            updateApiEndpoints();
         }
     } catch (e) {
         appendOutput("ERROR: " + e.message);
@@ -903,6 +1143,7 @@ async function stopLlama() {
     document.getElementById("btn-stop").classList.add("hidden");
     document.getElementById("input-row").classList.add("hidden");
     document.getElementById("server-address").classList.add("hidden");
+    updateApiEndpoints();
     setTimeout(() => checkStatus(), 500);
 }
 
@@ -936,6 +1177,7 @@ async function pollOutput() {
             document.getElementById("btn-stop").classList.add("hidden");
             document.getElementById("input-row").classList.add("hidden");
             document.getElementById("server-address").classList.add("hidden");
+            updateApiEndpoints();
             setTimeout(() => checkStatus(), 500);
         }
     } catch (e) {
@@ -986,5 +1228,9 @@ document.getElementById("model-select").addEventListener("change", () => {
 
 function copyServerUrl() {
     const url = document.getElementById("server-url").href;
-    navigator.clipboard.writeText(url).catch(() => {});
+    copyText(url);
+}
+
+function copyText(text) {
+    navigator.clipboard.writeText(text).catch(() => {});
 }

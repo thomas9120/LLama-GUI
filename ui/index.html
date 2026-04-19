@@ -19,6 +19,7 @@
         <nav class="tabs">
             <button class="tab active" data-tab="install">Install</button>
             <button class="tab" data-tab="configure">Configure</button>
+            <button class="tab" data-tab="api">API</button>
             <button class="tab" data-tab="presets">Presets</button>
         </nav>
 
@@ -139,6 +140,29 @@
                         <input type="text" id="cli-input" placeholder="Type and press Enter..." />
                         <button class="btn" onclick="sendInput()">Send</button>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API TAB -->
+        <div class="tab-content" id="tab-api">
+            <div class="panel">
+                <h2>OpenAI-Compatible API</h2>
+                <p class="api-intro">llama-server can expose OpenAI-style endpoints so other apps and services can connect directly.</p>
+
+                <div class="api-base-row">
+                    <span class="api-base-label">Base URL</span>
+                    <a id="api-base-url" href="#" target="_blank" class="server-link"></a>
+                    <button id="btn-copy-api-base" class="btn btn-sm" type="button" title="Copy base URL">Copy</button>
+                </div>
+
+                <div id="api-status-note" class="api-status-note"></div>
+                <div id="api-endpoints-list" class="api-endpoints"></div>
+
+                <div class="section">
+                    <h3>Client Snippets</h3>
+                    <p class="api-intro">Copy one of these templates and replace the prompt/model values as needed.</p>
+                    <div id="api-snippets-list" class="api-snippets"></div>
                 </div>
             </div>
         </div>
