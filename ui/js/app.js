@@ -8,6 +8,23 @@ let configSearchQuery = "";
 
 const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
 const BUILTIN_SAMPLER_PRESETS = {
+    Neutral: {
+        temperature: 1.0,
+        top_k: 0,
+        top_p: 1.0,
+        min_p: 0,
+        top_n_sigma: -1,
+        xtc_probability: 0,
+        xtc_threshold: 1.0,
+        typical_p: 1.0,
+        repeat_last_n: 0,
+        repeat_penalty: 1.0,
+        presence_penalty: 0,
+        frequency_penalty: 0,
+        dry_multiplier: 0,
+        dynatemp_range: 0,
+        mirostat: "0",
+    },
     Balanced: {
         temperature: 0.8,
         top_k: 40,
