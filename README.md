@@ -38,6 +38,76 @@ Platform launch helpers:
 4. Put `.gguf` files in `models/` (or click **Open Models**).
 5. In **Configure**, select tool + model and click **Launch**.
 
+## Install By Platform
+
+### Windows
+
+1. Install Python 3.9+ from [python.org](https://www.python.org/downloads/) and make sure it is available in `PATH`.
+2. Clone or download this repository.
+3. Start the app with one of:
+   - `python server.py`
+   - `start.bat`
+   - `start_silent.bat`
+4. Open `http://127.0.0.1:5240` in your browser.
+5. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
+
+### macOS
+
+1. Install Python 3.9+.
+   - If needed with Homebrew: `brew install python`
+2. Clone this repository:
+
+```bash
+git clone https://github.com/thomas9120/LLama-GUI.git
+cd LLama-GUI
+```
+
+3. Make the helper scripts executable if needed:
+
+```bash
+chmod +x start.sh start_silent.sh
+```
+
+4. Start the app with one of:
+   - `python3 server.py`
+   - `./start.sh`
+   - `./start_silent.sh`
+5. Open `http://127.0.0.1:5240` in your browser.
+6. In the **Install** tab, choose the backend that matches your Mac:
+   - Apple Silicon: `Metal` or `Metal + KleidiAI`
+   - Intel Mac: `CPU`
+
+### Linux
+
+1. Install Python 3.9+ and basic system tools:
+
+```bash
+sudo apt update
+sudo apt install -y python3 git
+```
+
+2. Clone this repository:
+
+```bash
+git clone https://github.com/thomas9120/LLama-GUI.git
+cd LLama-GUI
+```
+
+3. Make the helper scripts executable:
+
+```bash
+chmod +x start.sh start_silent.sh
+```
+
+4. Start the app with one of:
+   - `python3 server.py`
+   - `./start.sh`
+   - `./start_silent.sh`
+5. Open `http://127.0.0.1:5240` in your browser.
+6. In the **Install** tab, choose a Linux backend supported by your machine, such as `CPU`, `Vulkan`, `ROCm`, or `OpenVINO`.
+
+Note: some Linux accelerator backends may also require vendor drivers or runtime packages outside of Llama GUI itself.
+
 ## First-Run Checklist (60 Seconds)
 
 Use this as a quick onboarding flow for a fresh setup:
