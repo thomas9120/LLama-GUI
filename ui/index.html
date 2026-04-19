@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CPPWrap - llama.cpp Launcher</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>CPPWrap</h1>
+            <div class="header-status">
+                <span id="version-badge" class="badge">Not Installed</span>
+                <span id="process-badge" class="badge badge-green hidden">Running</span>
+            </div>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab active" data-tab="install">Install</button>
+            <button class="tab" data-tab="configure">Configure</button>
+            <button class="tab" data-tab="presets">Presets</button>
+        </nav>
+
+        <!-- INSTALL TAB -->
+        <div class="tab-content active" id="tab-install">
+            <div class="panel">
+                <h2>Install llama.cpp</h2>
+                <div id="install-status" class="status-box"></div>
+
+                <div class="form-group">
+                    <label>Version</label>
+                    <div class="input-row">
+                        <select id="release-select"><option value="">Loading...</option></select>
+                        <button id="refresh-releases" class="btn btn-sm" title="Refresh releases">&#x21bb;</button>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Backend</label>
+                    <select id="backend-select">
+                        <option value="cpu">CPU</option>
+                        <option value="cuda-12.4">CUDA 12.4 (NVIDIA)</option>
+                        <option value="cuda-13.1">CUDA 13.1 (NVIDIA)</option>
+                        <option value="vulkan">Vulkan</option>
+                        <option value="sycl">SYCL (Intel)</option>
+                        <option value="hip">HIP (AMD Radeon)</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <button id="btn-install" class="btn btn-primary">Install</button>
+                    <button id="btn-update" class="btn">Check for Updates</button>
+                    <button id="btn-repair" class="btn hidden">Repair Install</button>
+                </div>
+
+                <div id="download-progress" class="progress-container hidden">
+                    <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+                    <span id="progress-text">0%</span>
+                </div>
+
+                <div class="section">
+                    <h3>Installed</h3>
+                    <div id="installed-info"></div>
+                </div>
+
+                <div class="section">
+                    <h3>Folders</h3>
+                    <div class="form-row">
+                        <button class="btn" onclick="openFolder('models')">Open Models</button>
+                        <button class="btn" onclick="openFolder('llama')">Open llama.cpp</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CONFIGURE TAB -->
+        <div class="tab-content" id="tab-configure">
+            <div class="panel">
+                <div class="config-header">
+                    <h2>Configure &amp; Launch</h2>
+                    <div class="input-row">
+                        <label style="margin:0">Tool:</label>
+                        <select id="tool-select">
+                            <option value="llama-cli">llama-cli (Interactive Chat)</option>
+                            <option value="llama-server">llama-server (HTTP API)</option>
+                        </select>
+                        <select id="model-select">
+                            <option value="">-- Select Model --</option>
+                        </select>
+                        <button class="btn btn-sm" onclick="refreshModels()">&#x21bb;</button>
+                    </div>
+                </div>
+
+                <div id="flags-container"></div>
+
+                <div id="server-address" class="server-address hidden">
+                    <span class="server-label">Server Address:</span>
+                    <a id="server-url" href="#" target="_blank" class="server-link"></a>
+                    <span class="server-sep">|</span>
+                    <a id="server-webui" href="#" target="_blank" class="server-link">Web UI</a>
+                    <button class="btn btn-sm" onclick="copyServerUrl()" title="Copy URL">&#x2398;</button>
+                </div>
+
+                <div class="launch-bar">
+                    <button id="btn-launch" class="btn btn-primary btn-lg">Launch</button>
+                    <button id="btn-stop" class="btn btn-danger btn-lg hidden">Stop</button>
+                    <div class="command-preview">
+                        <label>Command Preview</label>
+                        <code id="command-preview-text"></code>
+                    </div>
+                </div>
+
+                <div id="output-section" class="hidden">
+                    <div class="output-header">
+                        <h3>Output</h3>
+                        <div class="form-row">
+                            <button class="btn btn-sm" onclick="clearOutput()">Clear</button>
+                        </div>
+                    </div>
+                    <div id="output-terminal" class="terminal"></div>
+                    <div id="input-row" class="input-row hidden">
+                        <input type="text" id="cli-input" placeholder="Type and press Enter..." />
+                        <button class="btn" onclick="sendInput()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PRESETS TAB -->
+        <div class="tab-content" id="tab-presets">
+            <div class="panel">
+                <h2>Presets</h2>
+                <div class="form-group">
+                    <label>Save Current Configuration</label>
+                    <div class="input-row">
+                        <input type="text" id="preset-name-input" placeholder="Preset name..." />
+                        <button class="btn btn-primary" onclick="savePreset()">Save</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Import Preset</label>
+                    <input type="file" id="preset-import" accept=".json" style="display:none" />
+                    <button class="btn" onclick="document.getElementById('preset-import').click()">Import JSON</button>
+                </div>
+                <h3>Saved Presets</h3>
+                <div id="presets-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+        <div class="modal-dialog">
+            <h3 id="confirm-modal-title">Confirm Action</h3>
+            <p id="confirm-modal-message"></p>
+            <div class="form-row">
+                <button id="confirm-modal-cancel" class="btn">Cancel</button>
+                <button id="confirm-modal-ok" class="btn btn-primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/flags.js"></script>
+    <script src="/js/manager.js"></script>
+    <script src="/js/presets.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>
