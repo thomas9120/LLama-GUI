@@ -2,6 +2,8 @@ let currentTool = "llama-cli";
 let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
+let openCategories = new Set();
+let configSearchQuery = "";
 
 function escapeHtml(str) {
     const div = document.createElement("div");
@@ -12,6 +14,7 @@ function escapeHtml(str) {
 document.addEventListener("DOMContentLoaded", () => {
     initTabs();
     initToolSelect();
+    initConfigControls();
     initInstallButtons();
     initPresetImport();
     renderFlags();
@@ -37,10 +40,74 @@ function initToolSelect() {
     const toolSel = document.getElementById("tool-select");
     toolSel.addEventListener("change", () => {
         currentTool = toolSel.value;
+        openCategories.clear();
         renderFlags();
         updateCommandPreview();
         updateServerAddressPreview();
     });
+}
+
+function initConfigControls() {
+    const search = document.getElementById("config-search");
+
+    const clearSearch = () => {
+        search.value = "";
+        configSearchQuery = "";
+        renderFlags();
+        search.focus();
+    };
+
+    search.addEventListener("input", () => {
+        configSearchQuery = search.value.trim().toLowerCase();
+        if (configSearchQuery) {
+            const groups = getFlagsByCategory(currentTool);
+            openCategories = new Set(Object.keys(groups));
+        }
+        renderFlags();
+    });
+
+    search.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && (search.value || configSearchQuery)) {
+            e.preventDefault();
+            clearSearch();
+        }
+    });
+
+    document.getElementById("btn-clear-search").addEventListener("click", () => {
+        clearSearch();
+    });
+
+    document.getElementById("btn-expand-all").addEventListener("click", () => {
+        const groups = getFlagsByCategory(currentTool);
+        openCategories = new Set(Object.keys(groups));
+        renderFlags();
+    });
+
+    document.getElementById("btn-collapse-all").addEventListener("click", () => {
+        openCategories.clear();
+        renderFlags();
+    });
+}
+
+function flagMatchesSearch(flag, query) {
+    if (!query) return true;
+
+    const terms = [
+        flag.flag,
+        flag.label,
+        flag.id,
+        flag.desc,
+    ];
+
+    if (Array.isArray(flag.options)) {
+        for (const opt of flag.options) {
+            terms.push(opt.label, opt.value);
+        }
+    }
+
+    return terms
+        .filter(Boolean)
+        .some(v => String(v).toLowerCase().includes(query));
 }
 
 function updateServerAddressPreview() {
@@ -62,6 +129,7 @@ function initInstallButtons() {
     document.getElementById("btn-install").addEventListener("click", installRelease);
     document.getElementById("btn-update").addEventListener("click", checkForUpdates);
     document.getElementById("btn-repair").addEventListener("click", repairInstall);
+    document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
     document.getElementById("refresh-releases").addEventListener("click", fetchReleases);
 }
 
@@ -77,27 +145,54 @@ function renderFlags() {
     container.innerHTML = "";
     const groups = getFlagsByCategory(currentTool);
 
+    let visibleGroups = 0;
+
     for (const [catId, group] of Object.entries(groups)) {
+        const categoryMatches = group.name.toLowerCase().includes(configSearchQuery);
+        const visibleFlags = configSearchQuery
+            ? group.flags.filter(f => categoryMatches || flagMatchesSearch(f, configSearchQuery))
+            : group.flags;
+
+        if (visibleFlags.length === 0) {
+            continue;
+        }
+
+        visibleGroups += 1;
+
         const acc = document.createElement("div");
         acc.className = "accordion";
+        acc.dataset.categoryId = catId;
 
         const header = document.createElement("div");
         header.className = "accordion-header";
+        const countText = visibleFlags.length === group.flags.length
+            ? String(group.flags.length)
+            : `${visibleFlags.length}/${group.flags.length}`;
         header.innerHTML = `
             <span class="arrow">&#x25B6;</span>
             <h3>${group.name}</h3>
-            <span class="count">${group.flags.length}</span>
+            <span class="count">${countText}</span>
         `;
 
         const body = document.createElement("div");
         body.className = "accordion-body";
 
+        if (openCategories.has(catId)) {
+            header.classList.add("open");
+            body.classList.add("open");
+        }
+
         header.addEventListener("click", () => {
             header.classList.toggle("open");
             body.classList.toggle("open");
+            if (body.classList.contains("open")) {
+                openCategories.add(catId);
+            } else {
+                openCategories.delete(catId);
+            }
         });
 
-        for (const f of group.flags) {
+        for (const f of visibleFlags) {
             const row = createFlagRow(f);
             body.appendChild(row);
         }
@@ -105,6 +200,13 @@ function renderFlags() {
         acc.appendChild(header);
         acc.appendChild(body);
         container.appendChild(acc);
+    }
+
+    if (visibleGroups === 0) {
+        const empty = document.createElement("div");
+        empty.className = "flags-empty";
+        empty.textContent = "No configuration options match your search.";
+        container.appendChild(empty);
     }
 
     restoreFlagInputs();

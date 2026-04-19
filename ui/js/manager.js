@@ -166,10 +166,34 @@ async function repairInstall() {
     );
 }
 
+async function removeLlamaFiles() {
+    const status = latestStatus || await checkStatus();
+    if (status && status.running) {
+        showStatus("error", "Stop the running llama.cpp process before cleaning files.");
+        return;
+    }
+
+    const ok = await confirmAction(
+        "Remove llama.cpp Files",
+        "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear install metadata? Models and presets will be kept.",
+        "Remove"
+    );
+    if (!ok) return;
+
+    try {
+        const result = await fetchJson("/api/cleanup-llama", { method: "POST" });
+        showStatus("success", `Removed ${result.removed_files || 0} llama.cpp file(s).`);
+        checkStatus();
+    } catch (e) {
+        showStatus("error", "Cleanup failed: " + e.message);
+    }
+}
+
 function setInstallButtonsDisabled(disabled) {
     document.getElementById("btn-install").disabled = disabled;
     document.getElementById("btn-update").disabled = disabled;
     document.getElementById("btn-repair").disabled = disabled;
+    document.getElementById("btn-remove-llama").disabled = disabled;
 }
 
 async function startInstall(tag, backend, startMessage) {

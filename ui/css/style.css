@@ -233,6 +233,31 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 .config-header h2 { margin: 0; }
 .config-header .input-row { flex-wrap: wrap; }
 
+.config-controls {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.config-controls input[type="text"] {
+    flex: 1;
+    min-width: 260px;
+}
+
+.config-controls .form-row {
+    margin-bottom: 0;
+}
+
+.flags-empty {
+    padding: 12px 14px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+    color: var(--fg-dim);
+    font-size: 13px;
+}
+
 /* Launch bar */
 .launch-bar {
     display: flex;
@@ -451,6 +476,8 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     .flag-row { grid-template-columns: 1fr; gap: 4px; }
     .flag-input { justify-content: flex-start; }
     .config-header { flex-direction: column; align-items: flex-start; }
+    .config-controls { flex-direction: column; align-items: stretch; }
+    .config-controls input[type="text"] { min-width: 0; }
     .launch-bar { flex-direction: column; align-items: stretch; }
     .modal-dialog .form-row { justify-content: stretch; }
 }

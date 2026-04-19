@@ -324,6 +324,25 @@ def stop_process():
         return False
 
 
+def remove_llama_files():
+    removed_files = 0
+
+    if LLAMA_DIR.exists():
+        for path in LLAMA_DIR.rglob("*"):
+            if path.is_file():
+                removed_files += 1
+
+    if LLAMA_DIR.exists():
+        shutil.rmtree(LLAMA_DIR)
+
+    for d in [LLAMA_BIN_DIR, LLAMA_DLL_DIR, LLAMA_GRAMMARS_DIR]:
+        d.mkdir(parents=True, exist_ok=True)
+
+    save_config({"version": None, "backend": None, "tag": None})
+
+    return removed_files
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -507,6 +526,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/stop":
             stopped = stop_process()
             self.send_json({"stopped": stopped})
+            return
+
+        if path == "/api/cleanup-llama":
+            if process and process.poll() is None:
+                self.send_json({"error": "Stop running process first"}, 400)
+                return
+            try:
+                removed_files = remove_llama_files()
+                self.send_json({"removed_files": removed_files})
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
             return
 
         if path == "/api/send-input":

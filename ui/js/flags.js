@@ -97,6 +97,7 @@ const FLAGS = [
       desc: "Enable weight repacking", tool: "both", default: true },
     { id: "fit", flag: "-fit", category: "gpu", type: "enum", label: "Auto Fit to VRAM",
       desc: "Automatically reduce context size and batch size so the model fits in your GPU VRAM. Highly recommended for beginners - prevents out-of-memory crashes. Turn off only if you know exactly what you're doing.", tool: "both",
+      default: "on",
       options: [{ value: "on", label: "On (Recommended)" }, { value: "off", label: "Off" }] },
     { id: "cpu_moe", flag: "-cmoe", category: "gpu", type: "bool", label: "CPU MoE",
       desc: "Keep all MoE weights in CPU", tool: "both", default: false },

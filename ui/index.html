@@ -71,6 +71,13 @@
                         <button class="btn" onclick="openFolder('llama')">Open llama.cpp</button>
                     </div>
                 </div>
+
+                <div class="section">
+                    <h3>Maintenance</h3>
+                    <div class="form-row">
+                        <button id="btn-remove-llama" class="btn btn-danger">Remove llama.cpp Files</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -89,6 +96,15 @@
                             <option value="">-- Select Model --</option>
                         </select>
                         <button class="btn btn-sm" onclick="refreshModels()">&#x21bb;</button>
+                    </div>
+                </div>
+
+                <div class="config-controls">
+                    <input type="text" id="config-search" placeholder="Search categories and flags..." />
+                    <div class="form-row">
+                        <button id="btn-clear-search" class="btn btn-sm" type="button">Clear Search</button>
+                        <button id="btn-expand-all" class="btn btn-sm" type="button">Expand All</button>
+                        <button id="btn-collapse-all" class="btn btn-sm" type="button">Collapse All</button>
                     </div>
                 </div>
 
