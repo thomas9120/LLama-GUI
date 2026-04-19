@@ -21,16 +21,5 @@ if not defined PY_CMD (
     exit /b 1
 )
 
-echo Starting Llama GUI server...
-call %PY_CMD% server.py
-set "EXIT_CODE=%ERRORLEVEL%"
-
-if not "%EXIT_CODE%"=="0" (
-    echo.
-    echo [ERROR] server.py exited with code %EXIT_CODE%.
-    echo Review the error output above (for example missing Python/modules/permissions).
-    echo.
-    pause
-)
-
-endlocal & exit /b %EXIT_CODE%
+start "Llama GUI Server" /min cmd /c "%PY_CMD% server.py"
+exit /b 0
