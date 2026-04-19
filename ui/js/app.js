@@ -1259,9 +1259,21 @@ function hasSelectedHighRiskOption(options, selectedValues) {
     return selectedValues.some(v => highRiskValues.has(String(v)));
 }
 
+function getExecutableSuffix() {
+    if (typeof latestStatus !== "undefined" && latestStatus && typeof latestStatus.executable_suffix === "string") {
+        return latestStatus.executable_suffix;
+    }
+    const ua = navigator.userAgent || "";
+    return /Windows/i.test(ua) ? ".exe" : "";
+}
+
+function getToolBinaryName(tool) {
+    return tool + getExecutableSuffix();
+}
+
 function updateCommandPreview() {
     const args = getLaunchArgs();
-    const parts = [currentTool + ".exe"];
+    const parts = [getToolBinaryName(currentTool)];
     for (const entry of args) {
         if (Array.isArray(entry)) {
             parts.push(...entry);

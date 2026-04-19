@@ -407,7 +407,8 @@ function getFlagsByCategory(tool) {
 function buildCommand(tool, values) {
     const cfg = values;
     const toolBase = tool.replace("llama-", "");
-    const parts = [tool + ".exe"];
+    const suffix = (typeof getExecutableSuffix === "function") ? getExecutableSuffix() : "";
+    const parts = [tool + suffix];
 
     for (const f of FLAGS) {
         if (f.tool !== "both" && f.tool !== toolBase) continue;
