@@ -1,19 +1,20 @@
 # Llama GUI
 
-Lightweight local GUI launcher for `llama.cpp` on Windows.
+Lightweight local launcher and control panel for `llama.cpp` on Windows.
 
-It provides a browser UI to:
-- install prebuilt `llama.cpp` release binaries by backend (CPU/CUDA/Vulkan/etc.)
-- configure and launch `llama-cli` or `llama-server`
+Llama GUI provides a browser UI to:
+- install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
+- configure and launch `llama-server` or `llama-cli`
 - monitor process output in real time
-- manage reusable launch presets
-- manage sampler presets in the Sampling submenu (with import/export)
+- use OpenAI-compatible endpoint helpers/snippets
+- manage full launch presets and sampler presets
+- manage local app updates from GitHub
 
 ## Requirements
 
 - Windows 10/11
 - Python 3.9+
-- Internet access (for fetching GitHub releases and binaries)
+- Internet access (for release metadata/downloads and optional app updates)
 
 ## Quick Start
 
@@ -24,78 +25,199 @@ python server.py
 ```
 
 2. Open `http://127.0.0.1:5240` in your browser.
-3. Use the **Install** tab to install a `llama.cpp` release/backend.
-4. Place your `.gguf` models in `models/` (or use the folder button in UI).
-5. Use the **Configure** tab to select model + flags, then launch.
+3. In **Install**, choose a version + backend, then click **Install**.
+4. Put `.gguf` files in `models/` (or click **Open Models**).
+5. In **Configure**, select tool + model and click **Launch**.
 
-## Configure UX Highlights
+## First-Run Checklist (60 Seconds)
 
-- Search across configuration categories and flags
-- `Expand All`, `Collapse All`, and `Clear` controls for accordions
-- Short beginner-friendly descriptions with expandable `More info`
-- Inline expandable `Beginner tip` badges on key flags
-- Recommended defaults enabled out of the box:
-  - `-fit` is set to `on`
-  - `-c` context default is `16000`
+Use this as a quick onboarding flow for a fresh setup:
 
-## Presets
+1. Start `python server.py` and open `http://127.0.0.1:5240`.
+2. Go to **Install**:
+   - pick a backend that matches your hardware
+   - click **Install**
+   - verify the top badge changes from `Not Installed` to an installed version
+3. Add at least one `.gguf` model to `models/` (or click **Open Models**).
+4. Go to **Configure**:
+   - keep `llama-server` selected for easiest API integration
+   - choose your model
+   - click **Launch**
+5. Confirm it is working:
+   - `Running` badge appears in header
+   - output panel shows startup logs
+   - server address preview appears
+6. Optional integration check:
+   - open the **API** tab
+   - copy a snippet and test `/v1/chat/completions`
 
-### Full App Presets
+If something fails during first run, use **Install -> Repair Install** and then relaunch.
 
-Saved in `presets/` as JSON files via the Presets tab.
+## What Each Tab Does
 
-Each preset stores:
-- selected tool (`llama-cli` or `llama-server`)
-- selected model
-- all configured flags
+### Install
 
-### Sampler Presets (Sampling Submenu)
+- Install/update/repair `llama.cpp` binaries
+- Backend and release selectors auto-reflect the installed state
+- Quick folder access: **Open Models** and **Open llama.cpp**
+- Maintenance action: **Remove llama.cpp Files**
+- App updater actions:
+  - **Check App Updates**
+  - **Update App from GitHub**
 
-Available directly in the Sampling section of Configure.
+### Configure
+
+- Flag browser with category accordions
+- Search across category names, flags, option names, and submenu labels
+- `Expand All`, `Collapse All`, and `Clear` controls
+- Beginner-oriented descriptions, `More info`, and `Beginner tip`
+- Command preview before launch
+- Server URL preview when using `llama-server`
+
+Default-friendly behavior includes:
+- `-fit` set to `on`
+- `-c` context default set to `16000`
+- `llama-server` selected as the default tool
+
+### API
+
+- Shows OpenAI-compatible endpoint overview for the current server address
+- Provides copy-ready snippets (cURL, Python SDK, JavaScript)
+- Useful for quickly connecting local apps/agents to `llama-server`
+
+### Presets
+
+- Save/load full launcher presets as JSON files in `presets/`
+- Import existing preset JSON
+
+## Suggested README Screenshots
+
+If you want stronger onboarding for new users, adding these screenshots helps a lot:
+
+1. **Install tab** after successful install (version badge + backend selected)
+2. **Configure tab** with model selected + launch bar visible
+3. **API tab** showing base URL + sample snippet cards
+4. **Server and MCP Settings** submenu expanded (including risk badges/warning)
+5. **Output panel** showing successful `llama-server` startup logs
+
+## Sampler Presets
+
+Sampler presets live inside the **Sampling** section in Configure.
 
 Includes:
 - built-in presets: `Balanced`, `Creative`, `Precise`
-- custom sampler preset `Save`, `Load`, and `Delete`
-- `Import` and `Export` JSON
+- custom preset `Save`, `Load`, `Delete`
+- JSON `Import` / `Export`
 
 Storage behavior:
 - custom sampler presets are stored in browser `localStorage`
 - export creates portable `.json` files
 - import accepts single-preset or multi-preset JSON
 
-Note: loading a full app preset can overwrite sampler values, since samplers are part of the full flag set.
+Note: loading a full app preset can overwrite sampler values because samplers are part of the full flag set.
 
-## Maintenance
+## MCP and Built-in Tools Notes
 
-Install tab includes a **Remove llama.cpp Files** action.
+The Server settings include a **Server and MCP Settings** submenu with:
+- `--webui-mcp-proxy`
+- `--tools` (checklist UI)
 
-It:
+For `--tools`:
+- high-risk options are visually marked in the UI
+- a warning appears when high-risk tools are selected
+- use high-risk tools only on trusted/local environments
+
+## Maintenance Behavior
+
+**Remove llama.cpp Files**:
 - removes runtime files under `llama/` (`bin`, `dll`, `grammars`)
 - resets installation metadata in `config.json`
 
 It does not remove:
 - model files in `models/`
-- saved full presets in `presets/`
+- saved presets in `presets/`
 
 ## Project Layout
 
-- `server.py` - local HTTP API + process manager + installer
+- `server.py` - local HTTP API, installer/update logic, process manager
 - `ui/` - static frontend (HTML/CSS/JS)
-- `llama/bin/` - installed `llama.cpp` executables and runtime files
+- `llama/bin/` - installed `llama.cpp` executables/runtime files
 - `llama/dll/` - optional backend runtime DLLs
-- `llama/grammars/` - grammar/schema files shipped with release assets
+- `llama/grammars/` - grammar/schema files from release assets
 - `models/` - local model files
-- `presets/` - saved launcher presets
+- `presets/` - saved full launcher presets
 - `config.json` - local installation metadata
 
 ## Data Locations
 
-- `config.json` - current installed backend/tag metadata
+- `config.json` - installed release/backend metadata
 - `presets/` - full app presets (tool/model/flags)
 - browser `localStorage` - custom sampler presets
 
-## Notes
+## Troubleshooting
 
-- This project is designed for local use (`127.0.0.1`).
-- No authentication is enforced by the wrapper itself.
-- For remote access, add your own network hardening and auth controls first.
+### Port Already In Use
+
+Symptoms:
+- app does not start at `http://127.0.0.1:5240`
+- server launch fails because target port is occupied
+
+Fix:
+- close the app that is already using the port, or
+- change the conflicting server/app port and relaunch
+
+### No Model Found / Launch Disabled by Validation
+
+Symptoms:
+- launch warns that no model is selected
+- model dropdown is empty
+
+Fix:
+- place `.gguf` files in `models/`
+- click model refresh in Configure
+- or set `-hf` / Hugging Face repo flags if you are using remote model loading
+
+### Backend Mismatch (CUDA/Vulkan/SYCL/HIP)
+
+Symptoms:
+- launch crashes immediately
+- backend/DLL related errors in output
+
+Fix:
+- reinstall with a backend that matches your hardware/drivers
+- use **Install -> Repair Install** if runtime files are incomplete
+- if unsure, test with `CPU` backend first
+
+### Antivirus/Defender Quarantine
+
+Symptoms:
+- install appears successful but binaries are missing
+- launch fails with file-not-found or access errors
+
+Fix:
+- check antivirus quarantine/history
+- restore blocked `llama/` binaries if needed
+- add a trusted exclusion for your local project folder (only if you trust the source)
+
+### App Update Buttons Fail or Do Nothing
+
+Symptoms:
+- **Check App Updates** or **Update App from GitHub** does not complete as expected
+
+Fix:
+- verify `git` is installed and available in PATH
+- ensure the repo folder has normal Git metadata (not a broken or partial clone)
+- retry from Install tab and review app update status text
+
+### Still Stuck
+
+- Open **Output** in Configure and copy the most recent errors.
+- Re-run install flow, then try a minimal config (`CPU`, one local model, default flags).
+- If needed, share logs plus your backend selection and model name when reporting issues.
+
+## Security Notes
+
+- Llama GUI is intended for local use (`127.0.0.1`).
+- The wrapper does not enforce its own authentication layer.
+- If exposing beyond localhost, add network hardening and auth first.
+- Be especially careful with `--webui-mcp-proxy` and high-risk `--tools` entries.

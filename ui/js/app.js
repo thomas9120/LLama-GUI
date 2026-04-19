@@ -3,6 +3,7 @@ let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
 let openCategories = new Set();
+let openSubmenus = new Set();
 let configSearchQuery = "";
 
 const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
@@ -554,11 +555,21 @@ function initConfigControls() {
     document.getElementById("btn-expand-all").addEventListener("click", () => {
         const groups = getFlagsByCategory(currentTool);
         openCategories = new Set(Object.keys(groups));
+        openSubmenus.clear();
+        for (const [catId, group] of Object.entries(groups)) {
+            for (const flag of group.flags) {
+                const submenu = String(flag.submenu || "").trim();
+                if (submenu) {
+                    openSubmenus.add(`${catId}::${submenu}`);
+                }
+            }
+        }
         renderFlags();
     });
 
     document.getElementById("btn-collapse-all").addEventListener("click", () => {
         openCategories.clear();
+        openSubmenus.clear();
         renderFlags();
     });
 }
@@ -573,6 +584,7 @@ function flagMatchesSearch(flag, query) {
         flag.desc,
         flag.short_desc,
         flag.beginner_tip,
+        flag.submenu,
     ];
 
     if (Array.isArray(flag.options)) {
@@ -817,9 +829,22 @@ function renderFlags() {
             body.appendChild(createSamplerPresetControls());
         }
 
+        const topLevelFlags = visibleFlags.filter(f => !String(f.submenu || "").trim());
+        const submenuMap = new Map();
         for (const f of visibleFlags) {
+            const submenu = String(f.submenu || "").trim();
+            if (!submenu) continue;
+            if (!submenuMap.has(submenu)) submenuMap.set(submenu, []);
+            submenuMap.get(submenu).push(f);
+        }
+
+        for (const f of topLevelFlags) {
             const row = createFlagRow(f);
             body.appendChild(row);
+        }
+
+        for (const [submenuName, submenuFlags] of submenuMap.entries()) {
+            body.appendChild(createSubmenuBlock(catId, submenuName, submenuFlags));
         }
 
         acc.appendChild(header);
@@ -835,6 +860,58 @@ function renderFlags() {
     }
 
     restoreFlagInputs();
+}
+
+function createSubmenuBlock(categoryId, submenuName, submenuFlags) {
+    const wrap = document.createElement("div");
+    wrap.className = "flag-submenu";
+
+    const header = document.createElement("button");
+    header.type = "button";
+    header.className = "flag-submenu-header";
+
+    const arrow = document.createElement("span");
+    arrow.className = "arrow";
+    arrow.innerHTML = "&#x25B6;";
+
+    const title = document.createElement("span");
+    title.className = "submenu-title";
+    title.textContent = submenuName;
+
+    const count = document.createElement("span");
+    count.className = "count";
+    count.textContent = String(submenuFlags.length);
+
+    header.appendChild(arrow);
+    header.appendChild(title);
+    header.appendChild(count);
+
+    const body = document.createElement("div");
+    body.className = "flag-submenu-body";
+
+    const key = `${categoryId}::${submenuName}`;
+    if (openSubmenus.has(key)) {
+        header.classList.add("open");
+        body.classList.add("open");
+    }
+
+    header.addEventListener("click", () => {
+        header.classList.toggle("open");
+        body.classList.toggle("open");
+        if (body.classList.contains("open")) {
+            openSubmenus.add(key);
+        } else {
+            openSubmenus.delete(key);
+        }
+    });
+
+    for (const flag of submenuFlags) {
+        body.appendChild(createFlagRow(flag));
+    }
+
+    wrap.appendChild(header);
+    wrap.appendChild(body);
+    return wrap;
 }
 
 function createFlagRow(f) {
@@ -945,6 +1022,75 @@ function createFlagRow(f) {
             updateCommandPreview();
         });
         input.appendChild(sel);
+    } else if (f.type === "multi_enum") {
+        const selected = normalizeMultiEnumValue(flagValues[f.id]);
+        const optionWrap = document.createElement("div");
+        optionWrap.className = "flag-multi-options";
+        const hasHighRiskOptions = (f.options || []).some(opt => opt.risk === "high");
+        const warning = document.createElement("div");
+        warning.className = "flag-multi-warning hidden";
+        warning.dataset.flagWarningId = f.id;
+        warning.textContent = "High-risk tools selected. Only enable on trusted/local environments.";
+
+        const updateWarning = (selectedValues) => {
+            if (!hasHighRiskOptions) return;
+            warning.classList.toggle("hidden", !hasSelectedHighRiskOption(f.options, selectedValues));
+        };
+
+        const setValueAndRefresh = (arr) => {
+            const unique = [...new Set(arr.filter(Boolean))];
+            flagValues[f.id] = unique.length > 0 ? unique : undefined;
+            updateCommandPreview();
+        };
+
+        for (const opt of f.options || []) {
+            const row = document.createElement("label");
+            row.className = "flag-multi-option";
+
+            const cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.dataset.flagId = f.id;
+            cb.dataset.flagType = "multi_enum";
+            cb.dataset.optionValue = opt.value;
+            cb.checked = selected.includes(opt.value);
+
+            cb.addEventListener("change", () => {
+                const current = normalizeMultiEnumValue(flagValues[f.id]);
+                if (opt.value === "all" && cb.checked) {
+                    setValueAndRefresh(["all"]);
+                } else {
+                    const next = cb.checked
+                        ? [...current.filter(v => v !== "all"), opt.value]
+                        : current.filter(v => v !== opt.value);
+                    setValueAndRefresh(next);
+                }
+
+                const nextSelected = normalizeMultiEnumValue(flagValues[f.id]);
+                for (const other of optionWrap.querySelectorAll('input[type="checkbox"]')) {
+                    other.checked = nextSelected.includes(other.dataset.optionValue);
+                }
+                updateWarning(nextSelected);
+            });
+
+            const text = document.createElement("span");
+            text.textContent = opt.label;
+
+            row.appendChild(cb);
+            row.appendChild(text);
+            if (opt.risk === "high") {
+                const badge = document.createElement("span");
+                badge.className = "flag-risk-badge";
+                badge.textContent = "High risk";
+                row.appendChild(badge);
+            }
+            optionWrap.appendChild(row);
+        }
+
+        input.appendChild(optionWrap);
+        if (hasHighRiskOptions) {
+            updateWarning(selected);
+            input.appendChild(warning);
+        }
     } else if (f.type === "path") {
         const textField = document.createElement("input");
         textField.type = "text";
@@ -1045,8 +1191,20 @@ function applyFlagValues(data) {
 function restoreFlagInputs() {
     for (const f of FLAGS) {
         const el = document.getElementById("flag-" + f.id);
-        if (!el) continue;
         const val = flagValues[f.id];
+        if (f.type === "multi_enum") {
+            const selected = normalizeMultiEnumValue(val);
+            const multiInputs = document.querySelectorAll(`input[data-flag-id="${f.id}"][data-flag-type="multi_enum"]`);
+            for (const input of multiInputs) {
+                input.checked = selected.includes(input.dataset.optionValue);
+            }
+            const warning = document.querySelector(`.flag-multi-warning[data-flag-warning-id="${f.id}"]`);
+            if (warning) {
+                warning.classList.toggle("hidden", !hasSelectedHighRiskOption(f.options, selected));
+            }
+            continue;
+        }
+        if (!el) continue;
         if (f.type === "bool") {
             el.checked = val === true;
             const lbl = el.parentElement.querySelector("label");
@@ -1057,6 +1215,24 @@ function restoreFlagInputs() {
             el.value = val !== undefined ? String(val) : "";
         }
     }
+}
+
+function normalizeMultiEnumValue(value) {
+    if (Array.isArray(value)) return value.map(v => String(v)).filter(Boolean);
+    if (typeof value === "string" && value.trim()) {
+        return value
+            .split(",")
+            .map(v => v.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function hasSelectedHighRiskOption(options, selectedValues) {
+    const highRiskValues = new Set((options || [])
+        .filter(opt => opt && opt.risk === "high")
+        .map(opt => String(opt.value)));
+    return selectedValues.some(v => highRiskValues.has(String(v)));
 }
 
 function updateCommandPreview() {
@@ -1094,6 +1270,11 @@ function getLaunchArgs() {
                 }
             } else if (val === false && f.flag.startsWith("--no-")) {
                 args.push([f.flag]);
+            }
+        } else if (f.type === "multi_enum") {
+            const values = normalizeMultiEnumValue(val);
+            if (values.length > 0) {
+                args.push([f.flag, values.join(",")]);
             }
         } else {
             args.push([f.flag, String(val)]);

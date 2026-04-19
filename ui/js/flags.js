@@ -318,6 +318,23 @@ const FLAGS = [
     { id: "webui", flag: "--webui", category: "server", type: "bool", label: "Web UI",
       short_desc: "Turns on the built-in browser interface.",
       desc: "Enable the built-in web UI", tool: "server", default: true },
+    { id: "webui_mcp_proxy", flag: "--webui-mcp-proxy", category: "server", submenu: "Server and MCP Settings", type: "bool", label: "WebUI MCP Proxy",
+      short_desc: "Enable MCP CORS proxy support for the Web UI.",
+      desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. Do not enable in untrusted environments.", tool: "server", default: false },
+    { id: "tools", flag: "--tools", category: "server", submenu: "Server and MCP Settings", type: "multi_enum", label: "Built-in Tools",
+      short_desc: "Enable local file/shell tools for AI agents in the Web UI.",
+      beginner_tip: "Use 'all' only on trusted machines. In shared environments, list only what you need.",
+      desc: "Experimental. Enables built-in agent tools exposed to the model through llama-server. Select one or more tools below, or choose 'all' to enable every tool.", tool: "server",
+      options: [
+        { value: "all", label: "All tools", risk: "high" },
+        { value: "read_file", label: "Read File" },
+        { value: "file_glob_search", label: "File Glob Search" },
+        { value: "grep_search", label: "Grep Search" },
+        { value: "exec_shell_command", label: "Exec Shell Command", risk: "high" },
+        { value: "write_file", label: "Write File", risk: "high" },
+        { value: "edit_file", label: "Edit File", risk: "high" },
+        { value: "apply_diff", label: "Apply Diff", risk: "high" },
+      ] },
     { id: "embedding", flag: "--embedding", category: "server", type: "bool", label: "Embedding Mode",
       desc: "Restrict to embedding use case only", tool: "server", default: false },
     { id: "slot_prompt_similarity", flag: "-sps", category: "server", type: "float", label: "Slot Prompt Similarity",
@@ -405,6 +422,12 @@ function buildCommand(tool, values) {
                 }
             } else if (val === false && f.flag.startsWith("--no-")) {
                 parts.push(f.flag);
+            }
+        } else if (f.type === "multi_enum") {
+            if (Array.isArray(val) && val.length > 0) {
+                parts.push(f.flag, val.map(v => String(v)).join(","));
+            } else if (typeof val === "string" && val.trim()) {
+                parts.push(f.flag, val.trim());
             }
         } else {
             parts.push(f.flag, String(val));

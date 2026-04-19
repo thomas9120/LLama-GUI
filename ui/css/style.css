@@ -226,6 +226,68 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 
 .accordion-body.open { display: block; }
 
+.flag-submenu {
+    margin-top: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.08);
+}
+
+.flag-submenu-header {
+    width: 100%;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    padding: 8px 10px;
+    background: rgba(122, 162, 247, 0.08);
+    color: var(--fg);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    text-align: left;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.flag-submenu-header:hover {
+    background: rgba(122, 162, 247, 0.14);
+}
+
+.flag-submenu-header .arrow {
+    transition: transform 0.2s;
+    font-size: 10px;
+    color: var(--fg-dim);
+}
+
+.flag-submenu-header.open {
+    border-bottom-color: var(--border);
+}
+
+.flag-submenu-header.open .arrow {
+    transform: rotate(90deg);
+}
+
+.flag-submenu-header .submenu-title {
+    letter-spacing: 0.2px;
+}
+
+.flag-submenu-header .count {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--fg-dim);
+}
+
+.flag-submenu-body {
+    display: none;
+    padding: 8px 10px;
+}
+
+.flag-submenu-body.open {
+    display: block;
+}
+
 /* Flag row */
 .flag-row {
     display: grid;
@@ -317,6 +379,54 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 .flag-input input[type="text"] { flex: 1; min-width: 120px; }
 .flag-input input[type="number"] { width: 90px; }
 .flag-input select { min-width: 140px; }
+
+.flag-multi-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(130px, 1fr));
+    gap: 6px 10px;
+    justify-items: start;
+}
+
+.flag-multi-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--fg-dim);
+    cursor: pointer;
+}
+
+.flag-multi-option input[type="checkbox"] {
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.flag-risk-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: 1px solid rgba(247, 118, 142, 0.5);
+    background: rgba(247, 118, 142, 0.12);
+    color: var(--red);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+}
+
+.flag-multi-warning {
+    margin-top: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(247, 118, 142, 0.45);
+    background: rgba(247, 118, 142, 0.1);
+    color: #ffb8c5;
+    font-size: 11px;
+    line-height: 1.35;
+}
 
 /* Config header */
 .config-header {
@@ -766,6 +876,7 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 @media (max-width: 700px) {
     .flag-row { grid-template-columns: 1fr; gap: 4px; }
     .flag-input { justify-content: flex-start; }
+    .flag-multi-options { grid-template-columns: 1fr; }
     .config-header { flex-direction: column; align-items: flex-start; }
     .config-controls { flex-direction: column; align-items: stretch; }
     .config-controls input[type="text"] { min-width: 0; }
