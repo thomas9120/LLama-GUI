@@ -2,6 +2,7 @@ import http.server
 import json
 import os
 import platform
+import ssl
 import subprocess
 import sys
 import signal
@@ -17,6 +18,11 @@ import time
 import pathlib
 import tempfile
 
+try:
+    import certifi
+except ImportError:
+    certifi = None
+
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 LLAMA_DIR = BASE_DIR / "llama"
 LLAMA_BIN_DIR = LLAMA_DIR / "bin"
@@ -29,6 +35,20 @@ UI_DIR = BASE_DIR / "ui"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
+
+
+def create_ssl_context():
+    cafile = certifi.where() if certifi else None
+    if cafile:
+        return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
+
+SSL_CONTEXT = create_ssl_context()
+
+
+def urlopen_with_ssl(request, timeout):
+    return urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT)
 
 
 def normalize_arch(machine):
@@ -183,7 +203,7 @@ def get_releases():
     req = urllib.request.Request(
         GITHUB_API, headers={"Accept": "application/vnd.github+json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urlopen_with_ssl(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
@@ -191,7 +211,7 @@ def get_release_by_tag(tag):
     req = urllib.request.Request(
         f"{GITHUB_API}/tags/{tag}", headers={"Accept": "application/vnd.github+json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urlopen_with_ssl(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
@@ -226,7 +246,7 @@ def get_runtime_files():
 
 def download_file(url, dest, progress_cb=None):
     req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urlopen_with_ssl(req, timeout=60) as resp:
         total = int(resp.headers.get("Content-Length", 0))
         downloaded = 0
         with open(dest, "wb") as f:
