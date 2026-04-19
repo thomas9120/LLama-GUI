@@ -3,6 +3,38 @@ let installPollTimer = null;
 let latestStatus = null;
 let latestAppUpdateStatus = null;
 
+function renderBackendOptions(status) {
+    const backendSelect = document.getElementById("backend-select");
+    if (!backendSelect) return;
+
+    const availableBackends = Array.isArray(status && status.available_backends)
+        ? status.available_backends
+        : [];
+    const currentValue = status && status.backend ? status.backend : backendSelect.value;
+
+    backendSelect.innerHTML = "";
+
+    if (availableBackends.length === 0) {
+        const opt = document.createElement("option");
+        opt.value = "";
+        opt.textContent = "No supported backends for this platform";
+        backendSelect.appendChild(opt);
+        backendSelect.disabled = true;
+        return;
+    }
+
+    backendSelect.disabled = false;
+    for (const backend of availableBackends) {
+        const opt = document.createElement("option");
+        opt.value = backend.id;
+        opt.textContent = backend.label;
+        backendSelect.appendChild(opt);
+    }
+
+    const hasCurrentValue = Array.from(backendSelect.options).some((opt) => opt.value === currentValue);
+    backendSelect.value = hasCurrentValue ? currentValue : availableBackends[0].id;
+}
+
 async function fetchJson(url, options) {
     const resp = await fetch(url, options);
     let data = null;
@@ -70,6 +102,10 @@ function updateStatusUI(status) {
     const repairBtn = document.getElementById("btn-repair");
     const backendSelect = document.getElementById("backend-select");
     const releaseSelect = document.getElementById("release-select");
+    const installBtn = document.getElementById("btn-install");
+
+    renderBackendOptions(status);
+    installBtn.disabled = !status.available_backends || status.available_backends.length === 0;
 
     if ((status.installed || status.config_stale) && status.backend && backendSelect) {
         const hasBackendOption = Array.from(backendSelect.options).some((opt) => opt.value === status.backend);
@@ -133,8 +169,8 @@ function updateStatusUI(status) {
         }
         info.appendChild(exeWrap);
 
-        if (status.dlls && status.dlls.length > 0) {
-            appendRow("DLLs", `${status.dlls.length} file(s)`);
+        if (status.runtime_files && status.runtime_files.length > 0) {
+            appendRow(status.runtime_files_label || "Runtime libraries", `${status.runtime_files.length} file(s)`);
         }
     } else if (status.config_stale) {
         const warning = document.createElement("div");
@@ -153,7 +189,12 @@ function updateStatusUI(status) {
     } else {
         const empty = document.createElement("span");
         empty.style.color = "var(--fg-dim)";
-        empty.textContent = "No llama.cpp installation found. Select a version above and click Install.";
+        const platformText = status.platform_label ? `${status.platform_label} (${status.arch})` : "this system";
+        if (!status.available_backends || status.available_backends.length === 0) {
+            empty.textContent = `No prebuilt llama.cpp backends are configured for ${platformText}.`;
+        } else {
+            empty.textContent = `No llama.cpp installation found for ${platformText}. Select a version above and click Install.`;
+        }
         info.appendChild(empty);
     }
 }
@@ -510,4 +551,3 @@ async function refreshModels() {
         // ignore
     }
 }
-

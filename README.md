@@ -1,6 +1,6 @@
 # Llama GUI
 
-Lightweight local launcher and control panel for `llama.cpp` on Windows.
+Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, and Linux.
 
 Llama GUI provides a browser UI to:
 - install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
@@ -12,17 +12,26 @@ Llama GUI provides a browser UI to:
 
 ## Requirements
 
-- Windows 10/11
 - Python 3.9+
 - Internet access (for release metadata/downloads and optional app updates)
+- A supported OS/architecture for the prebuilt `llama.cpp` binaries you want to install
+
+Supported prebuilt backends vary by platform:
+- Windows: CPU, CUDA, Vulkan, SYCL, HIP
+- macOS: Apple Silicon (`Metal`, optional `KleidiAI`) and Intel CPU builds
+- Linux: CPU, Vulkan, ROCm, OpenVINO (depends on architecture)
 
 ## Quick Start
 
 1. Start the app:
 
-```bat
-python server.py
+```bash
+python3 server.py
 ```
+
+Platform launch helpers:
+- Windows: `start.bat` or `start_silent.bat`
+- macOS/Linux: `./start.sh` or `./start_silent.sh`
 
 2. Open `http://127.0.0.1:5240` in your browser.
 3. In **Install**, choose a version + backend, then click **Install**.
@@ -33,7 +42,7 @@ python server.py
 
 Use this as a quick onboarding flow for a fresh setup:
 
-1. Start `python server.py` and open `http://127.0.0.1:5240`.
+1. Start `python3 server.py` (or use the platform helper script) and open `http://127.0.0.1:5240`.
 2. Go to **Install**:
    - pick a backend that matches your hardware
    - click **Install**
@@ -142,7 +151,7 @@ It does not remove:
 - `server.py` - local HTTP API, installer/update logic, process manager
 - `ui/` - static frontend (HTML/CSS/JS)
 - `llama/bin/` - installed `llama.cpp` executables/runtime files
-- `llama/dll/` - optional backend runtime DLLs
+- `llama/dll/` - optional extra runtime library folder kept for compatibility
 - `llama/grammars/` - grammar/schema files from release assets
 - `models/` - local model files
 - `presets/` - saved full launcher presets
@@ -177,7 +186,7 @@ Fix:
 - click model refresh in Configure
 - or set `-hf` / Hugging Face repo flags if you are using remote model loading
 
-### Backend Mismatch (CUDA/Vulkan/SYCL/HIP)
+### Backend Mismatch (CUDA/Vulkan/SYCL/HIP/Metal/ROCm/OpenVINO)
 
 Symptoms:
 - launch crashes immediately
@@ -221,3 +230,9 @@ Fix:
 - The wrapper does not enforce its own authentication layer.
 - If exposing beyond localhost, add network hardening and auth first.
 - Be especially careful with `--webui-mcp-proxy` and high-risk `--tools` entries.
+
+## Cross-Platform Notes
+
+- The installer detects the current OS and CPU architecture, then only offers matching prebuilt `llama.cpp` backends.
+- Windows keeps the existing `.exe` flow.
+- macOS and Linux installs use upstream `.tar.gz` releases and launch native executables without Windows-only assumptions.

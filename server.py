@@ -1,11 +1,14 @@
 import http.server
 import json
 import os
+import platform
+import ssl
 import subprocess
 import sys
 import signal
 import threading
 import zipfile
+import tarfile
 import hashlib
 import shutil
 import urllib.request
@@ -14,6 +17,11 @@ import re
 import time
 import pathlib
 import tempfile
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
 
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 LLAMA_DIR = BASE_DIR / "llama"
@@ -27,6 +35,149 @@ UI_DIR = BASE_DIR / "ui"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
+
+
+def create_ssl_context():
+    cafile = certifi.where() if certifi else None
+    if cafile:
+        return ssl.create_default_context(cafile=cafile)
+    return ssl.create_default_context()
+
+
+SSL_CONTEXT = create_ssl_context()
+
+
+def urlopen_with_ssl(request, timeout):
+    return urllib.request.urlopen(request, timeout=timeout, context=SSL_CONTEXT)
+
+
+def normalize_arch(machine):
+    value = (machine or "").strip().lower()
+    mapping = {
+        "amd64": "x64",
+        "x86_64": "x64",
+        "arm64": "arm64",
+        "aarch64": "arm64",
+        "armv8l": "arm64",
+    }
+    return mapping.get(value, value or "unknown")
+
+
+CURRENT_ARCH = normalize_arch(platform.machine())
+CURRENT_PLATFORM = sys.platform
+BINARY_SUFFIX = ".exe" if CURRENT_PLATFORM == "win32" else ""
+SHARED_LIBRARY_SUFFIXES = (".dll", ".so", ".dylib")
+
+
+def get_platform_label():
+    if CURRENT_PLATFORM == "win32":
+        return "Windows"
+    if CURRENT_PLATFORM == "darwin":
+        return "macOS"
+    if CURRENT_PLATFORM.startswith("linux"):
+        return "Linux"
+    return CURRENT_PLATFORM
+
+
+def build_backend_specs():
+    if CURRENT_PLATFORM == "win32":
+        if CURRENT_ARCH == "arm64":
+            return {
+                "cpu": {
+                    "label": "CPU",
+                    "asset": "llama-{tag}-bin-win-cpu-arm64.zip",
+                },
+                "opencl-adreno": {
+                    "label": "OpenCL (Adreno)",
+                    "asset": "llama-{tag}-bin-win-opencl-adreno-arm64.zip",
+                },
+            }
+        return {
+            "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-win-cpu-x64.zip"},
+            "cuda-12.4": {
+                "label": "CUDA 12.4 (NVIDIA)",
+                "asset": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-12.4-x64.zip"],
+            },
+            "cuda-13.1": {
+                "label": "CUDA 13.1 (NVIDIA)",
+                "asset": "llama-{tag}-bin-win-cuda-13.1-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-13.1-x64.zip"],
+            },
+            "vulkan": {
+                "label": "Vulkan",
+                "asset": "llama-{tag}-bin-win-vulkan-x64.zip",
+            },
+            "sycl": {
+                "label": "SYCL (Intel)",
+                "asset": "llama-{tag}-bin-win-sycl-x64.zip",
+            },
+            "hip": {
+                "label": "HIP (AMD Radeon)",
+                "asset": "llama-{tag}-bin-win-hip-radeon-x64.zip",
+            },
+        }
+
+    if CURRENT_PLATFORM == "darwin":
+        if CURRENT_ARCH == "arm64":
+            return {
+                "metal": {
+                    "label": "Metal (Apple Silicon)",
+                    "asset": "llama-{tag}-bin-macos-arm64.tar.gz",
+                },
+                "metal-kleidiai": {
+                    "label": "Metal + KleidiAI (Apple Silicon)",
+                    "asset": "llama-{tag}-bin-macos-arm64-kleidiai.tar.gz",
+                },
+            }
+        if CURRENT_ARCH == "x64":
+            return {
+                "cpu": {
+                    "label": "CPU (Intel Mac)",
+                    "asset": "llama-{tag}-bin-macos-x64.tar.gz",
+                }
+            }
+        return {}
+
+    if CURRENT_PLATFORM.startswith("linux"):
+        if CURRENT_ARCH == "x64":
+            return {
+                "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-ubuntu-x64.tar.gz"},
+                "vulkan": {
+                    "label": "Vulkan",
+                    "asset": "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz",
+                },
+                "rocm": {
+                    "label": "ROCm 7.2 (AMD)",
+                    "asset": "llama-{tag}-bin-ubuntu-rocm-7.2-x64.tar.gz",
+                },
+                "openvino": {
+                    "label": "OpenVINO",
+                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.0-x64.tar.gz",
+                },
+            }
+        if CURRENT_ARCH == "arm64":
+            return {
+                "cpu": {
+                    "label": "CPU",
+                    "asset": "llama-{tag}-bin-ubuntu-arm64.tar.gz",
+                },
+                "vulkan": {
+                    "label": "Vulkan",
+                    "asset": "llama-{tag}-bin-ubuntu-vulkan-arm64.tar.gz",
+                },
+            }
+        if CURRENT_ARCH == "s390x":
+            return {
+                "cpu": {
+                    "label": "CPU",
+                    "asset": "llama-{tag}-bin-ubuntu-s390x.tar.gz",
+                }
+            }
+    return {}
+
+
+BACKEND_SPECS = build_backend_specs()
 
 process = None
 process_lock = threading.Lock()
@@ -52,7 +203,7 @@ def get_releases():
     req = urllib.request.Request(
         GITHUB_API, headers={"Accept": "application/vnd.github+json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urlopen_with_ssl(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
@@ -60,37 +211,42 @@ def get_release_by_tag(tag):
     req = urllib.request.Request(
         f"{GITHUB_API}/tags/{tag}", headers={"Accept": "application/vnd.github+json"}
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urlopen_with_ssl(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
-BACKEND_ASSETS = {
-    "cpu": "llama-{tag}-bin-win-cpu-x64.zip",
-    "cuda-12.4": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
-    "cuda-13.1": "llama-{tag}-bin-win-cuda-13.1-x64.zip",
-    "vulkan": "llama-{tag}-bin-win-vulkan-x64.zip",
-    "sycl": "llama-{tag}-bin-win-sycl-x64.zip",
-    "hip": "llama-{tag}-bin-win-hip-radeon-x64.zip",
-}
-
-CUDA_DLL_ASSETS = {
-    "cuda-12.4": "cudart-llama-bin-win-cuda-12.4-x64.zip",
-    "cuda-13.1": "cudart-llama-bin-win-cuda-13.1-x64.zip",
-}
-
-LLAMA_EXES = [
-    "llama-cli.exe",
-    "llama-server.exe",
-    "llama-bench.exe",
-    "llama-perplexity.exe",
-    "llama-quantize.exe",
-    "llama-simple.exe",
+LLAMA_TOOLS = [
+    "llama-cli",
+    "llama-server",
+    "llama-bench",
+    "llama-perplexity",
+    "llama-quantize",
+    "llama-simple",
 ]
+
+
+def get_tool_filename(tool):
+    return f"{tool}{BINARY_SUFFIX}"
+
+
+def find_tool_executable(tool):
+    return LLAMA_BIN_DIR / get_tool_filename(tool)
+
+
+def get_runtime_files():
+    runtime_files = []
+    for directory in [LLAMA_BIN_DIR, LLAMA_DLL_DIR]:
+        if not directory.exists():
+            continue
+        for path in sorted(directory.iterdir()):
+            if path.is_file() and path.suffix.lower() in SHARED_LIBRARY_SUFFIXES:
+                runtime_files.append(path)
+    return runtime_files
 
 
 def download_file(url, dest, progress_cb=None):
     req = urllib.request.Request(url)
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urlopen_with_ssl(req, timeout=60) as resp:
         total = int(resp.headers.get("Content-Length", 0))
         downloaded = 0
         with open(dest, "wb") as f:
@@ -149,6 +305,55 @@ def extract_zip_file_flat(zf, info, dest_dir):
         shutil.copyfileobj(src, dst)
 
 
+def extract_tar_member_flat(tf, member, dest_dir):
+    if not member.isfile():
+        return
+
+    fname = pathlib.Path(member.name).name
+    if not fname:
+        return
+
+    out_path = pathlib.Path(dest_dir) / fname
+    src = tf.extractfile(member)
+    if src is None:
+        return
+    with src, open(out_path, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    if member.mode:
+        os.chmod(out_path, member.mode)
+
+
+def extract_archive_flat(archive_path):
+    lower_name = archive_path.name.lower()
+    if lower_name.endswith(".zip"):
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            for info in zf.infolist():
+                fname = pathlib.Path(info.filename).name
+                if not fname:
+                    continue
+                lower = fname.lower()
+                if lower.endswith((".gbnf", ".json")):
+                    extract_zip_file_flat(zf, info, LLAMA_GRAMMARS_DIR)
+                else:
+                    extract_zip_file_flat(zf, info, LLAMA_BIN_DIR)
+        return
+
+    if lower_name.endswith((".tar.gz", ".tgz")):
+        with tarfile.open(archive_path, "r:gz") as tf:
+            for member in tf.getmembers():
+                fname = pathlib.Path(member.name).name
+                if not fname:
+                    continue
+                lower = fname.lower()
+                if lower.endswith((".gbnf", ".json")):
+                    extract_tar_member_flat(tf, member, LLAMA_GRAMMARS_DIR)
+                else:
+                    extract_tar_member_flat(tf, member, LLAMA_BIN_DIR)
+        return
+
+    raise ValueError(f"Unsupported archive format: {archive_path.name}")
+
+
 def install_release(tag, backend):
     reset_download_progress(status="downloading", message=f"Fetching release {tag}...")
 
@@ -166,7 +371,8 @@ def install_release(tag, backend):
     def progress_cb(downloaded, total):
         set_download_progress(downloaded=downloaded, total=total)
 
-    bin_filename = BACKEND_ASSETS[backend].format(tag=tag)
+    backend_spec = BACKEND_SPECS[backend]
+    bin_filename = backend_spec["asset"].format(tag=tag)
     if bin_filename not in asset_map:
         set_download_progress(
             status="error", message=f"Asset {bin_filename} not found in release {tag}"
@@ -178,25 +384,27 @@ def install_release(tag, backend):
 
     tmpdir = tempfile.mkdtemp(prefix="llama_install_")
     try:
-        bin_zip = os.path.join(tmpdir, bin_filename)
+        bin_archive = pathlib.Path(tmpdir) / bin_filename
         set_download_progress(message=f"Downloading {bin_filename}...")
-        download_file(bin_url, bin_zip, progress_cb)
+        download_file(bin_url, bin_archive, progress_cb)
 
         if expected_sha:
-            actual_sha = sha256_file(bin_zip)
+            actual_sha = sha256_file(bin_archive)
             if actual_sha != expected_sha:
                 set_download_progress(
                     status="error", message=f"SHA256 mismatch for {bin_filename}"
                 )
                 return False
 
-        if backend in CUDA_DLL_ASSETS:
-            dll_filename = CUDA_DLL_ASSETS[backend]
-            if dll_filename in asset_map:
-                dll_url = asset_map[dll_filename]["browser_download_url"]
-                dll_zip = os.path.join(tmpdir, dll_filename)
-                set_download_progress(message=f"Downloading {dll_filename}...")
-                download_file(dll_url, dll_zip, progress_cb)
+        extra_archives = []
+        for extra_filename in backend_spec.get("extra_assets", []):
+            if extra_filename not in asset_map:
+                continue
+            extra_url = asset_map[extra_filename]["browser_download_url"]
+            extra_archive = pathlib.Path(tmpdir) / extra_filename
+            set_download_progress(message=f"Downloading {extra_filename}...")
+            download_file(extra_url, extra_archive, progress_cb)
+            extra_archives.append(extra_archive)
 
         set_download_progress(status="extracting", message="Extracting binaries...")
 
@@ -209,26 +417,9 @@ def install_release(tag, backend):
             shutil.rmtree(LLAMA_DLL_DIR)
         LLAMA_DLL_DIR.mkdir(parents=True, exist_ok=True)
 
-        with zipfile.ZipFile(bin_zip, "r") as zf:
-            for info in zf.infolist():
-                fname = pathlib.Path(info.filename).name
-                if not fname:
-                    continue
-                lower = fname.lower()
-                if lower.endswith((".exe", ".dll", ".so", ".dylib")):
-                    extract_zip_file_flat(zf, info, LLAMA_BIN_DIR)
-                elif lower.endswith((".gbnf", ".json")):
-                    extract_zip_file_flat(zf, info, LLAMA_GRAMMARS_DIR)
-                else:
-                    extract_zip_file_flat(zf, info, LLAMA_BIN_DIR)
-
-        if backend in CUDA_DLL_ASSETS:
-            dll_filename = CUDA_DLL_ASSETS[backend]
-            dll_zip_path = os.path.join(tmpdir, dll_filename)
-            if os.path.exists(dll_zip_path):
-                with zipfile.ZipFile(dll_zip_path, "r") as zf:
-                    for info in zf.infolist():
-                        extract_zip_file_flat(zf, info, LLAMA_BIN_DIR)
+        extract_archive_flat(bin_archive)
+        for extra_archive in extra_archives:
+            extract_archive_flat(extra_archive)
 
         save_config(
             {"version": release.get("name", tag), "backend": backend, "tag": tag}
@@ -263,8 +454,8 @@ def launch_process(tool, args_list):
         if process and process.poll() is None:
             return {"error": "A process is already running"}
 
-    exe_name = f"{tool}.exe"
-    exe_path = LLAMA_BIN_DIR / exe_name
+    exe_name = get_tool_filename(tool)
+    exe_path = find_tool_executable(tool)
     if not exe_path.exists():
         return {"error": f"{exe_name} not found. Install llama.cpp first."}
 
@@ -276,11 +467,20 @@ def launch_process(tool, args_list):
             args.append(str(entry))
 
     env = os.environ.copy()
-    dll_path = str(LLAMA_DLL_DIR)
-    if "PATH" in env:
-        env["PATH"] = dll_path + ";" + env["PATH"]
-    else:
-        env["PATH"] = dll_path
+    runtime_paths = [str(LLAMA_BIN_DIR), str(LLAMA_DLL_DIR)]
+    existing_path = env.get("PATH", "")
+    env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
+
+    if CURRENT_PLATFORM.startswith("linux"):
+        existing_ld = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(
+            runtime_paths + ([existing_ld] if existing_ld else [])
+        )
+    elif CURRENT_PLATFORM == "darwin":
+        existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
+        env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
+            runtime_paths + ([existing_dyld] if existing_dyld else [])
+        )
 
     with output_buffer_lock:
         output_buffer.clear()
@@ -507,6 +707,16 @@ def update_app_from_git():
     }
 
 
+def open_folder_in_file_manager(target):
+    if CURRENT_PLATFORM == "win32":
+        os.startfile(str(target))
+        return
+    if CURRENT_PLATFORM == "darwin":
+        subprocess.run(["open", str(target)], check=False)
+        return
+    subprocess.run(["xdg-open", str(target)], check=False)
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -549,12 +759,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/status":
             cfg = load_config()
             exes = {}
-            for name in LLAMA_EXES:
-                p = LLAMA_BIN_DIR / name
-                exes[name] = p.exists()
-            dlls = list(LLAMA_BIN_DIR.glob("*.dll")) if LLAMA_BIN_DIR.exists() else []
+            for tool in LLAMA_TOOLS:
+                name = get_tool_filename(tool)
+                exes[name] = find_tool_executable(tool).exists()
+            runtime_files = get_runtime_files()
             has_config = bool(cfg.get("tag"))
-            installed = has_config and exes.get("llama-cli.exe", False)
+            installed = has_config and exes.get(get_tool_filename("llama-cli"), False)
             config_stale = has_config and not installed
             running = process and process.poll() is None
             self.send_json(
@@ -564,9 +774,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     "version": cfg.get("tag"),
                     "backend": cfg.get("backend"),
                     "executables": exes,
-                    "dlls": [d.name for d in dlls],
+                    "runtime_files": [d.name for d in runtime_files],
+                    "runtime_files_label": "Runtime libraries",
                     "models_dir": str(MODELS_DIR),
                     "running": running,
+                    "platform": CURRENT_PLATFORM,
+                    "platform_label": get_platform_label(),
+                    "arch": CURRENT_ARCH,
+                    "executable_suffix": BINARY_SUFFIX,
+                    "available_backends": [
+                        {"id": key, "label": spec["label"]}
+                        for key, spec in BACKEND_SPECS.items()
+                    ],
                 }
             )
             return
@@ -643,7 +862,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not tag or not backend:
                 self.send_json({"error": "tag and backend required"}, 400)
                 return
-            if backend not in BACKEND_ASSETS:
+            if backend not in BACKEND_SPECS:
                 self.send_json({"error": f"Unsupported backend: {backend}"}, 400)
                 return
             if process and process.poll() is None:
@@ -662,7 +881,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if not tag or not backend:
                 self.send_json({"error": "Nothing installed to update"}, 400)
                 return
-            if backend not in BACKEND_ASSETS:
+            if backend not in BACKEND_SPECS:
                 self.send_json(
                     {"error": f"Unsupported configured backend: {backend}"}, 400
                 )
@@ -756,8 +975,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             folder_map = {"models": MODELS_DIR, "llama": LLAMA_DIR}
             target = folder_map.get(folder, MODELS_DIR)
             target.mkdir(parents=True, exist_ok=True)
-            os.startfile(str(target))
-            self.send_json({"opened": True})
+            try:
+                open_folder_in_file_manager(target)
+                self.send_json({"opened": True})
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
             return
 
         self.send_error(404)
