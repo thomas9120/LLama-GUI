@@ -34,15 +34,39 @@ body {
 #app { max-width: 1100px; margin: 0 auto; padding: 16px; }
 
 header {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 12px 0 8px;
-    border-bottom: 1px solid var(--border);
+    padding: 14px 14px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
     margin-bottom: 12px;
+    background: linear-gradient(120deg, rgba(122, 162, 247, 0.16) 0%, rgba(125, 207, 255, 0.08) 36%, rgba(224, 175, 104, 0.08) 100%);
 }
 
-header h1 { font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: 0.5px; }
+header::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent 42%);
+    pointer-events: none;
+}
+
+header h1,
+.header-status {
+    position: relative;
+    z-index: 1;
+}
+
+header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.7px;
+    text-shadow: 0 1px 10px rgba(122, 162, 247, 0.25);
+}
 
 .header-status { display: flex; gap: 8px; }
 
@@ -248,6 +272,26 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 
 .config-controls .form-row {
     margin-bottom: 0;
+}
+
+.config-controls .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.config-controls .ctrl-icon {
+    display: inline-block;
+    transition: transform 0.16s ease;
+}
+
+.config-controls .btn:hover {
+    transform: translateY(-1px);
+}
+
+.config-controls .btn:hover .ctrl-icon {
+    transform: translateX(2px);
 }
 
 .flags-empty {
