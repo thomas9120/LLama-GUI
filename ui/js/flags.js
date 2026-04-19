@@ -17,10 +17,6 @@ const FLAG_CATEGORIES = [
 
 const FLAGS = [
     // ── Model ──
-    { id: "model", flag: "-m", category: "model", type: "path", label: "Model Path",
-      short_desc: "Choose the local GGUF model file to load.",
-      beginner_tip: "Start here: pick your GGUF model file before changing other settings.",
-      desc: "Model file to load (.gguf)", tool: "both" },
     { id: "hf_repo", flag: "-hf", category: "model", type: "text", label: "HF Repo",
       short_desc: "Load a model directly from Hugging Face using repo/name.",
       desc: "Hugging Face repo: user/model[:quant], e.g. ggml-org/gemma-3-1b-it-GGUF:Q4_K_M", tool: "both" },

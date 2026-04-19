@@ -793,11 +793,16 @@ function restoreFlagInputs() {
 }
 
 function updateCommandPreview() {
-    const modelSel = document.getElementById("model-select");
-    const vals = { ...flagValues };
-    if (modelSel.value) vals.model = "models/" + modelSel.value;
-
-    const cmd = buildCommand(currentTool, vals);
+    const args = getLaunchArgs();
+    const parts = [currentTool + ".exe"];
+    for (const entry of args) {
+        if (Array.isArray(entry)) {
+            parts.push(...entry);
+        } else {
+            parts.push(String(entry));
+        }
+    }
+    const cmd = parts.join(" ");
     document.getElementById("command-preview-text").textContent = cmd;
     updateServerAddressPreview();
 }
@@ -827,7 +832,7 @@ function getLaunchArgs() {
         }
     }
 
-    if (modelSel.value && !flagValues.model) {
+    if (modelSel.value) {
         args.push(["-m", "models/" + modelSel.value]);
     }
 
