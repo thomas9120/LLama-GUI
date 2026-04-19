@@ -9,7 +9,7 @@ const FLAG_CATEGORIES = [
     { id: "lora", name: "LoRA & Control Vectors", icon: "🔗" },
     { id: "kv", name: "KV Cache", icon: "💾" },
     { id: "speculative", name: "Speculative Decoding", icon: "⚡" },
-    { id: "server", name: "Server Settings", icon: "🌐" },
+    { id: "server", name: "Server and MCP Settings", icon: "🌐" },
     { id: "grammar", name: "Grammar & Constraints", icon: "📝" },
     { id: "logging", name: "Logging", icon: "📋" },
     { id: "advanced", name: "Advanced", icon: "🔧" },
@@ -290,7 +290,7 @@ const FLAGS = [
         { value: "ngram-map-k4v", label: "Ngram Map K4V" }, { value: "ngram-mod", label: "Ngram Mod" },
       ] },
 
-    // ── Server Settings ──
+    // ── Server and MCP Settings ──
     { id: "host", flag: "--host", category: "server", type: "text", label: "Host",
       short_desc: "Network address the API server listens on.",
       desc: "IP address to listen on (default: 127.0.0.1)", tool: "server", default: "127.0.0.1" },
@@ -318,10 +318,10 @@ const FLAGS = [
     { id: "webui", flag: "--webui", category: "server", type: "bool", label: "Web UI",
       short_desc: "Turns on the built-in browser interface.",
       desc: "Enable the built-in web UI", tool: "server", default: true },
-    { id: "webui_mcp_proxy", flag: "--webui-mcp-proxy", category: "server", submenu: "Server and MCP Settings", type: "bool", label: "WebUI MCP Proxy",
+    { id: "webui_mcp_proxy", flag: "--webui-mcp-proxy", category: "server", submenu: "MCP Settings", type: "bool", label: "WebUI MCP Proxy",
       short_desc: "Enable MCP CORS proxy support for the Web UI.",
       desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. Do not enable in untrusted environments.", tool: "server", default: false },
-    { id: "tools", flag: "--tools", category: "server", submenu: "Server and MCP Settings", type: "multi_enum", label: "Built-in Tools",
+    { id: "tools", flag: "--tools", category: "server", submenu: "MCP Settings", type: "multi_enum", label: "Built-in Tools",
       short_desc: "Enable local file/shell tools for AI agents in the Web UI.",
       beginner_tip: "Use 'all' only on trusted machines. In shared environments, list only what you need.",
       desc: "Experimental. Enables built-in agent tools exposed to the model through llama-server. Select one or more tools below, or choose 'all' to enable every tool.", tool: "server",
