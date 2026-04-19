@@ -54,7 +54,7 @@ const FLAGS = [
       desc: "When the context fills up, how many tokens from the very beginning of the conversation (system prompt + first messages) to permanently keep. 0 = discard everything, -1 = keep everything.", tool: "both", default: 0, min: -1 },
     { id: "mlock", flag: "--mlock", category: "context", type: "bool", label: "Lock Model in RAM",
       desc: "Force the OS to keep the model in physical RAM and never swap it to disk. Prevents stuttering but requires enough free RAM for the entire model.", tool: "both", default: false },
-    { id: "mmap", flag: "--mmap", category: "context", type: "bool", label: "Memory Map Model",
+    { id: "mmap", flag: "--mmap", false_flag: "--no-mmap", category: "context", type: "bool", label: "Memory Map Model",
       desc: "Load the model using memory-mapped files for faster loading and lower RAM usage. Disable if you get pageout/stuttering issues.", tool: "both", default: true },
     { id: "direct_io", flag: "-dio", category: "context", type: "bool", label: "Direct I/O",
       desc: "Bypass OS page cache when loading the model. Slower load but can prevent cache pollution with large models.", tool: "both", default: false },
@@ -100,9 +100,9 @@ const FLAGS = [
       desc: "Flash Attention mode", tool: "both",
       default: "auto",
       options: [{ value: "auto", label: "Auto (default)" }, { value: "on", label: "On" }, { value: "off", label: "Off" }] },
-    { id: "kv_offload", flag: "-kvo", category: "gpu", type: "bool", label: "KV Offload",
+    { id: "kv_offload", flag: "-kvo", false_flag: "--no-kv-offload", category: "gpu", type: "bool", label: "KV Offload",
       desc: "Enable KV cache offloading", tool: "both", default: true },
-    { id: "repack", flag: "--repack", category: "gpu", type: "bool", label: "Weight Repacking",
+    { id: "repack", flag: "--repack", false_flag: "--no-repack", category: "gpu", type: "bool", label: "Weight Repacking",
       desc: "Enable weight repacking", tool: "both", default: true },
     { id: "fit", flag: "-fit", category: "gpu", type: "enum", label: "Auto Fit to VRAM",
       short_desc: "Automatically adjusts settings to avoid GPU memory crashes.",
@@ -114,7 +114,7 @@ const FLAGS = [
       desc: "Keep all MoE weights in CPU", tool: "both", default: false },
     { id: "n_cpu_moe", flag: "-ncmoe", category: "gpu", type: "int", label: "CPU MoE Layers",
       desc: "Keep MoE weights of first N layers in CPU", tool: "both", min: 0 },
-    { id: "mmproj_offload", flag: "--mmproj-offload", category: "gpu", type: "bool", label: "mmproj GPU Offload",
+    { id: "mmproj_offload", flag: "--mmproj-offload", false_flag: "--no-mmproj-offload", category: "gpu", type: "bool", label: "mmproj GPU Offload",
       desc: "Enable GPU offloading for multimodal projector", tool: "both", default: true },
 
     // ── Sampling ──
@@ -302,9 +302,9 @@ const FLAGS = [
       desc: "Model name alias(es) for the API (comma-separated)", tool: "server" },
     { id: "parallel", flag: "-np", category: "server", type: "int", label: "Parallel Slots",
       desc: "Number of server slots (-1 = auto)", tool: "server", default: -1, min: -1, max: 128, placeholder: "-1 = auto" },
-    { id: "cont_batching", flag: "-cb", category: "server", type: "bool", label: "Continuous Batching",
+    { id: "cont_batching", flag: "-cb", false_flag: "--no-cont-batching", category: "server", type: "bool", label: "Continuous Batching",
       desc: "Enable dynamic/continuous batching", tool: "server", default: true },
-    { id: "cache_prompt", flag: "--cache-prompt", category: "server", type: "bool", label: "Prompt Caching",
+    { id: "cache_prompt", flag: "--cache-prompt", false_flag: "--no-cache-prompt", category: "server", type: "bool", label: "Prompt Caching",
       desc: "Enable prompt caching", tool: "server", default: true },
     { id: "timeout", flag: "-to", category: "server", type: "int", label: "Timeout (seconds)",
       desc: "Server read/write timeout", tool: "server", default: 600, min: 1 },
@@ -315,7 +315,7 @@ const FLAGS = [
       desc: "Threads for HTTP requests (-1 = auto)", tool: "server", min: -1 },
     { id: "metrics", flag: "--metrics", category: "server", type: "bool", label: "Prometheus Metrics",
       desc: "Enable Prometheus metrics endpoint", tool: "server", default: false },
-    { id: "webui", flag: "--webui", category: "server", type: "bool", label: "Web UI",
+    { id: "webui", flag: "--webui", false_flag: "--no-webui", category: "server", type: "bool", label: "Web UI",
       short_desc: "Turns on the built-in browser interface.",
       desc: "Enable the built-in web UI", tool: "server", default: true },
     { id: "webui_mcp_proxy", flag: "--webui-mcp-proxy", category: "server", submenu: "MCP Settings", type: "bool", label: "WebUI MCP Proxy",
@@ -369,7 +369,7 @@ const FLAGS = [
       desc: "Enable prefix in log messages", tool: "both", default: false },
     { id: "log_timestamps", flag: "--log-timestamps", category: "logging", type: "bool", label: "Log Timestamps",
       desc: "Enable timestamps in log messages", tool: "both", default: false },
-    { id: "show_timings", flag: "--show-timings", category: "logging", type: "bool", label: "Show Timings",
+    { id: "show_timings", flag: "--show-timings", false_flag: "--no-show-timings", category: "logging", type: "bool", label: "Show Timings",
       desc: "Show timing information after each response", tool: "cli", default: true },
 
     // ── Advanced ──
@@ -381,7 +381,7 @@ const FLAGS = [
       desc: "Check model tensor data for invalid values", tool: "both", default: false },
     { id: "no_host", flag: "--no-host", category: "advanced", type: "bool", label: "No Host Buffer",
       desc: "Bypass host buffer for extra buffers", tool: "both", default: false },
-    { id: "warmup", flag: "--warmup", category: "advanced", type: "bool", label: "Warmup",
+    { id: "warmup", flag: "--warmup", false_flag: "--no-warmup", category: "advanced", type: "bool", label: "Warmup",
       desc: "Perform warmup with empty run", tool: "both", default: true },
     { id: "offline", flag: "--offline", category: "advanced", type: "bool", label: "Offline Mode",
       desc: "Force cache use, prevent network access", tool: "both", default: false },
@@ -420,6 +420,8 @@ function buildCommand(tool, values) {
                 } else {
                     parts.push(f.flag);
                 }
+            } else if (val === false && f.false_flag) {
+                parts.push(f.false_flag);
             } else if (val === false && f.flag.startsWith("--no-")) {
                 parts.push(f.flag);
             }

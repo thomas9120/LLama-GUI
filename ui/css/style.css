@@ -351,6 +351,7 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 
 .flag-label .flag-desc { font-size: 12px; color: var(--fg-dim); }
 .flag-label .flag-default { font-size: 11px; color: var(--fg-dim); opacity: 0.6; }
+.flag-label .flag-toggle-hint { font-size: 11px; color: var(--cyan); opacity: 0.9; }
 
 .flag-more {
     margin-top: 2px;

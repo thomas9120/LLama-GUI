@@ -980,6 +980,13 @@ function createFlagRow(f) {
         label.appendChild(flagDefault);
     }
 
+    if (f.type === "bool" && f.false_flag) {
+        const toggleHint = document.createElement("span");
+        toggleHint.className = "flag-toggle-hint";
+        toggleHint.textContent = `Off -> ${f.false_flag}`;
+        label.appendChild(toggleHint);
+    }
+
     const input = document.createElement("div");
     input.className = "flag-input";
 
@@ -1268,6 +1275,8 @@ function getLaunchArgs() {
                 } else {
                     args.push([f.flag]);
                 }
+            } else if (val === false && f.false_flag) {
+                args.push([f.false_flag]);
             } else if (val === false && f.flag.startsWith("--no-")) {
                 args.push([f.flag]);
             }
