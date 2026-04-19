@@ -32,6 +32,31 @@ function applyPresetModel(modelName) {
     modelSelect.value = target;
 }
 
+function buildCurrentPresetData() {
+    const values = collectFlagValues();
+    const selectedModel = document.getElementById("model-select").value || "";
+    return { tool: currentTool, model: selectedModel, flags: values };
+}
+
+let presetStatusTimer = null;
+
+function showPresetStatus(message, type = "success", durationMs = 2200) {
+    const statusEl = document.getElementById("preset-status");
+    if (!statusEl) return;
+    if (presetStatusTimer) {
+        clearTimeout(presetStatusTimer);
+        presetStatusTimer = null;
+    }
+    statusEl.className = "status-box";
+    statusEl.classList.add(type);
+    statusEl.textContent = message;
+    presetStatusTimer = setTimeout(() => {
+        statusEl.className = "status-box";
+        statusEl.textContent = "";
+        presetStatusTimer = null;
+    }, durationMs);
+}
+
 async function loadPresets() {
     const container = document.getElementById("presets-list");
     container.textContent = "";
@@ -72,6 +97,12 @@ async function loadPresets() {
             exportBtn.textContent = "Export";
             exportBtn.addEventListener("click", () => exportPreset(p.name));
 
+            const updateBtn = document.createElement("button");
+            updateBtn.className = "btn btn-sm";
+            updateBtn.textContent = "Update";
+            updateBtn.title = "Overwrite this preset with current Configure values";
+            updateBtn.addEventListener("click", () => updatePreset(p.name));
+
             const deleteBtn = document.createElement("button");
             deleteBtn.className = "btn btn-sm btn-danger";
             deleteBtn.textContent = "Delete";
@@ -79,6 +110,7 @@ async function loadPresets() {
 
             actions.appendChild(loadBtn);
             actions.appendChild(exportBtn);
+            actions.appendChild(updateBtn);
             actions.appendChild(deleteBtn);
 
             el.appendChild(details);
@@ -98,9 +130,7 @@ async function savePreset() {
         setTimeout(() => nameInput.style.borderColor = "", 1500);
         return;
     }
-    const values = collectFlagValues();
-    const selectedModel = document.getElementById("model-select").value || "";
-    const data = { tool: currentTool, model: selectedModel, flags: values };
+    const data = buildCurrentPresetData();
     try {
         const result = await fetchJson("/api/presets", {
             method: "POST",
@@ -110,9 +140,36 @@ async function savePreset() {
         if (result.saved) {
             nameInput.value = "";
             loadPresets();
+            showPresetStatus(`Saved preset \"${result.name || name}\"`, "success");
         }
     } catch (e) {
+        showPresetStatus("Failed to save preset", "error", 3200);
         alert("Failed to save preset: " + e.message);
+    }
+}
+
+async function updatePreset(name) {
+    const ok = await confirmAction(
+        "Update Preset",
+        `Overwrite preset "${name}" with current Configure settings?`,
+        "Update"
+    );
+    if (!ok) return;
+
+    try {
+        const data = buildCurrentPresetData();
+        const result = await fetchJson("/api/presets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, data }),
+        });
+        if (result.saved) {
+            loadPresets();
+            showPresetStatus(`Updated preset \"${name}\"`, "success");
+        }
+    } catch (e) {
+        showPresetStatus("Failed to update preset", "error", 3200);
+        alert("Failed to update preset: " + e.message);
     }
 }
 
@@ -146,7 +203,9 @@ async function deletePreset(name) {
     try {
         await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
         loadPresets();
+        showPresetStatus(`Deleted preset \"${name}\"`, "success");
     } catch (e) {
+        showPresetStatus("Failed to delete preset", "error", 3200);
         alert("Failed to delete preset: " + e.message);
     }
 }
@@ -185,7 +244,9 @@ function handlePresetImport(file) {
                 body: JSON.stringify({ name, data: importData }),
             });
             loadPresets();
+            showPresetStatus(`Imported preset \"${name}\"`, "success");
         } catch (err) {
+            showPresetStatus("Failed to import preset", "error", 3200);
             alert("Failed to import preset: " + err.message);
         }
     };

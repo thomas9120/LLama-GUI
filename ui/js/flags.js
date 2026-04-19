@@ -103,7 +103,7 @@ const FLAGS = [
     { id: "kv_offload", flag: "-kvo", false_flag: "--no-kv-offload", category: "gpu", type: "bool", label: "KV Offload",
       desc: "Enable KV cache offloading", tool: "both", default: true },
     { id: "repack", flag: "--repack", false_flag: "--no-repack", category: "gpu", type: "bool", label: "Weight Repacking",
-      desc: "Enable weight repacking", tool: "both", default: true },
+      desc: "Enable weight repacking", tool: "both", default: false },
     { id: "fit", flag: "-fit", category: "gpu", type: "enum", label: "Auto Fit to VRAM",
       short_desc: "Automatically adjusts settings to avoid GPU memory crashes.",
       beginner_tip: "Keep this ON unless you specifically need manual control.",
