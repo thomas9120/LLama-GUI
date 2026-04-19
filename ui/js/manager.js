@@ -36,6 +36,13 @@ async function fetchReleases() {
             opt.textContent = `${r.tag}  (${date})`;
             sel.appendChild(opt);
         }
+        if (latestStatus && latestStatus.tag) {
+            const hasInstalledTag = Array.from(sel.options).some((opt) => opt.value === latestStatus.tag);
+            if (hasInstalledTag) {
+                sel.value = latestStatus.tag;
+                return;
+            }
+        }
         if (cachedReleases.length > 0) {
             sel.value = cachedReleases[0].tag;
         }
@@ -61,6 +68,22 @@ function updateStatusUI(status) {
     const processBadge = document.getElementById("process-badge");
     const info = document.getElementById("installed-info");
     const repairBtn = document.getElementById("btn-repair");
+    const backendSelect = document.getElementById("backend-select");
+    const releaseSelect = document.getElementById("release-select");
+
+    if ((status.installed || status.config_stale) && status.backend && backendSelect) {
+        const hasBackendOption = Array.from(backendSelect.options).some((opt) => opt.value === status.backend);
+        if (hasBackendOption) {
+            backendSelect.value = status.backend;
+        }
+    }
+
+    if ((status.installed || status.config_stale) && status.tag && releaseSelect) {
+        const hasTagOption = Array.from(releaseSelect.options).some((opt) => opt.value === status.tag);
+        if (hasTagOption) {
+            releaseSelect.value = status.tag;
+        }
+    }
 
     if (status.installed) {
         badge.textContent = status.version + " (" + status.backend + ")";
