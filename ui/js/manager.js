@@ -364,6 +364,7 @@ async function refreshModels() {
     try {
         const models = await fetchJson("/api/models");
         for (const m of models) {
+            if (!m.name || !String(m.name).toLowerCase().endsWith(".gguf")) continue;
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = `${m.name}  (${m.size_mb} MB)`;

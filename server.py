@@ -440,7 +440,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             models = []
             if MODELS_DIR.exists():
                 for f in sorted(MODELS_DIR.iterdir()):
-                    if f.is_file():
+                    if f.is_file() and f.suffix.lower() == ".gguf":
                         size_mb = f.stat().st_size / (1024 * 1024)
                         models.append({"name": f.name, "size_mb": round(size_mb, 2)})
             self.send_json(models)
