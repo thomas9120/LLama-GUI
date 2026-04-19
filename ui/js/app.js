@@ -1,4 +1,4 @@
-let currentTool = "llama-cli";
+let currentTool = "llama-server";
 let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
@@ -135,6 +135,27 @@ const API_SNIPPETS = [
             "",
             "const data = await response.json();",
             "console.log(data.choices?.[0]?.message?.content);",
+        ].join("\n"),
+    },
+    {
+        name: "JavaScript (OpenAI SDK)",
+        language: "javascript",
+        build: (baseUrl, modelName) => [
+            "import OpenAI from \"openai\";",
+            "",
+            "const client = new OpenAI({",
+            "  baseURL: \"" + baseUrl + "/v1\",",
+            "  apiKey: \"YOUR_API_KEY\"",
+            "});",
+            "",
+            "const resp = await client.chat.completions.create({",
+            "  model: \"" + modelName + "\",",
+            "  messages: [",
+            "    { role: \"user\", content: \"Summarize llama.cpp in 2 lines.\" }",
+            "  ]",
+            "});",
+            "",
+            "console.log(resp.choices[0].message.content);",
         ].join("\n"),
     },
 ];
@@ -480,6 +501,7 @@ function switchTab(tabId) {
 
 function initToolSelect() {
     const toolSel = document.getElementById("tool-select");
+    toolSel.value = currentTool;
     toolSel.addEventListener("change", () => {
         currentTool = toolSel.value;
         openCategories.clear();
