@@ -306,14 +306,42 @@ def extract_zip_file_flat(zf, info, dest_dir):
 
 
 def extract_tar_member_flat(tf, member, dest_dir):
-    if not member.isfile():
-        return
-
     fname = pathlib.Path(member.name).name
     if not fname:
         return
 
     out_path = pathlib.Path(dest_dir) / fname
+
+    if member.issym():
+        target_name = pathlib.Path(member.linkname).name
+        if not target_name:
+            return
+        try:
+            if out_path.exists() or out_path.is_symlink():
+                out_path.unlink()
+            out_path.symlink_to(target_name)
+        except OSError:
+            pass
+        return
+
+    if member.islnk():
+        target_name = pathlib.Path(member.linkname).name
+        if not target_name:
+            return
+        target_path = pathlib.Path(dest_dir) / target_name
+        if not target_path.exists():
+            return
+        try:
+            if out_path.exists() or out_path.is_symlink():
+                out_path.unlink()
+            os.link(target_path, out_path)
+        except OSError:
+            pass
+        return
+
+    if not member.isfile():
+        return
+
     src = tf.extractfile(member)
     if src is None:
         return
