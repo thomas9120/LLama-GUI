@@ -26,6 +26,7 @@ CONFIG_FILE = BASE_DIR / "config.json"
 UI_DIR = BASE_DIR / "ui"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
+APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
 
 process = None
 process_lock = threading.Lock()
@@ -343,6 +344,169 @@ def remove_llama_files():
     return removed_files
 
 
+def run_git(args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(BASE_DIR),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def get_app_update_status(fetch=False):
+    if not (BASE_DIR / ".git").exists():
+        return {
+            "available": False,
+            "can_update": False,
+            "reason": "This folder is not a git repository.",
+            "repo_url": APP_REPO_URL,
+        }
+
+    git_version = run_git(["--version"])
+    if git_version.returncode != 0:
+        return {
+            "available": False,
+            "can_update": False,
+            "reason": "Git is not available on this system.",
+            "repo_url": APP_REPO_URL,
+        }
+
+    branch_res = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
+    if branch_res.returncode != 0:
+        return {
+            "available": True,
+            "can_update": False,
+            "reason": (
+                branch_res.stderr or "Unable to read current git branch"
+            ).strip(),
+            "repo_url": APP_REPO_URL,
+        }
+    branch = branch_res.stdout.strip()
+
+    remote_res = run_git(["config", "--get", "remote.origin.url"])
+    origin_url = remote_res.stdout.strip() if remote_res.returncode == 0 else ""
+
+    dirty_res = run_git(["status", "--porcelain"])
+    if dirty_res.returncode != 0:
+        return {
+            "available": True,
+            "can_update": False,
+            "reason": (dirty_res.stderr or "Unable to inspect git status").strip(),
+            "repo_url": APP_REPO_URL,
+            "origin_url": origin_url,
+            "branch": branch,
+        }
+    has_local_changes = bool(dirty_res.stdout.strip())
+
+    if fetch:
+        fetch_res = run_git(["fetch", "origin", "--prune"])
+        if fetch_res.returncode != 0:
+            return {
+                "available": True,
+                "can_update": False,
+                "reason": (fetch_res.stderr or "Failed to fetch from origin").strip(),
+                "repo_url": APP_REPO_URL,
+                "origin_url": origin_url,
+                "branch": branch,
+                "dirty": has_local_changes,
+            }
+
+    upstream_ref = f"origin/{branch}"
+    behind_ahead_res = run_git(
+        ["rev-list", "--left-right", "--count", f"HEAD...{upstream_ref}"]
+    )
+    if behind_ahead_res.returncode != 0:
+        return {
+            "available": True,
+            "can_update": False,
+            "reason": f"No upstream branch found at {upstream_ref}.",
+            "repo_url": APP_REPO_URL,
+            "origin_url": origin_url,
+            "branch": branch,
+            "dirty": has_local_changes,
+        }
+
+    parts = behind_ahead_res.stdout.strip().split()
+    ahead = int(parts[0]) if len(parts) > 0 else 0
+    behind = int(parts[1]) if len(parts) > 1 else 0
+
+    if ahead > 0 and behind > 0:
+        state = "diverged"
+    elif ahead > 0:
+        state = "ahead"
+    elif behind > 0:
+        state = "behind"
+    else:
+        state = "up_to_date"
+
+    can_update = state == "behind" and not has_local_changes
+
+    return {
+        "available": True,
+        "can_update": can_update,
+        "repo_url": APP_REPO_URL,
+        "origin_url": origin_url,
+        "branch": branch,
+        "dirty": has_local_changes,
+        "ahead": ahead,
+        "behind": behind,
+        "state": state,
+    }
+
+
+def update_app_from_git():
+    status = get_app_update_status(fetch=True)
+    if not status.get("available"):
+        return {
+            "updated": False,
+            "error": status.get("reason", "App update is unavailable"),
+            "status": status,
+        }
+
+    if not status.get("can_update"):
+        state = status.get("state")
+        if state == "up_to_date":
+            return {"updated": False, "status": status, "message": "Already up to date"}
+        if status.get("dirty"):
+            return {
+                "updated": False,
+                "error": "Cannot auto-update with local changes. Commit or stash first.",
+                "status": status,
+            }
+        if state == "ahead":
+            return {
+                "updated": False,
+                "error": "Local branch is ahead of origin; not pulling automatically.",
+                "status": status,
+            }
+        if state == "diverged":
+            return {
+                "updated": False,
+                "error": "Branch has diverged from origin; manual merge/rebase required.",
+                "status": status,
+            }
+        return {
+            "updated": False,
+            "error": status.get("reason", "App cannot be updated automatically."),
+            "status": status,
+        }
+
+    pull_res = run_git(["pull", "--ff-only", "origin", status["branch"]])
+    if pull_res.returncode != 0:
+        return {
+            "updated": False,
+            "error": (pull_res.stderr or pull_res.stdout or "git pull failed").strip(),
+            "status": get_app_update_status(fetch=False),
+        }
+
+    return {
+        "updated": True,
+        "message": (pull_res.stdout or "Updated successfully").strip(),
+        "status": get_app_update_status(fetch=False),
+    }
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -446,6 +610,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json(models)
             return
 
+        if path == "/api/app-update-status":
+            try:
+                self.send_json(get_app_update_status(fetch=True))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
+            return
+
         if path == "/api/presets":
             presets = []
             if PRESETS_DIR.exists():
@@ -535,6 +706,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 removed_files = remove_llama_files()
                 self.send_json({"removed_files": removed_files})
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
+            return
+
+        if path == "/api/app-update":
+            try:
+                result = update_app_from_git()
+                if result.get("error"):
+                    self.send_json(result, 400)
+                else:
+                    self.send_json(result)
             except Exception as e:
                 self.send_json({"error": str(e)}, 500)
             return

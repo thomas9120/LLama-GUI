@@ -1,6 +1,7 @@
 let cachedReleases = null;
 let installPollTimer = null;
 let latestStatus = null;
+let latestAppUpdateStatus = null;
 
 async function fetchJson(url, options) {
     const resp = await fetch(url, options);
@@ -194,6 +195,8 @@ function setInstallButtonsDisabled(disabled) {
     document.getElementById("btn-update").disabled = disabled;
     document.getElementById("btn-repair").disabled = disabled;
     document.getElementById("btn-remove-llama").disabled = disabled;
+    document.getElementById("btn-check-app-update").disabled = disabled;
+    document.getElementById("btn-update-app").disabled = disabled;
 }
 
 async function startInstall(tag, backend, startMessage) {
@@ -304,6 +307,108 @@ function showStatus(type, message) {
     }
 }
 
+function showAppUpdateStatus(type, message) {
+    const el = document.getElementById("app-update-status");
+    if (!el) return;
+    el.className = "status-box " + (type || "");
+    el.textContent = message || "";
+    if (!type) {
+        el.style.display = "none";
+    }
+}
+
+function describeAppUpdateStatus(status) {
+    if (!status) return "Unable to determine app update status.";
+    if (status.reason && !status.available) return status.reason;
+
+    const branch = status.branch ? `branch ${status.branch}` : "current branch";
+    if (status.state === "up_to_date") {
+        return `Llama GUI is up to date on ${branch}.`;
+    }
+    if (status.state === "behind") {
+        const n = status.behind || 0;
+        if (status.dirty) {
+            return `Update available (${n} commit${n === 1 ? "" : "s"} behind), but local changes must be committed or stashed first.`;
+        }
+        return `Update available: ${n} commit${n === 1 ? "" : "s"} behind origin.`;
+    }
+    if (status.state === "ahead") {
+        return "Local branch is ahead of origin; auto-update is disabled.";
+    }
+    if (status.state === "diverged") {
+        return "Local and remote branches diverged; update manually with git.";
+    }
+    if (status.dirty) {
+        return "Local changes detected. Commit or stash before updating.";
+    }
+    return "App update status is available, but cannot auto-update in current state.";
+}
+
+function renderAppUpdateStatus(status) {
+    latestAppUpdateStatus = status;
+    const msg = describeAppUpdateStatus(status);
+    let type = "info";
+    if (!status || status.error) {
+        type = "error";
+    } else if (status.state === "up_to_date") {
+        type = "success";
+    } else if (status.state === "behind") {
+        type = status.can_update ? "info" : "error";
+    } else if (status.state === "ahead" || status.state === "diverged") {
+        type = "error";
+    }
+
+    showAppUpdateStatus(type, msg);
+
+    const updateBtn = document.getElementById("btn-update-app");
+    if (updateBtn && status) {
+        updateBtn.disabled = !status.can_update;
+        updateBtn.title = status.can_update ? "Pull latest changes from GitHub" : msg;
+    }
+}
+
+async function checkAppUpdateStatus() {
+    showAppUpdateStatus("info", "Checking app update status...");
+    try {
+        const status = await fetchJson("/api/app-update-status");
+        renderAppUpdateStatus(status);
+    } catch (e) {
+        showAppUpdateStatus("error", "Failed to check app updates: " + e.message);
+    }
+}
+
+async function updateAppFromGitHub() {
+    const status = latestAppUpdateStatus || await fetchJson("/api/app-update-status");
+    if (!status.can_update) {
+        renderAppUpdateStatus(status);
+        return;
+    }
+
+    const ok = await confirmAction(
+        "Update Llama GUI",
+        "Pull latest changes from GitHub now? The app may need a restart after updating.",
+        "Update"
+    );
+    if (!ok) return;
+
+    showAppUpdateStatus("info", "Pulling latest changes from GitHub...");
+    try {
+        const result = await fetchJson("/api/app-update", { method: "POST" });
+        if (result.updated) {
+            showAppUpdateStatus("success", "App updated. Restart Llama GUI to load new code.");
+        } else if (result.message) {
+            showAppUpdateStatus("info", result.message);
+        }
+        if (result.status) {
+            renderAppUpdateStatus(result.status);
+        } else {
+            checkAppUpdateStatus();
+        }
+    } catch (e) {
+        showAppUpdateStatus("error", "App update failed: " + e.message);
+    }
+}
+
 function confirmAction(title, message, confirmText) {
     const modal = document.getElementById("confirm-modal");
     const titleEl = document.getElementById("confirm-modal-title");
@@ -375,3 +480,6 @@ async function refreshModels() {
         // ignore
     }
 }
+
+document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
+document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);

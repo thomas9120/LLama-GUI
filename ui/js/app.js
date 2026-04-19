@@ -745,6 +745,9 @@ function initInstallButtons() {
     document.getElementById("btn-repair").addEventListener("click", repairInstall);
     document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
     document.getElementById("refresh-releases").addEventListener("click", fetchReleases);
+    if (typeof checkAppUpdateStatus === "function") {
+        checkAppUpdateStatus();
+    }
 }
 
 function initPresetImport() {
