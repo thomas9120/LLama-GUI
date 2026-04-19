@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap');
+
 :root {
     --bg: #1a1b26;
     --bg2: #24283b;
@@ -16,8 +18,8 @@
     --magenta: #bb9af7;
     --border: #3b3f57;
     --radius: 6px;
-    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
-    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --font: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -97,7 +99,7 @@ header h1 {
     cursor: pointer;
     font-family: var(--font);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     transition: all 0.15s;
 }
 
@@ -120,7 +122,7 @@ header h1 {
 
 /* Forms */
 .form-group { margin-bottom: 14px; }
-.form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--fg-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.3px; }
+.form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--fg-dim); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.4px; }
 .form-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
 .input-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -165,7 +167,7 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     cursor: pointer;
     font-family: var(--font);
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 600;
     transition: all 0.15s;
     white-space: nowrap;
 }
