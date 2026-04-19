@@ -37,9 +37,9 @@ body {
 
 header {
     position: relative;
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: space-between;
     padding: 14px 14px 12px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -63,14 +63,23 @@ header h1,
 }
 
 header h1 {
-    font-size: 24px;
+    margin: 0;
+    grid-column: 2;
+    justify-self: center;
+    text-align: center;
+    font-size: 26px;
     font-weight: 700;
     color: var(--accent);
     letter-spacing: 0.7px;
     text-shadow: 0 1px 10px rgba(122, 162, 247, 0.25);
 }
 
-.header-status { display: flex; gap: 8px; }
+.header-status {
+    display: flex;
+    gap: 8px;
+    grid-column: 3;
+    justify-self: end;
+}
 
 .badge {
     padding: 3px 10px;
