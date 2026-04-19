@@ -185,6 +185,7 @@ output_buffer = []
 output_buffer_lock = threading.Lock()
 download_progress = {"total": 0, "downloaded": 0, "status": "idle", "message": ""}
 download_progress_lock = threading.Lock()
+gui_server = None
 
 
 def load_config():
@@ -551,6 +552,15 @@ def stop_process():
                 process.kill()
             return True
         return False
+
+
+def shutdown_gui_server():
+    server = gui_server
+    if server is None:
+        return False
+    stop_process()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+    return True
 
 
 def remove_llama_files():
@@ -946,6 +956,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json({"stopped": stopped})
             return
 
+        if path == "/api/shutdown":
+            shutting_down = shutdown_gui_server()
+            self.send_json({"shutting_down": shutting_down})
+            return
+
         if path == "/api/cleanup-llama":
             if process and process.poll() is None:
                 self.send_json({"error": "Stop running process first"}, 400)
@@ -1032,6 +1047,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 
 def main():
+    global gui_server
     port = 5240
     for d in [
         MODELS_DIR,
@@ -1042,16 +1058,18 @@ def main():
     ]:
         d.mkdir(parents=True, exist_ok=True)
 
-    server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+    gui_server = http.server.HTTPServer(("127.0.0.1", port), Handler)
     print(f"Llama GUI running at http://127.0.0.1:{port}")
     print("Press Ctrl+C to stop the server.")
     try:
-        server.serve_forever()
+        gui_server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         stop_process()
-        server.server_close()
+        if gui_server is not None:
+            gui_server.server_close()
+            gui_server = None
 
 
 if __name__ == "__main__":

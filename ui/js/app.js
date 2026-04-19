@@ -773,6 +773,7 @@ function initInstallButtons() {
     document.getElementById("btn-update").addEventListener("click", checkForUpdates);
     document.getElementById("btn-repair").addEventListener("click", repairInstall);
     document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
+    document.getElementById("btn-stop-app").addEventListener("click", stopPythonServer);
     document.getElementById("refresh-releases").addEventListener("click", fetchReleases);
     document.getElementById("btn-open-models").addEventListener("click", () => openFolder("models"));
     document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));

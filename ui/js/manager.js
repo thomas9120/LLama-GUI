@@ -259,8 +259,37 @@ function setInstallButtonsDisabled(disabled) {
     document.getElementById("btn-update").disabled = disabled;
     document.getElementById("btn-repair").disabled = disabled;
     document.getElementById("btn-remove-llama").disabled = disabled;
+    document.getElementById("btn-stop-app").disabled = disabled;
     document.getElementById("btn-check-app-update").disabled = disabled;
     document.getElementById("btn-update-app").disabled = disabled;
+}
+
+async function stopPythonServer() {
+    const status = latestStatus || await checkStatus();
+    const runningHint = status && status.running
+        ? " Any running llama.cpp process will be stopped first."
+        : "";
+    const ok = await confirmAction(
+        "Stop Python Server",
+        `Stop this Llama GUI Python server? The page will disconnect until you start server.py again.${runningHint}`,
+        "Stop Server"
+    );
+    if (!ok) return;
+
+    const button = document.getElementById("btn-stop-app");
+    if (button) button.disabled = true;
+    showStatus("info", "Stopping Python server...");
+
+    try {
+        await fetchJson("/api/shutdown", { method: "POST" });
+        showStatus("success", "Python server is shutting down. This page will stop responding.");
+        window.setTimeout(() => {
+            window.location.reload();
+        }, 1500);
+    } catch (e) {
+        showStatus("error", "Failed to stop Python server: " + e.message);
+        if (button) button.disabled = false;
+    }
 }
 
 async function startInstall(tag, backend, startMessage) {
