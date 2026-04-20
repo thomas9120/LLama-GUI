@@ -938,10 +938,12 @@ function refreshQuickLaunchUI() {
     if (templateSummary) templateSummary.textContent = selectedPack.summary;
 
     const temperature = document.getElementById("quick-temperature");
+    const topK = document.getElementById("quick-top-k");
     const topP = document.getElementById("quick-top-p");
     const minP = document.getElementById("quick-min-p");
     const repeatPenalty = document.getElementById("quick-repeat-penalty");
     if (temperature) temperature.value = flagValues.temperature ?? "";
+    if (topK) topK.value = flagValues.top_k ?? "";
     if (topP) topP.value = flagValues.top_p ?? "";
     if (minP) minP.value = flagValues.min_p ?? "";
     if (repeatPenalty) repeatPenalty.value = flagValues.repeat_penalty ?? "";
@@ -956,6 +958,7 @@ function refreshQuickLaunchUI() {
     }
 
     quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
+    updateQuickServerAddressPreview();
     updateQuickLaunchActionButtons();
 }
 
@@ -1100,6 +1103,7 @@ function initQuickLaunch() {
 
     const quickSamplerFieldMap = {
         "quick-temperature": "temperature",
+        "quick-top-k": "top_k",
         "quick-top-p": "top_p",
         "quick-min-p": "min_p",
         "quick-repeat-penalty": "repeat_penalty",
@@ -1108,10 +1112,18 @@ function initQuickLaunch() {
     for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
         document.getElementById(elementId).addEventListener("input", (e) => {
             const rawValue = e.target.value.trim();
-            flagValues[flagId] = rawValue === "" ? undefined : parseFloat(rawValue);
+            if (rawValue === "") {
+                flagValues[flagId] = undefined;
+            } else if (flagId === "top_k") {
+                flagValues[flagId] = parseInt(rawValue, 10);
+            } else {
+                flagValues[flagId] = parseFloat(rawValue);
+            }
             updateCommandPreview();
         });
     }
+
+    document.getElementById("btn-copy-quick-server-url").addEventListener("click", copyQuickServerUrl);
 
     document.getElementById("btn-quick-launch").addEventListener("click", async () => {
         switchTab("configure");
@@ -1286,6 +1298,22 @@ function updateServerAddressPreview() {
     document.getElementById("server-url").href = baseUrl;
     document.getElementById("server-url").textContent = baseUrl;
     document.getElementById("server-webui").href = baseUrl + "/";
+    el.classList.remove("hidden");
+}
+
+function updateQuickServerAddressPreview() {
+    const el = document.getElementById("quick-server-address");
+    if (!el) return;
+
+    if (currentTool !== "llama-server") {
+        el.classList.add("hidden");
+        return;
+    }
+
+    const baseUrl = getServerBaseUrl();
+    document.getElementById("quick-server-url").href = baseUrl;
+    document.getElementById("quick-server-url").textContent = baseUrl;
+    document.getElementById("quick-server-webui").href = baseUrl + "/";
     el.classList.remove("hidden");
 }
 
@@ -2158,6 +2186,11 @@ document.getElementById("model-select").addEventListener("change", () => {
 
 function copyServerUrl() {
     const url = document.getElementById("server-url").href;
+    copyText(url);
+}
+
+function copyQuickServerUrl() {
+    const url = document.getElementById("quick-server-url").href;
     copyText(url);
 }
 

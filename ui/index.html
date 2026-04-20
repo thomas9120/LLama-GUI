@@ -250,6 +250,10 @@
                                 <input type="number" id="quick-temperature" min="0" max="5" step="0.05" />
                             </div>
                             <div class="form-group">
+                                <label for="quick-top-k">Top-K</label>
+                                <input type="number" id="quick-top-k" min="0" step="1" />
+                            </div>
+                            <div class="form-group">
                                 <label for="quick-top-p">Top-P</label>
                                 <input type="number" id="quick-top-p" min="0" max="1" step="0.01" />
                             </div>
@@ -270,6 +274,13 @@
                             <span class="quick-card-kicker">Still a normal llama.cpp command</span>
                         </div>
                         <p class="quick-help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
+                        <div id="quick-server-address" class="server-address quick-server-address hidden">
+                            <span class="server-label">Server Address:</span>
+                            <a id="quick-server-url" href="#" target="_blank" class="server-link"></a>
+                            <span class="server-sep">|</span>
+                            <a id="quick-server-webui" href="#" target="_blank" class="server-link">Web UI</a>
+                            <button id="btn-copy-quick-server-url" class="btn btn-sm" type="button" title="Copy URL">&#x2398;</button>
+                        </div>
                         <code id="quick-command-preview"></code>
                         <div class="quick-actions">
                             <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">Launch</button>

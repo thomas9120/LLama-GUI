@@ -627,6 +627,10 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     word-break: break-word;
 }
 
+.quick-server-address {
+    margin-top: 10px;
+}
+
 .quick-actions {
     display: flex;
     gap: 10px;
