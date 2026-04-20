@@ -32,6 +32,7 @@ python3 server.py
 Platform launch helpers:
 - Windows: `windows_start.bat` or `windows_startsilent.bat`
 - macOS/Linux: `./start.sh` or `./start_silent.sh`
+- Release packaging on Windows: `release.bat v0.1.0`
 
 2. Open `http://127.0.0.1:5240` in your browser.
 3. In **Install**, choose a version + backend, then click **Install**.
@@ -226,6 +227,41 @@ It does not remove:
 - `models/` - local model files
 - `presets/` - saved full launcher presets
 - `config.json` - local installation metadata
+
+## Creating a GitHub Release Asset
+
+If you want a clean zip to upload to **GitHub Releases**, use the Windows packaging helper:
+
+```bat
+release.bat v0.1.0
+```
+
+This creates a zip in `releases/` named like:
+
+```text
+Llama-GUI-v0.1.0.zip
+```
+
+The generated zip includes the app itself:
+- `server.py`
+- `ui/`
+- `start.sh`
+- `start_silent.sh`
+- `windows_start.bat`
+- `windows_startsilent.bat`
+- `README.md`
+- `LICENSE`
+- empty starter folders for `llama/`, `models/`, and `presets/`
+
+It does not include local-only data such as:
+- `.git/`
+- installed `llama.cpp` binaries
+- local models
+- saved presets
+- `config.json`
+- Python cache folders
+
+GitHub will already provide automatic source-code archives for your tag, so this zip is best used as the cleaner end-user download asset.
 
 ## Data Locations
 
