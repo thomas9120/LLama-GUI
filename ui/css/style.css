@@ -612,6 +612,11 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     gap: 10px 12px;
 }
 
+#quick-context-custom {
+    width: 150px;
+    min-width: 150px;
+}
+
 .quick-preview-card code {
     display: block;
     margin-top: 10px;

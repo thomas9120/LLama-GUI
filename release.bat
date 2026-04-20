@@ -22,7 +22,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
     "$stageDir = [System.IO.Path]::GetFullPath('%STAGE_DIR%');" ^
     "$zipPath = [System.IO.Path]::GetFullPath('%ZIP_PATH%');" ^
     "$packageName = '%PACKAGE_NAME%';" ^
-    "$items = @('README.md','LICENSE','server.py','start.sh','start_silent.sh','windows_start.bat','windows_startsilent.bat','ui');" ^
+    "$items = @('README.md','LICENSE','requirements.txt','server.py','install.sh','start.sh','start_silent.sh','windows_install.bat','windows_start.bat','windows_startsilent.bat','ui');" ^
     "if (Test-Path $stageDir) { Remove-Item -LiteralPath $stageDir -Recurse -Force; }" ^
     "if (Test-Path $zipPath) { Remove-Item -LiteralPath $zipPath -Force; }" ^
     "New-Item -ItemType Directory -Path $stageDir | Out-Null;" ^

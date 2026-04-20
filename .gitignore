@@ -1,6 +1,7 @@
 __pycache__/
 *.py[cod]
 .ruff_cache/
+.venv/
 
 config.json
 
