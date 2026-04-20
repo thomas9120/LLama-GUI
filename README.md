@@ -4,6 +4,7 @@ Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, 
 
 Llama GUI provides a browser UI to:
 - install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
+- use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
 - monitor process output in real time
 - use OpenAI-compatible endpoint helpers/snippets
@@ -32,12 +33,52 @@ python3 server.py
 Platform launch helpers:
 - Windows: `windows_start.bat` or `windows_startsilent.bat`
 - macOS/Linux: `./start.sh` or `./start_silent.sh`
-- Release packaging on Windows: `release.bat v0.1.0`
 
 2. Open `http://127.0.0.1:5240` in your browser.
 3. In **Install**, choose a version + backend, then click **Install**.
 4. Put `.gguf` files in `models/` (or click **Open Models**).
-5. In **Configure**, select tool + model and click **Launch**.
+5. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
+6. Use **Configure** when you want full flag-by-flag control.
+
+## Download the Current Release Zip
+
+If you do not want to clone the repository, you can download the latest packaged release from the GitHub **Releases** page.
+
+### Windows
+
+1. Open the latest release on GitHub.
+2. Download the packaged zip asset such as `Llama-GUI-v0.1.0.zip`.
+3. Right-click the zip and choose **Extract All...**
+4. Open the extracted folder.
+5. Start the app with:
+   - `windows_start.bat`
+   - or `windows_startsilent.bat`
+6. Open `http://127.0.0.1:5240` in your browser.
+
+### macOS / Linux
+
+1. Open the latest release on GitHub.
+2. Download the packaged zip asset such as `Llama-GUI-v0.1.0.zip`.
+3. Extract it with your file manager or a command like:
+
+```bash
+unzip Llama-GUI-v0.1.0.zip
+cd Llama-GUI-v0.1.0
+```
+
+4. Make the helper scripts executable if needed:
+
+```bash
+chmod +x start.sh start_silent.sh
+```
+
+5. Start the app with:
+   - `python3 server.py`
+   - or `./start.sh`
+   - or `./start_silent.sh`
+6. Open `http://127.0.0.1:5240` in your browser.
+
+Note: the packaged release zip does not include downloaded `llama.cpp` binaries or local models. After starting the app, use the **Install** tab to download a backend and then place your `.gguf` files in `models/`.
 
 ## Install By Platform
 
@@ -51,6 +92,7 @@ Platform launch helpers:
    - `windows_startsilent.bat`
 4. Open `http://127.0.0.1:5240` in your browser.
 5. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
+6. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 ### macOS
 
@@ -77,6 +119,7 @@ chmod +x start.sh start_silent.sh
 6. In the **Install** tab, choose the backend that matches your Mac:
    - Apple Silicon: `Metal` or `Metal + KleidiAI`
    - Intel Mac: `CPU`
+7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 ### Linux
 
@@ -106,6 +149,7 @@ chmod +x start.sh start_silent.sh
    - `./start_silent.sh`
 5. Open `http://127.0.0.1:5240` in your browser.
 6. In the **Install** tab, choose a Linux backend supported by your machine, such as `CPU`, `Vulkan`, `ROCm`, or `OpenVINO`.
+7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 Note: some Linux accelerator backends may also require vendor drivers or runtime packages outside of Llama GUI itself.
 
@@ -119,15 +163,19 @@ Use this as a quick onboarding flow for a fresh setup:
    - click **Install**
    - verify the top badge changes from `Not Installed` to an installed version
 3. Add at least one `.gguf` model to `models/` (or click **Open Models**).
-4. Go to **Configure**:
-   - keep `llama-server` selected for easiest API integration
+4. Go to **Quick Launch**:
+   - keep `API Server` selected unless you specifically want terminal chat
    - choose your model
+   - leave the beginner defaults alone or choose a profile
    - click **Launch**
-5. Confirm it is working:
+5. If you need deeper control, switch to **Configure**:
+   - keep `llama-server` selected for easiest API integration
+   - adjust individual flags as needed
+6. Confirm it is working:
    - `Running` badge appears in header
    - output panel shows startup logs
    - server address preview appears
-6. Optional integration check:
+7. Optional integration check:
    - open the **API** tab
    - copy a snippet and test `/v1/chat/completions`
 
@@ -144,6 +192,20 @@ If something fails during first run, use **Install -> Repair Install** and then 
 - App updater actions:
   - **Check App Updates**
   - **Update App from GitHub**
+
+### Quick Launch
+
+- Beginner-focused launcher for fast first runs
+- Shared state with **Configure**, so changes stay in sync between both tabs
+- Guided controls for:
+  - model selection
+  - launch mode (`API Server` or `Chat`)
+  - context length
+  - GPU offload
+  - Auto Fit
+  - instruction template packs
+  - sampler presets and common sampler values
+- Shows the server address and launch command preview before you start
 
 ### Configure
 
@@ -175,14 +237,15 @@ Default-friendly behavior includes:
 If you want stronger onboarding for new users, adding these screenshots helps a lot:
 
 1. **Install tab** after successful install (version badge + backend selected)
-2. **Configure tab** with model selected + launch bar visible
-3. **API tab** showing base URL + sample snippet cards
-4. **Server and MCP Settings** submenu expanded (including risk badges/warning)
-5. **Output panel** showing successful `llama-server` startup logs
+2. **Quick Launch tab** with a model selected and the preview card visible
+3. **Configure tab** with model selected + launch bar visible
+4. **API tab** showing base URL + sample snippet cards
+5. **Server and MCP Settings** submenu expanded (including risk badges/warning)
+6. **Output panel** showing successful `llama-server` startup logs
 
 ## Sampler Presets
 
-Sampler presets live inside the **Sampling** section in Configure.
+Sampler presets are available in both **Quick Launch** and the **Sampling** section in Configure.
 
 Includes:
 - built-in presets: `Balanced`, `Creative`, `Precise`
