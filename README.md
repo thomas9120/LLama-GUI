@@ -14,6 +14,7 @@ Llama GUI provides a browser UI to:
 ## Requirements
 
 - Python 3.9+
+- `pip` and virtual environment support (`python -m venv`)
 - Internet access (for release metadata/downloads and optional app updates)
 - A supported OS/architecture for the prebuilt `llama.cpp` binaries you want to install
 
@@ -24,21 +25,30 @@ Supported prebuilt backends vary by platform:
 
 ## Quick Start
 
-1. Start the app:
+1. Install Python dependencies into the local virtual environment:
 
 ```bash
-python3 server.py
+./install.sh
+```
+
+Windows:
+- `windows_install.bat`
+
+2. Start the app:
+
+```bash
+./start.sh
 ```
 
 Platform launch helpers:
 - Windows: `windows_start.bat` or `windows_startsilent.bat`
 - macOS/Linux: `./start.sh` or `./start_silent.sh`
 
-2. Open `http://127.0.0.1:5240` in your browser.
-3. In **Install**, choose a version + backend, then click **Install**.
-4. Put `.gguf` files in `models/` (or click **Open Models**).
-5. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
-6. Use **Configure** when you want full flag-by-flag control.
+3. Open `http://127.0.0.1:5240` in your browser.
+4. In **Install**, choose a version + backend, then click **Install**.
+5. Put `.gguf` files in `models/` (or click **Open Models**).
+6. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
+7. Use **Configure** when you want full flag-by-flag control.
 
 ## Download the Current Release Zip
 
@@ -50,10 +60,11 @@ If you do not want to clone the repository, you can download the latest packaged
 2. Download the packaged zip asset such as `Llama-GUI-v0.1.0.zip`.
 3. Right-click the zip and choose **Extract All...**
 4. Open the extracted folder.
-5. Start the app with:
+5. Run `windows_install.bat`.
+6. Start the app with:
    - `windows_start.bat`
    - or `windows_startsilent.bat`
-6. Open `http://127.0.0.1:5240` in your browser.
+7. Open `http://127.0.0.1:5240` in your browser.
 
 ### macOS / Linux
 
@@ -69,14 +80,14 @@ cd Llama-GUI-v0.1.0
 4. Make the helper scripts executable if needed:
 
 ```bash
-chmod +x start.sh start_silent.sh
+chmod +x install.sh start.sh start_silent.sh
 ```
 
-5. Start the app with:
-   - `python3 server.py`
-   - or `./start.sh`
+5. Run `./install.sh`.
+6. Start the app with:
+   - `./start.sh`
    - or `./start_silent.sh`
-6. Open `http://127.0.0.1:5240` in your browser.
+7. Open `http://127.0.0.1:5240` in your browser.
 
 Note: the packaged release zip does not include downloaded `llama.cpp` binaries or local models. After starting the app, use the **Install** tab to download a backend and then place your `.gguf` files in `models/`.
 
@@ -86,13 +97,13 @@ Note: the packaged release zip does not include downloaded `llama.cpp` binaries 
 
 1. Install Python 3.9+ from [python.org](https://www.python.org/downloads/) and make sure it is available in `PATH`.
 2. Clone or download this repository.
-3. Start the app with one of:
-   - `python server.py`
+3. Run `windows_install.bat`.
+4. Start the app with one of:
    - `windows_start.bat`
    - `windows_startsilent.bat`
-4. Open `http://127.0.0.1:5240` in your browser.
-5. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
-6. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
+5. Open `http://127.0.0.1:5240` in your browser.
+6. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
+7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 ### macOS
 
@@ -108,18 +119,18 @@ cd LLama-GUI
 3. Make the helper scripts executable if needed:
 
 ```bash
-chmod +x start.sh start_silent.sh
+chmod +x install.sh start.sh start_silent.sh
 ```
 
-4. Start the app with one of:
-   - `python3 server.py`
+4. Run `./install.sh`.
+5. Start the app with one of:
    - `./start.sh`
    - `./start_silent.sh`
-5. Open `http://127.0.0.1:5240` in your browser.
-6. In the **Install** tab, choose the backend that matches your Mac:
+6. Open `http://127.0.0.1:5240` in your browser.
+7. In the **Install** tab, choose the backend that matches your Mac:
    - Apple Silicon: `Metal` or `Metal + KleidiAI`
    - Intel Mac: `CPU`
-7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
+8. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 ### Linux
 
@@ -140,16 +151,16 @@ cd LLama-GUI
 3. Make the helper scripts executable:
 
 ```bash
-chmod +x start.sh start_silent.sh
+chmod +x install.sh start.sh start_silent.sh
 ```
 
-4. Start the app with one of:
-   - `python3 server.py`
+4. Run `./install.sh`.
+5. Start the app with one of:
    - `./start.sh`
    - `./start_silent.sh`
-5. Open `http://127.0.0.1:5240` in your browser.
-6. In the **Install** tab, choose a Linux backend supported by your machine, such as `CPU`, `Vulkan`, `ROCm`, or `OpenVINO`.
-7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
+6. Open `http://127.0.0.1:5240` in your browser.
+7. In the **Install** tab, choose a Linux backend supported by your machine, such as `CPU`, `Vulkan`, `ROCm`, or `OpenVINO`.
+8. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
 
 Note: some Linux accelerator backends may also require vendor drivers or runtime packages outside of Llama GUI itself.
 
@@ -157,7 +168,7 @@ Note: some Linux accelerator backends may also require vendor drivers or runtime
 
 Use this as a quick onboarding flow for a fresh setup:
 
-1. Start `python3 server.py` (or use the platform helper script) and open `http://127.0.0.1:5240`.
+1. Run the platform install script, then start the app and open `http://127.0.0.1:5240`.
 2. Go to **Install**:
    - pick a backend that matches your hardware
    - click **Install**
@@ -306,10 +317,13 @@ Llama-GUI-v0.1.0.zip
 ```
 
 The generated zip includes the app itself:
+- `requirements.txt`
 - `server.py`
+- `install.sh`
 - `ui/`
 - `start.sh`
 - `start_silent.sh`
+- `windows_install.bat`
 - `windows_start.bat`
 - `windows_startsilent.bat`
 - `README.md`
