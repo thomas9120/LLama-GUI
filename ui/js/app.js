@@ -51,6 +51,176 @@ const BUILTIN_SAMPLER_PRESETS = {
     },
 };
 
+const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
+const QUICK_TEMPLATE_PACKS = [
+    {
+        id: "auto",
+        label: "Auto from model",
+        summary: "Use the template embedded in the model when available.",
+        values: { chat_template: "", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "chatml",
+        label: "ChatML",
+        summary: "A safe ChatML setup without forced thinking output.",
+        values: { chat_template: "chatml", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "chatml-thinking",
+        label: "ChatML (Thinking)",
+        summary: "ChatML with reasoning enabled, without forcing visible thinking tags.",
+        values: { chat_template: "chatml", reasoning: "on", preserve_thinking: false },
+    },
+    {
+        id: "chatml-no-thinking",
+        label: "ChatML (No Thinking)",
+        summary: "ChatML with reasoning disabled for direct replies.",
+        values: { chat_template: "chatml", reasoning: "off", preserve_thinking: false },
+    },
+    {
+        id: "gemma",
+        label: "Gemma",
+        summary: "Gemma-style instruction formatting with automatic reasoning behavior.",
+        values: { chat_template: "gemma", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "gemma-thinking",
+        label: "Gemma (Thinking)",
+        summary: "Gemma formatting with reasoning enabled, without forcing visible thinking tags.",
+        values: { chat_template: "gemma", reasoning: "on", preserve_thinking: false },
+    },
+    {
+        id: "gemma-no-thinking",
+        label: "Gemma (No Thinking)",
+        summary: "Gemma formatting with explicit non-thinking responses.",
+        values: { chat_template: "gemma", reasoning: "off", preserve_thinking: false },
+    },
+    {
+        id: "alpaca",
+        label: "Alpaca / Instruct",
+        summary: "Simple instruct-style formatting for older instruct-tuned models.",
+        values: { chat_template: "vicuna", reasoning: "off", preserve_thinking: false },
+    },
+    {
+        id: "llama3",
+        label: "Llama 3",
+        summary: "Meta Llama 3 family formatting.",
+        values: { chat_template: "llama3", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "qwen",
+        label: "Qwen",
+        summary: "Qwen-family formatting, including visible thinking where relevant.",
+        values: { chat_template: "qwen", reasoning: "auto", preserve_thinking: true },
+    },
+    {
+        id: "deepseek",
+        label: "DeepSeek",
+        summary: "DeepSeek-family formatting with thinking preserved when provided.",
+        values: { chat_template: "deepseek", reasoning: "auto", preserve_thinking: true },
+    },
+    {
+        id: "custom",
+        label: "Custom / Keep Current",
+        summary: "Leave your existing conversation template settings unchanged.",
+        keepCurrent: true,
+    },
+];
+
+const QUICK_PROFILES = {
+    "safe-defaults": {
+        label: "Safe Defaults",
+        summary: "Applies a full starter setup: 16000 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
+        tool: "llama-server",
+        flags: {
+            ctx_size: 16000,
+            gpu_layers: "auto",
+            fit: "on",
+            fit_target: "1024",
+            fit_ctx: 16000,
+            temperature: 0.8,
+            top_p: 0.95,
+            min_p: 0.05,
+            repeat_penalty: 1.05,
+        },
+        samplerPresetName: "Balanced",
+    },
+    balanced: {
+        label: "Balanced",
+        summary: "Applies a full general-purpose setup with 16000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
+        tool: "llama-server",
+        flags: {
+            ctx_size: 16000,
+            gpu_layers: "auto",
+            fit: "on",
+            fit_target: "1024",
+            fit_ctx: 16000,
+            temperature: 0.8,
+            top_p: 0.95,
+            min_p: 0.05,
+            repeat_penalty: 1.05,
+        },
+        samplerPresetName: "Balanced",
+    },
+    "low-memory": {
+        label: "Low Memory",
+        summary: "Applies a lighter setup with lower context, smaller batch sizes, conservative fit settings, and a more precise sampler profile.",
+        tool: "llama-server",
+        flags: {
+            ctx_size: 8192,
+            gpu_layers: "auto",
+            fit: "on",
+            fit_target: "1536",
+            fit_ctx: 8192,
+            batch_size: 1024,
+            ubatch_size: 256,
+            temperature: 0.7,
+            top_p: 0.92,
+            min_p: 0.06,
+            repeat_penalty: 1.08,
+        },
+        samplerPresetName: "Precise",
+    },
+    "long-context": {
+        label: "Long Context",
+        summary: "Applies a larger context window while keeping Auto Fit active and the rest of the launch settings beginner-friendly.",
+        tool: "llama-server",
+        flags: {
+            ctx_size: 32768,
+            gpu_layers: "auto",
+            fit: "on",
+            fit_target: "1024",
+            fit_ctx: 32768,
+            temperature: 0.75,
+            top_p: 0.95,
+            min_p: 0.04,
+            repeat_penalty: 1.05,
+        },
+        samplerPresetName: "Balanced",
+    },
+    "creative-chat": {
+        label: "Creative Chat",
+        summary: "Applies the standard launch setup, then warms up the sampler for more creative and open-ended responses.",
+        tool: "llama-server",
+        flags: {
+            ctx_size: 16000,
+            gpu_layers: "auto",
+            fit: "on",
+            fit_target: "1024",
+            fit_ctx: 16000,
+            temperature: 1.05,
+            top_p: 0.97,
+            min_p: 0.03,
+            repeat_penalty: 1.02,
+        },
+        samplerPresetName: "Creative",
+    },
+};
+
+let quickLaunchFitCtxLinked = true;
+let quickLaunchGpuCustomSelected = false;
+let quickLaunchTemplateCustomSelected = false;
+
 const API_ENDPOINTS = [
     {
         name: "OpenAI Chat Completions",
@@ -485,6 +655,474 @@ function createSamplerPresetControls() {
     return panel;
 }
 
+function setCurrentTool(tool) {
+    const nextTool = tool === "llama-cli" ? "llama-cli" : "llama-server";
+    currentTool = nextTool;
+
+    const toolSel = document.getElementById("tool-select");
+    if (toolSel && toolSel.value !== nextTool) {
+        toolSel.value = nextTool;
+    }
+
+    openCategories.clear();
+    renderFlags();
+    updateCommandPreview();
+}
+
+function populateQuickTemplatePackOptions() {
+    const select = document.getElementById("quick-template-pack");
+    if (!select) return;
+
+    select.innerHTML = "";
+    for (const pack of QUICK_TEMPLATE_PACKS) {
+        const opt = document.createElement("option");
+        opt.value = pack.id;
+        opt.textContent = pack.label;
+        select.appendChild(opt);
+    }
+}
+
+function syncQuickLaunchModelOptions() {
+    const mainSelect = document.getElementById("model-select");
+    const quickSelect = document.getElementById("quick-model-select");
+    if (!mainSelect || !quickSelect) return;
+
+    const currentQuickValue = quickSelect.value;
+    quickSelect.innerHTML = "";
+    for (const option of Array.from(mainSelect.options)) {
+        quickSelect.appendChild(option.cloneNode(true));
+    }
+
+    const preferredValue = mainSelect.value || currentQuickValue || "";
+    const hasPreferredValue = Array.from(quickSelect.options).some((opt) => opt.value === preferredValue);
+    quickSelect.value = hasPreferredValue ? preferredValue : "";
+}
+
+function getQuickTemplatePackById(id) {
+    return QUICK_TEMPLATE_PACKS.find((pack) => pack.id === id) || QUICK_TEMPLATE_PACKS[0];
+}
+
+function getMatchingQuickTemplatePackId() {
+    for (const pack of QUICK_TEMPLATE_PACKS) {
+        if (pack.keepCurrent) continue;
+        const values = pack.values || {};
+        const chatTemplate = values.chat_template ?? "";
+        const reasoning = values.reasoning ?? "";
+        const preserveThinking = !!values.preserve_thinking;
+
+        if (
+            String(flagValues.chat_template ?? "") === String(chatTemplate) &&
+            String(flagValues.reasoning ?? "") === String(reasoning) &&
+            !!flagValues.preserve_thinking === preserveThinking
+        ) {
+            return pack.id;
+        }
+    }
+    return "custom";
+}
+
+function applyQuickTemplatePack(packId) {
+    const pack = getQuickTemplatePackById(packId);
+    if (!pack || pack.keepCurrent) {
+        quickLaunchTemplateCustomSelected = true;
+        refreshQuickLaunchUI();
+        return;
+    }
+
+    quickLaunchTemplateCustomSelected = false;
+    const values = pack.values || {};
+    flagValues.chat_template = values.chat_template || undefined;
+    flagValues.reasoning = values.reasoning || undefined;
+    flagValues.preserve_thinking = !!values.preserve_thinking;
+    updateCommandPreview();
+}
+
+function getSelectedQuickSamplerEntry() {
+    const select = document.getElementById("quick-sampler-select");
+    if (!select || !select.value) return null;
+    const [source, ...nameParts] = String(select.value).split("|");
+    const name = nameParts.join("|");
+    return getAllSamplerPresets().find((entry) => entry.source === source && entry.name === name) || null;
+}
+
+function refreshQuickSamplerPresetSelect() {
+    const select = document.getElementById("quick-sampler-select");
+    if (!select) return;
+
+    const previous = select.value;
+    const entries = getAllSamplerPresets();
+    const builtins = entries.filter((entry) => entry.source === "builtin");
+    const customs = entries.filter((entry) => entry.source === "custom");
+
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = entries.length ? "-- Select Sampler Preset --" : "No sampler presets";
+    select.appendChild(placeholder);
+
+    if (builtins.length) {
+        const group = document.createElement("optgroup");
+        group.label = "Built-in";
+        for (const preset of builtins) {
+            const opt = document.createElement("option");
+            opt.value = `builtin|${preset.name}`;
+            opt.textContent = preset.name;
+            group.appendChild(opt);
+        }
+        select.appendChild(group);
+    }
+
+    if (customs.length) {
+        const group = document.createElement("optgroup");
+        group.label = "Custom";
+        for (const preset of customs) {
+            const opt = document.createElement("option");
+            opt.value = `custom|${preset.name}`;
+            opt.textContent = preset.name;
+            group.appendChild(opt);
+        }
+        select.appendChild(group);
+    }
+
+    const hasPrevious = Array.from(select.options).some((opt) => opt.value === previous);
+    if (hasPrevious) {
+        select.value = previous;
+    }
+}
+
+function applyQuickProfile(profileId) {
+    const profile = QUICK_PROFILES[profileId];
+    if (!profile) return;
+
+    quickLaunchFitCtxLinked = true;
+    setCurrentTool(profile.tool || "llama-server");
+    Object.assign(flagValues, profile.flags || {});
+
+    if (profile.samplerPresetName) {
+        const preset = getAllSamplerPresets().find((entry) => entry.name === profile.samplerPresetName);
+        if (preset) {
+            applySamplerPresetValues(preset.values);
+            return;
+        }
+    }
+
+    updateCommandPreview();
+}
+
+function setQuickLaunchContextValue(rawValue, options = {}) {
+    const parsed = rawValue === "" || rawValue === null || rawValue === undefined
+        ? undefined
+        : parseInt(rawValue, 10);
+    flagValues.ctx_size = Number.isFinite(parsed) ? parsed : undefined;
+
+    if (quickLaunchFitCtxLinked || options.forceFitSync) {
+        flagValues.fit_ctx = flagValues.ctx_size;
+    }
+
+    updateCommandPreview();
+}
+
+function setQuickLaunchGpuLayers(value) {
+    if (value === "custom") {
+        const customInput = document.getElementById("quick-gpu-custom");
+        const customValue = String(customInput && customInput.value ? customInput.value : "").trim();
+        quickLaunchGpuCustomSelected = true;
+        if (customValue) {
+            flagValues.gpu_layers = customValue;
+            updateCommandPreview();
+        } else {
+            refreshQuickLaunchUI();
+        }
+    } else {
+        quickLaunchGpuCustomSelected = false;
+        flagValues.gpu_layers = value || "auto";
+        updateCommandPreview();
+    }
+}
+
+function updateQuickLaunchActionButtons() {
+    const quickLaunchBtn = document.getElementById("btn-quick-launch");
+    const quickStopBtn = document.getElementById("btn-quick-stop");
+    const mainLaunchBtn = document.getElementById("btn-launch");
+    const mainStopBtn = document.getElementById("btn-stop");
+    if (!quickLaunchBtn || !quickStopBtn || !mainLaunchBtn || !mainStopBtn) return;
+
+    quickLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
+    quickStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
+}
+
+function refreshQuickLaunchUI() {
+    const quickCommand = document.getElementById("quick-command-preview");
+    if (!quickCommand) return;
+
+    quickLaunchFitCtxLinked = flagValues.fit_ctx === undefined || flagValues.fit_ctx === flagValues.ctx_size;
+    syncQuickLaunchModelOptions();
+    refreshQuickSamplerPresetSelect();
+
+    const mainModelSelect = document.getElementById("model-select");
+    const quickModelSelect = document.getElementById("quick-model-select");
+    if (quickModelSelect && mainModelSelect) {
+        quickModelSelect.value = mainModelSelect.value || "";
+    }
+
+    for (const radio of document.querySelectorAll('input[name="quick-launch-mode"]')) {
+        radio.checked = radio.value === currentTool;
+    }
+
+    const modeSummary = document.getElementById("quick-mode-summary");
+    if (modeSummary) {
+        modeSummary.textContent = currentTool === "llama-server"
+            ? "API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
+            : "Chat mode is selected. The process runs as an interactive local terminal chat.";
+    }
+
+    const ctxValue = flagValues.ctx_size ?? 16000;
+    const contextPreset = document.getElementById("quick-context-preset");
+    const contextCustom = document.getElementById("quick-context-custom");
+    if (contextPreset && contextCustom) {
+        const ctxString = String(ctxValue);
+        if (QUICK_CONTEXT_PRESETS.includes(ctxString)) {
+            contextPreset.value = ctxString;
+            contextCustom.value = "";
+            contextCustom.disabled = true;
+        } else {
+            contextPreset.value = "custom";
+            contextCustom.value = ctxString;
+            contextCustom.disabled = false;
+        }
+    }
+
+    const gpuMode = document.getElementById("quick-gpu-mode");
+    const gpuCustom = document.getElementById("quick-gpu-custom");
+    const gpuLayers = String(flagValues.gpu_layers ?? "auto");
+    if (gpuMode && gpuCustom) {
+        const hasCustomGpuValue = gpuLayers !== "auto" && gpuLayers !== "0" && gpuLayers !== "all";
+        if (hasCustomGpuValue) {
+            quickLaunchGpuCustomSelected = true;
+        } else if (!quickLaunchGpuCustomSelected) {
+            quickLaunchGpuCustomSelected = false;
+        }
+
+        if (!quickLaunchGpuCustomSelected && (gpuLayers === "auto" || gpuLayers === "0" || gpuLayers === "all")) {
+            gpuMode.value = gpuLayers;
+            gpuCustom.value = "";
+            gpuCustom.disabled = true;
+        } else {
+            gpuMode.value = "custom";
+            gpuCustom.value = hasCustomGpuValue ? gpuLayers : "";
+            gpuCustom.disabled = false;
+        }
+    }
+
+    const fitToggle = document.getElementById("quick-fit-toggle");
+    const fitTarget = document.getElementById("quick-fit-target");
+    const fitCtx = document.getElementById("quick-fit-ctx");
+    if (fitToggle) fitToggle.value = String(flagValues.fit ?? "on");
+    if (fitTarget) fitTarget.value = String(flagValues.fit_target ?? "1024");
+    if (fitCtx) fitCtx.value = flagValues.fit_ctx ?? "";
+
+    const fitSummary = document.getElementById("quick-fit-summary");
+    if (fitSummary) {
+        fitSummary.textContent = String(flagValues.fit ?? "on") === "on"
+            ? `Auto Fit will leave about ${flagValues.fit_target ?? "1024"} MiB free and will not shrink below ${flagValues.fit_ctx ?? ctxValue} context.`
+            : "Auto Fit is off, so llama.cpp will use your manual memory settings as-is.";
+    }
+
+    const templateSelect = document.getElementById("quick-template-pack");
+    const templateSummary = document.getElementById("quick-template-summary");
+    const selectedPack = quickLaunchTemplateCustomSelected
+        ? getQuickTemplatePackById("custom")
+        : getQuickTemplatePackById(getMatchingQuickTemplatePackId());
+    if (templateSelect) templateSelect.value = selectedPack.id;
+    if (templateSummary) templateSummary.textContent = selectedPack.summary;
+
+    const temperature = document.getElementById("quick-temperature");
+    const topP = document.getElementById("quick-top-p");
+    const minP = document.getElementById("quick-min-p");
+    const repeatPenalty = document.getElementById("quick-repeat-penalty");
+    if (temperature) temperature.value = flagValues.temperature ?? "";
+    if (topP) topP.value = flagValues.top_p ?? "";
+    if (minP) minP.value = flagValues.min_p ?? "";
+    if (repeatPenalty) repeatPenalty.value = flagValues.repeat_penalty ?? "";
+
+    const profileSummary = document.getElementById("quick-profile-summary");
+    const profileSelect = document.getElementById("quick-profile-select");
+    if (profileSummary && profileSelect) {
+        const profile = QUICK_PROFILES[profileSelect.value];
+        profileSummary.textContent = profile
+            ? profile.summary
+            : "Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.";
+    }
+
+    quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
+    updateQuickLaunchActionButtons();
+}
+
+function initQuickLaunch() {
+    populateQuickTemplatePackOptions();
+    refreshQuickSamplerPresetSelect();
+    syncQuickLaunchModelOptions();
+
+    document.getElementById("btn-open-configure").addEventListener("click", () => {
+        switchTab("configure");
+    });
+
+    document.getElementById("btn-quick-refresh-models").addEventListener("click", () => {
+        refreshModels();
+    });
+
+    document.getElementById("quick-model-select").addEventListener("change", (e) => {
+        applyPresetModel(e.target.value);
+        updateCommandPreview();
+    });
+
+    for (const radio of document.querySelectorAll('input[name="quick-launch-mode"]')) {
+        radio.addEventListener("change", () => {
+            if (radio.checked) {
+                setCurrentTool(radio.value);
+            }
+        });
+    }
+
+    document.getElementById("quick-profile-select").addEventListener("change", (e) => {
+        applyQuickProfile(e.target.value);
+        refreshQuickLaunchUI();
+    });
+
+    document.getElementById("quick-context-preset").addEventListener("change", (e) => {
+        const customInput = document.getElementById("quick-context-custom");
+        if (e.target.value === "custom") {
+            customInput.disabled = false;
+            customInput.focus();
+            return;
+        }
+
+        customInput.disabled = true;
+        customInput.value = "";
+        setQuickLaunchContextValue(e.target.value);
+    });
+
+    document.getElementById("quick-context-custom").addEventListener("input", (e) => {
+        const rawValue = e.target.value.trim();
+        if (rawValue === "") return;
+        setQuickLaunchContextValue(rawValue);
+    });
+
+    document.getElementById("quick-gpu-mode").addEventListener("change", (e) => {
+        const gpuCustom = document.getElementById("quick-gpu-custom");
+        gpuCustom.disabled = e.target.value !== "custom";
+        if (e.target.value === "custom") {
+            gpuCustom.focus();
+        }
+        setQuickLaunchGpuLayers(e.target.value);
+    });
+
+    document.getElementById("quick-gpu-custom").addEventListener("input", () => {
+        const gpuMode = document.getElementById("quick-gpu-mode");
+        if (gpuMode.value === "custom") {
+            setQuickLaunchGpuLayers("custom");
+        }
+    });
+
+    document.getElementById("quick-fit-toggle").addEventListener("change", (e) => {
+        flagValues.fit = e.target.value || "on";
+        updateCommandPreview();
+    });
+
+    document.getElementById("quick-fit-target").addEventListener("input", (e) => {
+        flagValues.fit_target = e.target.value.trim() || undefined;
+        updateCommandPreview();
+    });
+
+    document.getElementById("quick-fit-ctx").addEventListener("input", (e) => {
+        quickLaunchFitCtxLinked = false;
+        const rawValue = e.target.value.trim();
+        flagValues.fit_ctx = rawValue === "" ? undefined : parseInt(rawValue, 10);
+        updateCommandPreview();
+    });
+
+    document.getElementById("btn-quick-fit-sync").addEventListener("click", () => {
+        quickLaunchFitCtxLinked = true;
+        flagValues.fit_ctx = flagValues.ctx_size ?? 16000;
+        updateCommandPreview();
+    });
+
+    document.getElementById("quick-template-pack").addEventListener("change", (e) => {
+        applyQuickTemplatePack(e.target.value);
+    });
+
+    document.getElementById("btn-quick-sampler-load").addEventListener("click", () => {
+        const selected = getSelectedQuickSamplerEntry();
+        if (!selected) return;
+        applySamplerPresetValues(selected.values);
+        refreshQuickLaunchUI();
+    });
+
+    document.getElementById("btn-quick-sampler-save").addEventListener("click", () => {
+        const nameInput = document.getElementById("quick-sampler-name");
+        const typedName = nameInput.value.trim();
+        const selected = getSelectedQuickSamplerEntry();
+        const name = typedName || (selected && selected.source === "custom" ? selected.name : "");
+        if (!name) {
+            nameInput.focus();
+            return;
+        }
+
+        const store = loadSamplerPresetStore();
+        store[name] = normalizeSamplerPresetValues(collectSamplerValues());
+        saveSamplerPresetStore(store);
+        nameInput.value = "";
+        refreshQuickSamplerPresetSelect();
+        document.getElementById("quick-sampler-select").value = `custom|${name}`;
+    });
+
+    document.getElementById("btn-quick-sampler-delete").addEventListener("click", async () => {
+        const selected = getSelectedQuickSamplerEntry();
+        if (!selected) return;
+        if (selected.source !== "custom") {
+            alert("Built-in sampler presets cannot be deleted.");
+            return;
+        }
+
+        const ok = await confirmAction(
+            "Delete Sampler Preset",
+            `Delete sampler preset "${selected.name}"? This cannot be undone.`,
+            "Delete"
+        );
+        if (!ok) return;
+
+        const store = loadSamplerPresetStore();
+        delete store[selected.name];
+        saveSamplerPresetStore(store);
+        refreshQuickSamplerPresetSelect();
+    });
+
+    const quickSamplerFieldMap = {
+        "quick-temperature": "temperature",
+        "quick-top-p": "top_p",
+        "quick-min-p": "min_p",
+        "quick-repeat-penalty": "repeat_penalty",
+    };
+
+    for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
+        document.getElementById(elementId).addEventListener("input", (e) => {
+            const rawValue = e.target.value.trim();
+            flagValues[flagId] = rawValue === "" ? undefined : parseFloat(rawValue);
+            updateCommandPreview();
+        });
+    }
+
+    document.getElementById("btn-quick-launch").addEventListener("click", async () => {
+        switchTab("configure");
+        await launchLlama();
+    });
+
+    document.getElementById("btn-quick-stop").addEventListener("click", stopLlama);
+
+    refreshQuickLaunchUI();
+}
+
 document.addEventListener("DOMContentLoaded", () => {
     initTabs();
     initToolSelect();
@@ -492,10 +1130,12 @@ document.addEventListener("DOMContentLoaded", () => {
     initInstallButtons();
     initApiTab();
     initPresetImport();
+    initQuickLaunch();
     renderFlags();
     refreshModels();
     checkStatus();
     fetchReleases();
+    updateCommandPreview();
     updateApiEndpoints();
 });
 
@@ -509,6 +1149,7 @@ function switchTab(tabId) {
     document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === tabId));
     document.querySelectorAll(".tab-content").forEach(tc => tc.classList.toggle("active", tc.id === "tab-" + tabId));
     if (tabId === "presets") loadPresets();
+    if (tabId === "quick-launch") refreshQuickLaunchUI();
     if (tabId === "configure") updateCommandPreview();
     if (tabId === "api") {
         Promise.resolve(checkStatus()).finally(() => {
@@ -521,12 +1162,7 @@ function initToolSelect() {
     const toolSel = document.getElementById("tool-select");
     toolSel.value = currentTool;
     toolSel.addEventListener("change", () => {
-        currentTool = toolSel.value;
-        openCategories.clear();
-        renderFlags();
-        updateCommandPreview();
-        updateServerAddressPreview();
-        updateApiEndpoints();
+        setCurrentTool(toolSel.value);
     });
 }
 
@@ -878,6 +1514,7 @@ function renderFlags() {
     }
 
     restoreFlagInputs();
+    refreshQuickLaunchUI();
 }
 
 function createSubmenuBlock(categoryId, submenuName, submenuFlags) {
@@ -1209,6 +1846,9 @@ function collectFlagValues() {
 
 function applyFlagValues(data) {
     flagValues = { ...getDefaultValues(), ...data };
+    const fitCtx = flagValues.fit_ctx;
+    const ctxSize = flagValues.ctx_size;
+    quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
     restoreFlagInputs();
     updateCommandPreview();
 }
@@ -1286,6 +1926,40 @@ function updateCommandPreview() {
     document.getElementById("command-preview-text").textContent = cmd;
     updateServerAddressPreview();
     updateApiEndpoints();
+    refreshQuickLaunchUI();
+}
+
+function shouldOmitFlagValue(f, value) {
+    const inertDefaultValues = {
+        n_predict: -1,
+        keep: 0,
+        threads: -1,
+        top_n_sigma: -1,
+        typical_p: 1.0,
+        repeat_penalty: 1.0,
+        presence_penalty: 0,
+        frequency_penalty: 0,
+        dry_multiplier: 0,
+        dynatemp_range: 0,
+        seed: -1,
+        yarn_orig_ctx: 0,
+        yarn_ext_factor: -1,
+        yarn_attn_factor: -1,
+        yarn_beta_slow: -1,
+        yarn_beta_fast: -1,
+        reasoning_budget: -1,
+        cache_reuse: 0,
+    };
+
+    if (!Object.prototype.hasOwnProperty.call(inertDefaultValues, f.id)) {
+        return false;
+    }
+
+    const expected = inertDefaultValues[f.id];
+    if (typeof expected === "number") {
+        return Number(value) === expected;
+    }
+    return String(value) === String(expected);
 }
 
 function getLaunchArgs() {
@@ -1316,6 +1990,7 @@ function getLaunchArgs() {
                 args.push([f.flag, values.join(",")]);
             }
         } else {
+            if (shouldOmitFlagValue(f, val)) continue;
             args.push([f.flag, String(val)]);
         }
     }
@@ -1338,6 +2013,7 @@ async function launchLlama() {
     document.getElementById("btn-launch").classList.add("hidden");
     document.getElementById("btn-stop").classList.remove("hidden");
     document.getElementById("output-section").classList.remove("hidden");
+    updateQuickLaunchActionButtons();
 
     if (currentTool === "llama-cli") {
         document.getElementById("input-row").classList.remove("hidden");
@@ -1357,6 +2033,7 @@ async function launchLlama() {
             appendOutput("ERROR: " + result.error);
             document.getElementById("btn-launch").classList.remove("hidden");
             document.getElementById("btn-stop").classList.add("hidden");
+            updateQuickLaunchActionButtons();
         } else {
             appendOutput("Started " + currentTool + " (PID: " + result.pid + ")");
             appendOutput(result.command);
@@ -1377,6 +2054,7 @@ async function launchLlama() {
         appendOutput("ERROR: " + e.message);
         document.getElementById("btn-launch").classList.remove("hidden");
         document.getElementById("btn-stop").classList.add("hidden");
+        updateQuickLaunchActionButtons();
     }
 }
 
@@ -1392,6 +2070,7 @@ async function stopLlama() {
     document.getElementById("btn-stop").classList.add("hidden");
     document.getElementById("input-row").classList.add("hidden");
     document.getElementById("server-address").classList.add("hidden");
+    updateQuickLaunchActionButtons();
     updateApiEndpoints();
     setTimeout(() => checkStatus(), 500);
 }
@@ -1426,6 +2105,7 @@ async function pollOutput() {
             document.getElementById("btn-stop").classList.add("hidden");
             document.getElementById("input-row").classList.add("hidden");
             document.getElementById("server-address").classList.add("hidden");
+            updateQuickLaunchActionButtons();
             updateApiEndpoints();
             setTimeout(() => checkStatus(), 500);
         }
@@ -1472,6 +2152,7 @@ document.addEventListener("keydown", (e) => {
 document.getElementById("btn-launch").addEventListener("click", launchLlama);
 document.getElementById("btn-stop").addEventListener("click", stopLlama);
 document.getElementById("model-select").addEventListener("change", () => {
+    syncQuickLaunchModelOptions();
     updateCommandPreview();
 });
 
