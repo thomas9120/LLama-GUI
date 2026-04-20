@@ -576,6 +576,9 @@ async function refreshModels() {
             sel.appendChild(opt);
         }
         if (current) sel.value = current;
+        if (typeof syncQuickLaunchModelOptions === "function") {
+            syncQuickLaunchModelOptions();
+        }
     } catch (e) {
         // ignore
     }

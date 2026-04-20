@@ -518,6 +518,123 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     font-size: 13px;
 }
 
+/* Quick Launch */
+.quick-launch-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border);
+}
+
+.quick-launch-intro {
+    color: var(--fg-dim);
+    max-width: 680px;
+}
+
+.quick-launch-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.quick-card {
+    padding: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%),
+        linear-gradient(145deg, rgba(122, 162, 247, 0.08), rgba(0, 0, 0, 0) 42%),
+        var(--bg);
+}
+
+.quick-preview-card {
+    grid-column: 1 / -1;
+}
+
+.quick-card-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.quick-card-header h3 {
+    margin: 0;
+    color: var(--fg-bright);
+}
+
+.quick-card-kicker {
+    color: var(--cyan);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+}
+
+.quick-help-text {
+    color: var(--fg-dim);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.quick-mode-toggle {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.quick-choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg2);
+    color: var(--fg);
+    cursor: pointer;
+}
+
+.quick-choice input[type="radio"] {
+    accent-color: var(--accent);
+}
+
+.quick-fit-grid,
+.quick-slider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+}
+
+.quick-preview-card code {
+    display: block;
+    margin-top: 10px;
+    padding: 12px;
+    background: #101522;
+    border: 1px solid rgba(122, 162, 247, 0.28);
+    border-radius: var(--radius);
+    color: var(--cyan);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.quick-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 14px;
+}
+
 /* Launch bar */
 .launch-bar {
     display: flex;
@@ -884,6 +1001,11 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     .sampler-presets-row { flex-direction: column; align-items: stretch; }
     .sampler-presets-row select,
     .sampler-presets-row input[type="text"] { min-width: 0; }
+    .quick-launch-grid { grid-template-columns: 1fr; }
+    .quick-preview-card { grid-column: auto; }
+    .quick-mode-toggle,
+    .quick-fit-grid,
+    .quick-slider-grid { grid-template-columns: 1fr; }
     .launch-bar { flex-direction: column; align-items: stretch; }
     .api-url-row { flex-direction: column; align-items: stretch; }
     .modal-dialog .form-row { justify-content: stretch; }

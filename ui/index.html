@@ -18,6 +18,7 @@
 
         <nav class="tabs">
             <button class="tab active" data-tab="install">Install</button>
+            <button class="tab" data-tab="quick-launch">Quick Launch</button>
             <button class="tab" data-tab="configure">Configure</button>
             <button class="tab" data-tab="api">API</button>
             <button class="tab" data-tab="presets">Presets</button>
@@ -87,6 +88,194 @@
                         Repository:
                         <a href="https://github.com/thomas9120/LLama-GUI.git" target="_blank" rel="noopener noreferrer" class="server-link">github.com/thomas9120/LLama-GUI.git</a>
                     </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- QUICK LAUNCH TAB -->
+        <div class="tab-content" id="tab-quick-launch">
+            <div class="panel">
+                <div class="quick-launch-header">
+                    <div>
+                        <h2>Quick Launch</h2>
+                        <p class="quick-launch-intro">Pick a model, use a beginner-friendly setup, and launch with sensible llama.cpp defaults.</p>
+                    </div>
+                    <button id="btn-open-configure" class="btn" type="button">Fine-tune in Configure</button>
+                </div>
+
+                <div class="quick-launch-grid">
+                    <section class="quick-card">
+                        <div class="quick-card-header">
+                            <h3>Model</h3>
+                            <span class="quick-card-kicker">Choose what to run</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-model-select">Model</label>
+                            <div class="input-row">
+                                <select id="quick-model-select">
+                                    <option value="">-- Select Model --</option>
+                                </select>
+                                <button id="btn-quick-refresh-models" class="btn btn-sm" type="button" title="Refresh models">&#x21bb;</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-profile-select">Beginner Profile</label>
+                            <select id="quick-profile-select">
+                                <option value="">Choose a profile...</option>
+                                <option value="safe-defaults">Safe Defaults</option>
+                                <option value="balanced">Balanced</option>
+                                <option value="low-memory">Low Memory</option>
+                                <option value="long-context">Long Context</option>
+                                <option value="creative-chat">Creative Chat</option>
+                            </select>
+                        </div>
+                        <p id="quick-profile-summary" class="quick-help-text">Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.</p>
+                    </section>
+
+                    <section class="quick-card">
+                        <div class="quick-card-header">
+                            <h3>Launch Mode</h3>
+                            <span class="quick-card-kicker">Server is the default</span>
+                        </div>
+                        <div class="quick-mode-toggle" id="quick-mode-toggle">
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-server" checked />
+                                <span>API Server</span>
+                            </label>
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-cli" />
+                                <span>Chat</span>
+                            </label>
+                        </div>
+                        <p id="quick-mode-summary" class="quick-help-text">API Server exposes the OpenAI-compatible endpoints and built-in web UI.</p>
+                    </section>
+
+                    <section class="quick-card">
+                        <div class="quick-card-header">
+                            <h3>Memory &amp; Fit</h3>
+                            <span class="quick-card-kicker">Keep it beginner-safe</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-context-preset">Context Length</label>
+                            <div class="input-row">
+                                <select id="quick-context-preset">
+                                    <option value="8192">8192</option>
+                                    <option value="16000">16000</option>
+                                    <option value="32768">32768</option>
+                                    <option value="64000">64000</option>
+                                    <option value="128000">128000</option>
+                                    <option value="256000">256000</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="number" id="quick-context-custom" min="0" step="1" placeholder="Custom tokens" />
+                            </div>
+                            <p class="quick-help-text">16000 is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quick-gpu-mode">GPU Offload</label>
+                            <div class="input-row">
+                                <select id="quick-gpu-mode">
+                                    <option value="auto">Auto</option>
+                                    <option value="0">CPU only</option>
+                                    <option value="all">All GPU layers</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input type="text" id="quick-gpu-custom" placeholder="Manual layers" />
+                            </div>
+                            <p class="quick-help-text">Leave this on Auto unless you are tuning a specific machine.</p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="quick-fit-toggle">Auto Fit</label>
+                            <select id="quick-fit-toggle">
+                                <option value="on">On</option>
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+
+                        <div class="quick-fit-grid">
+                            <div class="form-group">
+                                <label for="quick-fit-target">Fit Target Margin (MiB)</label>
+                                <input type="text" id="quick-fit-target" placeholder="1024" />
+                            </div>
+                            <div class="form-group">
+                                <label for="quick-fit-ctx">Minimum Fit Context</label>
+                                <div class="input-row">
+                                    <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="16000" />
+                                    <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <p id="quick-fit-summary" class="quick-help-text"></p>
+                    </section>
+
+                    <section class="quick-card">
+                        <div class="quick-card-header">
+                            <h3>Instruction Template</h3>
+                            <span class="quick-card-kicker">Template packs</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-template-pack">Template Pack</label>
+                            <select id="quick-template-pack"></select>
+                        </div>
+                        <p id="quick-template-summary" class="quick-help-text">Choose a pack that matches your model family or desired thinking style.</p>
+                    </section>
+
+                    <section class="quick-card">
+                        <div class="quick-card-header">
+                            <h3>Sampler</h3>
+                            <span class="quick-card-kicker">Fast control over generation style</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-sampler-select">Sampler Preset</label>
+                            <div class="input-row">
+                                <select id="quick-sampler-select"></select>
+                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="quick-sampler-name">Save Current Sampler</label>
+                            <div class="input-row">
+                                <input type="text" id="quick-sampler-name" placeholder="Preset name..." />
+                                <button id="btn-quick-sampler-save" class="btn btn-sm" type="button">Save</button>
+                                <button id="btn-quick-sampler-delete" class="btn btn-sm btn-danger" type="button">Delete</button>
+                            </div>
+                        </div>
+
+                        <div class="quick-slider-grid">
+                            <div class="form-group">
+                                <label for="quick-temperature">Temperature</label>
+                                <input type="number" id="quick-temperature" min="0" max="5" step="0.05" />
+                            </div>
+                            <div class="form-group">
+                                <label for="quick-top-p">Top-P</label>
+                                <input type="number" id="quick-top-p" min="0" max="1" step="0.01" />
+                            </div>
+                            <div class="form-group">
+                                <label for="quick-min-p">Min-P</label>
+                                <input type="number" id="quick-min-p" min="0" max="1" step="0.01" />
+                            </div>
+                            <div class="form-group">
+                                <label for="quick-repeat-penalty">Repeat Penalty</label>
+                                <input type="number" id="quick-repeat-penalty" min="0.5" max="3" step="0.05" />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="quick-card quick-preview-card">
+                        <div class="quick-card-header">
+                            <h3>Launch Preview</h3>
+                            <span class="quick-card-kicker">Still a normal llama.cpp command</span>
+                        </div>
+                        <p class="quick-help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
+                        <code id="quick-command-preview"></code>
+                        <div class="quick-actions">
+                            <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">Launch</button>
+                            <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">Stop</button>
+                        </div>
+                    </section>
                 </div>
             </div>
         </div>

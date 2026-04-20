@@ -30,7 +30,7 @@ python3 server.py
 ```
 
 Platform launch helpers:
-- Windows: `start.bat` or `start_silent.bat`
+- Windows: `windows_start.bat` or `windows_startsilent.bat`
 - macOS/Linux: `./start.sh` or `./start_silent.sh`
 
 2. Open `http://127.0.0.1:5240` in your browser.
@@ -46,8 +46,8 @@ Platform launch helpers:
 2. Clone or download this repository.
 3. Start the app with one of:
    - `python server.py`
-   - `start.bat`
-   - `start_silent.bat`
+   - `windows_start.bat`
+   - `windows_startsilent.bat`
 4. Open `http://127.0.0.1:5240` in your browser.
 5. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
 

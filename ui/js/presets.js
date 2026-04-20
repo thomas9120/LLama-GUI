@@ -30,6 +30,9 @@ function applyPresetModel(modelName) {
     }
 
     modelSelect.value = target;
+    if (typeof syncQuickLaunchModelOptions === "function") {
+        syncQuickLaunchModelOptions();
+    }
 }
 
 function buildCurrentPresetData() {
