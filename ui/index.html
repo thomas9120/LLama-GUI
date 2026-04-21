@@ -221,6 +221,16 @@
                             <select id="quick-template-pack"></select>
                         </div>
                         <p id="quick-template-summary" class="quick-help-text">Choose a pack that matches your model family or desired thinking style.</p>
+
+                        <div class="form-group">
+                            <label for="quick-reasoning">Reasoning</label>
+                            <select id="quick-reasoning">
+                                <option value="auto">Auto</option>
+                                <option value="on">On</option>
+                                <option value="off">Off</option>
+                            </select>
+                        </div>
+                        <p id="quick-reasoning-summary" class="quick-help-text">Use `auto` unless you specifically want to force thinking on or off for a compatible template.</p>
                     </section>
 
                     <section class="quick-card">
@@ -315,6 +325,25 @@
                         <button id="btn-clear-search" class="btn btn-sm" type="button" title="Clear search"><span class="ctrl-icon">&#x2715;</span><span class="ctrl-label">Clear</span></button>
                         <button id="btn-expand-all" class="btn btn-sm" type="button" title="Expand all categories"><span class="ctrl-icon">&#x229E;</span><span class="ctrl-label">Expand All</span></button>
                         <button id="btn-collapse-all" class="btn btn-sm" type="button" title="Collapse all categories"><span class="ctrl-icon">&#x229F;</span><span class="ctrl-label">Collapse All</span></button>
+                    </div>
+                </div>
+
+                <div class="config-quick-strip">
+                    <div class="config-quick-item">
+                        <label for="config-chat-template-quick">Chat Template</label>
+                        <select id="config-chat-template-quick"></select>
+                    </div>
+                    <div class="config-quick-item">
+                        <label for="config-reasoning-quick">Reasoning</label>
+                        <select id="config-reasoning-quick">
+                            <option value="auto">Auto</option>
+                            <option value="on">On</option>
+                            <option value="off">Off</option>
+                        </select>
+                    </div>
+                    <div class="config-quick-item config-quick-note">
+                        <span class="config-quick-note-label">Pinned Conversation Controls</span>
+                        <span class="config-quick-note-text">These mirror the full conversation flags below so template and reasoning settings are always easy to reach.</span>
                     </div>
                 </div>
 

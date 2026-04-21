@@ -56,68 +56,74 @@ const QUICK_TEMPLATE_PACKS = [
     {
         id: "auto",
         label: "Auto from model",
-        summary: "Use the template embedded in the model when available.",
+        summary: "Use the template embedded in the model metadata. This is the safest choice for modern families like Qwen and many newer GGUF releases.",
         values: { chat_template: "", reasoning: "auto", preserve_thinking: false },
     },
     {
         id: "chatml",
         label: "ChatML",
-        summary: "A safe ChatML setup without forced thinking output.",
+        summary: "Use llama.cpp's built-in ChatML template.",
         values: { chat_template: "chatml", reasoning: "auto", preserve_thinking: false },
-    },
-    {
-        id: "chatml-thinking",
-        label: "ChatML (Thinking)",
-        summary: "ChatML with reasoning enabled, without forcing visible thinking tags.",
-        values: { chat_template: "chatml", reasoning: "on", preserve_thinking: false },
-    },
-    {
-        id: "chatml-no-thinking",
-        label: "ChatML (No Thinking)",
-        summary: "ChatML with reasoning disabled for direct replies.",
-        values: { chat_template: "chatml", reasoning: "off", preserve_thinking: false },
     },
     {
         id: "gemma",
         label: "Gemma",
-        summary: "Gemma-style instruction formatting with automatic reasoning behavior.",
+        summary: "Use llama.cpp's built-in Gemma template.",
         values: { chat_template: "gemma", reasoning: "auto", preserve_thinking: false },
-    },
-    {
-        id: "gemma-thinking",
-        label: "Gemma (Thinking)",
-        summary: "Gemma formatting with reasoning enabled, without forcing visible thinking tags.",
-        values: { chat_template: "gemma", reasoning: "on", preserve_thinking: false },
-    },
-    {
-        id: "gemma-no-thinking",
-        label: "Gemma (No Thinking)",
-        summary: "Gemma formatting with explicit non-thinking responses.",
-        values: { chat_template: "gemma", reasoning: "off", preserve_thinking: false },
-    },
-    {
-        id: "alpaca",
-        label: "Alpaca / Instruct",
-        summary: "Simple instruct-style formatting for older instruct-tuned models.",
-        values: { chat_template: "vicuna", reasoning: "off", preserve_thinking: false },
     },
     {
         id: "llama3",
         label: "Llama 3",
-        summary: "Meta Llama 3 family formatting.",
+        summary: "Use llama.cpp's built-in Llama 3 template.",
         values: { chat_template: "llama3", reasoning: "auto", preserve_thinking: false },
     },
     {
-        id: "qwen",
-        label: "Qwen",
-        summary: "Qwen-family formatting, including visible thinking where relevant.",
-        values: { chat_template: "qwen", reasoning: "auto", preserve_thinking: true },
+        id: "llama4",
+        label: "Llama 4",
+        summary: "Use llama.cpp's built-in Llama 4 template.",
+        values: { chat_template: "llama4", reasoning: "auto", preserve_thinking: false },
     },
     {
         id: "deepseek",
         label: "DeepSeek",
-        summary: "DeepSeek-family formatting with thinking preserved when provided.",
-        values: { chat_template: "deepseek", reasoning: "auto", preserve_thinking: true },
+        summary: "Use llama.cpp's built-in DeepSeek template.",
+        values: { chat_template: "deepseek", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "deepseek3",
+        label: "DeepSeek 3",
+        summary: "Use llama.cpp's built-in DeepSeek 3 template.",
+        values: { chat_template: "deepseek3", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "mistral-v1",
+        label: "Mistral v1",
+        summary: "Use llama.cpp's built-in Mistral v1 template.",
+        values: { chat_template: "mistral-v1", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "mistral-v3",
+        label: "Mistral v3",
+        summary: "Use llama.cpp's built-in Mistral v3 template.",
+        values: { chat_template: "mistral-v3", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "vicuna",
+        label: "Vicuna",
+        summary: "Use llama.cpp's built-in Vicuna template.",
+        values: { chat_template: "vicuna", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "command-r",
+        label: "Command-R",
+        summary: "Use llama.cpp's built-in Command-R template.",
+        values: { chat_template: "command-r", reasoning: "auto", preserve_thinking: false },
+    },
+    {
+        id: "gpt-oss",
+        label: "gpt-oss",
+        summary: "Use llama.cpp's built-in gpt-oss template.",
+        values: { chat_template: "gpt-oss", reasoning: "auto", preserve_thinking: false },
     },
     {
         id: "custom",
@@ -732,6 +738,7 @@ function applyQuickTemplatePack(packId) {
     quickLaunchTemplateCustomSelected = false;
     const values = pack.values || {};
     flagValues.chat_template = values.chat_template || undefined;
+    flagValues.chat_template_custom = undefined;
     flagValues.reasoning = values.reasoning || undefined;
     flagValues.preserve_thinking = !!values.preserve_thinking;
     updateCommandPreview();
@@ -852,6 +859,20 @@ function updateQuickLaunchActionButtons() {
     quickStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
 }
 
+function refreshConfigQuickConversationControls() {
+    const templateSelect = document.getElementById("config-chat-template-quick");
+    const reasoningSelect = document.getElementById("config-reasoning-quick");
+
+    if (templateSelect) {
+        const templateValue = String(flagValues.chat_template ?? "");
+        templateSelect.value = isSupportedChatTemplateValue(templateValue) ? templateValue : "";
+    }
+
+    if (reasoningSelect) {
+        reasoningSelect.value = String(flagValues.reasoning ?? "auto");
+    }
+}
+
 function refreshQuickLaunchUI() {
     const quickCommand = document.getElementById("quick-command-preview");
     if (!quickCommand) return;
@@ -931,11 +952,22 @@ function refreshQuickLaunchUI() {
 
     const templateSelect = document.getElementById("quick-template-pack");
     const templateSummary = document.getElementById("quick-template-summary");
+    const reasoningSelect = document.getElementById("quick-reasoning");
+    const reasoningSummary = document.getElementById("quick-reasoning-summary");
     const selectedPack = quickLaunchTemplateCustomSelected
         ? getQuickTemplatePackById("custom")
         : getQuickTemplatePackById(getMatchingQuickTemplatePackId());
     if (templateSelect) templateSelect.value = selectedPack.id;
     if (templateSummary) templateSummary.textContent = selectedPack.summary;
+    if (reasoningSelect) reasoningSelect.value = String(flagValues.reasoning ?? "auto");
+    if (reasoningSummary) {
+        const reasoningMode = String(flagValues.reasoning ?? "auto");
+        reasoningSummary.textContent = reasoningMode === "on"
+            ? "Reasoning is forced on. Use this only with templates and models that support thinking."
+            : reasoningMode === "off"
+                ? "Reasoning is forced off for direct answers without deliberate thinking output."
+                : "Reasoning is on auto. llama.cpp will detect whether the active template supports thinking.";
+    }
 
     const temperature = document.getElementById("quick-temperature");
     const topK = document.getElementById("quick-top-k");
@@ -958,6 +990,7 @@ function refreshQuickLaunchUI() {
     }
 
     quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
+    refreshConfigQuickConversationControls();
     updateQuickServerAddressPreview();
     updateQuickLaunchActionButtons();
 }
@@ -1053,6 +1086,12 @@ function initQuickLaunch() {
 
     document.getElementById("quick-template-pack").addEventListener("change", (e) => {
         applyQuickTemplatePack(e.target.value);
+    });
+
+    document.getElementById("quick-reasoning").addEventListener("change", (e) => {
+        flagValues.reasoning = e.target.value || "auto";
+        quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
+        updateCommandPreview();
     });
 
     document.getElementById("btn-quick-sampler-load").addEventListener("click", () => {
@@ -1189,6 +1228,32 @@ function initApiTab() {
 
 function initConfigControls() {
     const search = document.getElementById("config-search");
+    const quickTemplate = document.getElementById("config-chat-template-quick");
+    const quickReasoning = document.getElementById("config-reasoning-quick");
+
+    if (quickTemplate) {
+        quickTemplate.innerHTML = "";
+        const chatTemplateFlag = FLAGS.find((f) => f.id === "chat_template");
+        for (const option of chatTemplateFlag?.options || []) {
+            const el = document.createElement("option");
+            el.value = option.value;
+            el.textContent = option.label;
+            quickTemplate.appendChild(el);
+        }
+        quickTemplate.addEventListener("change", (e) => {
+            flagValues.chat_template = e.target.value || undefined;
+            quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
+            updateCommandPreview();
+        });
+    }
+
+    if (quickReasoning) {
+        quickReasoning.addEventListener("change", (e) => {
+            flagValues.reasoning = e.target.value || "auto";
+            quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
+            updateCommandPreview();
+        });
+    }
 
     const clearSearch = () => {
         search.value = "";
@@ -1237,6 +1302,8 @@ function initConfigControls() {
         openSubmenus.clear();
         renderFlags();
     });
+
+    refreshConfigQuickConversationControls();
 }
 
 function flagMatchesSearch(flag, query) {
@@ -2018,6 +2085,9 @@ function getLaunchArgs() {
                 args.push([f.flag, values.join(",")]);
             }
         } else {
+            if (f.id === "chat_template" && typeof isSupportedChatTemplateValue === "function" && !isSupportedChatTemplateValue(val)) {
+                continue;
+            }
             if (shouldOmitFlagValue(f, val)) continue;
             args.push([f.flag, String(val)]);
         }

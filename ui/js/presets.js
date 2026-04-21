@@ -41,6 +41,18 @@ function buildCurrentPresetData() {
     return { tool: currentTool, model: selectedModel, flags: values };
 }
 
+function getPresetWarnings(presetData) {
+    const warnings = [];
+    const flags = (presetData && presetData.flags) || {};
+    const chatTemplate = flags.chat_template;
+
+    if (chatTemplate && typeof isSupportedChatTemplateValue === "function" && !isSupportedChatTemplateValue(chatTemplate)) {
+        warnings.push(`Uses outdated or unsupported chat template "${chatTemplate}". It will be ignored and Auto from model is safer.`);
+    }
+
+    return warnings;
+}
+
 let presetStatusTimer = null;
 
 function showPresetStatus(message, type = "success", durationMs = 2200) {
@@ -86,6 +98,13 @@ async function loadPresets() {
             metaEl.textContent = `${flagCount} configured flag(s) • tool: ${toolText} • model: ${modelText}`;
             details.appendChild(nameEl);
             details.appendChild(metaEl);
+            const warnings = getPresetWarnings(presetData);
+            if (warnings.length > 0) {
+                const warningEl = document.createElement("div");
+                warningEl.className = "preset-warning";
+                warningEl.textContent = warnings.join(" ");
+                details.appendChild(warningEl);
+            }
 
             const actions = document.createElement("div");
             actions.className = "form-row";
@@ -182,6 +201,7 @@ async function loadPreset(name) {
         const preset = presets.find(p => p.name === name);
         if (preset) {
             const presetData = normalizePresetData(preset.data);
+            const warnings = getPresetWarnings(presetData);
             if (presetData.tool === "llama-cli" || presetData.tool === "llama-server") {
                 currentTool = presetData.tool;
                 document.getElementById("tool-select").value = presetData.tool;
@@ -189,6 +209,11 @@ async function loadPreset(name) {
             }
             applyPresetModel(presetData.model);
             applyFlagValues(presetData.flags);
+            if (warnings.length > 0) {
+                showPresetStatus(`Loaded "${name}" with warning: ${warnings[0]}`, "warning", 5000);
+            } else {
+                showPresetStatus(`Loaded preset "${name}"`, "success");
+            }
             switchTab("configure");
         }
     } catch (e) {
