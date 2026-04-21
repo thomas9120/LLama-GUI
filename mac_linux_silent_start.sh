@@ -3,6 +3,7 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
+APP_URL="http://127.0.0.1:5240"
 
 PY_CMD=""
 if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then
@@ -19,4 +20,16 @@ if [ -z "$PY_CMD" ]; then
     exit 1
 fi
 
+open_browser() {
+    (
+        sleep 2
+        if command -v open >/dev/null 2>&1; then
+            open "$APP_URL" >/dev/null 2>&1 || true
+        elif command -v xdg-open >/dev/null 2>&1; then
+            xdg-open "$APP_URL" >/dev/null 2>&1 || true
+        fi
+    ) &
+}
+
 nohup "$PY_CMD" server.py >/dev/null 2>&1 &
+open_browser

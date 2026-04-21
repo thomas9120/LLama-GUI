@@ -37,4 +37,4 @@ echo "Installing Python dependencies from requirements.txt..."
 
 echo
 echo "Install complete."
-echo "Start the app with ./start.sh or ./start_silent.sh"
+echo "Start the app with ./mac_linux_start.sh or ./mac_linux_silent_start.sh"

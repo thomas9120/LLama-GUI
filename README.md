@@ -37,12 +37,12 @@ Windows:
 2. Start the app:
 
 ```bash
-./start.sh
+./mac_linux_start.sh
 ```
 
 Platform launch helpers:
 - Windows: `windows_start.bat` or `windows_startsilent.bat`
-- macOS/Linux: `./start.sh` or `./start_silent.sh`
+- macOS/Linux: `./mac_linux_start.sh` or `./mac_linux_silent_start.sh`
 
 3. Open `http://127.0.0.1:5240` in your browser.
 4. In **Install**, choose a version + backend, then click **Install**.
@@ -80,13 +80,13 @@ cd Llama-GUI-v0.1.0
 4. Make the helper scripts executable if needed:
 
 ```bash
-chmod +x install.sh start.sh start_silent.sh
+chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 ```
 
 5. Run `./install.sh`.
 6. Start the app with:
-   - `./start.sh`
-   - or `./start_silent.sh`
+- `./mac_linux_start.sh`
+- or `./mac_linux_silent_start.sh`
 7. Open `http://127.0.0.1:5240` in your browser.
 
 Note: the packaged release zip does not include downloaded `llama.cpp` binaries or local models. After starting the app, use the **Install** tab to download a backend and then place your `.gguf` files in `models/`.
@@ -119,13 +119,13 @@ cd LLama-GUI
 3. Make the helper scripts executable if needed:
 
 ```bash
-chmod +x install.sh start.sh start_silent.sh
+chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 ```
 
 4. Run `./install.sh`.
 5. Start the app with one of:
-   - `./start.sh`
-   - `./start_silent.sh`
+- `./mac_linux_start.sh`
+- `./mac_linux_silent_start.sh`
 6. Open `http://127.0.0.1:5240` in your browser.
 7. In the **Install** tab, choose the backend that matches your Mac:
    - Apple Silicon: `Metal` or `Metal + KleidiAI`
@@ -151,13 +151,13 @@ cd LLama-GUI
 3. Make the helper scripts executable:
 
 ```bash
-chmod +x install.sh start.sh start_silent.sh
+chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 ```
 
 4. Run `./install.sh`.
 5. Start the app with one of:
-   - `./start.sh`
-   - `./start_silent.sh`
+- `./mac_linux_start.sh`
+- `./mac_linux_silent_start.sh`
 6. Open `http://127.0.0.1:5240` in your browser.
 7. In the **Install** tab, choose a Linux backend supported by your machine, such as `CPU`, `Vulkan`, `ROCm`, or `OpenVINO`.
 8. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
@@ -321,8 +321,8 @@ The generated zip includes the app itself:
 - `server.py`
 - `install.sh`
 - `ui/`
-- `start.sh`
-- `start_silent.sh`
+- `mac_linux_start.sh`
+- `mac_linux_silent_start.sh`
 - `windows_install.bat`
 - `windows_start.bat`
 - `windows_startsilent.bat`
