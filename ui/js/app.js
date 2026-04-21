@@ -57,73 +57,73 @@ const QUICK_TEMPLATE_PACKS = [
         id: "auto",
         label: "Auto from model",
         summary: "Use the template embedded in the model metadata. This is the safest choice for modern families like Qwen and many newer GGUF releases.",
-        values: { chat_template: "", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "", preserve_thinking: false },
     },
     {
         id: "chatml",
         label: "ChatML",
         summary: "Use llama.cpp's built-in ChatML template.",
-        values: { chat_template: "chatml", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "chatml", preserve_thinking: false },
     },
     {
         id: "gemma",
         label: "Gemma",
         summary: "Use llama.cpp's built-in Gemma template.",
-        values: { chat_template: "gemma", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "gemma", preserve_thinking: false },
     },
     {
         id: "llama3",
         label: "Llama 3",
         summary: "Use llama.cpp's built-in Llama 3 template.",
-        values: { chat_template: "llama3", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "llama3", preserve_thinking: false },
     },
     {
         id: "llama4",
         label: "Llama 4",
         summary: "Use llama.cpp's built-in Llama 4 template.",
-        values: { chat_template: "llama4", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "llama4", preserve_thinking: false },
     },
     {
         id: "deepseek",
         label: "DeepSeek",
         summary: "Use llama.cpp's built-in DeepSeek template.",
-        values: { chat_template: "deepseek", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "deepseek", preserve_thinking: false },
     },
     {
         id: "deepseek3",
         label: "DeepSeek 3",
         summary: "Use llama.cpp's built-in DeepSeek 3 template.",
-        values: { chat_template: "deepseek3", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "deepseek3", preserve_thinking: false },
     },
     {
         id: "mistral-v1",
         label: "Mistral v1",
         summary: "Use llama.cpp's built-in Mistral v1 template.",
-        values: { chat_template: "mistral-v1", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "mistral-v1", preserve_thinking: false },
     },
     {
         id: "mistral-v3",
         label: "Mistral v3",
         summary: "Use llama.cpp's built-in Mistral v3 template.",
-        values: { chat_template: "mistral-v3", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "mistral-v3", preserve_thinking: false },
     },
     {
         id: "vicuna",
         label: "Vicuna",
         summary: "Use llama.cpp's built-in Vicuna template.",
-        values: { chat_template: "vicuna", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "vicuna", preserve_thinking: false },
     },
     {
         id: "command-r",
         label: "Command-R",
         summary: "Use llama.cpp's built-in Command-R template.",
-        values: { chat_template: "command-r", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "command-r", preserve_thinking: false },
     },
     {
         id: "gpt-oss",
         label: "gpt-oss",
         summary: "Use llama.cpp's built-in gpt-oss template.",
-        values: { chat_template: "gpt-oss", reasoning: "auto", preserve_thinking: false },
+        values: { chat_template: "gpt-oss", preserve_thinking: false },
     },
     {
         id: "custom",
@@ -713,12 +713,10 @@ function getMatchingQuickTemplatePackId() {
         if (pack.keepCurrent) continue;
         const values = pack.values || {};
         const chatTemplate = values.chat_template ?? "";
-        const reasoning = values.reasoning ?? "";
         const preserveThinking = !!values.preserve_thinking;
 
         if (
             String(flagValues.chat_template ?? "") === String(chatTemplate) &&
-            String(flagValues.reasoning ?? "") === String(reasoning) &&
             !!flagValues.preserve_thinking === preserveThinking
         ) {
             return pack.id;
@@ -739,8 +737,10 @@ function applyQuickTemplatePack(packId) {
     const values = pack.values || {};
     flagValues.chat_template = values.chat_template || undefined;
     flagValues.chat_template_custom = undefined;
-    flagValues.reasoning = values.reasoning || undefined;
-    flagValues.preserve_thinking = !!values.preserve_thinking;
+    if (Object.prototype.hasOwnProperty.call(values, "preserve_thinking")) {
+        flagValues.preserve_thinking = !!values.preserve_thinking;
+    }
+    restoreFlagInputs();
     updateCommandPreview();
 }
 
@@ -817,6 +817,30 @@ function applyQuickProfile(profileId) {
     updateCommandPreview();
 }
 
+function setChatTemplateValue(value, options = {}) {
+    flagValues.chat_template = value || undefined;
+    if (options.resetCustomTemplateFile) {
+        flagValues.chat_template_custom = undefined;
+    }
+    if (options.markQuickCustom) {
+        quickLaunchTemplateCustomSelected = true;
+    } else if (options.syncQuickPack) {
+        quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
+    }
+    restoreFlagInputs();
+    updateCommandPreview();
+}
+
+function setReasoningMode(value, options = {}) {
+    const normalized = value === "on" || value === "off" ? value : "auto";
+    flagValues.reasoning = normalized;
+    if (options.markQuickCustom) {
+        quickLaunchTemplateCustomSelected = true;
+    }
+    restoreFlagInputs();
+    updateCommandPreview();
+}
+
 function setQuickLaunchContextValue(rawValue, options = {}) {
     const parsed = rawValue === "" || rawValue === null || rawValue === undefined
         ? undefined
@@ -857,20 +881,6 @@ function updateQuickLaunchActionButtons() {
 
     quickLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
     quickStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
-}
-
-function refreshConfigQuickConversationControls() {
-    const templateSelect = document.getElementById("config-chat-template-quick");
-    const reasoningSelect = document.getElementById("config-reasoning-quick");
-
-    if (templateSelect) {
-        const templateValue = String(flagValues.chat_template ?? "");
-        templateSelect.value = isSupportedChatTemplateValue(templateValue) ? templateValue : "";
-    }
-
-    if (reasoningSelect) {
-        reasoningSelect.value = String(flagValues.reasoning ?? "auto");
-    }
 }
 
 function refreshQuickLaunchUI() {
@@ -952,22 +962,11 @@ function refreshQuickLaunchUI() {
 
     const templateSelect = document.getElementById("quick-template-pack");
     const templateSummary = document.getElementById("quick-template-summary");
-    const reasoningSelect = document.getElementById("quick-reasoning");
-    const reasoningSummary = document.getElementById("quick-reasoning-summary");
     const selectedPack = quickLaunchTemplateCustomSelected
         ? getQuickTemplatePackById("custom")
         : getQuickTemplatePackById(getMatchingQuickTemplatePackId());
     if (templateSelect) templateSelect.value = selectedPack.id;
     if (templateSummary) templateSummary.textContent = selectedPack.summary;
-    if (reasoningSelect) reasoningSelect.value = String(flagValues.reasoning ?? "auto");
-    if (reasoningSummary) {
-        const reasoningMode = String(flagValues.reasoning ?? "auto");
-        reasoningSummary.textContent = reasoningMode === "on"
-            ? "Reasoning is forced on. Use this only with templates and models that support thinking."
-            : reasoningMode === "off"
-                ? "Reasoning is forced off for direct answers without deliberate thinking output."
-                : "Reasoning is on auto. llama.cpp will detect whether the active template supports thinking.";
-    }
 
     const temperature = document.getElementById("quick-temperature");
     const topK = document.getElementById("quick-top-k");
@@ -990,7 +989,6 @@ function refreshQuickLaunchUI() {
     }
 
     quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
-    refreshConfigQuickConversationControls();
     updateQuickServerAddressPreview();
     updateQuickLaunchActionButtons();
 }
@@ -1086,12 +1084,6 @@ function initQuickLaunch() {
 
     document.getElementById("quick-template-pack").addEventListener("change", (e) => {
         applyQuickTemplatePack(e.target.value);
-    });
-
-    document.getElementById("quick-reasoning").addEventListener("change", (e) => {
-        flagValues.reasoning = e.target.value || "auto";
-        quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
-        updateCommandPreview();
     });
 
     document.getElementById("btn-quick-sampler-load").addEventListener("click", () => {
@@ -1228,32 +1220,6 @@ function initApiTab() {
 
 function initConfigControls() {
     const search = document.getElementById("config-search");
-    const quickTemplate = document.getElementById("config-chat-template-quick");
-    const quickReasoning = document.getElementById("config-reasoning-quick");
-
-    if (quickTemplate) {
-        quickTemplate.innerHTML = "";
-        const chatTemplateFlag = FLAGS.find((f) => f.id === "chat_template");
-        for (const option of chatTemplateFlag?.options || []) {
-            const el = document.createElement("option");
-            el.value = option.value;
-            el.textContent = option.label;
-            quickTemplate.appendChild(el);
-        }
-        quickTemplate.addEventListener("change", (e) => {
-            flagValues.chat_template = e.target.value || undefined;
-            quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
-            updateCommandPreview();
-        });
-    }
-
-    if (quickReasoning) {
-        quickReasoning.addEventListener("change", (e) => {
-            flagValues.reasoning = e.target.value || "auto";
-            quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
-            updateCommandPreview();
-        });
-    }
 
     const clearSearch = () => {
         search.value = "";
@@ -1302,8 +1268,6 @@ function initConfigControls() {
         openSubmenus.clear();
         renderFlags();
     });
-
-    refreshConfigQuickConversationControls();
 }
 
 function flagMatchesSearch(flag, query) {
