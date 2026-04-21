@@ -52,87 +52,6 @@ const BUILTIN_SAMPLER_PRESETS = {
 };
 
 const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
-const QUICK_TEMPLATE_PACKS = [
-    {
-        id: "auto",
-        label: "Auto from model",
-        summary: "Use the template embedded in the model metadata. This is the safest choice for modern families like Qwen and many newer GGUF releases.",
-        values: { chat_template: "", preserve_thinking: false },
-    },
-    {
-        id: "chatml",
-        label: "ChatML",
-        summary: "Use llama.cpp's built-in ChatML template.",
-        values: { chat_template: "chatml", preserve_thinking: false },
-    },
-    {
-        id: "gemma",
-        label: "Gemma",
-        summary: "Use llama.cpp's built-in Gemma template.",
-        values: { chat_template: "gemma", preserve_thinking: false },
-    },
-    {
-        id: "llama3",
-        label: "Llama 3",
-        summary: "Use llama.cpp's built-in Llama 3 template.",
-        values: { chat_template: "llama3", preserve_thinking: false },
-    },
-    {
-        id: "llama4",
-        label: "Llama 4",
-        summary: "Use llama.cpp's built-in Llama 4 template.",
-        values: { chat_template: "llama4", preserve_thinking: false },
-    },
-    {
-        id: "deepseek",
-        label: "DeepSeek",
-        summary: "Use llama.cpp's built-in DeepSeek template.",
-        values: { chat_template: "deepseek", preserve_thinking: false },
-    },
-    {
-        id: "deepseek3",
-        label: "DeepSeek 3",
-        summary: "Use llama.cpp's built-in DeepSeek 3 template.",
-        values: { chat_template: "deepseek3", preserve_thinking: false },
-    },
-    {
-        id: "mistral-v1",
-        label: "Mistral v1",
-        summary: "Use llama.cpp's built-in Mistral v1 template.",
-        values: { chat_template: "mistral-v1", preserve_thinking: false },
-    },
-    {
-        id: "mistral-v3",
-        label: "Mistral v3",
-        summary: "Use llama.cpp's built-in Mistral v3 template.",
-        values: { chat_template: "mistral-v3", preserve_thinking: false },
-    },
-    {
-        id: "vicuna",
-        label: "Vicuna",
-        summary: "Use llama.cpp's built-in Vicuna template.",
-        values: { chat_template: "vicuna", preserve_thinking: false },
-    },
-    {
-        id: "command-r",
-        label: "Command-R",
-        summary: "Use llama.cpp's built-in Command-R template.",
-        values: { chat_template: "command-r", preserve_thinking: false },
-    },
-    {
-        id: "gpt-oss",
-        label: "gpt-oss",
-        summary: "Use llama.cpp's built-in gpt-oss template.",
-        values: { chat_template: "gpt-oss", preserve_thinking: false },
-    },
-    {
-        id: "custom",
-        label: "Custom / Keep Current",
-        summary: "Leave your existing conversation template settings unchanged.",
-        keepCurrent: true,
-    },
-];
-
 const QUICK_PROFILES = {
     "safe-defaults": {
         label: "Safe Defaults",
@@ -225,7 +144,6 @@ const QUICK_PROFILES = {
 
 let quickLaunchFitCtxLinked = true;
 let quickLaunchGpuCustomSelected = false;
-let quickLaunchTemplateCustomSelected = false;
 
 const API_ENDPOINTS = [
     {
@@ -680,9 +598,10 @@ function populateQuickTemplatePackOptions() {
     if (!select) return;
 
     select.innerHTML = "";
-    for (const pack of QUICK_TEMPLATE_PACKS) {
+    const chatTemplateFlag = FLAGS.find((f) => f.id === "chat_template");
+    for (const pack of chatTemplateFlag?.options || []) {
         const opt = document.createElement("option");
-        opt.value = pack.id;
+        opt.value = pack.value;
         opt.textContent = pack.label;
         select.appendChild(opt);
     }
@@ -704,44 +623,8 @@ function syncQuickLaunchModelOptions() {
     quickSelect.value = hasPreferredValue ? preferredValue : "";
 }
 
-function getQuickTemplatePackById(id) {
-    return QUICK_TEMPLATE_PACKS.find((pack) => pack.id === id) || QUICK_TEMPLATE_PACKS[0];
-}
-
-function getMatchingQuickTemplatePackId() {
-    for (const pack of QUICK_TEMPLATE_PACKS) {
-        if (pack.keepCurrent) continue;
-        const values = pack.values || {};
-        const chatTemplate = values.chat_template ?? "";
-        const preserveThinking = !!values.preserve_thinking;
-
-        if (
-            String(flagValues.chat_template ?? "") === String(chatTemplate) &&
-            !!flagValues.preserve_thinking === preserveThinking
-        ) {
-            return pack.id;
-        }
-    }
-    return "custom";
-}
-
-function applyQuickTemplatePack(packId) {
-    const pack = getQuickTemplatePackById(packId);
-    if (!pack || pack.keepCurrent) {
-        quickLaunchTemplateCustomSelected = true;
-        refreshQuickLaunchUI();
-        return;
-    }
-
-    quickLaunchTemplateCustomSelected = false;
-    const values = pack.values || {};
-    flagValues.chat_template = values.chat_template || undefined;
-    flagValues.chat_template_custom = undefined;
-    if (Object.prototype.hasOwnProperty.call(values, "preserve_thinking")) {
-        flagValues.preserve_thinking = !!values.preserve_thinking;
-    }
-    restoreFlagInputs();
-    updateCommandPreview();
+function applyQuickTemplatePack(templateValue) {
+    setChatTemplateValue(templateValue, { resetCustomTemplateFile: true });
 }
 
 function getSelectedQuickSamplerEntry() {
@@ -822,11 +705,6 @@ function setChatTemplateValue(value, options = {}) {
     if (options.resetCustomTemplateFile) {
         flagValues.chat_template_custom = undefined;
     }
-    if (options.markQuickCustom) {
-        quickLaunchTemplateCustomSelected = true;
-    } else if (options.syncQuickPack) {
-        quickLaunchTemplateCustomSelected = getMatchingQuickTemplatePackId() === "custom";
-    }
     restoreFlagInputs();
     updateCommandPreview();
 }
@@ -834,9 +712,6 @@ function setChatTemplateValue(value, options = {}) {
 function setReasoningMode(value, options = {}) {
     const normalized = value === "on" || value === "off" ? value : "auto";
     flagValues.reasoning = normalized;
-    if (options.markQuickCustom) {
-        quickLaunchTemplateCustomSelected = true;
-    }
     restoreFlagInputs();
     updateCommandPreview();
 }
@@ -962,11 +837,16 @@ function refreshQuickLaunchUI() {
 
     const templateSelect = document.getElementById("quick-template-pack");
     const templateSummary = document.getElementById("quick-template-summary");
-    const selectedPack = quickLaunchTemplateCustomSelected
-        ? getQuickTemplatePackById("custom")
-        : getQuickTemplatePackById(getMatchingQuickTemplatePackId());
-    if (templateSelect) templateSelect.value = selectedPack.id;
-    if (templateSummary) templateSummary.textContent = selectedPack.summary;
+    const selectedTemplateValue = isSupportedChatTemplateValue(flagValues.chat_template) ? String(flagValues.chat_template ?? "") : "";
+    if (templateSelect) {
+        const hasOption = Array.from(templateSelect.options).some((opt) => opt.value === selectedTemplateValue);
+        templateSelect.value = hasOption ? selectedTemplateValue : "";
+    }
+    if (templateSummary) {
+        templateSummary.textContent = selectedTemplateValue
+            ? `Using llama.cpp built-in template: ${selectedTemplateValue}`
+            : "Use the template embedded in the model metadata when available.";
+    }
 
     const temperature = document.getElementById("quick-temperature");
     const topK = document.getElementById("quick-top-k");
