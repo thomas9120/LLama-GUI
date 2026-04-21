@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+set "APP_URL=http://127.0.0.1:5240"
 
 set "PY_CMD="
 if exist ".venv\Scripts\python.exe" (
@@ -26,6 +27,7 @@ if not defined PY_CMD (
 )
 
 echo Starting Llama GUI server...
+start "" "%APP_URL%" >nul 2>&1
 call %PY_CMD% server.py
 set "EXIT_CODE=%ERRORLEVEL%"
 

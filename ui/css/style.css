@@ -644,6 +644,51 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     margin-top: 14px;
 }
 
+.config-quick-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    padding: 14px;
+    margin-bottom: 14px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 36%),
+        linear-gradient(145deg, rgba(122, 162, 247, 0.08), rgba(0, 0, 0, 0) 42%),
+        var(--bg);
+}
+
+.config-quick-item {
+    min-width: 0;
+}
+
+.config-quick-item select {
+    width: 100%;
+    min-width: 0;
+}
+
+.config-quick-note {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 2px 0;
+}
+
+.config-quick-note-label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--cyan);
+    letter-spacing: 0.35px;
+    text-transform: uppercase;
+}
+
+.config-quick-note-text {
+    font-size: 12px;
+    color: var(--fg-dim);
+    line-height: 1.45;
+}
+
 /* Launch bar */
 .launch-bar {
     display: flex;
@@ -884,6 +929,7 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 .status-box.error { display: block; background: #3a1a1a; border: 1px solid var(--red); color: var(--red); }
 .status-box.success { display: block; background: #1a3a1a; border: 1px solid var(--green); color: var(--green); }
 .status-box.info { display: block; background: #1a2a3a; border: 1px solid var(--accent); color: var(--accent); }
+.status-box.warning { display: block; background: #3b2d12; border: 1px solid var(--yellow); color: var(--yellow); }
 
 .app-update-note {
     margin-top: 8px;
@@ -924,6 +970,17 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 
 .preset-name { font-weight: 600; color: var(--fg); }
 .preset-meta { font-size: 11px; color: var(--fg-dim); }
+
+.preset-warning {
+    margin-top: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(224, 175, 104, 0.42);
+    border-radius: var(--radius);
+    background: rgba(224, 175, 104, 0.10);
+    color: var(--yellow);
+    font-size: 12px;
+    line-height: 1.4;
+}
 
 /* Installed info */
 #installed-info {
@@ -1010,6 +1067,7 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     .sampler-presets-row { flex-direction: column; align-items: stretch; }
     .sampler-presets-row select,
     .sampler-presets-row input[type="text"] { min-width: 0; }
+    .config-quick-strip { grid-template-columns: 1fr; }
     .quick-launch-grid { grid-template-columns: 1fr; }
     .quick-preview-card { grid-column: auto; }
     .quick-mode-toggle,
