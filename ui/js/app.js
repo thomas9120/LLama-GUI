@@ -332,17 +332,17 @@ function getAllSamplerPresets() {
 
 function applySamplerPresetValues(values) {
     const defaults = getDefaultValues();
+    const patch = {};
     for (const f of getSamplerFlags()) {
         if (Object.prototype.hasOwnProperty.call(values, f.id)) {
-            flagValues[f.id] = values[f.id];
+            patch[f.id] = values[f.id];
         } else if (Object.prototype.hasOwnProperty.call(defaults, f.id)) {
-            flagValues[f.id] = defaults[f.id];
+            patch[f.id] = defaults[f.id];
         } else {
-            delete flagValues[f.id];
+            patch[f.id] = undefined;
         }
     }
-    restoreFlagInputs();
-    updateCommandPreview();
+    setMultipleFlagValues(patch);
 }
 
 function createSamplerPresetControls() {
@@ -593,6 +593,43 @@ function setCurrentTool(tool) {
     updateCommandPreview();
 }
 
+function syncUiAfterSharedStateChange() {
+    restoreFlagInputs();
+    updateCommandPreview();
+}
+
+function setFlagValue(flagId, value, options = {}) {
+    setMultipleFlagValues({ [flagId]: value }, options);
+}
+
+function setMultipleFlagValues(patch, options = {}) {
+    for (const [flagId, value] of Object.entries(patch || {})) {
+        if (value === undefined) {
+            delete flagValues[flagId];
+        } else {
+            flagValues[flagId] = value;
+        }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(options, "quickLaunchFitCtxLinked")) {
+        quickLaunchFitCtxLinked = options.quickLaunchFitCtxLinked;
+    } else if (Object.prototype.hasOwnProperty.call(patch || {}, "fit_ctx")
+        || Object.prototype.hasOwnProperty.call(patch || {}, "ctx_size")) {
+        const fitCtx = flagValues.fit_ctx;
+        const ctxSize = flagValues.ctx_size;
+        quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(options, "quickLaunchGpuCustomSelected")) {
+        quickLaunchGpuCustomSelected = options.quickLaunchGpuCustomSelected;
+    } else if (Object.prototype.hasOwnProperty.call(patch || {}, "gpu_layers")) {
+        const gpuLayers = String(flagValues.gpu_layers ?? "auto");
+        quickLaunchGpuCustomSelected = gpuLayers !== "auto" && gpuLayers !== "0" && gpuLayers !== "all";
+    }
+
+    syncUiAfterSharedStateChange();
+}
+
 function populateQuickTemplatePackOptions() {
     const select = document.getElementById("quick-template-pack");
     if (!select) return;
@@ -685,9 +722,8 @@ function applyQuickProfile(profileId) {
     const profile = QUICK_PROFILES[profileId];
     if (!profile) return;
 
-    quickLaunchFitCtxLinked = true;
     setCurrentTool(profile.tool || "llama-server");
-    Object.assign(flagValues, profile.flags || {});
+    setMultipleFlagValues(profile.flags || {}, { quickLaunchFitCtxLinked: true });
 
     if (profile.samplerPresetName) {
         const preset = getAllSamplerPresets().find((entry) => entry.name === profile.samplerPresetName);
@@ -696,54 +732,49 @@ function applyQuickProfile(profileId) {
             return;
         }
     }
-
-    updateCommandPreview();
 }
 
 function setChatTemplateValue(value, options = {}) {
-    flagValues.chat_template = value || undefined;
+    const patch = {
+        chat_template: value || undefined,
+    };
     if (options.resetCustomTemplateFile) {
-        flagValues.chat_template_custom = undefined;
+        patch.chat_template_custom = undefined;
     }
-    restoreFlagInputs();
-    updateCommandPreview();
+    setMultipleFlagValues(patch);
 }
 
 function setReasoningMode(value, options = {}) {
     const normalized = value === "on" || value === "off" ? value : "auto";
-    flagValues.reasoning = normalized;
-    restoreFlagInputs();
-    updateCommandPreview();
+    setFlagValue("reasoning", normalized, options);
 }
 
 function setQuickLaunchContextValue(rawValue, options = {}) {
     const parsed = rawValue === "" || rawValue === null || rawValue === undefined
         ? undefined
         : parseInt(rawValue, 10);
-    flagValues.ctx_size = Number.isFinite(parsed) ? parsed : undefined;
+    const nextCtxSize = Number.isFinite(parsed) ? parsed : undefined;
+    const patch = { ctx_size: nextCtxSize };
 
     if (quickLaunchFitCtxLinked || options.forceFitSync) {
-        flagValues.fit_ctx = flagValues.ctx_size;
+        patch.fit_ctx = nextCtxSize;
     }
 
-    updateCommandPreview();
+    setMultipleFlagValues(patch);
 }
 
 function setQuickLaunchGpuLayers(value) {
     if (value === "custom") {
         const customInput = document.getElementById("quick-gpu-custom");
         const customValue = String(customInput && customInput.value ? customInput.value : "").trim();
-        quickLaunchGpuCustomSelected = true;
         if (customValue) {
-            flagValues.gpu_layers = customValue;
-            updateCommandPreview();
+            setFlagValue("gpu_layers", customValue, { quickLaunchGpuCustomSelected: true });
         } else {
+            quickLaunchGpuCustomSelected = true;
             refreshQuickLaunchUI();
         }
     } else {
-        quickLaunchGpuCustomSelected = false;
-        flagValues.gpu_layers = value || "auto";
-        updateCommandPreview();
+        setFlagValue("gpu_layers", value || "auto", { quickLaunchGpuCustomSelected: false });
     }
 }
 
@@ -940,26 +971,21 @@ function initQuickLaunch() {
     });
 
     document.getElementById("quick-fit-toggle").addEventListener("change", (e) => {
-        flagValues.fit = e.target.value || "on";
-        updateCommandPreview();
+        setFlagValue("fit", e.target.value || "on");
     });
 
     document.getElementById("quick-fit-target").addEventListener("input", (e) => {
-        flagValues.fit_target = e.target.value.trim() || undefined;
-        updateCommandPreview();
+        setFlagValue("fit_target", e.target.value.trim() || undefined);
     });
 
     document.getElementById("quick-fit-ctx").addEventListener("input", (e) => {
-        quickLaunchFitCtxLinked = false;
         const rawValue = e.target.value.trim();
-        flagValues.fit_ctx = rawValue === "" ? undefined : parseInt(rawValue, 10);
-        updateCommandPreview();
+        const nextFitCtx = rawValue === "" ? undefined : parseInt(rawValue, 10);
+        setFlagValue("fit_ctx", nextFitCtx, { quickLaunchFitCtxLinked: false });
     });
 
     document.getElementById("btn-quick-fit-sync").addEventListener("click", () => {
-        quickLaunchFitCtxLinked = true;
-        flagValues.fit_ctx = flagValues.ctx_size ?? 16000;
-        updateCommandPreview();
+        setFlagValue("fit_ctx", flagValues.ctx_size ?? 16000, { quickLaunchFitCtxLinked: true });
     });
 
     document.getElementById("quick-template-pack").addEventListener("change", (e) => {
@@ -1023,14 +1049,15 @@ function initQuickLaunch() {
     for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
         document.getElementById(elementId).addEventListener("input", (e) => {
             const rawValue = e.target.value.trim();
+            let nextValue;
             if (rawValue === "") {
-                flagValues[flagId] = undefined;
+                nextValue = undefined;
             } else if (flagId === "top_k") {
-                flagValues[flagId] = parseInt(rawValue, 10);
+                nextValue = parseInt(rawValue, 10);
             } else {
-                flagValues[flagId] = parseFloat(rawValue);
+                nextValue = parseFloat(rawValue);
             }
-            updateCommandPreview();
+            setFlagValue(flagId, nextValue);
         });
     }
 
@@ -1788,8 +1815,7 @@ function applyFlagValues(data) {
     const fitCtx = flagValues.fit_ctx;
     const ctxSize = flagValues.ctx_size;
     quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
-    restoreFlagInputs();
-    updateCommandPreview();
+    syncUiAfterSharedStateChange();
 }
 
 function restoreFlagInputs() {
