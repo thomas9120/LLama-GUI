@@ -602,6 +602,14 @@ function setFlagValue(flagId, value, options = {}) {
     setMultipleFlagValues({ [flagId]: value }, options);
 }
 
+function setPathFlagValue(flagId, value, options = {}) {
+    const patch = { [flagId]: value };
+    if (flagId === "mmproj" && value) {
+        patch.no_mmproj = false;
+    }
+    setMultipleFlagValues(patch, options);
+}
+
 function setMultipleFlagValues(patch, options = {}) {
     for (const [flagId, value] of Object.entries(patch || {})) {
         if (value === undefined) {
@@ -628,6 +636,23 @@ function setMultipleFlagValues(patch, options = {}) {
     }
 
     syncUiAfterSharedStateChange();
+}
+
+function getPathPickerRequest(flag) {
+    return {
+        purpose: flag.id,
+        title: `Select ${flag.label || "File"}`,
+    };
+}
+
+async function browseForPathFlag(flag) {
+    const result = await fetchJson("/api/select-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(getPathPickerRequest(flag)),
+    });
+    if (!result || !result.selected || !result.path) return "";
+    return String(result.path);
 }
 
 function populateQuickTemplatePackOptions() {
@@ -1728,26 +1753,20 @@ function createFlagRow(f) {
         textField.placeholder = f.placeholder || "Path...";
         textField.value = flagValues[f.id] || "";
         textField.addEventListener("input", () => {
-            flagValues[f.id] = textField.value || undefined;
-            updateCommandPreview();
+            setPathFlagValue(f.id, textField.value || undefined);
         });
         const browseBtn = document.createElement("button");
         browseBtn.className = "btn btn-sm";
         browseBtn.textContent = "Browse";
-        browseBtn.addEventListener("click", () => {
-            const input = document.createElement("input");
-            input.type = "file";
-            if (f.flag.includes("model") || f.id.includes("lora") || f.id.includes("mmproj")) {
-                input.accept = ".gguf,.bin";
+        browseBtn.addEventListener("click", async () => {
+            try {
+                const selectedPath = await browseForPathFlag(f);
+                if (!selectedPath) return;
+                textField.value = selectedPath;
+                setPathFlagValue(f.id, selectedPath);
+            } catch (e) {
+                showStatus("error", "Failed to select file: " + e.message);
             }
-            input.addEventListener("change", () => {
-                if (input.files.length > 0) {
-                    textField.value = input.files[0].path;
-                    flagValues[f.id] = textField.value;
-                    updateCommandPreview();
-                }
-            });
-            input.click();
         });
         input.appendChild(textField);
         input.appendChild(browseBtn);

@@ -755,6 +755,34 @@ def open_folder_in_file_manager(target):
     subprocess.run(["xdg-open", str(target)], check=False)
 
 
+def select_file_in_native_dialog(title="Select File", initial_dir=None, filetypes=None):
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        raise RuntimeError(f"Native file picker unavailable: {exc}") from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+
+    dialog_options = {"title": title, "parent": root}
+    if initial_dir:
+        dialog_options["initialdir"] = str(initial_dir)
+    if filetypes:
+        dialog_options["filetypes"] = filetypes
+
+    try:
+        root.update()
+        selected = filedialog.askopenfilename(**dialog_options)
+        return selected or ""
+    finally:
+        root.destroy()
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -1021,6 +1049,43 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             try:
                 open_folder_in_file_manager(target)
                 self.send_json({"opened": True})
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
+            return
+
+        if path == "/api/select-file":
+            purpose = str(body.get("purpose") or "").strip().lower()
+            title = str(body.get("title") or "Select File").strip() or "Select File"
+
+            initial_dir = MODELS_DIR if purpose in {
+                "model",
+                "model_draft",
+                "mmproj",
+                "model_vocoder",
+            } else BASE_DIR
+            initial_dir.mkdir(parents=True, exist_ok=True)
+
+            filetypes = [("All files", "*.*")]
+            if purpose in {"model", "model_draft", "mmproj", "model_vocoder"}:
+                filetypes = [
+                    ("Model files", "*.gguf *.bin"),
+                    ("GGUF files", "*.gguf"),
+                    ("BIN files", "*.bin"),
+                    ("All files", "*.*"),
+                ]
+
+            try:
+                selected_path = select_file_in_native_dialog(
+                    title=title,
+                    initial_dir=initial_dir,
+                    filetypes=filetypes,
+                )
+                self.send_json(
+                    {
+                        "selected": bool(selected_path),
+                        "path": selected_path,
+                    }
+                )
             except Exception as e:
                 self.send_json({"error": str(e)}, 500)
             return
