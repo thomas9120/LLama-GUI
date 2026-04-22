@@ -5,6 +5,7 @@ let lastOutputLen = 0;
 let openCategories = new Set();
 let openSubmenus = new Set();
 let configSearchQuery = "";
+let selectedChatTemplatePresetValue = "";
 
 const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
 const BUILTIN_SAMPLER_PRESETS = {
@@ -607,6 +608,11 @@ function setPathFlagValue(flagId, value, options = {}) {
     if (flagId === "mmproj" && value) {
         patch.no_mmproj = false;
     }
+    if (flagId === "chat_template_custom") {
+        patch.chat_template = undefined;
+        const matchedPreset = getChatTemplatePresetByPath(value);
+        selectedChatTemplatePresetValue = matchedPreset ? matchedPreset.value : "";
+    }
     setMultipleFlagValues(patch, options);
 }
 
@@ -763,21 +769,60 @@ function normalizeTemplatePathValue(value) {
     return String(value || "").trim().replace(/\\/g, "/");
 }
 
-function isBundledGemma4TemplatePath(path) {
-    return normalizeTemplatePathValue(path) === normalizeTemplatePathValue(BUNDLED_GEMMA4_TEMPLATE_PATH);
+function getChatTemplatePresetByValue(value) {
+    return CHAT_TEMPLATE_PRESETS.find((preset) => preset.value === String(value || "")) || null;
+}
+
+function getChatTemplatePresetByBuiltinName(value) {
+    const normalized = String(value || "");
+    return CHAT_TEMPLATE_PRESETS.find((preset) => preset.mode === "builtin" && preset.builtin === normalized) || null;
+}
+
+function getChatTemplatePresetByPath(path) {
+    const normalizedPath = normalizeTemplatePathValue(path);
+    if (!normalizedPath) return null;
+    return CHAT_TEMPLATE_PRESETS.find((preset) =>
+        preset.mode === "bundled"
+        && normalizeTemplatePathValue(preset.path) === normalizedPath
+    ) || null;
 }
 
 function getSelectedChatTemplateDropdownValue() {
-    if (isBundledGemma4TemplatePath(flagValues.chat_template_custom)) {
-        return BUNDLED_GEMMA4_TEMPLATE_VALUE;
+    if (selectedChatTemplatePresetValue === "__koboldcpp_automatic__"
+        && !flagValues.chat_template
+        && !flagValues.chat_template_custom) {
+        return selectedChatTemplatePresetValue;
     }
+
+    const bundledPreset = getChatTemplatePresetByPath(flagValues.chat_template_custom);
+    if (bundledPreset) {
+        selectedChatTemplatePresetValue = bundledPreset.value;
+        return bundledPreset.value;
+    }
+
+    const builtinPreset = getChatTemplatePresetByBuiltinName(flagValues.chat_template);
+    if (builtinPreset) {
+        selectedChatTemplatePresetValue = builtinPreset.value;
+        return builtinPreset.value;
+    }
+
+    selectedChatTemplatePresetValue = "";
     return isSupportedChatTemplateValue(flagValues.chat_template) ? String(flagValues.chat_template ?? "") : "";
 }
 
 function getQuickTemplateSummaryText() {
     const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
-    if (selectedTemplateValue === BUNDLED_GEMMA4_TEMPLATE_VALUE) {
-        return "Using bundled Gemma 4 template.";
+    const preset = getChatTemplatePresetByValue(selectedTemplateValue);
+    if (preset) {
+        if (preset.mode === "bundled") {
+            return `Using bundled template preset: ${preset.label}.`;
+        }
+        if (preset.mode === "auto_alias") {
+            return `Using model-provided template preset: ${preset.label}.`;
+        }
+        if (preset.mode === "builtin") {
+            return `Using preset: ${preset.label}.`;
+        }
     }
     if (selectedTemplateValue) {
         return `Using llama.cpp built-in template: ${selectedTemplateValue}`;
@@ -790,14 +835,36 @@ function getQuickTemplateSummaryText() {
 
 function setChatTemplateValue(value, options = {}) {
     const normalizedValue = String(value || "");
-    if (normalizedValue === BUNDLED_GEMMA4_TEMPLATE_VALUE) {
+    const preset = getChatTemplatePresetByValue(normalizedValue);
+
+    if (preset && preset.mode === "bundled") {
+        selectedChatTemplatePresetValue = preset.value;
         setMultipleFlagValues({
             chat_template: undefined,
-            chat_template_custom: BUNDLED_GEMMA4_TEMPLATE_PATH,
+            chat_template_custom: preset.path,
         });
         return;
     }
 
+    if (preset && (preset.mode === "auto" || preset.mode === "auto_alias")) {
+        selectedChatTemplatePresetValue = preset.value;
+        setMultipleFlagValues({
+            chat_template: undefined,
+            chat_template_custom: undefined,
+        });
+        return;
+    }
+
+    if (preset && preset.mode === "builtin") {
+        selectedChatTemplatePresetValue = preset.value;
+        setMultipleFlagValues({
+            chat_template: preset.builtin,
+            chat_template_custom: undefined,
+        });
+        return;
+    }
+
+    selectedChatTemplatePresetValue = "";
     const patch = {
         chat_template: normalizedValue || undefined,
     };
@@ -1870,6 +1937,7 @@ function collectFlagValues() {
 
 function applyFlagValues(data) {
     flagValues = { ...getDefaultValues(), ...data };
+    selectedChatTemplatePresetValue = "";
     const fitCtx = flagValues.fit_ctx;
     const ctxSize = flagValues.ctx_size;
     quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
