@@ -70,13 +70,48 @@ const BUILTIN_CHAT_TEMPLATES = [
 ];
 
 const BUILTIN_CHAT_TEMPLATE_SET = new Set(BUILTIN_CHAT_TEMPLATES);
-const BUNDLED_GEMMA4_TEMPLATE_VALUE = "__bundled_gemma4__";
-const BUNDLED_GEMMA4_TEMPLATE_PATH = "ui/templates/gemma4.jinja";
 
 function isSupportedChatTemplateValue(value) {
     if (value === undefined || value === null || value === "") return true;
     return BUILTIN_CHAT_TEMPLATE_SET.has(String(value));
 }
+
+const CHAT_TEMPLATE_PRESETS = [
+    { value: "", label: "Auto (from model)", mode: "auto" },
+    { value: "__koboldcpp_automatic__", label: "KoboldCppAutomatic", mode: "auto_alias" },
+    { value: "__alpaca__", label: "Alpaca", mode: "bundled", path: "ui/templates/alpaca.jinja" },
+    { value: "chatml", label: "ChatML", mode: "builtin", builtin: "chatml" },
+    { value: "__chatml_nonthinking__", label: "ChatML Non-Thinking", mode: "bundled", path: "ui/templates/chatml-nonthinking.jinja" },
+    { value: "command-r", label: "CommandR", mode: "builtin", builtin: "command-r" },
+    { value: "deepseek3", label: "Deepseek v2.5 & v3", mode: "builtin", builtin: "deepseek3" },
+    { value: "__deepseek_v31_nonthinking__", label: "Deepseek v3.1 Non-Thinking", mode: "bundled", path: "ui/templates/deepseek-v31-nonthinking.jinja" },
+    { value: "gemma", label: "Gemma 2 & 3", mode: "builtin", builtin: "gemma" },
+    { value: "__gemma4_e2b_e4b_nothink__", label: "Gemma 4 E2B & E4B NoThink", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b-nothink.jinja" },
+    { value: "__gemma4_26b_31b_nothink__", label: "Gemma 4 26B & 31B NoThink", mode: "bundled", path: "ui/templates/gemma4-26b-31b-nothink.jinja" },
+    { value: "__gemma4_thinking__", label: "Gemma 4 Thinking", mode: "bundled", path: "ui/templates/gemma4.jinja" },
+    { value: "chatglm4", label: "GLM-4 & 4.5", mode: "builtin", builtin: "chatglm4" },
+    { value: "__glm45_nonthinking__", label: "GLM-4.5 Non-Thinking", mode: "bundled", path: "ui/templates/glm45-nonthinking.jinja" },
+    { value: "__glm47_nonthinking__", label: "GLM-4.7 Non-Thinking", mode: "bundled", path: "ui/templates/glm47-nonthinking.jinja" },
+    { value: "granite", label: "Granite 4", mode: "builtin", builtin: "granite" },
+    { value: "kimi-k2", label: "Kimi ChatML", mode: "builtin", builtin: "kimi-k2" },
+    { value: "llama2", label: "Llama 2 Chat", mode: "builtin", builtin: "llama2" },
+    { value: "llama3", label: "Llama 3 Chat", mode: "builtin", builtin: "llama3" },
+    { value: "llama4", label: "Llama 4 Chat", mode: "builtin", builtin: "llama4" },
+    { value: "__metharme__", label: "Metharme", mode: "bundled", path: "ui/templates/metharme.jinja" },
+    { value: "__mistral_non_tekken__", label: "Mistral Non-Tekken", mode: "bundled", path: "ui/templates/mistral-non-tekken.jinja" },
+    { value: "mistral-v3-tekken", label: "Mistral Tekken", mode: "builtin", builtin: "mistral-v3-tekken" },
+    { value: "phi3", label: "Phi-3 Mini", mode: "builtin", builtin: "phi3" },
+    { value: "seed_oss", label: "Seed OSS", mode: "builtin", builtin: "seed_oss" },
+    { value: "__seed_oss_nonthinking__", label: "Seed OSS Non-Thinking", mode: "bundled", path: "ui/templates/seed-oss-nonthinking.jinja" },
+    { value: "vicuna", label: "Vicuna", mode: "builtin", builtin: "vicuna" },
+    { value: "gpt-oss", label: "OpenAI Harmony", mode: "builtin", builtin: "gpt-oss" },
+    { value: "__openai_harmony_nonthinking__", label: "OpenAI Harmony Non-Thinking", mode: "bundled", path: "ui/templates/openai-harmony-nonthinking.jinja" },
+];
+
+const CHAT_TEMPLATE_PRESET_OPTIONS = CHAT_TEMPLATE_PRESETS.map((preset) => ({
+    value: preset.value,
+    label: preset.label,
+}));
 
 const FLAGS = [
     // ── Model ──
@@ -284,61 +319,7 @@ const FLAGS = [
       desc: "File containing the prompt", tool: "cli" },
     { id: "chat_template", flag: "--chat-template", category: "conversation", type: "enum", label: "Chat Template",
       desc: "Built-in llama.cpp chat template name. For model-provided tokenizer templates, leave this on Auto and optionally use Custom Template File below.", tool: "both",
-      options: [
-        { value: "", label: "Auto (from model)" },
-        { value: "bailing", label: "bailing" },
-        { value: "bailing-think", label: "bailing-think" },
-        { value: "bailing2", label: "bailing2" },
-        { value: "chatglm3", label: "chatglm3" },
-        { value: "chatglm4", label: "chatglm4" },
-        { value: "chatml", label: "chatml" },
-        { value: "command-r", label: "command-r" },
-        { value: "deepseek", label: "deepseek" },
-        { value: "deepseek-ocr", label: "deepseek-ocr" },
-        { value: "deepseek2", label: "deepseek2" },
-        { value: "deepseek3", label: "deepseek3" },
-        { value: "exaone-moe", label: "exaone-moe" },
-        { value: "exaone3", label: "exaone3" },
-        { value: "exaone4", label: "exaone4" },
-        { value: "falcon3", label: "falcon3" },
-        { value: BUNDLED_GEMMA4_TEMPLATE_VALUE, label: "Gemma 4" },
-        { value: "gemma", label: "gemma" },
-        { value: "gigachat", label: "gigachat" },
-        { value: "glmedge", label: "glmedge" },
-        { value: "gpt-oss", label: "gpt-oss" },
-        { value: "granite", label: "granite" },
-        { value: "grok-2", label: "grok-2" },
-        { value: "hunyuan-dense", label: "hunyuan-dense" },
-        { value: "hunyuan-moe", label: "hunyuan-moe" },
-        { value: "kimi-k2", label: "kimi-k2" },
-        { value: "llama2", label: "llama2" },
-        { value: "llama2-sys", label: "llama2-sys" },
-        { value: "llama2-sys-bos", label: "llama2-sys-bos" },
-        { value: "llama2-sys-strip", label: "llama2-sys-strip" },
-        { value: "llama3", label: "llama3" },
-        { value: "llama4", label: "llama4" },
-        { value: "megrez", label: "megrez" },
-        { value: "minicpm", label: "minicpm" },
-        { value: "mistral-v1", label: "mistral-v1" },
-        { value: "mistral-v3", label: "mistral-v3" },
-        { value: "mistral-v3-tekken", label: "mistral-v3-tekken" },
-        { value: "mistral-v7", label: "mistral-v7" },
-        { value: "mistral-v7-tekken", label: "mistral-v7-tekken" },
-        { value: "monarch", label: "monarch" },
-        { value: "openchat", label: "openchat" },
-        { value: "orion", label: "orion" },
-        { value: "pangu-embedded", label: "pangu-embedded" },
-        { value: "phi3", label: "phi3" },
-        { value: "phi4", label: "phi4" },
-        { value: "rwkv-world", label: "rwkv-world" },
-        { value: "seed_oss", label: "seed_oss" },
-        { value: "smolvlm", label: "smolvlm" },
-        { value: "solar-open", label: "solar-open" },
-        { value: "vicuna", label: "vicuna" },
-        { value: "vicuna-orca", label: "vicuna-orca" },
-        { value: "yandex", label: "yandex" },
-        { value: "zephyr", label: "zephyr" },
-      ] },
+      options: CHAT_TEMPLATE_PRESET_OPTIONS },
     { id: "chat_template_custom", flag: "--chat-template-file", category: "conversation", type: "path", label: "Custom Template File",
       desc: "Path to a custom Jinja chat template file", tool: "both" },
     { id: "reasoning", flag: "-rea", category: "conversation", type: "enum", label: "Reasoning / Thinking",

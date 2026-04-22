@@ -1,0 +1,40 @@
+{%- macro render_content(content) -%}
+    {%- if content is string -%}
+        {{- content -}}
+    {%- elif content is sequence -%}
+        {%- for item in content -%}
+            {%- if item['type'] == 'text' -%}
+                {{- item['text'] -}}
+            {%- elif item['type'] == 'image' -%}
+                {{- '<|image|>' -}}
+            {%- elif item['type'] == 'audio' -%}
+                {{- '<|audio|>' -}}
+            {%- elif item['type'] == 'video' -%}
+                {{- '<|video|>' -}}
+            {%- endif -%}
+        {%- endfor -%}
+    {%- endif -%}
+{%- endmacro -%}
+{%- set system_start = "\u003c|start|\u003edeveloper\u003c|message|\u003e" -%}
+{%- set system_end = "\u003c|end|\u003e" -%}
+{%- set user_start = "\u003c|start|\u003euser\u003c|message|\u003e" -%}
+{%- set user_end = "\u003c|end|\u003e" -%}
+{%- set assistant_start = "\u003c\u003c|start|\u003eassistant\u003c|channel|\u003eanalysis\u003c|message|\u003eWe can answer immediately.\u003c|end|\u003e\u003c|start|\u003eassistant\u003c|channel|\u003efinal\u003c|message|\u003e" -%}
+{%- set assistant_end = "\u003c|end|\u003e" -%}
+{%- set assistant_gen = "" -%}
+{{- bos_token -}}
+{%- for message in messages -%}
+    {%- set role = message['role'] -%}
+    {%- if role in ['system', 'developer'] -%}
+        {{- system_start -}}{{- render_content(message['content']) -}}{{- system_end -}}
+    {%- elif role == 'user' -%}
+        {{- user_start -}}{{- render_content(message['content']) -}}{{- user_end -}}
+    {%- elif role == 'assistant' -%}
+        {{- assistant_start -}}{{- render_content(message['content']) -}}{{- assistant_end -}}
+    {%- elif role == 'tool' -%}
+        {{- render_content(message['content']) -}}
+    {%- endif -%}
+{%- endfor -%}
+{%- if add_generation_prompt -%}
+    {{- assistant_gen if assistant_gen else assistant_start -}}
+{%- endif -%}
