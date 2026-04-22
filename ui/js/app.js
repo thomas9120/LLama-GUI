@@ -686,7 +686,7 @@ function syncQuickLaunchModelOptions() {
 }
 
 function applyQuickTemplatePack(templateValue) {
-    setChatTemplateValue(templateValue, { resetCustomTemplateFile: true });
+    setChatTemplateValue(templateValue);
 }
 
 function getSelectedQuickSamplerEntry() {
@@ -759,11 +759,49 @@ function applyQuickProfile(profileId) {
     }
 }
 
+function normalizeTemplatePathValue(value) {
+    return String(value || "").trim().replace(/\\/g, "/");
+}
+
+function isBundledGemma4TemplatePath(path) {
+    return normalizeTemplatePathValue(path) === normalizeTemplatePathValue(BUNDLED_GEMMA4_TEMPLATE_PATH);
+}
+
+function getSelectedChatTemplateDropdownValue() {
+    if (isBundledGemma4TemplatePath(flagValues.chat_template_custom)) {
+        return BUNDLED_GEMMA4_TEMPLATE_VALUE;
+    }
+    return isSupportedChatTemplateValue(flagValues.chat_template) ? String(flagValues.chat_template ?? "") : "";
+}
+
+function getQuickTemplateSummaryText() {
+    const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
+    if (selectedTemplateValue === BUNDLED_GEMMA4_TEMPLATE_VALUE) {
+        return "Using bundled Gemma 4 template.";
+    }
+    if (selectedTemplateValue) {
+        return `Using llama.cpp built-in template: ${selectedTemplateValue}`;
+    }
+    if (flagValues.chat_template_custom) {
+        return `Using custom template file: ${flagValues.chat_template_custom}`;
+    }
+    return "Use the template embedded in the model metadata when available.";
+}
+
 function setChatTemplateValue(value, options = {}) {
+    const normalizedValue = String(value || "");
+    if (normalizedValue === BUNDLED_GEMMA4_TEMPLATE_VALUE) {
+        setMultipleFlagValues({
+            chat_template: undefined,
+            chat_template_custom: BUNDLED_GEMMA4_TEMPLATE_PATH,
+        });
+        return;
+    }
+
     const patch = {
-        chat_template: value || undefined,
+        chat_template: normalizedValue || undefined,
     };
-    if (options.resetCustomTemplateFile) {
+    if (!options.preserveCustomTemplateFile) {
         patch.chat_template_custom = undefined;
     }
     setMultipleFlagValues(patch);
@@ -893,15 +931,13 @@ function refreshQuickLaunchUI() {
 
     const templateSelect = document.getElementById("quick-template-pack");
     const templateSummary = document.getElementById("quick-template-summary");
-    const selectedTemplateValue = isSupportedChatTemplateValue(flagValues.chat_template) ? String(flagValues.chat_template ?? "") : "";
+    const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
     if (templateSelect) {
         const hasOption = Array.from(templateSelect.options).some((opt) => opt.value === selectedTemplateValue);
         templateSelect.value = hasOption ? selectedTemplateValue : "";
     }
     if (templateSummary) {
-        templateSummary.textContent = selectedTemplateValue
-            ? `Using llama.cpp built-in template: ${selectedTemplateValue}`
-            : "Use the template embedded in the model metadata when available.";
+        templateSummary.textContent = getQuickTemplateSummaryText();
     }
 
     const temperature = document.getElementById("quick-temperature");
@@ -1671,8 +1707,11 @@ function createFlagRow(f) {
             sel.appendChild(o);
         }
         sel.addEventListener("change", () => {
-            flagValues[f.id] = sel.value || undefined;
-            updateCommandPreview();
+            if (f.id === "chat_template") {
+                setChatTemplateValue(sel.value);
+            } else {
+                setFlagValue(f.id, sel.value || undefined);
+            }
         });
         input.appendChild(sel);
     } else if (f.type === "multi_enum") {
@@ -1859,7 +1898,11 @@ function restoreFlagInputs() {
             const lbl = el.parentElement.querySelector("label");
             if (lbl) lbl.textContent = val === true ? "Enabled" : "Disabled";
         } else if (f.type === "enum") {
-            el.value = val !== undefined ? String(val) : "";
+            if (f.id === "chat_template") {
+                el.value = getSelectedChatTemplateDropdownValue();
+            } else {
+                el.value = val !== undefined ? String(val) : "";
+            }
         } else {
             el.value = val !== undefined ? String(val) : "";
         }

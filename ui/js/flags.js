@@ -70,6 +70,8 @@ const BUILTIN_CHAT_TEMPLATES = [
 ];
 
 const BUILTIN_CHAT_TEMPLATE_SET = new Set(BUILTIN_CHAT_TEMPLATES);
+const BUNDLED_GEMMA4_TEMPLATE_VALUE = "__bundled_gemma4__";
+const BUNDLED_GEMMA4_TEMPLATE_PATH = "ui/templates/gemma4.jinja";
 
 function isSupportedChatTemplateValue(value) {
     if (value === undefined || value === null || value === "") return true;
@@ -299,6 +301,7 @@ const FLAGS = [
         { value: "exaone3", label: "exaone3" },
         { value: "exaone4", label: "exaone4" },
         { value: "falcon3", label: "falcon3" },
+        { value: BUNDLED_GEMMA4_TEMPLATE_VALUE, label: "Gemma 4" },
         { value: "gemma", label: "gemma" },
         { value: "gigachat", label: "gigachat" },
         { value: "glmedge", label: "glmedge" },
