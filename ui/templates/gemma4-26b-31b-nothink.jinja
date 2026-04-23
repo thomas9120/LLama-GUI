@@ -15,13 +15,13 @@
         {%- endfor -%}
     {%- endif -%}
 {%- endmacro -%}
-{%- set system_start = "\u003c|turn\u003esystem`n" -%}
-{%- set system_end = "\u003cturn|\u003e`n" -%}
-{%- set user_start = "\u003c|turn\u003euser`n" -%}
-{%- set user_end = "\u003cturn|\u003e`n" -%}
-{%- set assistant_start = "\u003c|turn\u003emodel`n" -%}
-{%- set assistant_end = "\u003cturn|\u003e`n" -%}
-{%- set assistant_gen = "\u003c|turn\u003emodel`n\u003c|channel\u003ethought`n\u003cchannel|\u003e" -%}
+{%- set system_start = '<|turn>system\n' -%}
+{%- set system_end = '<turn|>\n' -%}
+{%- set user_start = '<|turn>user\n' -%}
+{%- set user_end = '<turn|>\n' -%}
+{%- set assistant_start = '<|turn>model\n' -%}
+{%- set assistant_end = '<turn|>\n' -%}
+{%- set assistant_gen = '<|turn>model\n<|channel>thought\n<channel|>' -%}
 {{- bos_token -}}
 {%- for message in messages -%}
     {%- set role = message['role'] -%}
