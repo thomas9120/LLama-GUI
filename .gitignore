@@ -1,14 +1,44 @@
+# Python/runtime caches
 __pycache__/
 *.py[cod]
 .ruff_cache/
+.pytest_cache/
+.mypy_cache/
 .venv/
+venv/
+env/
+
+# Local environment and editor files
+.env
+.env.*
+*.local
+*.tmp
+*.temp
+*.bak
+*.orig
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs and transient output
+*.log
+logs/
+tmp/
+temp/
 
 config.json
 
+# Local llama.cpp runtime install
+llama/*
+!llama/bin/
 llama/bin/*
 !llama/bin/.gitkeep
+!llama/dll/
 llama/dll/*
 !llama/dll/.gitkeep
+!llama/grammars/
 llama/grammars/*
 !llama/grammars/.gitkeep
 
@@ -18,3 +48,6 @@ presets/*
 !presets/.gitkeep
 
 releases/
+*.zip
+*.tar.gz
+*.tgz
