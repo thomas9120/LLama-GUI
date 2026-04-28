@@ -592,6 +592,106 @@ def run_git(args):
     )
 
 
+SAFE_DIRTY_PATH_PREFIXES = (
+    "llama/",
+    "models/",
+    "presets/",
+    "releases/",
+    "__pycache__/",
+    ".ruff_cache/",
+    ".pytest_cache/",
+    ".mypy_cache/",
+    ".venv/",
+    "venv/",
+    "env/",
+    "logs/",
+    "tmp/",
+    "temp/",
+)
+
+SAFE_DIRTY_PATHS = {
+    "config.json",
+    ".DS_Store",
+    "Thumbs.db",
+    "desktop.ini",
+}
+
+SAFE_DIRTY_SUFFIXES = (
+    ".pyc",
+    ".pyo",
+    ".log",
+    ".tmp",
+    ".temp",
+    ".bak",
+    ".orig",
+    ".swp",
+    ".swo",
+    ".zip",
+    ".tar.gz",
+    ".tgz",
+)
+
+
+def normalize_git_path(path):
+    return str(path or "").replace("\\", "/").strip()
+
+
+def parse_git_status_porcelain_z(output):
+    entries = []
+    parts = output.split("\0")
+    i = 0
+    while i < len(parts):
+        raw = parts[i]
+        i += 1
+        if not raw:
+            continue
+
+        status = raw[:2]
+        path = normalize_git_path(raw[3:])
+        if not path:
+            continue
+
+        entries.append({"status": status, "path": path})
+
+        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
+            # Rename/copy records include the source path as the next NUL item.
+            if i < len(parts) and parts[i]:
+                entries[-1]["source_path"] = normalize_git_path(parts[i])
+                i += 1
+
+    return entries
+
+
+def is_safe_dirty_path(path):
+    path = normalize_git_path(path)
+    if not path:
+        return False
+    if path in SAFE_DIRTY_PATHS:
+        return True
+    if path.startswith(".env"):
+        return True
+    if any(path.startswith(prefix) for prefix in SAFE_DIRTY_PATH_PREFIXES):
+        return True
+    return any(path.endswith(suffix) for suffix in SAFE_DIRTY_SUFFIXES)
+
+
+def classify_git_dirty_paths(entries):
+    safe = []
+    blocking = []
+
+    for entry in entries:
+        path = entry.get("path", "")
+        target = safe if is_safe_dirty_path(path) else blocking
+        target.append(entry)
+
+    return {
+        "dirty_paths": [entry["path"] for entry in entries],
+        "safe_dirty_paths": [entry["path"] for entry in safe],
+        "blocking_dirty_paths": [entry["path"] for entry in blocking],
+        "dirty_entries": entries,
+    }
+
+
 def get_app_update_status(fetch=False):
     if not (BASE_DIR / ".git").exists():
         return {
@@ -625,7 +725,7 @@ def get_app_update_status(fetch=False):
     remote_res = run_git(["config", "--get", "remote.origin.url"])
     origin_url = remote_res.stdout.strip() if remote_res.returncode == 0 else ""
 
-    dirty_res = run_git(["status", "--porcelain"])
+    dirty_res = run_git(["status", "--porcelain=v1", "-z"])
     if dirty_res.returncode != 0:
         return {
             "available": True,
@@ -635,7 +735,10 @@ def get_app_update_status(fetch=False):
             "origin_url": origin_url,
             "branch": branch,
         }
-    has_local_changes = bool(dirty_res.stdout.strip())
+    dirty_entries = parse_git_status_porcelain_z(dirty_res.stdout)
+    dirty_info = classify_git_dirty_paths(dirty_entries)
+    has_local_changes = bool(dirty_info["dirty_paths"])
+    has_blocking_changes = bool(dirty_info["blocking_dirty_paths"])
 
     if fetch:
         fetch_res = run_git(["fetch", "origin", "--prune"])
@@ -648,6 +751,8 @@ def get_app_update_status(fetch=False):
                 "origin_url": origin_url,
                 "branch": branch,
                 "dirty": has_local_changes,
+                "has_blocking_changes": has_blocking_changes,
+                **dirty_info,
             }
 
     upstream_ref = f"origin/{branch}"
@@ -663,6 +768,8 @@ def get_app_update_status(fetch=False):
             "origin_url": origin_url,
             "branch": branch,
             "dirty": has_local_changes,
+            "has_blocking_changes": has_blocking_changes,
+            **dirty_info,
         }
 
     parts = behind_ahead_res.stdout.strip().split()
@@ -678,7 +785,7 @@ def get_app_update_status(fetch=False):
     else:
         state = "up_to_date"
 
-    can_update = state == "behind" and not has_local_changes
+    can_update = state == "behind" and not has_blocking_changes
 
     return {
         "available": True,
@@ -687,6 +794,8 @@ def get_app_update_status(fetch=False):
         "origin_url": origin_url,
         "branch": branch,
         "dirty": has_local_changes,
+        "has_blocking_changes": has_blocking_changes,
+        **dirty_info,
         "ahead": ahead,
         "behind": behind,
         "state": state,
@@ -706,10 +815,12 @@ def update_app_from_git():
         state = status.get("state")
         if state == "up_to_date":
             return {"updated": False, "status": status, "message": "Already up to date"}
-        if status.get("dirty"):
+        if status.get("has_blocking_changes"):
+            paths = status.get("blocking_dirty_paths") or []
+            detail = f" Blocking paths: {', '.join(paths[:8])}" if paths else ""
             return {
                 "updated": False,
-                "error": "Cannot auto-update with local changes. Commit or stash first.",
+                "error": "Cannot auto-update with source changes. Commit or stash first." + detail,
                 "status": status,
             }
         if state == "ahead":

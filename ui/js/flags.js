@@ -369,11 +369,11 @@ const FLAGS = [
 
     // ── Speculative Decoding ──
     { id: "draft_max", flag: "--spec-draft-n-max", category: "speculative", type: "int", label: "Draft Tokens",
-      desc: "Number of draft tokens for speculative decoding", tool: "both", default: 16, min: 0, max: 128 },
+      desc: "Number of draft tokens for speculative decoding", tool: "both", min: 0, max: 128, placeholder: "llama.cpp default" },
     { id: "draft_min", flag: "--spec-draft-n-min", category: "speculative", type: "int", label: "Draft Min Tokens",
-      desc: "Minimum draft tokens", tool: "both", default: 0, min: 0 },
+      desc: "Minimum draft tokens", tool: "both", min: 0, placeholder: "llama.cpp default" },
     { id: "draft_p_min", flag: "--spec-draft-p-min", category: "speculative", type: "float", label: "Draft Min Probability",
-      desc: "Minimum speculative decoding probability (greedy)", tool: "both", default: 0.75, min: 0, max: 1, step: 0.01 },
+      desc: "Minimum speculative decoding probability (greedy)", tool: "both", min: 0, max: 1, step: 0.01, placeholder: "llama.cpp default" },
     { id: "ctx_size_draft", flag: "-cd", category: "speculative", type: "int", label: "Draft Context Size",
       desc: "Context size for draft model", tool: "both", min: 0 },
     { id: "gpu_layers_draft", flag: "-ngld", category: "speculative", type: "text", label: "Draft GPU Layers",

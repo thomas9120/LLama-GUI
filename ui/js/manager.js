@@ -414,14 +414,31 @@ function describeAppUpdateStatus(status) {
     if (!status) return "Unable to determine app update status.";
     if (status.reason && !status.available) return status.reason;
 
+    const formatPaths = (paths) => {
+        const list = Array.isArray(paths) ? paths.filter(Boolean) : [];
+        if (list.length === 0) return "";
+        const shown = list.slice(0, 8).join(", ");
+        const extra = list.length > 8 ? `, and ${list.length - 8} more` : "";
+        return shown + extra;
+    };
+
+    const blockingPaths = formatPaths(status.blocking_dirty_paths);
+    const safePaths = formatPaths(status.safe_dirty_paths);
     const branch = status.branch ? `branch ${status.branch}` : "current branch";
+
     if (status.state === "up_to_date") {
-        return `Llama GUI is up to date on ${branch}.`;
+        const safeNote = safePaths ? ` Local app data is present and ignored for updates: ${safePaths}.` : "";
+        return `Llama GUI is up to date on ${branch}.${safeNote}`;
     }
     if (status.state === "behind") {
         const n = status.behind || 0;
+        if (status.has_blocking_changes) {
+            const detail = blockingPaths ? ` Blocking paths: ${blockingPaths}.` : "";
+            return `Update available (${n} commit${n === 1 ? "" : "s"} behind), but source changes must be committed or stashed first.${detail}`;
+        }
         if (status.dirty) {
-            return `Update available (${n} commit${n === 1 ? "" : "s"} behind), but local changes must be committed or stashed first.`;
+            const detail = safePaths ? ` Safe local app data will be left alone: ${safePaths}.` : "";
+            return `Update available: ${n} commit${n === 1 ? "" : "s"} behind origin.${detail}`;
         }
         return `Update available: ${n} commit${n === 1 ? "" : "s"} behind origin.`;
     }
@@ -431,8 +448,13 @@ function describeAppUpdateStatus(status) {
     if (status.state === "diverged") {
         return "Local and remote branches diverged; update manually with git.";
     }
+    if (status.has_blocking_changes) {
+        const detail = blockingPaths ? ` Blocking paths: ${blockingPaths}.` : "";
+        return "Source changes detected. Commit or stash before updating." + detail;
+    }
     if (status.dirty) {
-        return "Local changes detected. Commit or stash before updating.";
+        const detail = safePaths ? ` Safe local app data: ${safePaths}.` : "";
+        return "Only local app data changes were detected." + detail;
     }
     return "App update status is available, but cannot auto-update in current state.";
 }
