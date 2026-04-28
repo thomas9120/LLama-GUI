@@ -29,3 +29,37 @@ Safe implementation pattern:
 5. Verify that changing either control updates the other and changes the final command preview.
 
 If a shared control becomes unreliable, prefer removing the duplicate UI over keeping two unsynchronized versions.
+
+## How the program works
+
+### Architecture
+- A static web UI served by a Python `http.server` backend.
+- The backend handles `llama.cpp` installation, process management, and API proxying.
+- `config.json` persists application state (installed version, active backend, tag).
+
+### Backend (`server.py`)
+- Manages downloading `llama.cpp` releases from GitHub.
+- Runs `llama-server` as a subprocess and streams stdout/stderr.
+- Handles preset and model file APIs.
+- Selects binary based on backend type (e.g., `cuda-12.4`, `cpu`).
+
+### Frontend
+- **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
+- **`ui/js/app.js`**: Core frontend logic; manages tab switching, flag collection, server launch/stop, and output polling.
+- **`ui/js/flags.js`**: Defines CLI flag categories, data types, and built-in chat templates.
+- **`ui/js/manager.js`**: Handles GitHub release fetching, backend selection, and installation progress UI.
+- **`ui/js/presets.js`**: Manages preset normalization, validation, saving, and applying to the UI.
+- **`ui/css/style.css`**: Stylesheet implementing the dark theme (Tokyo Night) and responsive layout.
+
+### Tabs
+1. **Install**: Download and install `llama.cpp` releases, select backend.
+2. **Quick Launch**: One-click model launch with preset configuration.
+3. **Configure**: Full CLI flag configuration for `llama-server`.
+4. **API**: View and interact with the `llama.cpp` API endpoints.
+5. **Presets**: Save, load, and manage preset configurations.
+
+### Data Flow
+- UI changes route through a shared setter to update state.
+- All mirrored controls read from the same underlying state object.
+- Command preview and launch args are generated from shared state, never per-tab copies.
+- Server output is polled via HTTP endpoint and streamed to the terminal panel.
