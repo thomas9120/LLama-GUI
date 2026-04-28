@@ -368,18 +368,18 @@ const FLAGS = [
       desc: "Use context shift on infinite text generation", tool: "both", default: false },
 
     // ── Speculative Decoding ──
-    { id: "draft_max", flag: "--draft", category: "speculative", type: "int", label: "Draft Tokens",
+    { id: "draft_max", flag: "--spec-draft-n-max", category: "speculative", type: "int", label: "Draft Tokens",
       desc: "Number of draft tokens for speculative decoding", tool: "both", default: 16, min: 0, max: 128 },
-    { id: "draft_min", flag: "--draft-min", category: "speculative", type: "int", label: "Draft Min Tokens",
+    { id: "draft_min", flag: "--spec-draft-n-min", category: "speculative", type: "int", label: "Draft Min Tokens",
       desc: "Minimum draft tokens", tool: "both", default: 0, min: 0 },
-    { id: "draft_p_min", flag: "--draft-p-min", category: "speculative", type: "float", label: "Draft Min Probability",
+    { id: "draft_p_min", flag: "--spec-draft-p-min", category: "speculative", type: "float", label: "Draft Min Probability",
       desc: "Minimum speculative decoding probability (greedy)", tool: "both", default: 0.75, min: 0, max: 1, step: 0.01 },
     { id: "ctx_size_draft", flag: "-cd", category: "speculative", type: "int", label: "Draft Context Size",
       desc: "Context size for draft model", tool: "both", min: 0 },
     { id: "gpu_layers_draft", flag: "-ngld", category: "speculative", type: "text", label: "Draft GPU Layers",
       desc: "Max draft model layers in VRAM", tool: "both", placeholder: "auto" },
     { id: "spec_type", flag: "--spec-type", category: "speculative", type: "enum", label: "Speculative Type",
-      desc: "Type of speculative decoding (no draft model)", tool: "server",
+      desc: "Type of speculative decoding (no draft model)", tool: "server", default: "none",
       options: [
         { value: "none", label: "None (default)" }, { value: "ngram-cache", label: "Ngram Cache" },
         { value: "ngram-simple", label: "Ngram Simple" }, { value: "ngram-map-k", label: "Ngram Map K" },
@@ -500,14 +500,45 @@ function getFlagsByCategory(tool) {
     return groups;
 }
 
+function isSpeculativeDecodingEnabled(values) {
+    const cfg = values || {};
+    const specType = String(cfg.spec_type || "none").trim();
+    return Boolean(cfg.model_draft || cfg.hf_repo_draft || (specType && specType !== "none"));
+}
+
+function hasDraftModelSpeculation(values) {
+    const cfg = values || {};
+    return Boolean(cfg.model_draft || cfg.hf_repo_draft);
+}
+
+function shouldOmitSpeculativeFlag(f, values) {
+    if (f.category !== "speculative") return false;
+    if (!isSpeculativeDecodingEnabled(values)) return true;
+
+    if (f.id === "spec_type") {
+        const specType = String((values || {}).spec_type || "none").trim();
+        return !specType || specType === "none";
+    }
+
+    const draftModelOnlyFlags = new Set([
+        "draft_max",
+        "draft_min",
+        "draft_p_min",
+        "ctx_size_draft",
+        "gpu_layers_draft",
+    ]);
+    return draftModelOnlyFlags.has(f.id) && !hasDraftModelSpeculation(values);
+}
+
 function buildCommand(tool, values) {
-    const cfg = values;
+    const cfg = values || {};
     const toolBase = tool.replace("llama-", "");
     const suffix = (typeof getExecutableSuffix === "function") ? getExecutableSuffix() : "";
     const parts = [tool + suffix];
 
     for (const f of FLAGS) {
         if (f.tool !== "both" && f.tool !== toolBase) continue;
+        if (shouldOmitSpeculativeFlag(f, cfg)) continue;
         const val = cfg[f.id];
         if (val === undefined || val === null || val === "") continue;
         if (f.type === "bool") {

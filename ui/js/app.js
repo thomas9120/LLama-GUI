@@ -2064,6 +2064,7 @@ function getLaunchArgs() {
 
     for (const f of FLAGS) {
         if (f.tool !== "both" && f.tool !== toolBase) continue;
+        if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, flagValues)) continue;
         const val = flagValues[f.id];
         if (val === undefined || val === null || val === "") continue;
 
