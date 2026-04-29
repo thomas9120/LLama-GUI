@@ -203,6 +203,7 @@ If something fails during first run, use **Install -> Repair Install** and then 
 - App updater actions:
   - **Check App Updates**
   - **Update App from GitHub**
+- If the app updater says local changes are blocking the update, Windows users can close the app, run `stash-updates.bat` from the Llama GUI folder, then start the app and try **Update App from GitHub** again. This runs `git stash -u`, which saves local changes instead of deleting them.
 
 ### Quick Launch
 
