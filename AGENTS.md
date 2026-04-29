@@ -63,3 +63,26 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 - All mirrored controls read from the same underlying state object.
 - Command preview and launch args are generated from shared state, never per-tab copies.
 - Server output is polled via HTTP endpoint and streamed to the terminal panel.
+
+## llama.cpp Compatibility
+
+### Flag Reference
+- `ui/js/flags.js` is the single source of truth for all CLI flags exposed in the UI.
+- Before adding, removing, or modifying any flag definition, verify the flag still exists and works as documented in the upstream `llama.cpp` repository.
+
+### Checking for Updates
+1. Check the official repository at `https://github.com/ggerganov/llama.cpp` for flag changes.
+2. Review the `llama-server --help` output or the `examples/server/README.md` in the repo for the current flag list, descriptions, and default values.
+3. Cross-reference every flag in `ui/js/flags.js` against the upstream documentation:
+   - Flag name and shorthand (e.g., `--ctx-size` vs `-c`)
+   - Expected value type (integer, string, boolean, enum, etc.)
+   - Valid option values for enum-type flags
+   - Default values
+   - Whether the flag has been renamed, deprecated, or removed
+4. If a flag has changed upstream, update `flags.js` to match the new behavior before merging.
+
+### Compatibility Verification
+- After any flag-related changes, confirm the generated command preview produces valid arguments that `llama-server` will accept.
+- Test that toggling a flag in the UI produces the correct argument in the final launch command.
+- Verify that enum dropdowns only contain values still recognized by the current `llama.cpp` version.
+- Check that chat template names in `flags.js` match templates bundled with the installed `llama.cpp` release.
