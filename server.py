@@ -26,7 +26,6 @@ except ImportError:
 BASE_DIR = pathlib.Path(__file__).resolve().parent
 LLAMA_DIR = BASE_DIR / "llama"
 LLAMA_BIN_DIR = LLAMA_DIR / "bin"
-LLAMA_DLL_DIR = LLAMA_DIR / "dll"
 LLAMA_GRAMMARS_DIR = LLAMA_DIR / "grammars"
 MODELS_DIR = BASE_DIR / "models"
 PRESETS_DIR = BASE_DIR / "presets"
@@ -241,12 +240,11 @@ def find_tool_executable(tool):
 
 def get_runtime_files():
     runtime_files = []
-    for directory in [LLAMA_BIN_DIR, LLAMA_DLL_DIR]:
-        if not directory.exists():
-            continue
-        for path in sorted(directory.iterdir()):
-            if path.is_file() and path.suffix.lower() in SHARED_LIBRARY_SUFFIXES:
-                runtime_files.append(path)
+    if not LLAMA_BIN_DIR.exists():
+        return runtime_files
+    for path in sorted(LLAMA_BIN_DIR.iterdir()):
+        if path.is_file() and path.suffix.lower() in SHARED_LIBRARY_SUFFIXES:
+            runtime_files.append(path)
     return runtime_files
 
 
@@ -447,10 +445,6 @@ def install_release(tag, backend):
                 shutil.rmtree(d)
             d.mkdir(parents=True, exist_ok=True)
 
-        if LLAMA_DLL_DIR.exists():
-            shutil.rmtree(LLAMA_DLL_DIR)
-        LLAMA_DLL_DIR.mkdir(parents=True, exist_ok=True)
-
         extract_archive_flat(bin_archive)
         for extra_archive in extra_archives:
             extract_archive_flat(extra_archive)
@@ -500,7 +494,7 @@ def launch_process(tool, args_list):
             args.append(str(entry))
 
     env = os.environ.copy()
-    runtime_paths = [str(LLAMA_BIN_DIR), str(LLAMA_DLL_DIR)]
+    runtime_paths = [str(LLAMA_BIN_DIR)]
     existing_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
 
@@ -578,7 +572,7 @@ def remove_llama_files():
     if LLAMA_DIR.exists():
         shutil.rmtree(LLAMA_DIR)
 
-    for d in [LLAMA_BIN_DIR, LLAMA_DLL_DIR, LLAMA_GRAMMARS_DIR]:
+    for d in [LLAMA_BIN_DIR, LLAMA_GRAMMARS_DIR]:
         d.mkdir(parents=True, exist_ok=True)
 
     save_config({"version": None, "backend": None, "tag": None})
@@ -1262,7 +1256,6 @@ def main():
         MODELS_DIR,
         PRESETS_DIR,
         LLAMA_BIN_DIR,
-        LLAMA_DLL_DIR,
         LLAMA_GRAMMARS_DIR,
     ]:
         d.mkdir(parents=True, exist_ok=True)

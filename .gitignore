@@ -35,9 +35,6 @@ llama/*
 !llama/bin/
 llama/bin/*
 !llama/bin/.gitkeep
-!llama/dll/
-llama/dll/*
-!llama/dll/.gitkeep
 !llama/grammars/
 llama/grammars/*
 !llama/grammars/.gitkeep
