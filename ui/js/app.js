@@ -11,6 +11,7 @@ let selectedChatTemplatePresetValue = "";
 let chatMessages = [];
 let chatStreaming = false;
 let chatAbortController = null;
+const CHAT_WEB_SEARCH_STORAGE_KEY = "llama_gui_chat_web_search_enabled";
 const CHAT_SAMPLER_SLIDER_MAP = {
     "chat-slider-temp": { flag: "temperature", decimals: 2 },
     "chat-slider-top-p": { flag: "top_p", decimals: 2 },
@@ -2463,6 +2464,18 @@ function getChatApiUrl() {
     return `http://${host}:${port}/v1/chat/completions`;
 }
 
+function isChatWebSearchEnabled() {
+    const toggle = document.getElementById("chat-web-search-toggle");
+    return Boolean(toggle && toggle.checked);
+}
+
+function getChatRequestMessages(messages) {
+    return messages.map((msg) => ({
+        role: msg.role,
+        content: msg.content,
+    }));
+}
+
 function updateChatStatusBadge() {
     const runningBadge = document.getElementById("chat-status-badge");
     const noServerBadge = document.getElementById("chat-no-server-badge");
@@ -2496,10 +2509,56 @@ function renderChatMessage(role, content) {
     }
 
     msg.appendChild(avatar);
-    msg.appendChild(bubble);
+    const contentWrap = document.createElement("div");
+    contentWrap.className = "chat-message-content";
+    contentWrap.appendChild(bubble);
+    msg.appendChild(contentWrap);
     container.appendChild(msg);
     container.scrollTop = container.scrollHeight;
     return bubble;
+}
+
+function getChatMessageContentWrap(bubble) {
+    return bubble ? bubble.closest(".chat-message-content") : null;
+}
+
+function setChatWebStatus(bubble, text) {
+    const wrap = getChatMessageContentWrap(bubble);
+    if (!wrap) return;
+    let status = wrap.querySelector(".chat-web-status");
+    if (!text) {
+        if (status) status.remove();
+        return;
+    }
+    if (!status) {
+        status = document.createElement("div");
+        status.className = "chat-web-status";
+        wrap.appendChild(status);
+    }
+    status.textContent = text;
+}
+
+function renderChatSources(bubble, sources) {
+    const wrap = getChatMessageContentWrap(bubble);
+    if (!wrap || !Array.isArray(sources) || sources.length === 0) return;
+    const existing = wrap.querySelector(".chat-sources");
+    if (existing) existing.remove();
+    const sourceWrap = document.createElement("div");
+    sourceWrap.className = "chat-sources";
+
+    for (const source of sources) {
+        const chip = document.createElement("a");
+        chip.className = "chat-source-chip";
+        chip.href = source.url || "#";
+        chip.target = "_blank";
+        chip.rel = "noopener noreferrer";
+        const title = source.title || source.url || "Source";
+        chip.title = source.url || title;
+        chip.textContent = `[${source.index || sourceWrap.children.length + 1}] ${title}`;
+        sourceWrap.appendChild(chip);
+    }
+
+    wrap.appendChild(sourceWrap);
 }
 
 function renderChatTypingIndicator() {
@@ -2586,7 +2645,7 @@ async function sendChatMessage(userText) {
     if (systemPrompt) {
         messages.push({ role: "system", content: systemPrompt });
     }
-    messages.push(...chatMessages);
+    messages.push(...getChatRequestMessages(chatMessages));
 
     const body = {
         model: getChatModelName(),
@@ -2594,11 +2653,16 @@ async function sendChatMessage(userText) {
         stream: true,
         ...getChatSamplerParams(),
     };
+    const webSearchEnabled = isChatWebSearchEnabled();
+    if (webSearchEnabled) {
+        body.web_search = true;
+        body.api_url = getChatApiUrl();
+    }
 
     chatAbortController = new AbortController();
 
     try {
-        const resp = await fetch(getChatApiUrl(), {
+        const resp = await fetch(webSearchEnabled ? "/api/chat/completions" : getChatApiUrl(), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -2620,8 +2684,10 @@ async function sendChatMessage(userText) {
         const decoder = new TextDecoder();
         let buffer = "";
         let fullContent = "";
+        let responseSources = [];
+        let streamDone = false;
 
-        while (true) {
+        while (!streamDone) {
             const { done, value } = await reader.read();
             if (done) break;
 
@@ -2633,10 +2699,29 @@ async function sendChatMessage(userText) {
                 const trimmed = line.trim();
                 if (!trimmed || !trimmed.startsWith("data: ")) continue;
                 const data = trimmed.slice(6);
-                if (data === "[DONE]") continue;
+                if (data === "[DONE]") {
+                    streamDone = true;
+                    setChatWebStatus(bubble, "");
+                    break;
+                }
 
                 try {
                     const parsed = JSON.parse(data);
+                    if (parsed.type === "web_status") {
+                        setChatWebStatus(bubble, parsed.content || "");
+                        continue;
+                    }
+                    if (parsed.type === "web_sources") {
+                        responseSources = parsed.sources || [];
+                        renderChatSources(bubble, responseSources);
+                        continue;
+                    }
+                    if (parsed.error) {
+                        const message = parsed.error.message || "Unknown error";
+                        fullContent += `Error: ${message}`;
+                        appendChatStreamToken(bubble, `Error: ${message}`);
+                        continue;
+                    }
                     const delta = parsed.choices?.[0]?.delta?.content;
                     if (delta) {
                         fullContent += delta;
@@ -2648,8 +2733,12 @@ async function sendChatMessage(userText) {
             }
         }
 
+        if (streamDone) {
+            await reader.cancel().catch(() => {});
+        }
+        setChatWebStatus(bubble, "");
         if (fullContent) {
-            chatMessages.push({ role: "assistant", content: fullContent });
+            chatMessages.push({ role: "assistant", content: fullContent, sources: responseSources });
         }
     } catch (e) {
         removeChatTypingIndicator();
@@ -2724,8 +2813,16 @@ function initChatTab() {
     const sidebar = document.getElementById("chat-sidebar");
     const btnCollapse = document.getElementById("btn-collapse-sidebar");
     const btnOpen = document.getElementById("btn-open-sidebar");
+    const webSearchToggle = document.getElementById("chat-web-search-toggle");
 
     updateChatStatusBadge();
+
+    if (webSearchToggle) {
+        webSearchToggle.checked = localStorage.getItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
+        webSearchToggle.addEventListener("change", () => {
+            localStorage.setItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+        });
+    }
 
     // Auto-resize chat input
     chatInput.addEventListener("input", () => {
