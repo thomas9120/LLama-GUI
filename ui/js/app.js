@@ -8,6 +8,18 @@ let openSubmenus = new Set();
 let configSearchQuery = "";
 let selectedChatTemplatePresetValue = "";
 
+let chatMessages = [];
+let chatStreaming = false;
+let chatAbortController = null;
+const CHAT_SAMPLER_SLIDER_MAP = {
+    "chat-slider-temp": { flag: "temperature", decimals: 2 },
+    "chat-slider-top-p": { flag: "top_p", decimals: 2 },
+    "chat-slider-top-k": { flag: "top_k", decimals: 0 },
+    "chat-slider-min-p": { flag: "min_p", decimals: 2 },
+    "chat-slider-repeat": { flag: "repeat_penalty", decimals: 2 },
+    "chat-slider-max-tokens": { flag: "n_predict", decimals: 0 },
+};
+
 const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
 const BUILTIN_SAMPLER_PRESETS = {
     Neutral: {
@@ -598,6 +610,7 @@ function setCurrentTool(tool) {
 function syncUiAfterSharedStateChange() {
     restoreFlagInputs();
     updateCommandPreview();
+    refreshChatSidebarUI();
 }
 
 function setFlagValue(flagId, value, options = {}) {
@@ -1217,6 +1230,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initApiTab();
     initPresetImport();
     initQuickLaunch();
+    initChatTab();
     renderFlags();
     refreshModels();
     checkStatus();
@@ -1243,6 +1257,7 @@ function switchTab(tabId) {
     document.querySelectorAll(".tab-content").forEach(tc => tc.classList.toggle("active", tc.id === "tab-" + tabId));
     if (tabId === "presets") loadPresets();
     if (tabId === "quick-launch") refreshQuickLaunchUI();
+    if (tabId === "chat") { refreshChatSidebarUI(); updateChatStatusBadge(); }
     if (tabId === "configure") updateCommandPreview();
     if (tabId === "api") {
         Promise.resolve(checkStatus()).finally(() => {
@@ -2168,12 +2183,14 @@ async function launchLlama() {
                 startStatsPolling();
             }
             updateApiEndpoints();
+            updateChatStatusBadge();
         }
     } catch (e) {
         appendOutput("ERROR: " + e.message);
         document.getElementById("btn-launch").classList.remove("hidden");
         document.getElementById("btn-stop").classList.add("hidden");
         updateQuickLaunchActionButtons();
+        updateChatStatusBadge();
     }
 }
 
@@ -2192,6 +2209,7 @@ async function stopLlama() {
     document.getElementById("server-address").classList.add("hidden");
     updateQuickLaunchActionButtons();
     updateApiEndpoints();
+    updateChatStatusBadge();
     setTimeout(() => checkStatus(), 500);
 }
 
@@ -2290,6 +2308,7 @@ async function pollOutput() {
             document.getElementById("server-address").classList.add("hidden");
             updateQuickLaunchActionButtons();
             updateApiEndpoints();
+            updateChatStatusBadge();
             setTimeout(() => checkStatus(), 500);
         }
     } catch (e) {
@@ -2302,6 +2321,7 @@ async function pollOutput() {
         document.getElementById("server-address").classList.add("hidden");
         updateQuickLaunchActionButtons();
         updateApiEndpoints();
+        updateChatStatusBadge();
     }
 }
 
@@ -2352,4 +2372,423 @@ function copyQuickServerUrl() {
 
 function copyText(text) {
     navigator.clipboard.writeText(text).catch(() => {});
+}
+
+// ── Chat Tab ──
+
+function escapeHtml(text) {
+    return text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+function renderMarkdown(text) {
+    let html = escapeHtml(text);
+
+    // Fenced code blocks ``` ... ```
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        const langAttr = lang ? ` data-lang="${lang}"` : "";
+        return `<pre${langAttr}><code>${code.replace(/\n$/, "")}</code></pre>`;
+    });
+
+    // Inline code `...`
+    html = html.replace(/`([^`\n]+?)`/g, "<code>$1</code>");
+
+    // Bold **...** or __...__
+    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+    html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
+
+    // Italic *...* or _..._ (but not inside words like some_code)
+    html = html.replace(/(?<!\w)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\w)/g, "<em>$1</em>");
+    html = html.replace(/(?<!\w)_([^\s_](?:[^_]*?[^\s_])?)_(?!\w)/g, "<em>$1</em>");
+
+    // Strikethrough ~~...~~
+    html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
+
+    // Paragraphs: split on double newlines
+    const blocks = html.split(/\n{2,}/);
+    html = blocks.map(block => {
+        block = block.trim();
+        if (!block) return "";
+        // Don't wrap pre blocks in p tags
+        if (block.startsWith("<pre")) return block;
+        // Convert single newlines to <br>
+        block = block.replace(/\n/g, "<br>");
+        return `<p>${block}</p>`;
+    }).join("");
+
+    return html;
+}
+
+function refreshChatSidebarUI() {
+    for (const [sliderId, meta] of Object.entries(CHAT_SAMPLER_SLIDER_MAP)) {
+        const slider = document.getElementById(sliderId);
+        const display = document.getElementById(sliderId.replace("slider", "val"));
+        if (!slider || !display) continue;
+        const val = flagValues[meta.flag];
+        if (val !== undefined && val !== null && val !== "") {
+            slider.value = val;
+            display.textContent = parseFloat(val).toFixed(meta.decimals);
+        }
+    }
+    const maxTokensSlider = document.getElementById("chat-slider-max-tokens");
+    const maxTokensDisplay = document.getElementById("chat-val-max-tokens");
+    if (maxTokensSlider && maxTokensDisplay) {
+        const nPredict = flagValues.n_predict;
+        if (nPredict !== undefined && nPredict !== null && nPredict !== "" && nPredict !== -1) {
+            maxTokensSlider.value = nPredict;
+            maxTokensDisplay.textContent = parseInt(nPredict, 10);
+        } else {
+            maxTokensSlider.value = 512;
+            maxTokensDisplay.textContent = "512";
+        }
+    }
+}
+
+function getChatModelName() {
+    const modelSel = document.getElementById("model-select");
+    const alias = String(flagValues.alias || "").split(",")[0].trim();
+    if (alias) return alias;
+    if (modelSel && modelSel.value) return modelSel.value;
+    return "local-model";
+}
+
+function getChatApiUrl() {
+    const host = String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1";
+    const parsedPort = Number(flagValues.port);
+    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+    return `http://${host}:${port}/v1/chat/completions`;
+}
+
+function updateChatStatusBadge() {
+    const runningBadge = document.getElementById("chat-status-badge");
+    const noServerBadge = document.getElementById("chat-no-server-badge");
+    if (!runningBadge || !noServerBadge) return;
+
+    const stopBtn = document.getElementById("btn-stop");
+    const isRunning = stopBtn && !stopBtn.classList.contains("hidden");
+    runningBadge.style.display = isRunning ? "" : "none";
+    noServerBadge.style.display = isRunning ? "none" : "";
+}
+
+function renderChatMessage(role, content) {
+    const container = document.getElementById("chat-messages");
+    const empty = document.getElementById("chat-empty");
+    if (empty) empty.style.display = "none";
+
+    const msg = document.createElement("div");
+    msg.className = `chat-message ${role}`;
+
+    const avatar = document.createElement("div");
+    avatar.className = "chat-avatar";
+    avatar.textContent = role === "user" ? "U" : "A";
+
+    const bubble = document.createElement("div");
+    bubble.className = "chat-bubble";
+    if (role === "assistant") {
+        bubble.innerHTML = renderMarkdown(content);
+        bubble.dataset.rawText = content;
+    } else {
+        bubble.textContent = content;
+    }
+
+    msg.appendChild(avatar);
+    msg.appendChild(bubble);
+    container.appendChild(msg);
+    container.scrollTop = container.scrollHeight;
+    return bubble;
+}
+
+function renderChatTypingIndicator() {
+    const container = document.getElementById("chat-messages");
+    const msg = document.createElement("div");
+    msg.className = "chat-message assistant";
+    msg.id = "chat-typing-msg";
+
+    const avatar = document.createElement("div");
+    avatar.className = "chat-avatar";
+    avatar.textContent = "A";
+
+    const typing = document.createElement("div");
+    typing.className = "chat-typing";
+    typing.id = "chat-typing";
+    for (let i = 0; i < 3; i++) {
+        const dot = document.createElement("span");
+        dot.className = "chat-typing-dot";
+        typing.appendChild(dot);
+    }
+
+    msg.appendChild(avatar);
+    msg.appendChild(typing);
+    container.appendChild(msg);
+    container.scrollTop = container.scrollHeight;
+}
+
+function removeChatTypingIndicator() {
+    const typing = document.getElementById("chat-typing-msg");
+    if (typing) typing.remove();
+}
+
+function appendChatStreamToken(bubble, token) {
+    bubble.dataset.rawText = (bubble.dataset.rawText || "") + token;
+    bubble.innerHTML = renderMarkdown(bubble.dataset.rawText);
+    const container = document.getElementById("chat-messages");
+    container.scrollTop = container.scrollHeight;
+}
+
+function showChatSendButton(show) {
+    const sendBtn = document.getElementById("btn-chat-send");
+    const stopBtn = document.getElementById("btn-chat-stop");
+    if (sendBtn) sendBtn.style.display = show ? "flex" : "none";
+    if (stopBtn) stopBtn.style.display = show ? "none" : "flex";
+}
+
+function getChatSamplerParams() {
+    const params = {};
+    const temp = flagValues.temperature;
+    if (temp !== undefined && temp !== null) params.temperature = temp;
+    const topP = flagValues.top_p;
+    if (topP !== undefined && topP !== null) params.top_p = topP;
+    const topK = flagValues.top_k;
+    if (topK !== undefined && topK !== null && topK !== 0) params.top_k = topK;
+    const minP = flagValues.min_p;
+    if (minP !== undefined && minP !== null) params.min_p = minP;
+    const repeatPenalty = flagValues.repeat_penalty;
+    if (repeatPenalty !== undefined && repeatPenalty !== null && repeatPenalty !== 1.0) {
+        params.repeat_penalty = repeatPenalty;
+    }
+    const nPredict = flagValues.n_predict;
+    if (nPredict !== undefined && nPredict !== null && nPredict !== -1) {
+        params.max_tokens = nPredict;
+    }
+    return params;
+}
+
+async function sendChatMessage(userText) {
+    if (chatStreaming || !userText.trim()) return;
+
+    const systemPrompt = (document.getElementById("chat-system-prompt").value || "").trim();
+    chatMessages.push({ role: "user", content: userText.trim() });
+    renderChatMessage("user", userText.trim());
+
+    const chatInput = document.getElementById("chat-input");
+    chatInput.value = "";
+    chatInput.style.height = "auto";
+
+    chatStreaming = true;
+    showChatSendButton(false);
+    renderChatTypingIndicator();
+
+    const messages = [];
+    if (systemPrompt) {
+        messages.push({ role: "system", content: systemPrompt });
+    }
+    messages.push(...chatMessages);
+
+    const body = {
+        model: getChatModelName(),
+        messages,
+        stream: true,
+        ...getChatSamplerParams(),
+    };
+
+    chatAbortController = new AbortController();
+
+    try {
+        const resp = await fetch(getChatApiUrl(), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+            signal: chatAbortController.signal,
+        });
+
+        removeChatTypingIndicator();
+
+        if (!resp.ok) {
+            const errText = await resp.text().catch(() => resp.statusText);
+            renderChatMessage("assistant", `Error: ${resp.status} - ${errText}`);
+            chatStreaming = false;
+            showChatSendButton(true);
+            return;
+        }
+
+        const bubble = renderChatMessage("assistant", "");
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let fullContent = "";
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith("data: ")) continue;
+                const data = trimmed.slice(6);
+                if (data === "[DONE]") continue;
+
+                try {
+                    const parsed = JSON.parse(data);
+                    const delta = parsed.choices?.[0]?.delta?.content;
+                    if (delta) {
+                        fullContent += delta;
+                        appendChatStreamToken(bubble, delta);
+                    }
+                } catch (_) {
+                    // skip malformed chunks
+                }
+            }
+        }
+
+        if (fullContent) {
+            chatMessages.push({ role: "assistant", content: fullContent });
+        }
+    } catch (e) {
+        removeChatTypingIndicator();
+        if (e.name !== "AbortError") {
+            renderChatMessage("assistant", "Error: " + e.message);
+        }
+    } finally {
+        chatStreaming = false;
+        chatAbortController = null;
+        showChatSendButton(true);
+        document.getElementById("chat-input").focus();
+    }
+}
+
+function stopChatStream() {
+    if (chatAbortController) {
+        chatAbortController.abort();
+    }
+}
+
+function undoChatMessage() {
+    if (chatStreaming || chatMessages.length === 0) return;
+    chatMessages.pop();
+    const container = document.getElementById("chat-messages");
+    const msgs = container.querySelectorAll(".chat-message");
+    if (msgs.length > 0) msgs[msgs.length - 1].remove();
+
+    if (chatMessages.length === 0) {
+        const empty = document.getElementById("chat-empty");
+        if (empty) empty.style.display = "";
+    }
+}
+
+function regenerateChatResponse() {
+    if (chatStreaming || chatMessages.length === 0) return;
+    const lastMsg = chatMessages[chatMessages.length - 1];
+    if (lastMsg.role === "assistant") {
+        chatMessages.pop();
+        const container = document.getElementById("chat-messages");
+        const msgs = container.querySelectorAll(".chat-message");
+        if (msgs.length > 0) msgs[msgs.length - 1].remove();
+    }
+
+    const lastUserMsg = chatMessages[chatMessages.length - 1];
+    if (!lastUserMsg || lastUserMsg.role !== "user") return;
+
+    chatMessages.pop();
+    const container = document.getElementById("chat-messages");
+    const msgs = container.querySelectorAll(".chat-message");
+    if (msgs.length > 0) msgs[msgs.length - 1].remove();
+
+    sendChatMessage(lastUserMsg.content);
+}
+
+function clearChat() {
+    if (chatStreaming) stopChatStream();
+    chatMessages = [];
+    const container = document.getElementById("chat-messages");
+    container.querySelectorAll(".chat-message").forEach(el => el.remove());
+    const empty = document.getElementById("chat-empty");
+    if (empty) empty.style.display = "";
+}
+
+function initChatTab() {
+    const chatInput = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("btn-chat-send");
+    const stopBtn = document.getElementById("btn-chat-stop");
+    const undoBtn = document.getElementById("btn-chat-undo");
+    const regenBtn = document.getElementById("btn-chat-regenerate");
+    const sysPrompt = document.getElementById("chat-system-prompt");
+    const sysCharCount = document.getElementById("chat-sys-char-count");
+    const sidebar = document.getElementById("chat-sidebar");
+    const btnCollapse = document.getElementById("btn-collapse-sidebar");
+    const btnOpen = document.getElementById("btn-open-sidebar");
+
+    updateChatStatusBadge();
+
+    // Auto-resize chat input
+    chatInput.addEventListener("input", () => {
+        chatInput.style.height = "auto";
+        chatInput.style.height = Math.min(chatInput.scrollHeight, 160) + "px";
+    });
+
+    // Send on Enter
+    chatInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendChatMessage(chatInput.value);
+        }
+    });
+
+    sendBtn.addEventListener("click", () => sendChatMessage(chatInput.value));
+    stopBtn.addEventListener("click", stopChatStream);
+    undoBtn.addEventListener("click", undoChatMessage);
+    regenBtn.addEventListener("click", regenerateChatResponse);
+
+    // System prompt char count
+    sysPrompt.addEventListener("input", () => {
+        sysCharCount.textContent = sysPrompt.value.length + " chars";
+    });
+    sysCharCount.textContent = "0 chars";
+
+    // Sidebar collapse/expand
+    btnCollapse.addEventListener("click", () => {
+        sidebar.classList.add("collapsed");
+        btnOpen.style.display = "flex";
+    });
+
+    btnOpen.addEventListener("click", () => {
+        sidebar.classList.remove("collapsed");
+        btnOpen.style.display = "none";
+    });
+
+    // Sidebar sampler sliders -> setFlagValue
+    for (const [sliderId, meta] of Object.entries(CHAT_SAMPLER_SLIDER_MAP)) {
+        const slider = document.getElementById(sliderId);
+        const display = document.getElementById(sliderId.replace("slider", "val"));
+        if (!slider || !display) continue;
+
+        slider.addEventListener("input", () => {
+            const raw = parseFloat(slider.value);
+            display.textContent = raw.toFixed(meta.decimals);
+            const val = meta.flag === "top_k" ? parseInt(slider.value, 10) : parseFloat(slider.value);
+            setFlagValue(meta.flag, val);
+        });
+    }
+
+    // Clear chat button in header
+    const clearBtn = document.getElementById("btn-chat-clear");
+    if (clearBtn) {
+        clearBtn.addEventListener("click", clearChat);
+    }
+
+    // Suggestion chips
+    document.querySelectorAll("#chat-empty .suggestion-chip").forEach(chip => {
+        chip.addEventListener("click", () => {
+            const prompt = chip.dataset.prompt;
+            if (prompt) sendChatMessage(prompt);
+        });
+    });
+
+    refreshChatSidebarUI();
 }
