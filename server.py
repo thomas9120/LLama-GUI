@@ -2,6 +2,7 @@ import http.server
 import json
 import os
 import platform
+import socket
 import ssl
 import subprocess
 import sys
@@ -557,6 +558,45 @@ def shutdown_gui_server():
     if server is None:
         return False
     stop_process()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+    return True
+
+
+def restart_gui_server():
+    server = gui_server
+    if server is None:
+        return False
+    stop_process()
+    restart_script = str(BASE_DIR / "server.py")
+
+    def _restart():
+        try:
+            time.sleep(2.5)
+            for i in range(10):
+                try:
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    sock.bind(("127.0.0.1", 5240))
+                    sock.close()
+                    break
+                except OSError:
+                    if i < 9:
+                        time.sleep(0.5)
+                    else:
+                        print("WARNING: Port 5240 still in use after waiting, attempting restart anyway")
+            subprocess.Popen(
+                [sys.executable, restart_script],
+                cwd=str(BASE_DIR),
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+            )
+            print("Restarting Llama GUI...")
+        except Exception as e:
+            print(f"ERROR: Failed to restart server: {e}")
+            import traceback
+            traceback.print_exc()
+            return
+        os._exit(0)
+
+    threading.Thread(target=_restart, daemon=False).start()
     threading.Thread(target=server.shutdown, daemon=True).start()
     return True
 
@@ -1117,6 +1157,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/shutdown":
             shutting_down = shutdown_gui_server()
             self.send_json({"shutting_down": shutting_down})
+            return
+
+        if path == "/api/restart":
+            restarting = restart_gui_server()
+            self.send_json({"restarting": restarting})
             return
 
         if path == "/api/cleanup-llama":

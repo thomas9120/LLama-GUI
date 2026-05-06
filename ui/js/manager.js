@@ -263,6 +263,7 @@ function setInstallButtonsDisabled(disabled) {
     document.getElementById("btn-repair").disabled = disabled;
     document.getElementById("btn-remove-llama").disabled = disabled;
     document.getElementById("btn-stop-app").disabled = disabled;
+    document.getElementById("btn-restart-app").disabled = disabled;
     document.getElementById("btn-check-app-update").disabled = disabled;
     document.getElementById("btn-update-app").disabled = disabled;
 }
@@ -293,6 +294,48 @@ async function stopPythonServer() {
         showStatus("error", "Failed to stop Python server: " + e.message);
         if (button) button.disabled = false;
     }
+}
+
+async function restartPythonServer() {
+    const status = latestStatus || await checkStatus();
+    const runningHint = status && status.running
+        ? " Any running llama.cpp process will be stopped first."
+        : "";
+    const ok = await confirmAction(
+        "Restart Python Server",
+        `Restart the Llama GUI Python server? The page will briefly disconnect.${runningHint}`,
+        "Restart"
+    );
+    if (!ok) return;
+
+    const button = document.getElementById("btn-restart-app");
+    if (button) button.disabled = true;
+    showStatus("info", "Restarting Python server...");
+
+    try {
+        await fetchJson("/api/restart", { method: "POST" });
+        showStatus("info", "Python server is restarting. Reconnecting...");
+        await waitForServerReady(30, 1000);
+        showStatus("success", "Python server restarted successfully.");
+        window.setTimeout(() => {
+            window.location.reload();
+        }, 500);
+    } catch (e) {
+        showStatus("error", "Failed to restart Python server: " + e.message);
+        if (button) button.disabled = false;
+    }
+}
+
+async function waitForServerReady(maxRetries, intervalMs) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            await fetchJson("/api/models");
+            return true;
+        } catch {
+            await new Promise(r => setTimeout(r, intervalMs));
+        }
+    }
+    return false;
 }
 
 async function startInstall(tag, backend, startMessage) {
