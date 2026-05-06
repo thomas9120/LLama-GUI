@@ -14,10 +14,14 @@ import hashlib
 import shutil
 import urllib.request
 import urllib.parse
+import urllib.error
 import re
 import time
 import pathlib
 import tempfile
+import html
+import ipaddress
+from html.parser import HTMLParser
 
 try:
     import certifi
@@ -35,6 +39,15 @@ UI_DIR = BASE_DIR / "ui"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
+WEB_SEARCH_MAX_RESULTS = 5
+WEB_SEARCH_FETCH_RESULTS = 3
+WEB_SEARCH_FETCH_BYTES = 512 * 1024
+WEB_SEARCH_PAGE_CHARS = 12000
+WEB_SEARCH_TIMEOUT = 20
+WEB_SEARCH_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
+)
 
 
 def create_ssl_context():
@@ -932,6 +945,263 @@ def select_file_in_native_dialog(title="Select File", initial_dir=None, filetype
         root.destroy()
 
 
+class ReadableHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+        self.skip_depth = 0
+        self.block_tags = {
+            "article",
+            "blockquote",
+            "br",
+            "dd",
+            "div",
+            "dl",
+            "dt",
+            "figcaption",
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "header",
+            "li",
+            "main",
+            "nav",
+            "ol",
+            "p",
+            "pre",
+            "section",
+            "table",
+            "td",
+            "th",
+            "tr",
+            "ul",
+        }
+
+    def handle_starttag(self, tag, attrs):
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript", "svg"}:
+            self.skip_depth += 1
+            return
+        if self.skip_depth:
+            return
+        if tag in self.block_tags:
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag):
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript", "svg"} and self.skip_depth:
+            self.skip_depth -= 1
+            return
+        if self.skip_depth:
+            return
+        if tag in self.block_tags:
+            self.parts.append("\n")
+
+    def handle_data(self, data):
+        if self.skip_depth:
+            return
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+    def text(self):
+        raw = html.unescape(" ".join(self.parts))
+        raw = re.sub(r"[ \t\r\f\v]+", " ", raw)
+        raw = re.sub(r"\n\s+", "\n", raw)
+        raw = re.sub(r"\n{3,}", "\n\n", raw)
+        return raw.strip()
+
+
+def html_to_readable_text(raw_html):
+    parser = ReadableHTMLParser()
+    try:
+        parser.feed(raw_html)
+        parser.close()
+        return parser.text()
+    except Exception:
+        text = re.sub(r"(?is)<(script|style|noscript|svg).*?</\1>", " ", raw_html)
+        text = re.sub(r"(?s)<[^>]+>", " ", text)
+        text = html.unescape(text)
+        return re.sub(r"\s+", " ", text).strip()
+
+
+def validate_public_hostname(hostname, port):
+    try:
+        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        return False, f"Failed to resolve host: {exc}"
+    if not infos:
+        return False, f"Failed to resolve host: no addresses for {hostname!r}"
+    for *_, sockaddr in infos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            return False, f"Blocked: refusing to fetch non-public address {ip}."
+    return True, ""
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def fetch_page_text(url, max_chars=WEB_SEARCH_PAGE_CHARS, timeout=WEB_SEARCH_TIMEOUT):
+    parsed = urllib.parse.urlparse(str(url or "").strip())
+    if parsed.scheme not in {"http", "https"}:
+        return {"ok": False, "error": f"Blocked: only http/https URLs are allowed (got {parsed.scheme!r})."}
+    if not parsed.hostname:
+        return {"ok": False, "error": "Blocked: URL is missing a hostname."}
+
+    current_url = urllib.parse.urlunparse(parsed)
+    opener = urllib.request.build_opener(
+        NoRedirect,
+        urllib.request.HTTPSHandler(context=SSL_CONTEXT),
+    )
+    for _ in range(5):
+        parsed = urllib.parse.urlparse(current_url)
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        ok, reason = validate_public_hostname(parsed.hostname, port)
+        if not ok:
+            return {"ok": False, "error": reason}
+
+        req = urllib.request.Request(
+            current_url,
+            headers={
+                "User-Agent": WEB_SEARCH_USER_AGENT,
+                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.2",
+            },
+        )
+        try:
+            resp = opener.open(req, timeout=timeout)
+            raw = resp.read(WEB_SEARCH_FETCH_BYTES)
+            charset = resp.headers.get_content_charset() or "utf-8"
+            text = html_to_readable_text(raw.decode(charset, errors="replace"))
+            if len(text) > max_chars:
+                text = text[:max_chars].rstrip() + f"\n\n... (truncated, {len(text)} chars total)"
+            return {"ok": True, "url": current_url, "text": text or "(page returned no readable text)"}
+        except urllib.error.HTTPError as exc:
+            if exc.code not in {301, 302, 303, 307, 308}:
+                return {"ok": False, "error": f"Failed to fetch URL: HTTP {exc.code} {getattr(exc, 'reason', '')}"}
+            location = exc.headers.get("Location")
+            if not location:
+                return {"ok": False, "error": "Failed to fetch URL: redirect missing Location header."}
+            next_url = urllib.parse.urljoin(current_url, location)
+            next_parsed = urllib.parse.urlparse(next_url)
+            if next_parsed.scheme not in {"http", "https"} or not next_parsed.hostname:
+                return {"ok": False, "error": "Blocked: redirect target is not a valid http/https URL."}
+            current_url = next_url
+        except Exception as exc:
+            return {"ok": False, "error": f"Failed to fetch URL: {exc}"}
+
+    return {"ok": False, "error": "Failed to fetch URL: too many redirects."}
+
+
+def web_search(query, max_results=WEB_SEARCH_MAX_RESULTS):
+    query = str(query or "").strip()
+    if not query:
+        return {"ok": False, "error": "No query provided.", "results": []}
+    try:
+        from ddgs import DDGS
+    except ImportError:
+        return {
+            "ok": False,
+            "error": "Search unavailable: install dependencies again so the ddgs package is available.",
+            "results": [],
+        }
+
+    try:
+        rows = DDGS(timeout=WEB_SEARCH_TIMEOUT).text(query, max_results=max_results)
+    except Exception as exc:
+        return {"ok": False, "error": f"Search failed: {exc}", "results": []}
+
+    results = []
+    for row in rows or []:
+        url = row.get("href") or row.get("url") or ""
+        if not url:
+            continue
+        results.append(
+            {
+                "title": row.get("title") or url,
+                "url": url,
+                "snippet": row.get("body") or row.get("snippet") or "",
+            }
+        )
+    return {"ok": True, "query": query, "results": results}
+
+
+def get_latest_user_message(messages):
+    for msg in reversed(messages or []):
+        if msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, str):
+                return content.strip()
+    return ""
+
+
+def build_search_queries(user_text):
+    query = re.sub(r"\s+", " ", str(user_text or "").strip())
+    if len(query) > 180:
+        query = query[:180].rsplit(" ", 1)[0]
+    return [query] if query else []
+
+
+def build_search_context(search_results, fetched_pages):
+    sources = []
+    context_parts = []
+    for idx, result in enumerate(search_results, 1):
+        url = result.get("url", "")
+        title = result.get("title") or url
+        snippet = result.get("snippet", "")
+        fetched = fetched_pages.get(url, {})
+        text = fetched.get("text") if fetched.get("ok") else ""
+        if not text:
+            text = snippet
+        text = (text or "").strip()
+        if len(text) > 3500:
+            text = text[:3500].rstrip() + "\n... (source excerpt truncated)"
+        sources.append({"index": idx, "title": title, "url": url, "snippet": snippet})
+        context_parts.append(
+            f"[{idx}] {title}\nURL: {url}\nSnippet: {snippet}\nContent excerpt:\n{text}"
+        )
+
+    if not context_parts:
+        return "", sources
+
+    context = (
+        "You have fresh web search context below. Answer the user's question using these sources. "
+        "Cite source numbers like [1] or [2] for factual claims. If the sources are insufficient, say so.\n\n"
+        + "\n\n---\n\n".join(context_parts)
+    )
+    return context, sources
+
+
+def get_local_chat_api_url(body):
+    api_url = str(body.get("api_url") or "").strip()
+    if api_url:
+        return api_url
+    host = str(body.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+    port = int(body.get("port") or 8080)
+    return f"http://{host}:{port}/v1/chat/completions"
+
+
+def write_sse(wfile, data):
+    if isinstance(data, str):
+        payload = data
+    else:
+        payload = json.dumps(data)
+    wfile.write(f"data: {payload}\n\n".encode("utf-8"))
+    wfile.flush()
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -957,6 +1227,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_sse_headers(self, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5240")
+        self.end_headers()
+
     def read_body(self):
         length = int(self.headers.get("Content-Length", 0))
         if length == 0:
@@ -975,6 +1253,119 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if referer:
             return referer.startswith(allowed)
         return True
+
+    def handle_web_search_request(self, body):
+        query = body.get("query", "")
+        url = body.get("url", "")
+        if url:
+            self.send_json(fetch_page_text(url))
+            return
+        try:
+            max_results = int(body.get("max_results") or WEB_SEARCH_MAX_RESULTS)
+        except (TypeError, ValueError):
+            max_results = WEB_SEARCH_MAX_RESULTS
+        self.send_json(web_search(query, max_results=max(1, min(max_results, 10))))
+
+    def handle_chat_completions(self, body):
+        if not body.get("web_search"):
+            self.send_json({"error": "web_search must be true for this local chat endpoint"}, 400)
+            return
+
+        self.send_sse_headers()
+        try:
+            messages = list(body.get("messages") or [])
+            latest_user = get_latest_user_message(messages)
+            queries = build_search_queries(latest_user)
+            all_results = []
+            fetched_pages = {}
+
+            for query in queries:
+                write_sse(self.wfile, {"type": "web_status", "content": f"Searching: {query}"})
+                search_response = web_search(query)
+                if not search_response.get("ok"):
+                    write_sse(self.wfile, {"error": {"message": search_response.get("error", "Search unavailable")}})
+                    write_sse(self.wfile, "[DONE]")
+                    return
+                for result in search_response.get("results", []):
+                    if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
+                        all_results.append(result)
+                    if len(all_results) >= WEB_SEARCH_MAX_RESULTS:
+                        break
+
+            for result in all_results[:WEB_SEARCH_FETCH_RESULTS]:
+                url = result.get("url", "")
+                host = urllib.parse.urlparse(url).hostname or url
+                if host.startswith("www."):
+                    host = host[4:]
+                write_sse(self.wfile, {"type": "web_status", "content": f"Reading: {host}"})
+                fetched_pages[url] = fetch_page_text(url)
+
+            context, sources = build_search_context(all_results, fetched_pages)
+            if not context:
+                write_sse(self.wfile, {"error": {"message": "Search returned no usable sources."}})
+                write_sse(self.wfile, "[DONE]")
+                return
+
+            write_sse(self.wfile, {"type": "web_sources", "sources": sources})
+            write_sse(self.wfile, {"type": "web_status", "content": "Answering..."})
+
+            proxied_messages = []
+            inserted_context = False
+            for msg in messages:
+                if msg.get("role") == "system" and not inserted_context:
+                    proxied_messages.append(
+                        {
+                            "role": "system",
+                            "content": f"{msg.get('content', '').rstrip()}\n\n{context}".strip(),
+                        }
+                    )
+                    inserted_context = True
+                else:
+                    proxied_messages.append(
+                        {
+                            "role": msg.get("role", "user"),
+                            "content": msg.get("content", ""),
+                        }
+                    )
+            if not inserted_context:
+                proxied_messages.insert(0, {"role": "system", "content": context})
+
+            proxy_body = dict(body)
+            proxy_body["messages"] = proxied_messages
+            proxy_body["stream"] = True
+            proxy_body.pop("web_search", None)
+            proxy_body.pop("api_url", None)
+            proxy_body.pop("host", None)
+            proxy_body.pop("port", None)
+
+            api_url = get_local_chat_api_url(body)
+            req = urllib.request.Request(
+                api_url,
+                data=json.dumps(proxy_body).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                while True:
+                    line = resp.readline()
+                    if not line:
+                        break
+                    self.wfile.write(line)
+                    self.wfile.flush()
+                    if line.strip() == b"data: [DONE]":
+                        break
+        except BrokenPipeError:
+            return
+        except urllib.error.HTTPError as exc:
+            try:
+                err = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                err = str(exc)
+            write_sse(self.wfile, {"error": {"message": f"llama-server returned HTTP {exc.code}: {err}"}})
+            write_sse(self.wfile, "[DONE]")
+        except Exception as exc:
+            write_sse(self.wfile, {"error": {"message": str(exc)}})
+            write_sse(self.wfile, "[DONE]")
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1090,6 +1481,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if not self.is_safe_request_origin():
             self.send_json({"error": "Request origin not allowed"}, 403)
+            return
+
+        if path == "/api/web-search":
+            self.handle_web_search_request(body)
+            return
+
+        if path == "/api/chat/completions":
+            self.handle_chat_completions(body)
             return
 
         if path == "/api/install":
@@ -1306,7 +1705,7 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     try:
-        gui_server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+        gui_server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
     except OSError as e:
         if "address already in use" in str(e).lower() or e.errno == 10048:
             print(f"ERROR: Port {port} is already in use.")

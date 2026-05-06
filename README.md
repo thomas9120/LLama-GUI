@@ -7,6 +7,7 @@ Llama GUI provides a browser UI to:
 - use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
 - chat with the model directly from a built-in chat interface
+- optionally search the web from Chat with zero API-key setup, using free DuckDuckGo-backed search
 - monitor process output in real time
 - view live server stats (prompt tokens, generation speed, KV cache usage)
 - use OpenAI-compatible endpoint helpers/snippets
@@ -17,7 +18,7 @@ Llama GUI provides a browser UI to:
 
 - Python 3.9+
 - `pip` and virtual environment support (`python -m venv`)
-- Internet access (for release metadata/downloads and optional app updates)
+- Internet access (for release metadata/downloads, optional app updates, and optional Chat web search)
 - A supported OS/architecture for the prebuilt `llama.cpp` binaries you want to install
 
 Supported prebuilt backends vary by platform:
@@ -50,7 +51,8 @@ Platform launch helpers:
 4. In **Install**, choose a version + backend, then click **Install**.
 5. Put `.gguf` files in `models/` (or click **Open Models**).
 6. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
-7. Use **Configure** when you want full flag-by-flag control.
+7. Open **Chat** to talk to the running server. Enable **Web Search** when you want the model to search the web before answering.
+8. Use **Configure** when you want full flag-by-flag control.
 
 ## Download the Current Release Zip
 
@@ -192,6 +194,11 @@ Use this as a quick onboarding flow for a fresh setup:
 7. Optional integration check:
    - open the **API** tab
    - copy a snippet and test `/v1/chat/completions`
+8. Optional web search check:
+   - open the **Chat** tab
+   - enable **Web Search**
+   - ask a current-events or documentation question
+   - confirm the response shows search/reading status and source chips under the answer
 
 If something fails during first run, use **Install -> Repair Install** and then relaunch.
 
@@ -246,7 +253,10 @@ Default-friendly behavior includes:
 ### Chat
 
 - Built-in chat interface that talks directly to the running `llama-server` via `/v1/chat/completions`
-- Streaming responses — tokens appear incrementally as they're generated
+- Streaming responses - tokens appear incrementally as they're generated
+- Optional **Web Search** toggle for search-before-answer responses with no user API key or search configuration
+- Web Search uses the local Python server to search, fetch public web pages, inject source excerpts into the prompt, and stream the final answer back through the Chat UI
+- Source chips appear under web-assisted answers so you can open the pages used for context
 - System prompt field in the collapsible right sidebar
 - Sampler controls (Temperature, Top-P, Top-K, Min-P, Repeat Penalty, Max Tokens) synced with Quick Launch and Configure
 - Undo last message, regenerate last response, and clear chat actions
@@ -258,6 +268,24 @@ Default-friendly behavior includes:
 
 - Save/load full launcher presets as JSON files in `presets/`
 - Import existing preset JSON
+
+## Chat Web Search
+
+The **Web Search** toggle in Chat adds a lightweight search-before-answer flow:
+
+- no API key or user configuration is required
+- search runs through the local Python server using the free `ddgs` package
+- public web pages from the top results are fetched, cleaned, truncated, and injected as temporary source context
+- the normal conversation history stays clean; search result text is not saved as chat messages
+- assistant responses still stream token by token, and source chips appear under the final answer
+
+Security and privacy behavior:
+- only `http` and `https` URLs are fetched
+- private, loopback, link-local, multicast, reserved, and unspecified IP addresses are blocked
+- redirects are capped
+- fetched page bytes and injected source text are capped to avoid huge prompts
+
+Web Search is best for current or uncertain factual questions. Leave it off for normal local-only chat.
 
 ## Suggested README Screenshots
 
@@ -292,17 +320,17 @@ Note: loading a full app preset can overwrite sampler values because samplers ar
 
 When `llama-server` is running, a live stats bar appears at the bottom of the screen showing:
 
-- **prompt tokens** — total prompt tokens processed
-- **tok/s prompt** — prompt processing throughput
-- **gen tokens** — total tokens generated
-- **tok/s gen** — generation throughput
-- **KV %** — KV cache utilization
+- **prompt tokens** - total prompt tokens processed
+- **tok/s prompt** - prompt processing throughput
+- **gen tokens** - total tokens generated
+- **tok/s gen** - generation throughput
+- **KV %** - KV cache utilization
 
 The bar polls the `/metrics` endpoint every 3 seconds and updates automatically. It disappears when the server stops.
 
 The `--metrics` flag is enabled by default. You can toggle it from:
-- **Quick Launch** — "Show server stats bar" checkbox in the Launch Preview card
-- **Configure** — "Prometheus Metrics" checkbox in the Server and MCP Settings section
+- **Quick Launch** - "Show server stats bar" checkbox in the Launch Preview card
+- **Configure** - "Prometheus Metrics" checkbox in the Server and MCP Settings section
 
 Both controls stay in sync.
 
@@ -330,6 +358,7 @@ It does not remove:
 ## Project Layout
 
 - `server.py` - local HTTP API, installer/update logic, process manager
+- `requirements.txt` - Python dependencies, including optional Chat web search support
 - `ui/` - static frontend (HTML/CSS/JS)
 - `llama/bin/` - installed `llama.cpp` executables/runtime files
 - `llama/grammars/` - grammar/schema files from release assets
@@ -379,7 +408,7 @@ GitHub will already provide automatic source-code archives for your tag, so this
 
 - `config.json` - installed release/backend metadata
 - `presets/` - full app presets (tool/model/flags)
-- browser `localStorage` - custom sampler presets
+- browser `localStorage` - custom sampler presets and the Chat Web Search toggle state
 
 ## Troubleshooting
 
@@ -435,6 +464,18 @@ Fix:
 - verify `git` is installed and available in PATH
 - ensure the repo folder has normal Git metadata (not a broken or partial clone)
 - retry from Install tab and review app update status text
+
+### Chat Web Search Does Not Return Results
+
+Symptoms:
+- Chat shows a search unavailable or search failed message
+- Web-assisted answers have no source chips
+
+Fix:
+- rerun the platform install script so `ddgs` is installed from `requirements.txt`
+- confirm the machine has internet access
+- try a simpler query, since free search providers can occasionally rate-limit or return sparse results
+- leave **Web Search** off when you want fully local/offline chat
 
 ### Still Stuck
 
