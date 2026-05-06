@@ -20,6 +20,7 @@
             <button class="tab active" data-tab="install">Install</button>
             <button class="tab" data-tab="quick-launch">Quick Launch</button>
             <button class="tab" data-tab="configure">Configure</button>
+            <button class="tab" data-tab="chat">Chat</button>
             <button class="tab" data-tab="api">API</button>
             <button class="tab" data-tab="presets">Presets</button>
         </nav>
@@ -356,6 +357,111 @@
                         <button class="btn" onclick="sendInput()">Send</button>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- CHAT TAB -->
+        <div class="tab-content" id="tab-chat">
+            <div class="chat-header-bar">
+                <h2>&#128172; Chat</h2>
+                <div class="chat-header-actions">
+                    <span class="badge badge-green" id="chat-status-badge">&#9679; Server Running</span>
+                    <span class="badge badge-dim" id="chat-no-server-badge">No Server</span>
+                    <button class="btn btn-sm" id="btn-chat-clear" type="button">&#128465; Clear</button>
+                </div>
+            </div>
+            <div class="chat-layout">
+                <div class="chat-main">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-empty" id="chat-empty">
+                            <div class="chat-empty-icon">&#128172;</div>
+                            <h3>Start a conversation</h3>
+                            <p>Send a message to begin chatting with the model. The response will stream in token by token.</p>
+                            <div class="suggestions">
+                                <span class="suggestion-chip" data-prompt="Explain async/await in Python">Explain async/await in Python</span>
+                                <span class="suggestion-chip" data-prompt="Write a bash script to find large files">Write a bash script to find large files</span>
+                                <span class="suggestion-chip" data-prompt="What is a transformer model?">What is a transformer model?</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chat-input-area">
+                        <div class="chat-input-row">
+                            <textarea class="chat-input" id="chat-input" placeholder="Type a message..." rows="1"></textarea>
+                            <button class="btn btn-primary" id="btn-chat-send">&#10148; Send</button>
+                            <button class="btn btn-danger" id="btn-chat-stop" style="display:none;">&#9632; Stop</button>
+                        </div>
+                        <div class="chat-input-actions">
+                            <button class="btn btn-xs" id="btn-chat-undo" title="Undo last message">&#8630; Undo</button>
+                            <button class="btn btn-xs" id="btn-chat-regenerate" title="Regenerate last response">&#8635; Regenerate</button>
+                            <span class="chat-input-hint"><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-sidebar" id="chat-sidebar">
+                    <div class="sidebar-header">
+                        <h3>Settings</h3>
+                        <button class="btn-toggle-sidebar" id="btn-collapse-sidebar" title="Collapse sidebar">&#10005;</button>
+                    </div>
+                    <div class="sidebar-body">
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-label"><span class="sidebar-icon">&#9881;</span> System Prompt</div>
+                            <textarea class="sidebar-system-prompt" id="chat-system-prompt" placeholder="You are a helpful assistant..."></textarea>
+                            <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
+                        </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-label"><span class="sidebar-icon">&#127922;</span> Samplers</div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Temperature</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-temp">0.80</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Higher = more random, lower = more focused</div>
+                                <input type="range" id="chat-slider-temp" min="0" max="2" step="0.05" value="0.80">
+                            </div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Top-P</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-top-p">0.95</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Nucleus sampling threshold</div>
+                                <input type="range" id="chat-slider-top-p" min="0" max="1" step="0.01" value="0.95">
+                            </div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Top-K</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-top-k">40</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Limits vocabulary to top K tokens</div>
+                                <input type="range" id="chat-slider-top-k" min="1" max="200" step="1" value="40">
+                            </div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Min-P</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Minimum probability relative to top token</div>
+                                <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
+                            </div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Repeat Penalty</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-repeat">1.10</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Penalize repeated tokens</div>
+                                <input type="range" id="chat-slider-repeat" min="1" max="2" step="0.01" value="1.10">
+                            </div>
+                            <div class="sidebar-sampler-control">
+                                <div class="sidebar-sampler-label">
+                                    <span class="sidebar-sampler-text">Max Tokens</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-max-tokens">512</span>
+                                </div>
+                                <div class="sidebar-sampler-desc">Maximum tokens to generate per response</div>
+                                <input type="range" id="chat-slider-max-tokens" min="64" max="4096" step="64" value="512">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <button class="btn btn-sm btn-sidebar-open" id="btn-open-sidebar" title="Show settings">&#9881;</button>
             </div>
         </div>
 

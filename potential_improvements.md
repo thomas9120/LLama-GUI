@@ -29,7 +29,7 @@ Feature improvement ideas for LLama-GUI, organized by category.
 
 ## API & Integration
 
-- **Built-in chat interface** — Add a Chat tab that calls the `/v1/chat/completions` endpoint directly, so users don't need an external client
+- ~~**Built-in chat interface** — Add a Chat tab that calls the `/v1/chat/completions` endpoint directly, so users don't need an external client~~ ✅ Implemented as a Chat tab with streaming, system prompt, collapsible sampler sidebar, undo/regenerate, and markdown rendering
 - **API request tester** — In the API tab, add a form to send test requests and see responses inline
 - **CORS origin configurator** — Let users whitelist additional origins for development workflows
 - **Environment variable editor** — Expose common env vars (e.g., `CUDA_VISIBLE_DEVICES`, `GGML_METAL_PATH`) in a dedicated UI section

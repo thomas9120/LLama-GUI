@@ -6,6 +6,7 @@ Llama GUI provides a browser UI to:
 - install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
 - use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
+- chat with the model directly from a built-in chat interface
 - monitor process output in real time
 - view live server stats (prompt tokens, generation speed, KV cache usage)
 - use OpenAI-compatible endpoint helpers/snippets
@@ -242,6 +243,17 @@ Default-friendly behavior includes:
 - Provides copy-ready snippets (cURL, Python SDK, JavaScript)
 - Useful for quickly connecting local apps/agents to `llama-server`
 
+### Chat
+
+- Built-in chat interface that talks directly to the running `llama-server` via `/v1/chat/completions`
+- Streaming responses — tokens appear incrementally as they're generated
+- System prompt field in the collapsible right sidebar
+- Sampler controls (Temperature, Top-P, Top-K, Min-P, Repeat Penalty, Max Tokens) synced with Quick Launch and Configure
+- Undo last message, regenerate last response, and clear chat actions
+- Markdown rendering in assistant responses (bold, italic, code blocks, strikethrough)
+- Suggestion chips for quick prompts when chat is empty
+- Server status badge shows whether `llama-server` is running
+
 ### Presets
 
 - Save/load full launcher presets as JSON files in `presets/`
@@ -254,10 +266,11 @@ If you want stronger onboarding for new users, adding these screenshots helps a 
 1. **Install tab** after successful install (version badge + backend selected)
 2. **Quick Launch tab** with a model selected and the preview card visible
 3. **Configure tab** with model selected + launch bar visible
-4. **API tab** showing base URL + sample snippet cards
-5. **Server and MCP Settings** submenu expanded (including risk badges/warning)
-6. **Output panel** showing successful `llama-server` startup logs
-7. **Stats bar** showing live token counts and throughput while server is running
+4. **Chat tab** with a conversation in progress and the sidebar visible
+5. **API tab** showing base URL + sample snippet cards
+6. **Server and MCP Settings** submenu expanded (including risk badges/warning)
+7. **Output panel** showing successful `llama-server` startup logs
+8. **Stats bar** showing live token counts and throughput while server is running
 
 ## Sampler Presets
 
