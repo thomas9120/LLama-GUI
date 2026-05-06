@@ -53,7 +53,232 @@ function getPresetWarnings(presetData) {
     return warnings;
 }
 
+const PRESET_GROUP_STATE_STORAGE_KEY = "llama_gui_preset_group_state_v1";
+const NO_MODEL_PRESET_GROUP_KEY = "__no_model__";
+
 let presetStatusTimer = null;
+let presetSearchQuery = "";
+let currentPresetGroups = [];
+
+function getPresetGroupKey(model) {
+    const normalized = String(model || "").trim();
+    return normalized || NO_MODEL_PRESET_GROUP_KEY;
+}
+
+function getPresetGroupLabel(groupKey) {
+    if (groupKey === NO_MODEL_PRESET_GROUP_KEY) {
+        return "No model saved";
+    }
+
+    const parts = String(groupKey).split(/[\\/]+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : groupKey;
+}
+
+function loadPresetGroupState() {
+    try {
+        const raw = localStorage.getItem(PRESET_GROUP_STATE_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function savePresetGroupState(state) {
+    localStorage.setItem(PRESET_GROUP_STATE_STORAGE_KEY, JSON.stringify(state));
+}
+
+function isPresetGroupCollapsed(groupKey) {
+    return loadPresetGroupState()[groupKey] === true;
+}
+
+function setPresetGroupCollapsed(groupKey, collapsed) {
+    const state = loadPresetGroupState();
+    state[groupKey] = Boolean(collapsed);
+    savePresetGroupState(state);
+}
+
+function getPresetSearchText(entry) {
+    return [
+        entry.name,
+        entry.groupKey === NO_MODEL_PRESET_GROUP_KEY ? "no model saved" : entry.groupKey,
+        entry.modelLabel,
+        entry.toolText,
+    ].join(" ").toLowerCase();
+}
+
+function buildPresetGroups(presets) {
+    const groupsByKey = new Map();
+
+    for (const preset of presets) {
+        const presetData = normalizePresetData(preset.data);
+        const groupKey = getPresetGroupKey(presetData.model);
+        const warnings = getPresetWarnings(presetData);
+        const entry = {
+            name: preset.name,
+            data: presetData,
+            groupKey,
+            modelLabel: getPresetGroupLabel(groupKey),
+            toolText: presetData.tool || "Keep current tool",
+            flagCount: Object.keys(presetData.flags || {}).length,
+            warnings,
+        };
+
+        if (!groupsByKey.has(groupKey)) {
+            groupsByKey.set(groupKey, {
+                key: groupKey,
+                label: entry.modelLabel,
+                modelPath: groupKey === NO_MODEL_PRESET_GROUP_KEY ? "" : groupKey,
+                entries: [],
+            });
+        }
+
+        groupsByKey.get(groupKey).entries.push(entry);
+    }
+
+    const query = presetSearchQuery.trim().toLowerCase();
+    const groups = Array.from(groupsByKey.values()).map((group) => {
+        const entries = group.entries
+            .filter((entry) => !query || getPresetSearchText(entry).includes(query))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+        return {
+            ...group,
+            entries,
+            visibleWarningCount: entries.reduce((count, entry) => count + entry.warnings.length, 0),
+        };
+    }).filter((group) => group.entries.length > 0);
+
+    groups.sort((a, b) => {
+        if (a.key === NO_MODEL_PRESET_GROUP_KEY) return 1;
+        if (b.key === NO_MODEL_PRESET_GROUP_KEY) return -1;
+        return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
+    });
+
+    return groups;
+}
+
+function createPresetButton(label, className, onClick, title = "") {
+    const button = document.createElement("button");
+    button.className = className;
+    button.type = "button";
+    button.textContent = label;
+    if (title) button.title = title;
+    button.addEventListener("click", onClick);
+    return button;
+}
+
+function renderPresetEntry(entry) {
+    const el = document.createElement("div");
+    el.className = "preset-item";
+
+    const details = document.createElement("div");
+    details.className = "preset-details";
+
+    const titleRow = document.createElement("div");
+    titleRow.className = "preset-title-row";
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "preset-name";
+    nameEl.textContent = entry.name;
+    titleRow.appendChild(nameEl);
+
+    if (entry.warnings.length > 0) {
+        const warningBadge = document.createElement("span");
+        warningBadge.className = "preset-warning-badge";
+        warningBadge.textContent = entry.warnings.length === 1 ? "Warning" : `${entry.warnings.length} warnings`;
+        titleRow.appendChild(warningBadge);
+    }
+
+    const metaEl = document.createElement("div");
+    metaEl.className = "preset-meta";
+    metaEl.textContent = `${entry.toolText} - ${entry.flagCount} configured flag${entry.flagCount === 1 ? "" : "s"}`;
+
+    details.appendChild(titleRow);
+    details.appendChild(metaEl);
+
+    if (entry.warnings.length > 0) {
+        const warningEl = document.createElement("div");
+        warningEl.className = "preset-warning preset-warning-compact";
+        warningEl.textContent = entry.warnings.join(" ");
+        details.appendChild(warningEl);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "preset-actions";
+    actions.appendChild(createPresetButton("Load", "btn btn-sm", () => loadPreset(entry.name)));
+    actions.appendChild(createPresetButton("Update", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
+    actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
+    actions.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
+
+    el.appendChild(details);
+    el.appendChild(actions);
+    return el;
+}
+
+function renderPresetGroups(container, groups) {
+    container.textContent = "";
+
+    if (groups.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "presets-empty";
+        empty.textContent = presetSearchQuery ? "No presets match your search." : "No saved presets yet.";
+        container.appendChild(empty);
+        return;
+    }
+
+    for (const group of groups) {
+        const groupEl = document.createElement("section");
+        groupEl.className = "preset-group";
+        const collapsed = isPresetGroupCollapsed(group.key);
+        if (collapsed) groupEl.classList.add("collapsed");
+
+        const header = document.createElement("button");
+        header.className = "preset-group-header";
+        header.type = "button";
+        header.setAttribute("aria-expanded", String(!collapsed));
+        if (group.modelPath && group.modelPath !== group.label) {
+            header.title = group.modelPath;
+        }
+
+        const chevron = document.createElement("span");
+        chevron.className = "preset-group-chevron";
+        chevron.textContent = collapsed ? "+" : "-";
+
+        const headerText = document.createElement("div");
+        headerText.className = "preset-group-text";
+
+        const title = document.createElement("div");
+        title.className = "preset-group-title";
+        title.textContent = group.label;
+
+        const meta = document.createElement("div");
+        meta.className = "preset-group-meta";
+        const warningText = group.visibleWarningCount > 0 ? ` - ${group.visibleWarningCount} warning${group.visibleWarningCount === 1 ? "" : "s"}` : "";
+        meta.textContent = `${group.entries.length} preset${group.entries.length === 1 ? "" : "s"}${warningText}`;
+
+        headerText.appendChild(title);
+        headerText.appendChild(meta);
+        header.appendChild(chevron);
+        header.appendChild(headerText);
+        header.addEventListener("click", () => {
+            const nextCollapsed = !groupEl.classList.contains("collapsed");
+            groupEl.classList.toggle("collapsed", nextCollapsed);
+            header.setAttribute("aria-expanded", String(!nextCollapsed));
+            chevron.textContent = nextCollapsed ? "+" : "-";
+            setPresetGroupCollapsed(group.key, nextCollapsed);
+        });
+
+        const list = document.createElement("div");
+        list.className = "preset-group-list";
+        for (const entry of group.entries) {
+            list.appendChild(renderPresetEntry(entry));
+        }
+
+        groupEl.appendChild(header);
+        groupEl.appendChild(list);
+        container.appendChild(groupEl);
+    }
+}
 
 function showPresetStatus(message, type = "success", durationMs = 2200) {
     const statusEl = document.getElementById("preset-status");
@@ -77,70 +302,51 @@ async function loadPresets() {
     container.textContent = "";
     try {
         const presets = await fetchJson("/api/presets");
-        if (presets.length === 0) {
-            container.innerHTML = '<div style="color:var(--fg-dim);padding:12px">No saved presets yet.</div>';
-            return;
-        }
-        for (const p of presets) {
-            const el = document.createElement("div");
-            el.className = "preset-item";
-            const presetData = normalizePresetData(p.data);
-            const flagCount = Object.keys(presetData.flags || {}).length;
-
-            const details = document.createElement("div");
-            const nameEl = document.createElement("div");
-            nameEl.className = "preset-name";
-            nameEl.textContent = p.name;
-            const metaEl = document.createElement("div");
-            metaEl.className = "preset-meta";
-            const toolText = presetData.tool || "(keep current tool)";
-            const modelText = presetData.model || "(none)";
-            metaEl.textContent = `${flagCount} configured flag(s) • tool: ${toolText} • model: ${modelText}`;
-            details.appendChild(nameEl);
-            details.appendChild(metaEl);
-            const warnings = getPresetWarnings(presetData);
-            if (warnings.length > 0) {
-                const warningEl = document.createElement("div");
-                warningEl.className = "preset-warning";
-                warningEl.textContent = warnings.join(" ");
-                details.appendChild(warningEl);
-            }
-
-            const actions = document.createElement("div");
-            actions.className = "form-row";
-
-            const loadBtn = document.createElement("button");
-            loadBtn.className = "btn btn-sm";
-            loadBtn.textContent = "Load";
-            loadBtn.addEventListener("click", () => loadPreset(p.name));
-
-            const exportBtn = document.createElement("button");
-            exportBtn.className = "btn btn-sm";
-            exportBtn.textContent = "Export";
-            exportBtn.addEventListener("click", () => exportPreset(p.name));
-
-            const updateBtn = document.createElement("button");
-            updateBtn.className = "btn btn-sm";
-            updateBtn.textContent = "Update";
-            updateBtn.title = "Overwrite this preset with current Configure values";
-            updateBtn.addEventListener("click", () => updatePreset(p.name));
-
-            const deleteBtn = document.createElement("button");
-            deleteBtn.className = "btn btn-sm btn-danger";
-            deleteBtn.textContent = "Delete";
-            deleteBtn.addEventListener("click", () => deletePreset(p.name));
-
-            actions.appendChild(loadBtn);
-            actions.appendChild(exportBtn);
-            actions.appendChild(updateBtn);
-            actions.appendChild(deleteBtn);
-
-            el.appendChild(details);
-            el.appendChild(actions);
-            container.appendChild(el);
-        }
+        currentPresetGroups = buildPresetGroups(presets);
+        renderPresetGroups(container, currentPresetGroups);
     } catch (e) {
         container.innerHTML = '<div style="color:var(--red);padding:12px">Failed to load presets.</div>';
+    }
+}
+
+function initPresetLibraryControls() {
+    const search = document.getElementById("preset-search");
+    if (search) {
+        search.addEventListener("input", () => {
+            presetSearchQuery = search.value.trim();
+            loadPresets();
+        });
+        search.addEventListener("keydown", (e) => {
+            if (e.key === "Escape" && search.value) {
+                search.value = "";
+                presetSearchQuery = "";
+                loadPresets();
+            }
+        });
+    }
+
+    const expandAll = document.getElementById("btn-presets-expand-all");
+    if (expandAll) {
+        expandAll.addEventListener("click", () => {
+            const state = loadPresetGroupState();
+            for (const group of currentPresetGroups) {
+                state[group.key] = false;
+            }
+            savePresetGroupState(state);
+            loadPresets();
+        });
+    }
+
+    const collapseAll = document.getElementById("btn-presets-collapse-all");
+    if (collapseAll) {
+        collapseAll.addEventListener("click", () => {
+            const state = loadPresetGroupState();
+            for (const group of currentPresetGroups) {
+                state[group.key] = true;
+            }
+            savePresetGroupState(state);
+            loadPresets();
+        });
     }
 }
 

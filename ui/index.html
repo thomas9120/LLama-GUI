@@ -498,19 +498,25 @@
             <div class="panel">
                 <h2>Presets</h2>
                 <div id="preset-status" class="status-box"></div>
-                <div class="form-group">
-                    <label>Save Current Configuration</label>
-                    <div class="input-row">
-                        <input type="text" id="preset-name-input" placeholder="Preset name..." />
-                        <button class="btn btn-primary" onclick="savePreset()">Save</button>
+                <div class="presets-toolbar">
+                    <div class="presets-save">
+                        <label for="preset-name-input">Save Current Configuration</label>
+                        <div class="input-row">
+                            <input type="text" id="preset-name-input" placeholder="Preset name..." />
+                            <button class="btn btn-primary" onclick="savePreset()">Save</button>
+                        </div>
+                    </div>
+                    <input type="file" id="preset-import" accept=".json" style="display:none" />
+                    <button class="btn presets-import-btn" onclick="document.getElementById('preset-import').click()">Import JSON</button>
+                </div>
+                <div class="presets-list-header">
+                    <h3>Saved Presets</h3>
+                    <div class="presets-list-actions">
+                        <input type="text" id="preset-search" placeholder="Search presets..." />
+                        <button id="btn-presets-expand-all" class="btn btn-sm" type="button" title="Expand all model groups">Expand All</button>
+                        <button id="btn-presets-collapse-all" class="btn btn-sm" type="button" title="Collapse all model groups">Collapse All</button>
                     </div>
                 </div>
-                <div class="form-group">
-                    <label>Import Preset</label>
-                    <input type="file" id="preset-import" accept=".json" style="display:none" />
-                    <button class="btn" onclick="document.getElementById('preset-import').click()">Import JSON</button>
-                </div>
-                <h3>Saved Presets</h3>
                 <div id="presets-list"></div>
             </div>
         </div>
@@ -546,7 +552,7 @@
 
     <script src="/js/flags.js"></script>
     <script src="/js/manager.js"></script>
-    <script src="/js/presets.js"></script>
-    <script src="/js/app.js"></script>
+    <script src="/js/presets.js?v=presets-groups-1"></script>
+    <script src="/js/app.js?v=presets-groups-1"></script>
 </body>
 </html>

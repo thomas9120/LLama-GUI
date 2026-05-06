@@ -1230,6 +1230,7 @@ document.addEventListener("DOMContentLoaded", () => {
     initInstallButtons();
     initApiTab();
     initPresetImport();
+    initPresetLibraryControls();
     initQuickLaunch();
     initChatTab();
     renderFlags();
