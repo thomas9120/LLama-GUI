@@ -2225,6 +2225,7 @@ function stopStatsPolling() {
     document.getElementById("stats-prompt-speed").textContent = "--";
     document.getElementById("stats-gen-tokens").textContent = "--";
     document.getElementById("stats-gen-speed").textContent = "--";
+    document.getElementById("stats-context").textContent = "--";
     document.getElementById("stats-kv-usage").textContent = "--%";
 }
 
@@ -2257,6 +2258,9 @@ async function pollStats() {
         }
         if (genSpeed !== undefined) {
             document.getElementById("stats-gen-speed").textContent = genSpeed.toFixed(1);
+        }
+        if (promptTokens !== undefined && genTokens !== undefined) {
+            document.getElementById("stats-context").textContent = (promptTokens + genTokens).toLocaleString();
         }
         if (kvUsage !== undefined) {
             document.getElementById("stats-kv-usage").textContent = (kvUsage * 100).toFixed(0) + "%";

@@ -45,7 +45,7 @@ Feature improvement ideas for LLama-GUI, organized by category.
 
 ## Observability
 
-- **Token counter** — Show tokens generated, tokens/sec, and total time in the output panel while running
+- ~~**Token counter** — Show tokens generated, tokens/sec, and total time in the output panel while running~~ ✅ Implemented as a live stats bar at the bottom of the screen
 - **Resource monitor** — Display GPU VRAM usage and system RAM usage (if detectable) while the server is running
 - **Export logs** — Button to download the full output buffer as a text file
 
