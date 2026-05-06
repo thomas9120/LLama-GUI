@@ -33,7 +33,7 @@ body {
     min-height: 100vh;
 }
 
-#app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+#app { max-width: 1100px; margin: 0 auto; padding: 16px; padding-bottom: 44px; }
 
 header {
     position: relative;
@@ -643,6 +643,9 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     flex-wrap: wrap;
     margin-top: 14px;
 }
+.quick-options-row { margin-top: 10px; }
+.quick-option-checkbox { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-dim); cursor: pointer; }
+.quick-option-checkbox input { accent-color: var(--accent); }
 
 /* Launch bar */
 .launch-bar {
@@ -1011,6 +1014,52 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     box-shadow: 0 4px 12px rgba(0,0,0,0.4);
 }
 
+/* Stats Bar */
+.stats-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 6px 20px;
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg-dim);
+    z-index: 90;
+}
+.stats-bar.hidden { display: none; }
+.stats-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+}
+.stats-label {
+    color: var(--green);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 11px;
+}
+.stats-sep {
+    width: 1px;
+    height: 14px;
+    background: var(--border);
+    flex-shrink: 0;
+}
+.stats-item {
+    white-space: nowrap;
+}
+.stats-value {
+    color: var(--fg-bright);
+    font-weight: 600;
+}
+
 /* Responsive */
 @media (max-width: 700px) {
     .flag-row { grid-template-columns: 1fr; gap: 4px; }
@@ -1030,4 +1079,5 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     .launch-bar { flex-direction: column; align-items: stretch; }
     .api-url-row { flex-direction: column; align-items: stretch; }
     .modal-dialog .form-row { justify-content: stretch; }
+    .stats-bar { gap: 8px; padding: 6px 12px; font-size: 11px; overflow-x: auto; }
 }

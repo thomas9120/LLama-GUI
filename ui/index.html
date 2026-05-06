@@ -282,6 +282,12 @@
                             <button id="btn-copy-quick-server-url" class="btn btn-sm" type="button" title="Copy URL">&#x2398;</button>
                         </div>
                         <code id="quick-command-preview"></code>
+                        <div class="quick-options-row">
+                            <label class="quick-option-checkbox">
+                                <input type="checkbox" id="quick-metrics-toggle" checked />
+                                <span>Show server stats bar</span>
+                            </label>
+                        </div>
                         <div class="quick-actions">
                             <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">Launch</button>
                             <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">Stop</button>
@@ -397,6 +403,21 @@
                 <div id="presets-list"></div>
             </div>
         </div>
+    </div>
+
+    <div id="stats-bar" class="stats-bar hidden">
+        <span class="stats-dot"></span>
+        <span class="stats-label">Running</span>
+        <span class="stats-sep"></span>
+        <span class="stats-item"><span class="stats-value" id="stats-prompt-tokens">--</span> prompt tokens</span>
+        <span class="stats-sep"></span>
+        <span class="stats-item"><span class="stats-value" id="stats-prompt-speed">--</span> tok/s prompt</span>
+        <span class="stats-sep"></span>
+        <span class="stats-item"><span class="stats-value" id="stats-gen-tokens">--</span> gen tokens</span>
+        <span class="stats-sep"></span>
+        <span class="stats-item"><span class="stats-value" id="stats-gen-speed">--</span> tok/s gen</span>
+        <span class="stats-sep"></span>
+        <span class="stats-item">KV <span class="stats-value" id="stats-kv-usage">--%</span></span>
     </div>
 
     <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">

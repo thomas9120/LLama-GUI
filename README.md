@@ -7,6 +7,7 @@ Llama GUI provides a browser UI to:
 - use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
 - monitor process output in real time
+- view live server stats (prompt tokens, generation speed, KV cache usage)
 - use OpenAI-compatible endpoint helpers/snippets
 - manage full launch presets and sampler presets
 - manage local app updates from GitHub
@@ -186,6 +187,7 @@ Use this as a quick onboarding flow for a fresh setup:
    - `Running` badge appears in header
    - output panel shows startup logs
    - server address preview appears
+   - stats bar appears at the bottom with live token counts and throughput
 7. Optional integration check:
    - open the **API** tab
    - copy a snippet and test `/v1/chat/completions`
@@ -227,6 +229,7 @@ If something fails during first run, use **Install -> Repair Install** and then 
 - Beginner-oriented descriptions, `More info`, and `Beginner tip`
 - Command preview before launch
 - Server URL preview when using `llama-server`
+- Live server stats bar when running `llama-server`
 
 Default-friendly behavior includes:
 - `-fit` set to `on`
@@ -254,6 +257,7 @@ If you want stronger onboarding for new users, adding these screenshots helps a 
 4. **API tab** showing base URL + sample snippet cards
 5. **Server and MCP Settings** submenu expanded (including risk badges/warning)
 6. **Output panel** showing successful `llama-server` startup logs
+7. **Stats bar** showing live token counts and throughput while server is running
 
 ## Sampler Presets
 
@@ -271,6 +275,24 @@ Storage behavior:
 
 Note: loading a full app preset can overwrite sampler values because samplers are part of the full flag set.
 
+## Server Stats Bar
+
+When `llama-server` is running, a live stats bar appears at the bottom of the screen showing:
+
+- **prompt tokens** — total prompt tokens processed
+- **tok/s prompt** — prompt processing throughput
+- **gen tokens** — total tokens generated
+- **tok/s gen** — generation throughput
+- **KV %** — KV cache utilization
+
+The bar polls the `/metrics` endpoint every 3 seconds and updates automatically. It disappears when the server stops.
+
+The `--metrics` flag is enabled by default. You can toggle it from:
+- **Quick Launch** — "Show server stats bar" checkbox in the Launch Preview card
+- **Configure** — "Prometheus Metrics" checkbox in the Server and MCP Settings section
+
+Both controls stay in sync.
+
 ## MCP and Built-in Tools Notes
 
 The Server settings include a **Server and MCP Settings** submenu with:
@@ -285,7 +307,7 @@ For `--tools`:
 ## Maintenance Behavior
 
 **Remove llama.cpp Files**:
-- removes runtime files under `llama/` (`bin`, `dll`, `grammars`)
+- removes runtime files under `llama/` (`bin`, `grammars`)
 - resets installation metadata in `config.json`
 
 It does not remove:
@@ -297,7 +319,6 @@ It does not remove:
 - `server.py` - local HTTP API, installer/update logic, process manager
 - `ui/` - static frontend (HTML/CSS/JS)
 - `llama/bin/` - installed `llama.cpp` executables/runtime files
-- `llama/dll/` - optional extra runtime library folder kept for compatibility
 - `llama/grammars/` - grammar/schema files from release assets
 - `models/` - local model files
 - `presets/` - saved full launcher presets

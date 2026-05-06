@@ -2,6 +2,7 @@ let currentTool = "llama-server";
 let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
+let statsTimer = null;
 let openCategories = new Set();
 let openSubmenus = new Set();
 let configSearchQuery = "";
@@ -1027,6 +1028,9 @@ function refreshQuickLaunchUI() {
             : "Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.";
     }
 
+    const quickMetricsToggle = document.getElementById("quick-metrics-toggle");
+    if (quickMetricsToggle) quickMetricsToggle.checked = flagValues.metrics === true;
+
     quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
     updateQuickServerAddressPreview();
     updateQuickLaunchActionButtons();
@@ -1190,6 +1194,10 @@ function initQuickLaunch() {
     }
 
     document.getElementById("btn-copy-quick-server-url").addEventListener("click", copyQuickServerUrl);
+
+    document.getElementById("quick-metrics-toggle").addEventListener("change", (e) => {
+        setFlagValue("metrics", e.target.checked);
+    });
 
     document.getElementById("btn-quick-launch").addEventListener("click", async () => {
         switchTab("configure");
@@ -2157,6 +2165,7 @@ async function launchLlama() {
                 const baseUrl = `http://${host}:${port}`;
                 appendOutput(`Server running at ${baseUrl}`);
                 appendOutput(`Web UI: ${baseUrl}/`);
+                startStatsPolling();
             }
             updateApiEndpoints();
         }
@@ -2175,6 +2184,7 @@ async function stopLlama() {
         // ignore
     }
     stopOutputPolling();
+    stopStatsPolling();
     appendOutput("--- Process stopped ---");
     document.getElementById("btn-launch").classList.remove("hidden");
     document.getElementById("btn-stop").classList.add("hidden");
@@ -2198,6 +2208,64 @@ function stopOutputPolling() {
     }
 }
 
+function startStatsPolling() {
+    stopStatsPolling();
+    document.getElementById("stats-bar").classList.remove("hidden");
+    setTimeout(() => pollStats(), 2000);
+    statsTimer = setInterval(pollStats, 3000);
+}
+
+function stopStatsPolling() {
+    if (statsTimer) {
+        clearInterval(statsTimer);
+        statsTimer = null;
+    }
+    document.getElementById("stats-bar").classList.add("hidden");
+    document.getElementById("stats-prompt-tokens").textContent = "--";
+    document.getElementById("stats-prompt-speed").textContent = "--";
+    document.getElementById("stats-gen-tokens").textContent = "--";
+    document.getElementById("stats-gen-speed").textContent = "--";
+    document.getElementById("stats-kv-usage").textContent = "--%";
+}
+
+async function pollStats() {
+    const host = flagValues.host || "127.0.0.1";
+    const port = flagValues.port || 8080;
+    try {
+        const resp = await fetch(`http://${host}:${port}/metrics`);
+        if (!resp.ok) return;
+        const text = await resp.text();
+        const metrics = {};
+        for (const line of text.split("\n")) {
+            if (line.startsWith("#") || !line.trim()) continue;
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 2) metrics[parts[0]] = parseFloat(parts[1]);
+        }
+        const promptTokens = metrics["llamacpp:prompt_tokens_total"];
+        const promptSpeed = metrics["llamacpp:prompt_tokens_seconds"];
+        const genTokens = metrics["llamacpp:tokens_predicted_total"];
+        const genSpeed = metrics["llamacpp:predicted_tokens_seconds"];
+        const kvUsage = metrics["llamacpp:kv_cache_usage_ratio"];
+        if (promptTokens !== undefined) {
+            document.getElementById("stats-prompt-tokens").textContent = promptTokens.toLocaleString();
+        }
+        if (promptSpeed !== undefined) {
+            document.getElementById("stats-prompt-speed").textContent = promptSpeed.toFixed(1);
+        }
+        if (genTokens !== undefined) {
+            document.getElementById("stats-gen-tokens").textContent = genTokens.toLocaleString();
+        }
+        if (genSpeed !== undefined) {
+            document.getElementById("stats-gen-speed").textContent = genSpeed.toFixed(1);
+        }
+        if (kvUsage !== undefined) {
+            document.getElementById("stats-kv-usage").textContent = (kvUsage * 100).toFixed(0) + "%";
+        }
+    } catch (e) {
+        // server not ready yet or metrics unavailable
+    }
+}
+
 async function pollOutput() {
     try {
         const data = await fetchJson("/api/output");
@@ -2210,6 +2278,7 @@ async function pollOutput() {
         }
         if (!data.running) {
             stopOutputPolling();
+            stopStatsPolling();
             appendOutput("--- Process exited ---");
             document.getElementById("btn-launch").classList.remove("hidden");
             document.getElementById("btn-stop").classList.add("hidden");
@@ -2222,6 +2291,7 @@ async function pollOutput() {
     } catch (e) {
         appendOutput("Connection to server lost: " + e.message);
         stopOutputPolling();
+        stopStatsPolling();
         document.getElementById("btn-launch").classList.remove("hidden");
         document.getElementById("btn-stop").classList.add("hidden");
         document.getElementById("input-row").classList.add("hidden");

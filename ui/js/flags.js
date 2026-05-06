@@ -410,7 +410,7 @@ const FLAGS = [
     { id: "threads_http", flag: "--threads-http", category: "server", type: "int", label: "HTTP Threads",
       desc: "Threads for HTTP requests (-1 = auto)", tool: "server", min: -1 },
     { id: "metrics", flag: "--metrics", category: "server", type: "bool", label: "Prometheus Metrics",
-      desc: "Enable Prometheus metrics endpoint", tool: "server", default: false },
+      desc: "Enable Prometheus metrics endpoint", tool: "server", default: true },
     { id: "webui", flag: "--webui", false_flag: "--no-webui", category: "server", type: "bool", label: "Web UI",
       short_desc: "Turns on the built-in browser interface.",
       desc: "Enable the built-in web UI", tool: "server", default: true },
