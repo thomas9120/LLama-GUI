@@ -249,6 +249,7 @@ Default-friendly behavior includes:
 - Shows OpenAI-compatible endpoint overview for the current server address
 - Provides copy-ready snippets (cURL, Python SDK, JavaScript)
 - Useful for quickly connecting local apps/agents to `llama-server`
+- Includes an opt-in **Remote Access** panel that starts a Cloudflare tunnel for the Llama GUI control panel only after you click **Start Tunnel**
 
 ### Chat
 
@@ -487,7 +488,8 @@ Fix:
 
 - Llama GUI is intended for local use (`127.0.0.1`).
 - The wrapper does not enforce its own authentication layer.
-- If exposing beyond localhost, add network hardening and auth first.
+- The Cloudflare remote tunnel is opt-in and does not start automatically.
+- If exposing beyond localhost, anyone with the tunnel URL can control the running Llama GUI session until you stop the tunnel.
 - Be especially careful with `--webui-mcp-proxy` and high-risk `--tools` entries.
 
 ## Cross-Platform Notes

@@ -36,6 +36,8 @@ MODELS_DIR = BASE_DIR / "models"
 PRESETS_DIR = BASE_DIR / "presets"
 CONFIG_FILE = BASE_DIR / "config.json"
 UI_DIR = BASE_DIR / "ui"
+TOOLS_DIR = BASE_DIR / "tools"
+CLOUDFLARED_DIR = TOOLS_DIR / "cloudflared"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
@@ -198,7 +200,17 @@ output_buffer = []
 output_buffer_lock = threading.Lock()
 download_progress = {"total": 0, "downloaded": 0, "status": "idle", "message": ""}
 download_progress_lock = threading.Lock()
+install_in_progress = False
+install_lock = threading.Lock()
 gui_server = None
+remote_tunnel_process = None
+remote_tunnel_lock = threading.Lock()
+remote_tunnel_state = {
+    "status": "idle",
+    "url": "",
+    "message": "Remote tunnel is not running.",
+    "log": "",
+}
 
 
 def is_process_running():
@@ -208,14 +220,19 @@ def is_process_running():
 
 def load_config():
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {"version": None, "backend": None, "tag": None}
     return {"version": None, "backend": None, "tag": None}
 
 
 def save_config(cfg):
-    with open(CONFIG_FILE, "w") as f:
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(cfg, f, indent=2)
+    tmp.replace(CONFIG_FILE)
 
 
 def get_releases():
@@ -277,6 +294,223 @@ def download_file(url, dest, progress_cb=None):
                 if progress_cb:
                     progress_cb(downloaded, total)
     return downloaded
+
+
+def get_cloudflared_asset():
+    if CURRENT_PLATFORM == "win32":
+        return {
+            "url": "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe",
+            "archive": False,
+            "filename": "cloudflared.exe",
+        }
+    if CURRENT_PLATFORM == "darwin":
+        arch = "arm64" if CURRENT_ARCH == "arm64" else "amd64"
+        return {
+            "url": f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-{arch}.tgz",
+            "archive": True,
+            "filename": "cloudflared",
+        }
+    if CURRENT_PLATFORM.startswith("linux"):
+        arch = "arm64" if CURRENT_ARCH == "arm64" else "amd64"
+        return {
+            "url": f"https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-{arch}",
+            "archive": False,
+            "filename": f"cloudflared-linux-{arch}",
+        }
+    return None
+
+
+def set_remote_tunnel_state(status=None, url=None, message=None, log=None):
+    with remote_tunnel_lock:
+        if status is not None:
+            remote_tunnel_state["status"] = status
+        if url is not None:
+            remote_tunnel_state["url"] = url
+        if message is not None:
+            remote_tunnel_state["message"] = message
+        if log is not None:
+            remote_tunnel_state["log"] = log[-6000:]
+        return dict(remote_tunnel_state)
+
+
+def get_remote_tunnel_snapshot():
+    with remote_tunnel_lock:
+        proc = remote_tunnel_process
+        snapshot = dict(remote_tunnel_state)
+        if proc is not None and proc.poll() is not None and snapshot["status"] in {
+            "downloading",
+            "starting",
+            "running",
+        }:
+            snapshot["status"] = "error"
+            snapshot["message"] = "Remote tunnel process exited."
+            remote_tunnel_state.update(snapshot)
+        snapshot["running"] = proc is not None and proc.poll() is None
+        return snapshot
+
+
+def ensure_cloudflared():
+    spec = get_cloudflared_asset()
+    if not spec:
+        raise RuntimeError(f"Cloudflare tunnel is not supported on {CURRENT_PLATFORM}/{CURRENT_ARCH}.")
+
+    CLOUDFLARED_DIR.mkdir(parents=True, exist_ok=True)
+    binary_path = CLOUDFLARED_DIR / spec["filename"]
+    if binary_path.exists():
+        if CURRENT_PLATFORM != "win32":
+            os.chmod(binary_path, 0o755)
+        return binary_path
+
+    if spec["archive"]:
+        archive_path = CLOUDFLARED_DIR / pathlib.Path(spec["url"]).name
+        download_file(spec["url"], archive_path)
+        with tarfile.open(archive_path, "r:gz") as tf:
+            member = next(
+                (
+                    m
+                    for m in tf.getmembers()
+                    if pathlib.PurePosixPath(m.name).name == spec["filename"] and m.isfile()
+                ),
+                None,
+            )
+            if member is None:
+                raise RuntimeError("Downloaded cloudflared archive did not contain the expected binary.")
+            src = tf.extractfile(member)
+            if src is None:
+                raise RuntimeError("Could not extract cloudflared from archive.")
+            with open(binary_path, "wb") as out:
+                shutil.copyfileobj(src, out)
+        try:
+            archive_path.unlink()
+        except OSError:
+            pass
+    else:
+        download_file(spec["url"], binary_path)
+
+    if CURRENT_PLATFORM != "win32":
+        os.chmod(binary_path, 0o755)
+    return binary_path
+
+
+def _start_remote_tunnel_worker():
+    global remote_tunnel_process
+    log = ""
+    try:
+        set_remote_tunnel_state(
+            status="downloading",
+            url="",
+            message="Preparing Cloudflare tunnel...",
+            log="",
+        )
+        binary_path = ensure_cloudflared()
+        set_remote_tunnel_state(status="starting", message="Starting Cloudflare tunnel...")
+
+        env = os.environ.copy()
+        if CURRENT_PLATFORM.startswith("linux"):
+            env.pop("LD_LIBRARY_PATH", None)
+
+        args = [
+            str(binary_path),
+            "tunnel",
+            "--url",
+            "http://127.0.0.1:5240",
+        ]
+        proc = subprocess.Popen(
+            args,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(CLOUDFLARED_DIR),
+            env=env,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+            if sys.platform == "win32"
+            else 0,
+        )
+        with remote_tunnel_lock:
+            remote_tunnel_process = proc
+
+        pattern = re.compile(r"https://[\w.-]+\.trycloudflare\.com")
+        while True:
+            line = proc.stderr.readline() if proc.stderr else ""
+            if not line:
+                break
+            log = (log + line)[-6000:]
+            found = pattern.search(line)
+            if found:
+                set_remote_tunnel_state(
+                    status="running",
+                    url=found.group(0),
+                    message="Remote tunnel is running.",
+                    log=log,
+                )
+            else:
+                set_remote_tunnel_state(log=log)
+
+        exit_code = proc.wait()
+        with remote_tunnel_lock:
+            if remote_tunnel_process is proc:
+                remote_tunnel_process = None
+            current_status = remote_tunnel_state["status"]
+        if current_status != "stopped":
+            set_remote_tunnel_state(
+                status="error",
+                url="",
+                message=f"Cloudflare tunnel exited with code {exit_code}.",
+                log=log,
+            )
+    except Exception as exc:
+        with remote_tunnel_lock:
+            remote_tunnel_process = None
+        set_remote_tunnel_state(status="error", url="", message=str(exc), log=log)
+
+
+def start_remote_tunnel():
+    with remote_tunnel_lock:
+        proc = remote_tunnel_process
+        if proc is not None and proc.poll() is None:
+            return dict(remote_tunnel_state)
+        if remote_tunnel_state["status"] in {"downloading", "starting"}:
+            return dict(remote_tunnel_state)
+        remote_tunnel_state.update(
+            {
+                "status": "downloading",
+                "url": "",
+                "message": "Preparing Cloudflare tunnel...",
+                "log": "",
+            }
+        )
+    threading.Thread(target=_start_remote_tunnel_worker, daemon=True).start()
+    return get_remote_tunnel_snapshot()
+
+
+def stop_remote_tunnel():
+    global remote_tunnel_process
+    with remote_tunnel_lock:
+        proc = remote_tunnel_process
+        remote_tunnel_process = None
+        remote_tunnel_state.update(
+            {
+                "status": "stopped",
+                "url": "",
+                "message": "Remote tunnel stopped.",
+            }
+        )
+
+    if proc is not None and proc.poll() is None:
+        try:
+            if CURRENT_PLATFORM == "win32":
+                proc.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                proc.terminate()
+            proc.wait(timeout=5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+    return get_remote_tunnel_snapshot()
 
 
 def sha256_file(filepath):
@@ -495,59 +729,59 @@ def launch_process(tool, args_list):
         if process and process.poll() is None:
             return {"error": "A process is already running"}
 
-    exe_name = get_tool_filename(tool)
-    exe_path = find_tool_executable(tool)
-    if not exe_path.exists():
-        return {"error": f"{exe_name} not found. Install llama.cpp first."}
+        exe_name = get_tool_filename(tool)
+        exe_path = find_tool_executable(tool)
+        if not exe_path.exists():
+            return {"error": f"{exe_name} not found. Install llama.cpp first."}
 
-    args = [str(exe_path)]
-    for entry in args_list:
-        if isinstance(entry, list):
-            args.extend(str(v) for v in entry)
-        else:
-            args.append(str(entry))
+        args = [str(exe_path)]
+        for entry in args_list:
+            if isinstance(entry, list):
+                args.extend(str(v) for v in entry)
+            else:
+                args.append(str(entry))
 
-    env = os.environ.copy()
-    runtime_paths = [str(LLAMA_BIN_DIR)]
-    existing_path = env.get("PATH", "")
-    env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
+        env = os.environ.copy()
+        runtime_paths = [str(LLAMA_BIN_DIR)]
+        existing_path = env.get("PATH", "")
+        env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
 
-    if CURRENT_PLATFORM.startswith("linux"):
-        existing_ld = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = os.pathsep.join(
-            runtime_paths + ([existing_ld] if existing_ld else [])
-        )
-    elif CURRENT_PLATFORM == "darwin":
-        existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
-        env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
-            runtime_paths + ([existing_dyld] if existing_dyld else [])
-        )
+        if CURRENT_PLATFORM.startswith("linux"):
+            existing_ld = env.get("LD_LIBRARY_PATH", "")
+            env["LD_LIBRARY_PATH"] = os.pathsep.join(
+                runtime_paths + ([existing_ld] if existing_ld else [])
+            )
+        elif CURRENT_PLATFORM == "darwin":
+            existing_dyld = env.get("DYLD_LIBRARY_PATH", "")
+            env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
+                runtime_paths + ([existing_dyld] if existing_dyld else [])
+            )
 
-    with output_buffer_lock:
-        output_buffer.clear()
+        with output_buffer_lock:
+            output_buffer.clear()
 
-    try:
-        process = subprocess.Popen(
-            args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            stdin=subprocess.PIPE,
-            text=True,
-            env=env,
-            cwd=str(BASE_DIR),
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-            if sys.platform == "win32"
-            else 0,
-        )
-        threading.Thread(
-            target=stream_output, args=(process.stdout,), daemon=True
-        ).start()
-        threading.Thread(
-            target=stream_output, args=(process.stderr, True), daemon=True
-        ).start()
-        return {"pid": process.pid, "command": " ".join(args)}
-    except Exception as e:
-        return {"error": str(e)}
+        try:
+            process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.PIPE,
+                text=True,
+                env=env,
+                cwd=str(BASE_DIR),
+                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
+                if sys.platform == "win32"
+                else 0,
+            )
+            threading.Thread(
+                target=stream_output, args=(process.stdout,), daemon=True
+            ).start()
+            threading.Thread(
+                target=stream_output, args=(process.stderr, True), daemon=True
+            ).start()
+            return {"pid": process.pid, "command": " ".join(args)}
+        except Exception as e:
+            return {"error": str(e)}
 
 
 def stop_process():
@@ -570,6 +804,7 @@ def shutdown_gui_server():
     server = gui_server
     if server is None:
         return False
+    stop_remote_tunnel()
     stop_process()
     threading.Thread(target=server.shutdown, daemon=True).start()
     return True
@@ -579,6 +814,7 @@ def restart_gui_server():
     server = gui_server
     if server is None:
         return False
+    stop_remote_tunnel()
     stop_process()
     restart_script = str(BASE_DIR / "server.py")
 
@@ -599,7 +835,9 @@ def restart_gui_server():
             subprocess.Popen(
                 [sys.executable, restart_script],
                 cwd=str(BASE_DIR),
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                if sys.platform == "win32"
+                else 0,
             )
             print("Restarting Llama GUI...")
         except Exception as e:
@@ -1185,12 +1423,70 @@ def build_search_context(search_results, fetched_pages):
 
 
 def get_local_chat_api_url(body):
-    api_url = str(body.get("api_url") or "").strip()
-    if api_url:
-        return api_url
     host = str(body.get("host") or "127.0.0.1").strip() or "127.0.0.1"
-    port = int(body.get("port") or 8080)
-    return f"http://{host}:{port}/v1/chat/completions"
+    try:
+        port = int(body.get("port") or 8080)
+    except (TypeError, ValueError):
+        raise ValueError("Invalid llama-server chat port.")
+    if port < 1 or port > 65535:
+        raise ValueError("Invalid llama-server chat port.")
+    chat_host, host_error = get_metrics_host(host)
+    if not chat_host:
+        raise ValueError(host_error)
+    return f"http://{chat_host}:{port}/v1/chat/completions"
+
+
+def get_local_interface_addresses():
+    addresses = {"127.0.0.1", "::1"}
+    hostnames = {socket.gethostname(), socket.getfqdn()}
+    for name in hostnames:
+        try:
+            for info in socket.getaddrinfo(name, None):
+                addresses.add(info[4][0])
+        except OSError:
+            pass
+    return addresses
+
+
+def get_metrics_host(host):
+    value = str(host or "127.0.0.1").strip() or "127.0.0.1"
+    if value.lower() == "localhost" or value in {"0.0.0.0", "::", "*"}:
+        return "127.0.0.1", ""
+    try:
+        infos = socket.getaddrinfo(value, None, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        return "", f"Invalid llama-server metrics host: {exc}"
+    local_addresses = get_local_interface_addresses()
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_loopback or info[4][0] in local_addresses:
+            return value, ""
+    return "", "Blocked: metrics proxy can only target this machine."
+
+
+def get_local_llama_metrics(host, port):
+    try:
+        parsed_port = int(port or 8080)
+    except (TypeError, ValueError):
+        return None, "Invalid llama-server metrics port."
+    if parsed_port < 1 or parsed_port > 65535:
+        return None, "Invalid llama-server metrics port."
+
+    metrics_host, host_error = get_metrics_host(host)
+    if not metrics_host:
+        return None, host_error
+
+    url = f"http://{metrics_host}:{parsed_port}/metrics"
+    req = urllib.request.Request(url, headers={"Accept": "text/plain"})
+    try:
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            raw = resp.read(512 * 1024)
+            charset = resp.headers.get_content_charset() or "utf-8"
+            return raw.decode(charset, errors="replace"), ""
+    except urllib.error.HTTPError as exc:
+        return None, f"llama-server metrics returned HTTP {exc.code}."
+    except Exception as exc:
+        return None, f"Failed to fetch llama-server metrics: {exc}"
 
 
 def write_sse(wfile, data):
@@ -1211,7 +1507,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_OPTIONS(self):
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5240")
+        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
         self.send_header(
             "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"
         )
@@ -1223,7 +1519,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5240")
+        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
         self.end_headers()
         self.wfile.write(body)
 
@@ -1232,7 +1528,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
-        self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1:5240")
+        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
         self.end_headers()
 
     def read_body(self):
@@ -1247,12 +1543,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def is_safe_request_origin(self):
         origin = self.headers.get("Origin", "")
         referer = self.headers.get("Referer", "")
-        allowed = ("http://127.0.0.1:5240", "http://localhost:5240")
+        allowed = self.get_allowed_request_origins()
         if origin:
             return origin in allowed
         if referer:
             return referer.startswith(allowed)
         return True
+
+    def get_allowed_request_origins(self):
+        allowed = ["http://127.0.0.1:5240", "http://localhost:5240"]
+        tunnel_url = get_remote_tunnel_snapshot().get("url")
+        if tunnel_url:
+            allowed.append(tunnel_url)
+        return tuple(allowed)
+
+    def get_access_control_origin(self):
+        origin = self.headers.get("Origin", "")
+        if origin and origin in self.get_allowed_request_origins():
+            return origin
+        return "http://127.0.0.1:5240"
 
     def handle_web_search_request(self, body):
         query = body.get("query", "")
@@ -1267,68 +1576,67 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_json(web_search(query, max_results=max(1, min(max_results, 10))))
 
     def handle_chat_completions(self, body):
-        if not body.get("web_search"):
-            self.send_json({"error": "web_search must be true for this local chat endpoint"}, 400)
-            return
-
         self.send_sse_headers()
         try:
             messages = list(body.get("messages") or [])
-            latest_user = get_latest_user_message(messages)
-            queries = build_search_queries(latest_user)
-            all_results = []
-            fetched_pages = {}
+            proxied_messages = messages
 
-            for query in queries:
-                write_sse(self.wfile, {"type": "web_status", "content": f"Searching: {query}"})
-                search_response = web_search(query)
-                if not search_response.get("ok"):
-                    write_sse(self.wfile, {"error": {"message": search_response.get("error", "Search unavailable")}})
+            if body.get("web_search"):
+                latest_user = get_latest_user_message(messages)
+                queries = build_search_queries(latest_user)
+                all_results = []
+                fetched_pages = {}
+
+                for query in queries:
+                    write_sse(self.wfile, {"type": "web_status", "content": f"Searching: {query}"})
+                    search_response = web_search(query)
+                    if not search_response.get("ok"):
+                        write_sse(self.wfile, {"error": {"message": search_response.get("error", "Search unavailable")}})
+                        write_sse(self.wfile, "[DONE]")
+                        return
+                    for result in search_response.get("results", []):
+                        if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
+                            all_results.append(result)
+                        if len(all_results) >= WEB_SEARCH_MAX_RESULTS:
+                            break
+
+                for result in all_results[:WEB_SEARCH_FETCH_RESULTS]:
+                    url = result.get("url", "")
+                    host = urllib.parse.urlparse(url).hostname or url
+                    if host.startswith("www."):
+                        host = host[4:]
+                    write_sse(self.wfile, {"type": "web_status", "content": f"Reading: {host}"})
+                    fetched_pages[url] = fetch_page_text(url)
+
+                context, sources = build_search_context(all_results, fetched_pages)
+                if not context:
+                    write_sse(self.wfile, {"error": {"message": "Search returned no usable sources."}})
                     write_sse(self.wfile, "[DONE]")
                     return
-                for result in search_response.get("results", []):
-                    if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
-                        all_results.append(result)
-                    if len(all_results) >= WEB_SEARCH_MAX_RESULTS:
-                        break
 
-            for result in all_results[:WEB_SEARCH_FETCH_RESULTS]:
-                url = result.get("url", "")
-                host = urllib.parse.urlparse(url).hostname or url
-                if host.startswith("www."):
-                    host = host[4:]
-                write_sse(self.wfile, {"type": "web_status", "content": f"Reading: {host}"})
-                fetched_pages[url] = fetch_page_text(url)
+                write_sse(self.wfile, {"type": "web_sources", "sources": sources})
+                write_sse(self.wfile, {"type": "web_status", "content": "Answering..."})
 
-            context, sources = build_search_context(all_results, fetched_pages)
-            if not context:
-                write_sse(self.wfile, {"error": {"message": "Search returned no usable sources."}})
-                write_sse(self.wfile, "[DONE]")
-                return
-
-            write_sse(self.wfile, {"type": "web_sources", "sources": sources})
-            write_sse(self.wfile, {"type": "web_status", "content": "Answering..."})
-
-            proxied_messages = []
-            inserted_context = False
-            for msg in messages:
-                if msg.get("role") == "system" and not inserted_context:
-                    proxied_messages.append(
-                        {
-                            "role": "system",
-                            "content": f"{msg.get('content', '').rstrip()}\n\n{context}".strip(),
-                        }
-                    )
-                    inserted_context = True
-                else:
-                    proxied_messages.append(
-                        {
-                            "role": msg.get("role", "user"),
-                            "content": msg.get("content", ""),
-                        }
-                    )
-            if not inserted_context:
-                proxied_messages.insert(0, {"role": "system", "content": context})
+                proxied_messages = []
+                inserted_context = False
+                for msg in messages:
+                    if msg.get("role") == "system" and not inserted_context:
+                        proxied_messages.append(
+                            {
+                                "role": "system",
+                                "content": f"{msg.get('content', '').rstrip()}\n\n{context}".strip(),
+                            }
+                        )
+                        inserted_context = True
+                    else:
+                        proxied_messages.append(
+                            {
+                                "role": msg.get("role", "user"),
+                                "content": msg.get("content", ""),
+                            }
+                        )
+                if not inserted_context:
+                    proxied_messages.insert(0, {"role": "system", "content": context})
 
             proxy_body = dict(body)
             proxy_body["messages"] = proxied_messages
@@ -1366,6 +1674,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as exc:
             write_sse(self.wfile, {"error": {"message": str(exc)}})
             write_sse(self.wfile, "[DONE]")
+        finally:
+            self.close_connection = True
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -1373,6 +1683,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             super().do_GET()
+            return
+
+        if path.startswith("/api/") and not self.is_safe_request_origin():
+            self.send_json({"error": "Forbidden"}, 403)
             return
 
         if path == "/api/status":
@@ -1438,6 +1752,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json(get_download_progress_snapshot())
             return
 
+        if path == "/api/remote-tunnel/status":
+            self.send_json(get_remote_tunnel_snapshot())
+            return
+
+        if path == "/api/llama/metrics":
+            query = urllib.parse.parse_qs(parsed.query)
+            metrics_text, error = get_local_llama_metrics(
+                (query.get("host") or ["127.0.0.1"])[0],
+                (query.get("port") or ["8080"])[0],
+            )
+            if metrics_text is None:
+                self.send_json({"error": error}, 502)
+                return
+            body = metrics_text.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if path == "/api/models":
             models = []
             if MODELS_DIR.exists():
@@ -1491,6 +1827,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.handle_chat_completions(body)
             return
 
+        if path == "/api/remote-tunnel/start":
+            self.send_json(start_remote_tunnel())
+            return
+
+        if path == "/api/remote-tunnel/stop":
+            self.send_json(stop_remote_tunnel())
+            return
+
         if path == "/api/install":
             tag = body.get("tag")
             backend = body.get("backend")
@@ -1503,8 +1847,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if is_process_running():
                 self.send_json({"error": "Stop running process first"}, 400)
                 return
+            global install_in_progress
+            with install_lock:
+                if install_in_progress:
+                    self.send_json({"error": "Installation already in progress"}, 409)
+                    return
+                install_in_progress = True
+
+            def _install(tag, backend):
+                global install_in_progress
+                try:
+                    install_release(tag, backend)
+                finally:
+                    with install_lock:
+                        install_in_progress = False
+
             threading.Thread(
-                target=install_release, args=(tag, backend), daemon=True
+                target=_install, args=(tag, backend), daemon=True
             ).start()
             self.send_json({"status": "started"})
             return
@@ -1524,12 +1883,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if is_process_running():
                 self.send_json({"error": "Stop running process first"}, 400)
                 return
+            with install_lock:
+                if install_in_progress:
+                    self.send_json({"error": "Installation already in progress"}, 409)
+                    return
+                install_in_progress = True
             try:
                 releases = get_releases()
                 latest = releases[0]["tag_name"] if releases else None
                 if latest and latest != tag:
+
+                    def _update(latest_tag, backend_name):
+                        global install_in_progress
+                        try:
+                            install_release(latest_tag, backend_name)
+                        finally:
+                            with install_lock:
+                                install_in_progress = False
+
                     threading.Thread(
-                        target=install_release, args=(latest, backend), daemon=True
+                        target=_update, args=(latest, backend), daemon=True
                     ).start()
                     self.send_json({"status": "started", "from": tag, "to": latest})
                 else:
@@ -1722,6 +2095,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        stop_remote_tunnel()
         stop_process()
         if gui_server is not None:
             gui_server.server_close()

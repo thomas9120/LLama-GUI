@@ -1,8 +1,16 @@
+function debounce(fn, ms) {
+    let t;
+    return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
+}
+
 let currentTool = "llama-server";
 let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
 let statsTimer = null;
+let pollOutputActive = false;
+let pollStatsActive = false;
+let remoteTunnelTimer = null;
 let openCategories = new Set();
 let openSubmenus = new Set();
 let configSearchQuery = "";
@@ -11,6 +19,10 @@ let selectedChatTemplatePresetValue = "";
 let chatMessages = [];
 let chatStreaming = false;
 let chatAbortController = null;
+let currentConversationId = null;
+let chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
+let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
+const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
 const CHAT_WEB_SEARCH_STORAGE_KEY = "llama_gui_chat_web_search_enabled";
 const CHAT_SAMPLER_SLIDER_MAP = {
     "chat-slider-temp": { flag: "temperature", decimals: 2 },
@@ -938,7 +950,9 @@ function refreshQuickLaunchUI() {
     const quickCommand = document.getElementById("quick-command-preview");
     if (!quickCommand) return;
 
-    quickLaunchFitCtxLinked = flagValues.fit_ctx === undefined || flagValues.fit_ctx === flagValues.ctx_size;
+    if (quickLaunchFitCtxLinked !== false) {
+        quickLaunchFitCtxLinked = flagValues.fit_ctx === undefined || flagValues.fit_ctx === flagValues.ctx_size;
+    }
     syncQuickLaunchModelOptions();
     refreshQuickSamplerPresetSelect();
 
@@ -1193,7 +1207,7 @@ function initQuickLaunch() {
     };
 
     for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
-        document.getElementById(elementId).addEventListener("input", (e) => {
+        document.getElementById(elementId).addEventListener("input", debounce((e) => {
             const rawValue = e.target.value.trim();
             let nextValue;
             if (rawValue === "") {
@@ -1204,7 +1218,7 @@ function initQuickLaunch() {
                 nextValue = parseFloat(rawValue);
             }
             setFlagValue(flagId, nextValue);
-        });
+        }, 200));
     }
 
     document.getElementById("btn-copy-quick-server-url").addEventListener("click", copyQuickServerUrl);
@@ -1264,6 +1278,7 @@ function switchTab(tabId) {
     if (tabId === "api") {
         Promise.resolve(checkStatus()).finally(() => {
             updateApiEndpoints();
+            refreshRemoteTunnelStatus();
         });
     }
 }
@@ -1283,6 +1298,119 @@ function initApiTab() {
             copyText(getServerBaseUrl());
         });
     }
+    initRemoteTunnelControls();
+}
+
+function initRemoteTunnelControls() {
+    const startBtn = document.getElementById("btn-start-remote-tunnel");
+    const stopBtn = document.getElementById("btn-stop-remote-tunnel");
+    const copyBtn = document.getElementById("btn-copy-remote-tunnel");
+    if (!startBtn || !stopBtn) return;
+
+    startBtn.addEventListener("click", startRemoteTunnel);
+    stopBtn.addEventListener("click", stopRemoteTunnel);
+    if (copyBtn) {
+        copyBtn.addEventListener("click", () => {
+            const link = document.getElementById("remote-tunnel-url");
+            copyText(link ? link.href : "");
+        });
+    }
+    refreshRemoteTunnelStatus();
+}
+
+function setRemoteTunnelPolling(enabled) {
+    if (enabled && !remoteTunnelTimer) {
+        remoteTunnelTimer = setInterval(refreshRemoteTunnelStatus, 2000);
+    } else if (!enabled && remoteTunnelTimer) {
+        clearInterval(remoteTunnelTimer);
+        remoteTunnelTimer = null;
+    }
+}
+
+function renderRemoteTunnelStatus(state) {
+    const status = state && state.status ? state.status : "idle";
+    const url = state && state.url ? state.url : "";
+    const message = state && state.message ? state.message : "Remote tunnel is not running.";
+    const startBtn = document.getElementById("btn-start-remote-tunnel");
+    const stopBtn = document.getElementById("btn-stop-remote-tunnel");
+    const badge = document.getElementById("remote-tunnel-badge");
+    const statusEl = document.getElementById("remote-tunnel-status");
+    const urlRow = document.getElementById("remote-tunnel-url-row");
+    const urlLink = document.getElementById("remote-tunnel-url");
+
+    const isWorking = status === "downloading" || status === "starting";
+    const isRunning = status === "running";
+    const isError = status === "error";
+
+    if (badge) {
+        badge.textContent = status.replace(/-/g, " ");
+        badge.classList.toggle("running", isRunning);
+        badge.classList.toggle("working", isWorking);
+        badge.classList.toggle("error", isError);
+    }
+    if (statusEl) {
+        statusEl.textContent = message;
+    }
+    if (urlRow && urlLink) {
+        if (url) {
+            urlLink.href = url;
+            urlLink.textContent = url;
+            urlRow.classList.remove("hidden");
+        } else {
+            urlLink.href = "#";
+            urlLink.textContent = "";
+            urlRow.classList.add("hidden");
+        }
+    }
+    if (startBtn) {
+        startBtn.disabled = isWorking || isRunning;
+        startBtn.textContent = isWorking ? "Starting..." : "Start Tunnel";
+    }
+    if (stopBtn) {
+        stopBtn.classList.toggle("hidden", !(isWorking || isRunning));
+        stopBtn.disabled = false;
+    }
+
+    setRemoteTunnelPolling(isWorking || isRunning);
+}
+
+async function refreshRemoteTunnelStatus() {
+    try {
+        const state = await fetchJson("/api/remote-tunnel/status");
+        renderRemoteTunnelStatus(state);
+        return state;
+    } catch (e) {
+        renderRemoteTunnelStatus({ status: "error", message: "Failed to read remote tunnel status: " + e.message });
+        return null;
+    }
+}
+
+async function startRemoteTunnel() {
+    renderRemoteTunnelStatus({ status: "starting", message: "Starting Cloudflare tunnel..." });
+    try {
+        const state = await fetchJson("/api/remote-tunnel/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+        });
+        renderRemoteTunnelStatus(state);
+        setRemoteTunnelPolling(true);
+    } catch (e) {
+        renderRemoteTunnelStatus({ status: "error", message: "Failed to start remote tunnel: " + e.message });
+    }
+}
+
+async function stopRemoteTunnel() {
+    try {
+        const state = await fetchJson("/api/remote-tunnel/stop", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+        });
+        renderRemoteTunnelStatus(state);
+    } catch (e) {
+        renderRemoteTunnelStatus({ status: "error", message: "Failed to stop remote tunnel: " + e.message });
+    }
 }
 
 function initConfigControls() {
@@ -1295,14 +1423,14 @@ function initConfigControls() {
         search.focus();
     };
 
-    search.addEventListener("input", () => {
+    search.addEventListener("input", debounce(() => {
         configSearchQuery = search.value.trim().toLowerCase();
         if (configSearchQuery) {
             const groups = getFlagsByCategory(currentTool);
             openCategories = new Set(Object.keys(groups));
         }
         renderFlags();
-    });
+    }, 200));
 
     search.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && (search.value || configSearchQuery)) {
@@ -1830,8 +1958,8 @@ function createFlagRow(f) {
 
         const setValueAndRefresh = (arr) => {
             const unique = [...new Set(arr.filter(Boolean))];
-            flagValues[f.id] = unique.length > 0 ? unique : undefined;
-            updateCommandPreview();
+            const val = unique.length > 0 ? unique : undefined;
+            setFlagValue(f.id, val);
         };
 
         for (const opt of f.options || []) {
@@ -1970,6 +2098,13 @@ function collectFlagValues() {
 function applyFlagValues(data) {
     flagValues = { ...getDefaultValues(), ...data };
     selectedChatTemplatePresetValue = "";
+    if (flagValues.chat_template_custom) {
+        const bundled = getChatTemplatePresetByPath(flagValues.chat_template_custom);
+        if (bundled) selectedChatTemplatePresetValue = bundled.value;
+    } else if (flagValues.chat_template) {
+        const builtin = getChatTemplatePresetByBuiltinName(flagValues.chat_template);
+        if (builtin) selectedChatTemplatePresetValue = builtin.value;
+    }
     const fitCtx = flagValues.fit_ctx;
     const ctxSize = flagValues.ctx_size;
     quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
@@ -2040,7 +2175,8 @@ function getToolBinaryName(tool) {
 }
 
 function updateCommandPreview() {
-    const args = getLaunchArgs();
+    const result = getLaunchArgs();
+    const args = result.args;
     const parts = [getToolBinaryName(currentTool)];
     for (const entry of args) {
         if (Array.isArray(entry)) {
@@ -2109,7 +2245,7 @@ function getLaunchArgs() {
                 }
             } else if (val === false && f.false_flag) {
                 args.push([f.false_flag]);
-            } else if (val === false && f.flag.startsWith("--no-")) {
+            } else if (val === true && f.flag.startsWith("--no-")) {
                 args.push([f.flag]);
             }
         } else if (f.type === "multi_enum") {
@@ -2129,17 +2265,21 @@ function getLaunchArgs() {
     if (modelSel.value) {
         const modelName = modelSel.value;
         if (modelName.includes("..") || modelName.includes("/") || modelName.includes("\\")) {
-            alert("Invalid model filename.");
-            return args;
+            return { args, error: "Invalid model filename." };
         }
         args.push(["-m", "models/" + modelName]);
     }
 
-    return args;
+    return { args, error: null };
 }
 
 async function launchLlama() {
-    const args = getLaunchArgs();
+    const result = getLaunchArgs();
+    if (result.error) {
+        alert(result.error);
+        return;
+    }
+    const args = result.args;
     const hasModel = args.some(a => a[0] === "-m" || a[0] === "-hf");
     if (!hasModel) {
         alert("Select a model or provide an HF repo before launching.");
@@ -2250,11 +2390,20 @@ function stopStatsPolling() {
     document.getElementById("stats-kv-usage").textContent = "--%";
 }
 
+function snapshotStatsBaseline() {
+    chatStatsBaseline.promptTokens = chatStatsRaw.promptTokens;
+    chatStatsBaseline.genTokens = chatStatsRaw.genTokens;
+}
+
 async function pollStats() {
-    const host = flagValues.host || "127.0.0.1";
-    const port = flagValues.port || 8080;
+    if (pollStatsActive) return;
+    pollStatsActive = true;
     try {
-        const resp = await fetch(`http://${host}:${port}/metrics`);
+        const host = String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1";
+        const parsedPort = Number(flagValues.port);
+        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+        const params = new URLSearchParams({ host, port: String(port) });
+        const resp = await fetch(`/api/llama/metrics?${params.toString()}`);
         if (!resp.ok) return;
         const text = await resp.text();
         const metrics = {};
@@ -2268,30 +2417,38 @@ async function pollStats() {
         const genTokens = metrics["llamacpp:tokens_predicted_total"];
         const genSpeed = metrics["llamacpp:predicted_tokens_seconds"];
         const kvUsage = metrics["llamacpp:kv_cache_usage_ratio"];
-        if (promptTokens !== undefined) {
-            document.getElementById("stats-prompt-tokens").textContent = promptTokens.toLocaleString();
+        if (promptTokens !== undefined) chatStatsRaw.promptTokens = promptTokens;
+        if (genTokens !== undefined) chatStatsRaw.genTokens = genTokens;
+        const deltaPrompt = promptTokens !== undefined ? Math.max(0, promptTokens - chatStatsBaseline.promptTokens) : null;
+        const deltaGen = genTokens !== undefined ? Math.max(0, genTokens - chatStatsBaseline.genTokens) : null;
+        if (deltaPrompt !== null) {
+            document.getElementById("stats-prompt-tokens").textContent = deltaPrompt.toLocaleString();
         }
         if (promptSpeed !== undefined) {
             document.getElementById("stats-prompt-speed").textContent = promptSpeed.toFixed(1);
         }
-        if (genTokens !== undefined) {
-            document.getElementById("stats-gen-tokens").textContent = genTokens.toLocaleString();
+        if (deltaGen !== null) {
+            document.getElementById("stats-gen-tokens").textContent = deltaGen.toLocaleString();
         }
         if (genSpeed !== undefined) {
             document.getElementById("stats-gen-speed").textContent = genSpeed.toFixed(1);
         }
-        if (promptTokens !== undefined && genTokens !== undefined) {
-            document.getElementById("stats-context").textContent = (promptTokens + genTokens).toLocaleString();
+        if (deltaPrompt !== null && deltaGen !== null) {
+            document.getElementById("stats-context").textContent = (deltaPrompt + deltaGen).toLocaleString();
         }
         if (kvUsage !== undefined) {
             document.getElementById("stats-kv-usage").textContent = (kvUsage * 100).toFixed(0) + "%";
         }
     } catch (e) {
         // server not ready yet or metrics unavailable
+    } finally {
+        pollStatsActive = false;
     }
 }
 
 async function pollOutput() {
+    if (pollOutputActive) return;
+    pollOutputActive = true;
     try {
         const data = await fetchJson("/api/output");
         if (data.output.length > lastOutputLen) {
@@ -2325,6 +2482,8 @@ async function pollOutput() {
         updateQuickLaunchActionButtons();
         updateApiEndpoints();
         updateChatStatusBadge();
+    } finally {
+        pollOutputActive = false;
     }
 }
 
@@ -2652,18 +2811,19 @@ async function sendChatMessage(userText) {
         model: getChatModelName(),
         messages,
         stream: true,
+        host: String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1",
+        port: (() => { const p = Number(flagValues.port); return Number.isFinite(p) && p > 0 ? p : 8080; })(),
         ...getChatSamplerParams(),
     };
     const webSearchEnabled = isChatWebSearchEnabled();
     if (webSearchEnabled) {
         body.web_search = true;
-        body.api_url = getChatApiUrl();
     }
 
     chatAbortController = new AbortController();
 
     try {
-        const resp = await fetch(webSearchEnabled ? "/api/chat/completions" : getChatApiUrl(), {
+        const resp = await fetch("/api/chat/completions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -2681,6 +2841,12 @@ async function sendChatMessage(userText) {
         }
 
         const bubble = renderChatMessage("assistant", "");
+        if (!resp.body) {
+            renderChatMessage("assistant", "Error: Response body is empty.");
+            chatStreaming = false;
+            showChatSendButton(true);
+            return;
+        }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -2740,6 +2906,7 @@ async function sendChatMessage(userText) {
         setChatWebStatus(bubble, "");
         if (fullContent) {
             chatMessages.push({ role: "assistant", content: fullContent, sources: responseSources });
+            saveCurrentConversation();
         }
     } catch (e) {
         removeChatTypingIndicator();
@@ -2770,6 +2937,14 @@ function undoChatMessage() {
     if (chatMessages.length === 0) {
         const empty = document.getElementById("chat-empty");
         if (empty) empty.style.display = "";
+        if (currentConversationId) {
+            const conversations = getStoredConversations();
+            saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
+            currentConversationId = null;
+            renderHistoryList();
+        }
+    } else {
+        saveCurrentConversation();
     }
 }
 
@@ -2794,13 +2969,219 @@ function regenerateChatResponse() {
     sendChatMessage(lastUserMsg.content);
 }
 
-function clearChat() {
+// ── Chat History (localStorage) ──
+
+function getStoredConversations() {
+    try {
+        return JSON.parse(localStorage.getItem(CHAT_CONVERSATIONS_STORAGE_KEY)) || [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function saveConversationsToStorage(list) {
+    try {
+        localStorage.setItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn("Failed to save conversations to localStorage:", e);
+    }
+}
+
+function saveCurrentConversation() {
+    if (chatMessages.length === 0) return;
+    const sysPrompt = document.getElementById("chat-system-prompt");
+    const conversations = getStoredConversations();
+    const existing = currentConversationId
+        ? conversations.find(c => c.id === currentConversationId)
+        : null;
+
+    if (existing) {
+        existing.messages = chatMessages.slice();
+        existing.systemPrompt = sysPrompt ? sysPrompt.value : "";
+        existing.timestamp = Date.now();
+        existing.title = generateConversationTitle(chatMessages);
+    } else {
+        const convo = {
+            id: (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+                ? crypto.randomUUID()
+                : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
+                    const r = Math.random() * 16 | 0;
+                    return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
+                  }),
+            title: generateConversationTitle(chatMessages),
+            messages: chatMessages.slice(),
+            systemPrompt: sysPrompt ? sysPrompt.value : "",
+            timestamp: Date.now()
+        };
+        conversations.unshift(convo);
+        currentConversationId = convo.id;
+    }
+
+    saveConversationsToStorage(conversations);
+    renderHistoryList();
+}
+
+function generateConversationTitle(messages) {
+    const first = messages.find(m => m.role === "user");
+    if (!first) return "Untitled";
+    const text = first.content.trim().replace(/\n/g, " ");
+    return text.length > 50 ? text.slice(0, 50) + "..." : text;
+}
+
+function loadConversation(id) {
+    const conversations = getStoredConversations();
+    const convo = conversations.find(c => c.id === id);
+    if (!convo) return;
+
     if (chatStreaming) stopChatStream();
+
+    currentConversationId = convo.id;
+    chatMessages = convo.messages.slice();
+
+    const sysPrompt = document.getElementById("chat-system-prompt");
+    const sysCharCount = document.getElementById("chat-sys-char-count");
+    if (sysPrompt) {
+        sysPrompt.value = convo.systemPrompt || "";
+        if (sysCharCount) sysCharCount.textContent = (convo.systemPrompt || "").length + " chars";
+    }
+
+    const container = document.getElementById("chat-messages");
+    container.querySelectorAll(".chat-message").forEach(el => el.remove());
+    const empty = document.getElementById("chat-empty");
+
+    if (chatMessages.length === 0) {
+        if (empty) empty.style.display = "";
+    } else {
+        if (empty) empty.style.display = "none";
+        for (const msg of chatMessages) {
+            renderChatMessage(msg.role, msg.content);
+        }
+    }
+
+    renderHistoryList();
+    snapshotStatsBaseline();
+}
+
+function deleteConversation(id) {
+    const conversations = getStoredConversations();
+    const filtered = conversations.filter(c => c.id !== id);
+    saveConversationsToStorage(filtered);
+
+    if (currentConversationId === id) {
+        currentConversationId = null;
+    }
+
+    renderHistoryList();
+}
+
+function deleteAllConversations() {
+    saveConversationsToStorage([]);
+    currentConversationId = null;
+    renderHistoryList();
+}
+
+function startNewChat() {
+    saveCurrentConversation();
+    currentConversationId = null;
     chatMessages = [];
     const container = document.getElementById("chat-messages");
     container.querySelectorAll(".chat-message").forEach(el => el.remove());
     const empty = document.getElementById("chat-empty");
     if (empty) empty.style.display = "";
+    const sysPrompt = document.getElementById("chat-system-prompt");
+    const sysCharCount = document.getElementById("chat-sys-char-count");
+    if (sysPrompt) sysPrompt.value = "";
+    if (sysCharCount) sysCharCount.textContent = "0 chars";
+    renderHistoryList();
+    snapshotStatsBaseline();
+}
+
+function renderHistoryList() {
+    const list = document.getElementById("chat-history-list");
+    if (!list) return;
+
+    const conversations = getStoredConversations();
+    list.innerHTML = "";
+
+    if (conversations.length === 0) {
+        const empty = document.createElement("div");
+        empty.className = "chat-history-empty";
+        empty.textContent = "No saved conversations";
+        list.appendChild(empty);
+        return;
+    }
+
+    for (const convo of conversations) {
+        const item = document.createElement("div");
+        item.className = "chat-history-item" + (convo.id === currentConversationId ? " active" : "");
+
+        const header = document.createElement("div");
+        header.className = "chat-history-item-header";
+
+        const title = document.createElement("div");
+        title.className = "chat-history-item-title";
+        title.textContent = convo.title;
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "chat-history-item-delete";
+        deleteBtn.innerHTML = "&#128465;";
+        deleteBtn.title = "Delete conversation";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deleteConversation(convo.id);
+        });
+
+        header.appendChild(title);
+        header.appendChild(deleteBtn);
+
+        const preview = document.createElement("div");
+        preview.className = "chat-history-item-preview";
+        const lastMsg = convo.messages[convo.messages.length - 1];
+        preview.textContent = lastMsg ? lastMsg.content.trim().replace(/\n/g, " ").slice(0, 60) : "";
+
+        const time = document.createElement("div");
+        time.className = "chat-history-item-time";
+        time.textContent = formatHistoryTime(convo.timestamp);
+
+        item.appendChild(header);
+        item.appendChild(preview);
+        item.appendChild(time);
+
+        item.addEventListener("click", () => loadConversation(convo.id));
+        list.appendChild(item);
+    }
+}
+
+function formatHistoryTime(ts) {
+    const d = new Date(ts);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return diffMin + "m ago";
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return diffHr + "h ago";
+    return d.toLocaleDateString();
+}
+
+function clearChat() {
+    if (chatStreaming) stopChatStream();
+    if (currentConversationId) {
+        const conversations = getStoredConversations();
+        saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
+        currentConversationId = null;
+        renderHistoryList();
+    }
+    chatMessages = [];
+    const container = document.getElementById("chat-messages");
+    container.querySelectorAll(".chat-message").forEach(el => el.remove());
+    const empty = document.getElementById("chat-empty");
+    if (empty) empty.style.display = "";
+    const sysPrompt = document.getElementById("chat-system-prompt");
+    const sysCharCount = document.getElementById("chat-sys-char-count");
+    if (sysPrompt) sysPrompt.value = "";
+    if (sysCharCount) sysCharCount.textContent = "0 chars";
+    snapshotStatsBaseline();
 }
 
 function initChatTab() {
@@ -2860,6 +3241,46 @@ function initChatTab() {
         sidebar.classList.remove("collapsed");
         btnOpen.style.display = "none";
     });
+
+    // History panel collapse/expand
+    const historyPanel = document.getElementById("chat-history-panel");
+    const btnCollapseHistory = document.getElementById("btn-collapse-history");
+    const btnOpenHistory = document.getElementById("btn-open-history");
+
+    if (btnCollapseHistory && historyPanel) {
+        btnCollapseHistory.addEventListener("click", () => {
+            historyPanel.classList.add("collapsed");
+            if (btnOpenHistory) btnOpenHistory.style.display = "flex";
+        });
+    }
+
+    if (btnOpenHistory && historyPanel) {
+        btnOpenHistory.addEventListener("click", () => {
+            historyPanel.classList.remove("collapsed");
+            btnOpenHistory.style.display = "none";
+        });
+    }
+
+    // New Chat button
+    const newChatBtn = document.getElementById("btn-chat-new");
+    if (newChatBtn) {
+        newChatBtn.addEventListener("click", startNewChat);
+    }
+
+    // Delete All History button
+    const deleteAllBtn = document.getElementById("btn-delete-all-history");
+    if (deleteAllBtn) {
+        deleteAllBtn.addEventListener("click", () => {
+            if (getStoredConversations().length === 0) return;
+            if (confirm("Delete all conversations? This cannot be undone.")) {
+                deleteAllConversations();
+                clearChat();
+            }
+        });
+    }
+
+    // Initial render of history list
+    renderHistoryList();
 
     // Sidebar sampler sliders -> setFlagValue
     for (const [sliderId, meta] of Object.entries(CHAT_SAMPLER_SLIDER_MAP)) {

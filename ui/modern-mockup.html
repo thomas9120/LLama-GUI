@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Llama GUI Modern Mockup</title>
+    <style>
+        :root {
+            --bg: #10131b;
+            --surface: #171b26;
+            --surface-2: #1d2330;
+            --surface-3: #242b3a;
+            --line: #323b4f;
+            --line-soft: rgba(122, 137, 170, 0.22);
+            --text: #eef2ff;
+            --muted: #9aa7bf;
+            --muted-2: #6f7b93;
+            --blue: #78a6ff;
+            --blue-2: #4e7df0;
+            --green: #7bd88f;
+            --yellow: #f3c969;
+            --red: #ff6b8a;
+            --cyan: #6ed8f7;
+            --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+            --radius: 8px;
+            --font: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
+            --mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 20% 0%, rgba(78, 125, 240, 0.18), transparent 32rem),
+                linear-gradient(180deg, #121622 0%, var(--bg) 34rem);
+            color: var(--text);
+            font-family: var(--font);
+            font-size: 14px;
+            line-height: 1.45;
+        }
+
+        button,
+        input,
+        select,
+        textarea {
+            font: inherit;
+        }
+
+        .app-shell {
+            max-width: 1320px;
+            margin: 0 auto;
+            padding: 18px;
+        }
+
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            min-height: 64px;
+            padding: 12px 16px;
+            border: 1px solid var(--line-soft);
+            border-radius: 10px;
+            background: rgba(23, 27, 38, 0.88);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(18px);
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        .brand-mark {
+            width: 34px;
+            height: 34px;
+            border-radius: 8px;
+            display: grid;
+            place-items: center;
+            background: linear-gradient(135deg, var(--blue), var(--cyan));
+            color: #07111f;
+            font-weight: 800;
+            letter-spacing: 0;
+        }
+
+        .brand-title {
+            display: grid;
+            gap: 1px;
+        }
+
+        .brand-title strong {
+            font-size: 18px;
+            letter-spacing: 0;
+        }
+
+        .brand-title span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .status-cluster {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            min-height: 28px;
+            padding: 4px 10px;
+            border: 1px solid var(--line-soft);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.035);
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 650;
+            white-space: nowrap;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .pill.good {
+            color: var(--green);
+        }
+
+        .pill.warn {
+            color: var(--yellow);
+        }
+
+        .workspace {
+            display: grid;
+            grid-template-columns: 220px minmax(0, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .sidebar {
+            position: sticky;
+            top: 18px;
+            align-self: start;
+            border: 1px solid var(--line-soft);
+            border-radius: 10px;
+            background: rgba(23, 27, 38, 0.86);
+            overflow: hidden;
+        }
+
+        .nav-group {
+            padding: 8px;
+            display: grid;
+            gap: 3px;
+        }
+
+        .nav-item {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            height: 38px;
+            padding: 0 11px;
+            border: 1px solid transparent;
+            border-radius: 7px;
+            background: transparent;
+            color: var(--muted);
+            cursor: default;
+            text-align: left;
+        }
+
+        .nav-item span:first-child {
+            display: inline-flex;
+            align-items: center;
+            gap: 9px;
+            min-width: 0;
+        }
+
+        .nav-glyph {
+            width: 18px;
+            color: var(--muted-2);
+            text-align: center;
+            font-size: 13px;
+        }
+
+        .nav-item.active {
+            border-color: rgba(120, 166, 255, 0.42);
+            background: rgba(120, 166, 255, 0.12);
+            color: var(--text);
+        }
+
+        .nav-count {
+            color: var(--muted-2);
+            font-size: 11px;
+        }
+
+        .side-section {
+            border-top: 1px solid var(--line-soft);
+            padding: 12px;
+        }
+
+        .side-label {
+            margin-bottom: 8px;
+            color: var(--muted-2);
+            font-size: 11px;
+            font-weight: 750;
+            text-transform: uppercase;
+        }
+
+        .mini-stat {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 4px 8px;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .mini-stat strong {
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 650;
+        }
+
+        .main {
+            min-width: 0;
+            display: grid;
+            gap: 16px;
+        }
+
+        .hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 18px;
+            align-items: start;
+            padding: 20px;
+            border: 1px solid var(--line-soft);
+            border-radius: 10px;
+            background: linear-gradient(180deg, rgba(31, 38, 54, 0.94), rgba(23, 27, 38, 0.94));
+            box-shadow: var(--shadow);
+        }
+
+        h1,
+        h2,
+        h3,
+        p {
+            margin: 0;
+        }
+
+        h1 {
+            font-size: 22px;
+            letter-spacing: 0;
+        }
+
+        .hero p,
+        .section-intro {
+            max-width: 720px;
+            color: var(--muted);
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .btn {
+            min-height: 34px;
+            padding: 7px 12px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: var(--surface-3);
+            color: var(--text);
+            font-weight: 650;
+            cursor: default;
+            white-space: nowrap;
+        }
+
+        .btn.primary {
+            border-color: var(--blue);
+            background: var(--blue);
+            color: #07111f;
+        }
+
+        .btn.danger {
+            border-color: rgba(255, 107, 138, 0.35);
+            background: rgba(255, 107, 138, 0.16);
+            color: #ff9db0;
+        }
+
+        .btn.ghost {
+            background: rgba(255, 255, 255, 0.025);
+        }
+
+        .grid {
+            display: grid;
+            gap: 16px;
+        }
+
+        .grid.two {
+            grid-template-columns: minmax(0, 1fr) minmax(360px, 0.72fr);
+        }
+
+        .grid.three {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .panel {
+            border: 1px solid var(--line-soft);
+            border-radius: 10px;
+            background: rgba(23, 27, 38, 0.88);
+            overflow: hidden;
+        }
+
+        .panel-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 15px 16px;
+            border-bottom: 1px solid var(--line-soft);
+            background: rgba(255, 255, 255, 0.018);
+        }
+
+        .panel-head h2 {
+            font-size: 15px;
+        }
+
+        .panel-head span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .panel-body {
+            padding: 16px;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .field {
+            display: grid;
+            gap: 6px;
+        }
+
+        .field.full {
+            grid-column: 1 / -1;
+        }
+
+        label {
+            color: #b7c5ea;
+            font-size: 11px;
+            font-weight: 750;
+            text-transform: uppercase;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            min-height: 36px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #101520;
+            color: var(--text);
+            padding: 8px 10px;
+            outline: none;
+        }
+
+        textarea {
+            min-height: 72px;
+            resize: vertical;
+        }
+
+        .help {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .inline {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .segmented {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+        }
+
+        .segment {
+            min-height: 42px;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #121722;
+            color: var(--muted);
+        }
+
+        .segment.active {
+            border-color: rgba(120, 166, 255, 0.5);
+            background: rgba(120, 166, 255, 0.12);
+            color: var(--text);
+        }
+
+        .launch-card {
+            position: sticky;
+            top: 18px;
+            align-self: start;
+        }
+
+        .command {
+            display: block;
+            min-height: 120px;
+            margin-top: 12px;
+            padding: 12px;
+            border: 1px solid rgba(110, 216, 247, 0.25);
+            border-radius: 7px;
+            background: #0d121b;
+            color: var(--cyan);
+            font-family: var(--mono);
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .metric {
+            padding: 12px;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            background: #121722;
+        }
+
+        .metric span {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 750;
+        }
+
+        .metric strong {
+            display: block;
+            margin-top: 4px;
+            font-family: var(--mono);
+            font-size: 18px;
+        }
+
+        .configure-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 360px;
+            gap: 16px;
+        }
+
+        .searchbar {
+            display: flex;
+            gap: 8px;
+            padding: 12px;
+            border-bottom: 1px solid var(--line-soft);
+            background: rgba(16, 19, 27, 0.72);
+        }
+
+        .accordion-list {
+            display: grid;
+            gap: 6px;
+            padding: 12px;
+        }
+
+        .accordion {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            min-height: 42px;
+            padding: 0 12px;
+            border: 1px solid var(--line-soft);
+            border-radius: 7px;
+            background: #121722;
+        }
+
+        .accordion strong {
+            font-size: 13px;
+        }
+
+        .accordion span {
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .open-block {
+            padding: 14px 12px;
+            border: 1px solid rgba(120, 166, 255, 0.28);
+            border-radius: 7px;
+            background: rgba(120, 166, 255, 0.06);
+        }
+
+        .flag-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 160px;
+            gap: 14px;
+            align-items: center;
+            padding: 10px 0;
+            border-top: 1px solid var(--line-soft);
+        }
+
+        .flag-row:first-child {
+            border-top: 0;
+            padding-top: 0;
+        }
+
+        .flag-name {
+            color: var(--cyan);
+            font-family: var(--mono);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .chat-shell {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 320px;
+            gap: 16px;
+            min-height: 560px;
+        }
+
+        .chat-panel {
+            display: grid;
+            grid-template-rows: auto 1fr auto;
+            min-height: 560px;
+        }
+
+        .messages {
+            padding: 18px;
+            display: grid;
+            align-content: center;
+            justify-items: center;
+            text-align: center;
+            color: var(--muted);
+            gap: 12px;
+        }
+
+        .empty-mark {
+            width: 52px;
+            height: 52px;
+            display: grid;
+            place-items: center;
+            border-radius: 12px;
+            background: rgba(120, 166, 255, 0.11);
+            color: var(--blue);
+            font-weight: 800;
+        }
+
+        .suggestions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 6px;
+        }
+
+        .chip {
+            padding: 6px 10px;
+            border: 1px solid var(--line);
+            border-radius: 7px;
+            background: #151b27;
+            color: #c8d4f5;
+            font-size: 12px;
+        }
+
+        .composer {
+            display: grid;
+            gap: 8px;
+            padding: 12px;
+            border-top: 1px solid var(--line-soft);
+            background: #111722;
+        }
+
+        .composer-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+        }
+
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            flex-wrap: wrap;
+            color: var(--muted);
+            font-size: 12px;
+        }
+
+        .range-row {
+            display: grid;
+            gap: 7px;
+            margin-bottom: 16px;
+        }
+
+        .range-head {
+            display: flex;
+            justify-content: space-between;
+            color: var(--text);
+            font-weight: 650;
+            font-size: 13px;
+        }
+
+        .range-head code {
+            color: var(--blue);
+            font-family: var(--mono);
+        }
+
+        .fake-range {
+            height: 4px;
+            border-radius: 99px;
+            background: linear-gradient(90deg, var(--blue) var(--value), var(--surface-3) var(--value));
+        }
+
+        .api-list {
+            display: grid;
+            gap: 8px;
+        }
+
+        .api-row {
+            display: grid;
+            grid-template-columns: 82px minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            padding: 11px;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            background: #121722;
+        }
+
+        .method {
+            width: fit-content;
+            min-width: 52px;
+            padding: 4px 7px;
+            border-radius: 6px;
+            background: rgba(120, 166, 255, 0.13);
+            color: var(--blue);
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 800;
+            text-align: center;
+        }
+
+        .api-row code,
+        .preset-card code {
+            color: var(--green);
+            font-family: var(--mono);
+            font-size: 12px;
+        }
+
+        .preset-card {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 12px;
+            align-items: center;
+            padding: 13px;
+            border: 1px solid var(--line-soft);
+            border-radius: 8px;
+            background: #121722;
+        }
+
+        .preset-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .footer-bar {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 12px;
+            border: 1px solid var(--line-soft);
+            border-radius: 10px;
+            background: rgba(23, 27, 38, 0.9);
+            color: var(--muted);
+            font-family: var(--mono);
+            font-size: 12px;
+            overflow-x: auto;
+        }
+
+        .divider {
+            width: 1px;
+            height: 16px;
+            background: var(--line);
+        }
+
+        @media (max-width: 980px) {
+            .workspace,
+            .grid.two,
+            .configure-layout,
+            .chat-shell {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar,
+            .launch-card {
+                position: static;
+            }
+
+            .sidebar .nav-group {
+                grid-template-columns: repeat(3, minmax(0, 1fr));
+            }
+        }
+
+        @media (max-width: 680px) {
+            .app-shell {
+                padding: 12px;
+            }
+
+            .topbar,
+            .hero,
+            .api-row,
+            .preset-card {
+                grid-template-columns: 1fr;
+            }
+
+            .topbar {
+                align-items: stretch;
+            }
+
+            .status-cluster,
+            .hero-actions {
+                justify-content: flex-start;
+            }
+
+            .sidebar .nav-group,
+            .grid.three,
+            .form-grid,
+            .stats-row {
+                grid-template-columns: 1fr;
+            }
+
+            .flag-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <div class="brand-mark">LG</div>
+                <div class="brand-title">
+                    <strong>Llama GUI</strong>
+                    <span>Local llama.cpp launcher and control panel</span>
+                </div>
+            </div>
+            <div class="status-cluster">
+                <span class="pill good"><span class="dot"></span>b9048 installed</span>
+                <span class="pill">CUDA 12.4</span>
+                <span class="pill warn"><span class="dot"></span>Server idle</span>
+            </div>
+        </header>
+
+        <div class="workspace">
+            <aside class="sidebar">
+                <nav class="nav-group" aria-label="Mock navigation">
+                    <button class="nav-item"><span><span class="nav-glyph">01</span>Install</span></button>
+                    <button class="nav-item active"><span><span class="nav-glyph">02</span>Quick Launch</span></button>
+                    <button class="nav-item"><span><span class="nav-glyph">03</span>Configure</span><span class="nav-count">112</span></button>
+                    <button class="nav-item"><span><span class="nav-glyph">04</span>Chat</span></button>
+                    <button class="nav-item"><span><span class="nav-glyph">05</span>API</span></button>
+                    <button class="nav-item"><span><span class="nav-glyph">06</span>Presets</span><span class="nav-count">1</span></button>
+                </nav>
+                <div class="side-section">
+                    <div class="side-label">Current Run</div>
+                    <div class="mini-stat">
+                        <span>Model</span><strong>not set</strong>
+                        <span>Port</span><strong>8080</strong>
+                        <span>Context</span><strong>16000</strong>
+                        <span>Metrics</span><strong>on</strong>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="main">
+                <section class="hero">
+                    <div>
+                        <h1>Launch a local model with a clean guided setup.</h1>
+                        <p>Quick Launch becomes the primary workflow, while Configure stays available for exact llama.cpp flag control.</p>
+                    </div>
+                    <div class="hero-actions">
+                        <button class="btn ghost">Open Models</button>
+                        <button class="btn primary">Launch Server</button>
+                    </div>
+                </section>
+
+                <section class="grid two">
+                    <div class="grid">
+                        <section class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Quick Launch</h2>
+                                    <span>Beginner-safe controls backed by the same shared state as Configure.</span>
+                                </div>
+                            </div>
+                            <div class="panel-body form-grid">
+                                <div class="field full">
+                                    <label>Model</label>
+                                    <div class="inline">
+                                        <select>
+                                            <option>- Select Model -</option>
+                                            <option>gemma-4-E2B-it-heretic.Q6_K.gguf</option>
+                                        </select>
+                                        <button class="btn ghost">Refresh</button>
+                                    </div>
+                                </div>
+
+                                <div class="field">
+                                    <label>Launch Mode</label>
+                                    <div class="segmented">
+                                        <div class="segment active">API Server</div>
+                                        <div class="segment">Chat CLI</div>
+                                    </div>
+                                    <p class="help">API Server exposes the local OpenAI-compatible endpoints.</p>
+                                </div>
+
+                                <div class="field">
+                                    <label>Beginner Profile</label>
+                                    <select>
+                                        <option>Balanced</option>
+                                        <option>Low Memory</option>
+                                        <option>Long Context</option>
+                                        <option>Creative Chat</option>
+                                    </select>
+                                    <p class="help">Applies context, fit, GPU offload, and sampler defaults together.</p>
+                                </div>
+
+                                <div class="field">
+                                    <label>Context Length</label>
+                                    <select>
+                                        <option>16000</option>
+                                        <option>32768</option>
+                                        <option>64000</option>
+                                        <option>Custom</option>
+                                    </select>
+                                </div>
+
+                                <div class="field">
+                                    <label>GPU Offload</label>
+                                    <select>
+                                        <option>Auto</option>
+                                        <option>CPU only</option>
+                                        <option>All GPU layers</option>
+                                        <option>Custom</option>
+                                    </select>
+                                </div>
+
+                                <div class="field">
+                                    <label>Instruction Template</label>
+                                    <select>
+                                        <option>Auto (from model)</option>
+                                        <option>ChatML</option>
+                                        <option>Llama 3 Chat</option>
+                                        <option>OpenAI Harmony</option>
+                                    </select>
+                                </div>
+
+                                <div class="field">
+                                    <label>Sampler Preset</label>
+                                    <select>
+                                        <option>Balanced</option>
+                                        <option>Creative</option>
+                                        <option>Precise</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="panel">
+                            <div class="panel-head">
+                                <div>
+                                    <h2>Live Status</h2>
+                                    <span>Move the bottom stats bar into a calmer dashboard surface.</span>
+                                </div>
+                            </div>
+                            <div class="panel-body stats-row">
+                                <div class="metric"><span>Prompt</span><strong>--</strong></div>
+                                <div class="metric"><span>Generation</span><strong>--</strong></div>
+                                <div class="metric"><span>Context</span><strong>16k</strong></div>
+                                <div class="metric"><span>KV Cache</span><strong>--%</strong></div>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="panel launch-card">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Launch Preview</h2>
+                                <span>Sticky, readable, and clearly connected to the primary action.</span>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="field">
+                                <label>Server Address</label>
+                                <input value="http://127.0.0.1:8080" readonly>
+                            </div>
+                            <code class="command">llama-server.exe --model models/gemma-4-E2B-it-heretic.Q6_K.gguf --ctx-size 16000 --n-gpu-layers auto --jinja --metrics</code>
+                            <div class="inline" style="margin-top: 14px;">
+                                <button class="btn primary">Launch Server</button>
+                                <button class="btn ghost">Copy Command</button>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="configure-layout">
+                    <section class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Configure</h2>
+                                <span>Advanced flag inspector with a sticky search and quieter accordions.</span>
+                            </div>
+                        </div>
+                        <div class="searchbar">
+                            <input placeholder="Search flags, categories, or option names...">
+                            <button class="btn ghost">Expand</button>
+                            <button class="btn ghost">Collapse</button>
+                        </div>
+                        <div class="accordion-list">
+                            <div class="accordion"><strong>Model</strong><span>8 flags</span></div>
+                            <div class="open-block">
+                                <div class="flag-row">
+                                    <div>
+                                        <div class="flag-name">--model</div>
+                                        <p class="help">Path to the model file used for launch.</p>
+                                    </div>
+                                    <input value="models/...">
+                                </div>
+                                <div class="flag-row">
+                                    <div>
+                                        <div class="flag-name">--alias</div>
+                                        <p class="help">Optional model alias exposed by the server.</p>
+                                    </div>
+                                    <input placeholder="local-model">
+                                </div>
+                            </div>
+                            <div class="accordion"><strong>Context and Memory</strong><span>10 flags</span></div>
+                            <div class="accordion"><strong>GPU Acceleration</strong><span>14 flags</span></div>
+                            <div class="accordion"><strong>Sampling</strong><span>23 flags</span></div>
+                            <div class="accordion"><strong>Server and MCP Settings</strong><span>16 flags</span></div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Shared Samplers</h2>
+                                <span>Same values shown in Quick Launch, Configure, and Chat.</span>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="range-row">
+                                <div class="range-head"><span>Temperature</span><code>0.80</code></div>
+                                <div class="fake-range" style="--value: 40%;"></div>
+                            </div>
+                            <div class="range-row">
+                                <div class="range-head"><span>Top-P</span><code>0.95</code></div>
+                                <div class="fake-range" style="--value: 95%;"></div>
+                            </div>
+                            <div class="range-row">
+                                <div class="range-head"><span>Top-K</span><code>40</code></div>
+                                <div class="fake-range" style="--value: 35%;"></div>
+                            </div>
+                            <div class="range-row">
+                                <div class="range-head"><span>Repeat Penalty</span><code>1.05</code></div>
+                                <div class="fake-range" style="--value: 28%;"></div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="chat-shell">
+                    <section class="panel chat-panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Chat</h2>
+                                <span>A calmer chat workspace with settings pushed to the side.</span>
+                            </div>
+                            <span class="pill">No server</span>
+                        </div>
+                        <div class="messages">
+                            <div class="empty-mark">AI</div>
+                            <h2>Start a conversation</h2>
+                            <p class="section-intro">Send a message to the running llama-server. Responses stream into this workspace.</p>
+                            <div class="suggestions">
+                                <span class="chip">Explain KV cache</span>
+                                <span class="chip">Draft an API request</span>
+                                <span class="chip">Summarize this model</span>
+                            </div>
+                        </div>
+                        <div class="composer">
+                            <div class="composer-row">
+                                <textarea placeholder="Type a message..."></textarea>
+                                <button class="btn primary">Send</button>
+                            </div>
+                            <div class="toolbar">
+                                <span><input type="checkbox"> Web Search</span>
+                                <span>Enter sends, Shift+Enter inserts a line</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Chat Settings</h2>
+                                <span>Compact, consistent, and synced.</span>
+                            </div>
+                        </div>
+                        <div class="panel-body">
+                            <div class="field">
+                                <label>System Prompt</label>
+                                <textarea placeholder="You are a helpful assistant..."></textarea>
+                            </div>
+                            <div class="range-row" style="margin-top: 16px;">
+                                <div class="range-head"><span>Temperature</span><code>0.80</code></div>
+                                <div class="fake-range" style="--value: 40%;"></div>
+                            </div>
+                            <div class="range-row">
+                                <div class="range-head"><span>Max Tokens</span><code>512</code></div>
+                                <div class="fake-range" style="--value: 24%;"></div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <section class="grid two">
+                    <section class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>API</h2>
+                                <span>Endpoint cards become a compact copy-friendly reference.</span>
+                            </div>
+                        </div>
+                        <div class="panel-body api-list">
+                            <div class="api-row">
+                                <span class="method">POST</span>
+                                <code>/v1/chat/completions</code>
+                                <button class="btn ghost">Copy</button>
+                            </div>
+                            <div class="api-row">
+                                <span class="method">POST</span>
+                                <code>/v1/completions</code>
+                                <button class="btn ghost">Copy</button>
+                            </div>
+                            <div class="api-row">
+                                <span class="method">POST</span>
+                                <code>/v1/embeddings</code>
+                                <button class="btn ghost">Copy</button>
+                            </div>
+                            <div class="api-row">
+                                <span class="method">GET</span>
+                                <code>/v1/models</code>
+                                <button class="btn ghost">Copy</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="panel">
+                        <div class="panel-head">
+                            <div>
+                                <h2>Presets</h2>
+                                <span>Less boxed-in, with clear saved config actions.</span>
+                            </div>
+                        </div>
+                        <div class="panel-body grid">
+                            <div class="inline">
+                                <input placeholder="Preset name...">
+                                <button class="btn primary">Save</button>
+                            </div>
+                            <div class="preset-card">
+                                <div>
+                                    <h3>32k Context</h3>
+                                    <p class="help">llama-server, 81 configured flags</p>
+                                    <code>gemma-4-E2B-it-heretic.Q6_K.gguf</code>
+                                </div>
+                                <div class="preset-actions">
+                                    <button class="btn ghost">Load</button>
+                                    <button class="btn ghost">Export</button>
+                                    <button class="btn danger">Delete</button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+                </section>
+
+                <footer class="footer-bar">
+                    <span class="pill good"><span class="dot"></span>Running</span>
+                    <span>prompt tokens <strong>--</strong></span>
+                    <span class="divider"></span>
+                    <span>prompt tok/s <strong>--</strong></span>
+                    <span class="divider"></span>
+                    <span>generation tok/s <strong>--</strong></span>
+                    <span class="divider"></span>
+                    <span>KV <strong>--%</strong></span>
+                </footer>
+            </main>
+        </div>
+    </div>
+</body>
+</html>

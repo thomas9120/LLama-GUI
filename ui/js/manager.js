@@ -60,6 +60,7 @@ async function fetchJson(url, options) {
 
 async function fetchReleases() {
     const sel = document.getElementById("release-select");
+    if (!sel) return;
     sel.innerHTML = '<option value="">Loading...</option>';
     try {
         cachedReleases = await fetchJson("/api/releases");
@@ -90,6 +91,7 @@ async function fetchReleases() {
 async function checkStatus() {
     try {
         const status = await fetchJson("/api/status");
+        if (!status) return null;
         latestStatus = status;
         updateStatusUI(status);
         return status;
@@ -99,6 +101,7 @@ async function checkStatus() {
 }
 
 function updateStatusUI(status) {
+    if (!status) return;
     const badge = document.getElementById("version-badge");
     const processBadge = document.getElementById("process-badge");
     const info = document.getElementById("installed-info");
@@ -315,8 +318,12 @@ async function restartPythonServer() {
     try {
         await fetchJson("/api/restart", { method: "POST" });
         showStatus("info", "Python server is restarting. Reconnecting...");
-        await waitForServerReady(30, 1000);
-        showStatus("success", "Python server restarted successfully.");
+        const ready = await waitForServerReady(30, 1000);
+        if (ready) {
+            showStatus("success", "Python server restarted successfully.");
+        } else {
+            showStatus("error", "Server did not become ready in time. Try reloading manually.");
+        }
         window.setTimeout(() => {
             window.location.reload();
         }, 500);

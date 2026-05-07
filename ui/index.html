@@ -368,10 +368,21 @@
                 <div class="chat-header-actions">
                     <span class="badge badge-green" id="chat-status-badge">&#9679; Server Running</span>
                     <span class="badge badge-dim" id="chat-no-server-badge">No Server</span>
+                    <button class="btn btn-sm" id="btn-chat-new" type="button">&#10010; New Chat</button>
                     <button class="btn btn-sm" id="btn-chat-clear" type="button">&#128465; Clear</button>
                 </div>
             </div>
             <div class="chat-layout">
+                <div class="chat-history-panel" id="chat-history-panel">
+                    <div class="sidebar-header">
+                        <h3>Conversations</h3>
+                        <button class="btn-toggle-sidebar" id="btn-collapse-history" title="Collapse history">&#10005;</button>
+                    </div>
+                    <div class="chat-history-list" id="chat-history-list"></div>
+                    <div class="chat-history-footer">
+                        <button class="btn btn-xs btn-danger" id="btn-delete-all-history" type="button">&#128465; Delete All</button>
+                    </div>
+                </div>
                 <div class="chat-main">
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-empty" id="chat-empty">
@@ -466,6 +477,7 @@
                         </div>
                     </div>
                 </div>
+                <button class="btn btn-sm btn-sidebar-open" id="btn-open-history" title="Show conversations">&#128172;</button>
                 <button class="btn btn-sm btn-sidebar-open" id="btn-open-sidebar" title="Show settings">&#9881;</button>
             </div>
         </div>
@@ -483,6 +495,30 @@
                 </div>
 
                 <div id="api-status-note" class="api-status-note"></div>
+
+                <div class="section remote-access-panel">
+                    <div class="remote-access-header">
+                        <div>
+                            <h3>Remote Access</h3>
+                            <p class="api-intro">Start an opt-in Cloudflare tunnel for the Llama-GUI control panel.</p>
+                        </div>
+                        <div id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</div>
+                    </div>
+                    <div id="remote-tunnel-warning" class="remote-tunnel-warning">
+                        Anyone with the tunnel URL can access and control this Llama-GUI session until you stop the tunnel.
+                    </div>
+                    <div id="remote-tunnel-url-row" class="api-base-row hidden">
+                        <span class="api-base-label">Remote URL</span>
+                        <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                        <button id="btn-copy-remote-tunnel" class="btn btn-sm" type="button" title="Copy remote URL">Copy</button>
+                    </div>
+                    <div id="remote-tunnel-status" class="api-status-note">Remote tunnel is not running.</div>
+                    <div class="form-row">
+                        <button id="btn-start-remote-tunnel" class="btn btn-primary" type="button">Start Tunnel</button>
+                        <button id="btn-stop-remote-tunnel" class="btn btn-danger hidden" type="button">Stop Tunnel</button>
+                    </div>
+                </div>
+
                 <div id="api-endpoints-list" class="api-endpoints"></div>
 
                 <div class="section">
