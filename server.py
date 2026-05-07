@@ -200,6 +200,8 @@ output_buffer = []
 output_buffer_lock = threading.Lock()
 download_progress = {"total": 0, "downloaded": 0, "status": "idle", "message": ""}
 download_progress_lock = threading.Lock()
+install_in_progress = False
+install_lock = threading.Lock()
 gui_server = None
 remote_tunnel_process = None
 remote_tunnel_lock = threading.Lock()
@@ -218,14 +220,19 @@ def is_process_running():
 
 def load_config():
     if CONFIG_FILE.exists():
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return {"version": None, "backend": None, "tag": None}
     return {"version": None, "backend": None, "tag": None}
 
 
 def save_config(cfg):
-    with open(CONFIG_FILE, "w") as f:
+    tmp = CONFIG_FILE.with_suffix(".tmp")
+    with open(tmp, "w") as f:
         json.dump(cfg, f, indent=2)
+    tmp.replace(CONFIG_FILE)
 
 
 def get_releases():
@@ -828,7 +835,9 @@ def restart_gui_server():
             subprocess.Popen(
                 [sys.executable, restart_script],
                 cwd=str(BASE_DIR),
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                if sys.platform == "win32"
+                else 0,
             )
             print("Restarting Llama GUI...")
         except Exception as e:
@@ -1676,6 +1685,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
             return
 
+        if path.startswith("/api/") and not self.is_safe_request_origin():
+            self.send_json({"error": "Forbidden"}, 403)
+            return
+
         if path == "/api/status":
             cfg = load_config()
             exes = {}
@@ -1834,8 +1847,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if is_process_running():
                 self.send_json({"error": "Stop running process first"}, 400)
                 return
+            global install_in_progress
+            with install_lock:
+                if install_in_progress:
+                    self.send_json({"error": "Installation already in progress"}, 409)
+                    return
+                install_in_progress = True
+
+            def _install(tag, backend):
+                global install_in_progress
+                try:
+                    install_release(tag, backend)
+                finally:
+                    with install_lock:
+                        install_in_progress = False
+
             threading.Thread(
-                target=install_release, args=(tag, backend), daemon=True
+                target=_install, args=(tag, backend), daemon=True
             ).start()
             self.send_json({"status": "started"})
             return
@@ -1855,12 +1883,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             if is_process_running():
                 self.send_json({"error": "Stop running process first"}, 400)
                 return
+            with install_lock:
+                if install_in_progress:
+                    self.send_json({"error": "Installation already in progress"}, 409)
+                    return
+                install_in_progress = True
             try:
                 releases = get_releases()
                 latest = releases[0]["tag_name"] if releases else None
                 if latest and latest != tag:
+
+                    def _update(latest_tag, backend_name):
+                        global install_in_progress
+                        try:
+                            install_release(latest_tag, backend_name)
+                        finally:
+                            with install_lock:
+                                install_in_progress = False
+
                     threading.Thread(
-                        target=install_release, args=(latest, backend), daemon=True
+                        target=_update, args=(latest, backend), daemon=True
                     ).start()
                     self.send_json({"status": "started", "from": tag, "to": latest})
                 else:

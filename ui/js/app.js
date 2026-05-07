@@ -1,8 +1,15 @@
+function debounce(fn, ms) {
+    let t;
+    return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
+}
+
 let currentTool = "llama-server";
 let flagValues = getDefaultValues();
 let outputTimer = null;
 let lastOutputLen = 0;
 let statsTimer = null;
+let pollOutputActive = false;
+let pollStatsActive = false;
 let remoteTunnelTimer = null;
 let openCategories = new Set();
 let openSubmenus = new Set();
@@ -1200,7 +1207,7 @@ function initQuickLaunch() {
     };
 
     for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
-        document.getElementById(elementId).addEventListener("input", (e) => {
+        document.getElementById(elementId).addEventListener("input", debounce((e) => {
             const rawValue = e.target.value.trim();
             let nextValue;
             if (rawValue === "") {
@@ -1211,7 +1218,7 @@ function initQuickLaunch() {
                 nextValue = parseFloat(rawValue);
             }
             setFlagValue(flagId, nextValue);
-        });
+        }, 200));
     }
 
     document.getElementById("btn-copy-quick-server-url").addEventListener("click", copyQuickServerUrl);
@@ -1416,14 +1423,14 @@ function initConfigControls() {
         search.focus();
     };
 
-    search.addEventListener("input", () => {
+    search.addEventListener("input", debounce(() => {
         configSearchQuery = search.value.trim().toLowerCase();
         if (configSearchQuery) {
             const groups = getFlagsByCategory(currentTool);
             openCategories = new Set(Object.keys(groups));
         }
         renderFlags();
-    });
+    }, 200));
 
     search.addEventListener("keydown", (e) => {
         if (e.key === "Escape" && (search.value || configSearchQuery)) {
@@ -1951,8 +1958,8 @@ function createFlagRow(f) {
 
         const setValueAndRefresh = (arr) => {
             const unique = [...new Set(arr.filter(Boolean))];
-            flagValues[f.id] = unique.length > 0 ? unique : undefined;
-            updateCommandPreview();
+            const val = unique.length > 0 ? unique : undefined;
+            setFlagValue(f.id, val);
         };
 
         for (const opt of f.options || []) {
@@ -2091,6 +2098,13 @@ function collectFlagValues() {
 function applyFlagValues(data) {
     flagValues = { ...getDefaultValues(), ...data };
     selectedChatTemplatePresetValue = "";
+    if (flagValues.chat_template_custom) {
+        const bundled = getChatTemplatePresetByPath(flagValues.chat_template_custom);
+        if (bundled) selectedChatTemplatePresetValue = bundled.value;
+    } else if (flagValues.chat_template) {
+        const builtin = getChatTemplatePresetByBuiltinName(flagValues.chat_template);
+        if (builtin) selectedChatTemplatePresetValue = builtin.value;
+    }
     const fitCtx = flagValues.fit_ctx;
     const ctxSize = flagValues.ctx_size;
     quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
@@ -2382,10 +2396,12 @@ function snapshotStatsBaseline() {
 }
 
 async function pollStats() {
-    const host = String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1";
-    const parsedPort = Number(flagValues.port);
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+    if (pollStatsActive) return;
+    pollStatsActive = true;
     try {
+        const host = String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1";
+        const parsedPort = Number(flagValues.port);
+        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
         const params = new URLSearchParams({ host, port: String(port) });
         const resp = await fetch(`/api/llama/metrics?${params.toString()}`);
         if (!resp.ok) return;
@@ -2425,10 +2441,14 @@ async function pollStats() {
         }
     } catch (e) {
         // server not ready yet or metrics unavailable
+    } finally {
+        pollStatsActive = false;
     }
 }
 
 async function pollOutput() {
+    if (pollOutputActive) return;
+    pollOutputActive = true;
     try {
         const data = await fetchJson("/api/output");
         if (data.output.length > lastOutputLen) {
@@ -2462,6 +2482,8 @@ async function pollOutput() {
         updateQuickLaunchActionButtons();
         updateApiEndpoints();
         updateChatStatusBadge();
+    } finally {
+        pollOutputActive = false;
     }
 }
 
@@ -2790,7 +2812,7 @@ async function sendChatMessage(userText) {
         messages,
         stream: true,
         host: String(flagValues.host || "127.0.0.1").trim() || "127.0.0.1",
-        port: Number(flagValues.port) || 8080,
+        port: (() => { const p = Number(flagValues.port); return Number.isFinite(p) && p > 0 ? p : 8080; })(),
         ...getChatSamplerParams(),
     };
     const webSearchEnabled = isChatWebSearchEnabled();
@@ -2819,6 +2841,12 @@ async function sendChatMessage(userText) {
         }
 
         const bubble = renderChatMessage("assistant", "");
+        if (!resp.body) {
+            renderChatMessage("assistant", "Error: Response body is empty.");
+            chatStreaming = false;
+            showChatSendButton(true);
+            return;
+        }
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -2952,7 +2980,11 @@ function getStoredConversations() {
 }
 
 function saveConversationsToStorage(list) {
-    localStorage.setItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+    try {
+        localStorage.setItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+    } catch (e) {
+        console.warn("Failed to save conversations to localStorage:", e);
+    }
 }
 
 function saveCurrentConversation() {

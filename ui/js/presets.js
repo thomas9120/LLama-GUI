@@ -421,6 +421,8 @@ async function loadPreset(name) {
                 showPresetStatus(`Loaded preset "${name}"`, "success");
             }
             switchTab("configure");
+        } else {
+            showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
         }
     } catch (e) {
         alert("Failed to load preset: " + e.message);
@@ -471,6 +473,10 @@ function handlePresetImport(file) {
             const data = JSON.parse(e.target.result);
             const normalized = normalizePresetData(data);
             const importData = { tool: normalized.tool, model: normalized.model, flags: normalized.flags };
+            if (!normalized.model && Object.keys(normalized.flags).length === 0) {
+                showPresetStatus("Preset file contains no usable data.", "error", 3200);
+                return;
+            }
             const name = file.name.replace(/\.json$/i, "");
             await fetchJson("/api/presets", {
                 method: "POST",

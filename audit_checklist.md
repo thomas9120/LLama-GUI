@@ -20,53 +20,37 @@
 
 ## Medium Severity
 
-- [ ] **#9** Concurrent installs corrupt files (`server.py:1837-1864`)
-  - No guard against two simultaneous `/api/install` requests. Both will `shutil.rmtree` and extract concurrently.
+- [x] **#9** Concurrent installs corrupt files (`server.py:1837-1864`) — **FIXED:** Added `install_in_progress` flag with `install_lock` to prevent concurrent installs via `/api/install` and `/api/update`.
 
-- [ ] **#10** No origin check on GET endpoints (`server.py:1671-1793`)
-  - All GET API endpoints (`/api/status`, `/api/models`, `/api/output`, etc.) are accessible from any origin. `/api/app-update-status?fetch=true` even triggers `git fetch` as a side effect.
+- [x] **#10** No origin check on GET endpoints (`server.py:1671-1793`) — **FIXED:** Added `is_safe_request_origin()` check at the top of `do_GET` for all `/api/*` paths, returning 403 on mismatch.
 
-- [ ] **#11** `load_config` doesn't handle malformed JSON (`server.py:219-223`)
-  - Corrupted `config.json` causes unhandled `json.JSONDecodeError` → 500 errors everywhere.
+- [x] **#11** `load_config` doesn't handle malformed JSON (`server.py:219-223`) — **FIXED:** Wrapped `json.load()` in try/except for `json.JSONDecodeError` and `OSError`, returning defaults on failure.
 
-- [ ] **#12** `save_config` is not atomic (`server.py:226-228`)
-  - Crash during write = corrupted `config.json`.
+- [x] **#12** `save_config` is not atomic (`server.py:226-228`) — **FIXED:** Write to `.tmp` file first, then `os.replace()` for atomic rename.
 
-- [ ] **#13** `restart_gui_server` crashes on non-Windows (`server.py:831`)
-  - Uses `subprocess.DETACHED_PROCESS` unconditionally — Windows-only constant.
+- [x] **#13** `restart_gui_server` crashes on non-Windows (`server.py:831`) — **FIXED:** Added `if sys.platform == "win32" else 0` guard for `creationflags`.
 
-- [ ] **#14** `multi_enum` changes bypass `setFlagValue` (`app.js:1950-1953`)
-  - Directly mutates `flagValues[f.id]` and calls `updateCommandPreview()`, skipping `syncUiAfterSharedStateChange()`. Violates AGENTS.md sync rules.
+- [x] **#14** `multi_enum` changes bypass `setFlagValue` (`app.js:1950-1953`) — **FIXED:** `setValueAndRefresh` now calls `setFlagValue()` instead of directly mutating `flagValues`.
 
-- [ ] **#15** No debouncing on config search or sampler inputs (`app.js:1417-1424, 1200-1213`)
-  - Every keystroke triggers full UI rebuild chains. Typing "0.85" for temperature = 4 full refreshes.
+- [x] **#15** No debouncing on config search or sampler inputs (`app.js:1417-1424, 1200-1213`) — **FIXED:** Added `debounce()` utility and wrapped config search (200ms) and Quick Launch sampler inputs (200ms).
 
-- [ ] **#16** Overlapping `pollOutput` / `pollStats` calls (`app.js:2341, 2355`)
-  - No guard against overlapping intervals. Slow responses stack up, causing out-of-order DOM updates.
+- [x] **#16** Overlapping `pollOutput` / `pollStats` calls (`app.js:2341, 2355`) — **FIXED:** Added `pollOutputActive`/`pollStatsActive` guards with early return and `finally` block reset.
 
-- [ ] **#17** `localStorage.setItem` has no error handling (`app.js:2948`)
-  - `QuotaExceededError` crashes the current operation and leaves UI in inconsistent state.
+- [x] **#17** `localStorage.setItem` has no error handling (`app.js:2948`) — **FIXED:** Wrapped in try/catch with `console.warn` on failure.
 
-- [ ] **#18** Null dereference in `fetchReleases` (`manager.js:62-63`)
-  - `document.getElementById("release-select")` used without null check.
+- [x] **#18** Null dereference in `fetchReleases` (`manager.js:62-63`) — **FIXED:** Added `if (!sel) return;` guard.
 
-- [ ] **#19** `loadPreset` silently returns on not-found (`presets.js:404-428`)
-  - No user feedback when preset name doesn't exist.
+- [x] **#19** `loadPreset` silently returns on not-found (`presets.js:404-428`) — **FIXED:** Added `else` branch showing error status when preset not found.
 
-- [ ] **#20** `handlePresetImport` saves empty presets (`presets.js:467-488`)
-  - No validation after normalization — garbage files create useless empty presets.
+- [x] **#20** `handlePresetImport` saves empty presets (`presets.js:467-488`) — **FIXED:** Added validation after normalization — rejects presets with no model and no flags.
 
-- [ ] **#21** `loadPreset` resets chat template dropdown (`presets.js:417` + `app.js:2091`)
-  - `applyFlagValues` clears `selectedChatTemplatePresetValue`, so the dropdown shows wrong selection after loading a preset.
+- [x] **#21** `loadPreset` resets chat template dropdown (`presets.js:417` + `app.js:2091`) — **FIXED:** `applyFlagValues` now reverse-maps `chat_template`/`chat_template_custom` to restore `selectedChatTemplatePresetValue`.
 
-- [ ] **#22** Port validation inconsistency (`app.js:2786`)
-  - Uses `Number(flagValues.port) || 8080` which converts port `0` to `8080`, while other locations correctly check `> 0`.
+- [x] **#22** Port validation inconsistency (`app.js:2786`) — **FIXED:** Replaced `Number(flagValues.port) || 8080` with `Number.isFinite(p) && p > 0` pattern matching other locations.
 
-- [ ] **#23** `restartPythonServer` shows success on failure (`manager.js:316-322`)
-  - Ignores `waitForServerReady()` return value — always shows "restarted successfully".
+- [x] **#23** `restartPythonServer` shows success on failure (`manager.js:316-322`) — **FIXED:** Now checks `waitForServerReady()` return value and shows appropriate error on timeout.
 
-- [ ] **#24** `resp.body.getReader()` without null check (`app.js:2815`)
-  - `resp.body` can be null, causing unhandled `TypeError`.
+- [x] **#24** `resp.body.getReader()` without null check (`app.js:2815`) — **FIXED:** Added null check with error message before calling `getReader()`.
 
 ## Low Severity
 
@@ -92,7 +76,7 @@
 
 - [ ] **#35** Inconsistent null handling patterns throughout `app.js` (`||` vs `??` vs explicit check)
 
-- [ ] **#36` `stdin` write blocks under lock (`server.py:1921-1931`)
+- [ ] **#36** `stdin` write blocks under lock (`server.py:1921-1931`)
 
 - [ ] **#37** `stop_process` holds lock during `wait()` (`server.py:788-791`)
 
