@@ -45,6 +45,7 @@ presets/*
 !presets/.gitkeep
 
 releases/
+tools/
 *.zip
 *.tar.gz
 *.tgz
