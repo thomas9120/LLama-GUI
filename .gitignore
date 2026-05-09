@@ -29,6 +29,7 @@ tmp/
 temp/
 
 config.json
+potential_improvements.md
 
 # Local llama.cpp runtime install
 llama/*
