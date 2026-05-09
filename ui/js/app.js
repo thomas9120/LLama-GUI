@@ -941,6 +941,34 @@ async function finishHfDownload(prog) {
     refreshQuickLaunchUI();
 }
 
+async function refreshHfDownloadStatus() {
+    try {
+        const prog = await fetchJson("/api/hf/download-status");
+        updateHfProgress(prog);
+
+        const status = String(prog.status || "");
+        const active = ["starting", "downloading", "cancelling"].includes(status);
+        setHfDownloadBusy(active);
+
+        if (prog.message) {
+            const type = status === "error"
+                ? "error"
+                : status === "cancelled"
+                    ? "warning"
+                    : status === "done"
+                        ? "success"
+                        : "info";
+            showHfDownloadStatus(type, prog.message);
+        }
+
+        if (active) {
+            pollHfDownloadProgress();
+        }
+    } catch (e) {
+        // Ignore initial status read failures; the panel remains available for manual use.
+    }
+}
+
 function pollHfDownloadProgress() {
     if (hfDownloadTimer) clearInterval(hfDownloadTimer);
     hfDownloadTimer = setInterval(async () => {
@@ -1264,6 +1292,7 @@ function initQuickLaunch() {
     populateQuickTemplatePackOptions();
     refreshQuickSamplerPresetSelect();
     syncQuickLaunchModelOptions();
+    refreshHfDownloadStatus();
 
     document.getElementById("btn-open-configure").addEventListener("click", () => {
         switchTab("configure");
