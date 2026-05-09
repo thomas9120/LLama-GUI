@@ -1289,24 +1289,29 @@ function refreshQuickLaunchUI() {
 }
 
 function initQuickLaunch() {
+    const on = (id, event, handler) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener(event, handler);
+    };
+
     populateQuickTemplatePackOptions();
     refreshQuickSamplerPresetSelect();
     syncQuickLaunchModelOptions();
     refreshHfDownloadStatus();
 
-    document.getElementById("btn-open-configure").addEventListener("click", () => {
+    on("btn-open-configure", "click", () => {
         switchTab("configure");
     });
 
-    document.getElementById("btn-quick-refresh-models").addEventListener("click", () => {
+    on("btn-quick-refresh-models", "click", () => {
         refreshModels();
     });
 
-    document.getElementById("btn-hf-find-files").addEventListener("click", findHfFiles);
-    document.getElementById("btn-hf-download").addEventListener("click", () => startHfDownload(false));
-    document.getElementById("btn-hf-cancel").addEventListener("click", cancelHfDownload);
+    on("btn-hf-find-files", "click", findHfFiles);
+    on("btn-hf-download", "click", () => startHfDownload(false));
+    on("btn-hf-cancel", "click", cancelHfDownload);
 
-    document.getElementById("quick-model-select").addEventListener("change", (e) => {
+    on("quick-model-select", "change", (e) => {
         applyPresetModel(e.target.value);
         updateCommandPreview();
     });
@@ -1319,77 +1324,76 @@ function initQuickLaunch() {
         });
     }
 
-    document.getElementById("quick-profile-select").addEventListener("change", (e) => {
+    on("quick-profile-select", "change", (e) => {
         applyQuickProfile(e.target.value);
         refreshQuickLaunchUI();
     });
 
-    document.getElementById("quick-context-preset").addEventListener("change", (e) => {
+    on("quick-context-preset", "change", (e) => {
         const customInput = document.getElementById("quick-context-custom");
         if (e.target.value === "custom") {
-            customInput.disabled = false;
-            customInput.focus();
+            if (customInput) { customInput.disabled = false; customInput.focus(); }
             return;
         }
 
-        customInput.disabled = true;
-        customInput.value = "";
+        if (customInput) { customInput.disabled = true; customInput.value = ""; }
         setQuickLaunchContextValue(e.target.value);
     });
 
-    document.getElementById("quick-context-custom").addEventListener("input", (e) => {
+    on("quick-context-custom", "input", (e) => {
         const rawValue = e.target.value.trim();
         if (rawValue === "") return;
         setQuickLaunchContextValue(rawValue);
     });
 
-    document.getElementById("quick-gpu-mode").addEventListener("change", (e) => {
+    on("quick-gpu-mode", "change", (e) => {
         const gpuCustom = document.getElementById("quick-gpu-custom");
-        gpuCustom.disabled = e.target.value !== "custom";
-        if (e.target.value === "custom") {
-            gpuCustom.focus();
+        if (gpuCustom) {
+            gpuCustom.disabled = e.target.value !== "custom";
+            if (e.target.value === "custom") gpuCustom.focus();
         }
         setQuickLaunchGpuLayers(e.target.value);
     });
 
-    document.getElementById("quick-gpu-custom").addEventListener("input", () => {
+    on("quick-gpu-custom", "input", () => {
         const gpuMode = document.getElementById("quick-gpu-mode");
-        if (gpuMode.value === "custom") {
+        if (gpuMode && gpuMode.value === "custom") {
             setQuickLaunchGpuLayers("custom");
         }
     });
 
-    document.getElementById("quick-fit-toggle").addEventListener("change", (e) => {
+    on("quick-fit-toggle", "change", (e) => {
         setFlagValue("fit", e.target.value || "on");
     });
 
-    document.getElementById("quick-fit-target").addEventListener("input", (e) => {
+    on("quick-fit-target", "input", (e) => {
         setFlagValue("fit_target", e.target.value.trim() || undefined);
     });
 
-    document.getElementById("quick-fit-ctx").addEventListener("input", (e) => {
+    on("quick-fit-ctx", "input", (e) => {
         const rawValue = e.target.value.trim();
         const nextFitCtx = rawValue === "" ? undefined : parseInt(rawValue, 10);
         setFlagValue("fit_ctx", nextFitCtx, { quickLaunchFitCtxLinked: false });
     });
 
-    document.getElementById("btn-quick-fit-sync").addEventListener("click", () => {
+    on("btn-quick-fit-sync", "click", () => {
         setFlagValue("fit_ctx", flagValues.ctx_size ?? 16000, { quickLaunchFitCtxLinked: true });
     });
 
-    document.getElementById("quick-template-pack").addEventListener("change", (e) => {
+    on("quick-template-pack", "change", (e) => {
         applyQuickTemplatePack(e.target.value);
     });
 
-    document.getElementById("btn-quick-sampler-load").addEventListener("click", () => {
+    on("btn-quick-sampler-load", "click", () => {
         const selected = getSelectedQuickSamplerEntry();
         if (!selected) return;
         applySamplerPresetValues(selected.values);
         refreshQuickLaunchUI();
     });
 
-    document.getElementById("btn-quick-sampler-save").addEventListener("click", () => {
+    on("btn-quick-sampler-save", "click", () => {
         const nameInput = document.getElementById("quick-sampler-name");
+        if (!nameInput) return;
         const typedName = nameInput.value.trim();
         const selected = getSelectedQuickSamplerEntry();
         const name = typedName || (selected && selected.source === "custom" ? selected.name : "");
@@ -1403,10 +1407,11 @@ function initQuickLaunch() {
         saveSamplerPresetStore(store);
         nameInput.value = "";
         refreshQuickSamplerPresetSelect();
-        document.getElementById("quick-sampler-select").value = `custom|${name}`;
+        const samplerSelect = document.getElementById("quick-sampler-select");
+        if (samplerSelect) samplerSelect.value = `custom|${name}`;
     });
 
-    document.getElementById("btn-quick-sampler-delete").addEventListener("click", async () => {
+    on("btn-quick-sampler-delete", "click", async () => {
         const selected = getSelectedQuickSamplerEntry();
         if (!selected) return;
         if (selected.source !== "custom") {
@@ -1436,7 +1441,7 @@ function initQuickLaunch() {
     };
 
     for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
-        document.getElementById(elementId).addEventListener("input", debounce((e) => {
+        on(elementId, "input", debounce((e) => {
             const rawValue = e.target.value.trim();
             let nextValue;
             if (rawValue === "") {
@@ -1450,18 +1455,18 @@ function initQuickLaunch() {
         }, 200));
     }
 
-    document.getElementById("btn-copy-quick-server-url").addEventListener("click", copyQuickServerUrl);
+    on("btn-copy-quick-server-url", "click", copyQuickServerUrl);
 
-    document.getElementById("quick-metrics-toggle").addEventListener("change", (e) => {
+    on("quick-metrics-toggle", "change", (e) => {
         setFlagValue("metrics", e.target.checked);
     });
 
-    document.getElementById("btn-quick-launch").addEventListener("click", async () => {
+    on("btn-quick-launch", "click", async () => {
         switchTab("configure");
         await launchLlama();
     });
 
-    document.getElementById("btn-quick-stop").addEventListener("click", stopLlama);
+    on("btn-quick-stop", "click", stopLlama);
 
     refreshQuickLaunchUI();
 }
@@ -1833,7 +1838,7 @@ function updateApiEndpoints() {
     baseLink.href = baseUrl;
     baseLink.textContent = baseUrl;
 
-    const isRunning = (!document.getElementById("btn-stop").classList.contains("hidden")) || !!(latestStatus && latestStatus.running);
+    const isRunning = !!(latestStatus && latestStatus.running);
     const hasApiKey = String(flagValues.api_key || "").trim().length > 0;
     const modeText = currentTool === "llama-server"
         ? "Tool mode is set to llama-server."
@@ -2562,19 +2567,19 @@ async function launchLlama() {
     clearOutput();
 
     try {
-        const result = await fetchJson("/api/launch", {
+        const launchResult = await fetchJson("/api/launch", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tool: currentTool, args }),
         });
-        if (result.error) {
-            appendOutput("ERROR: " + result.error);
+        if (launchResult.error) {
+            appendOutput("ERROR: " + launchResult.error);
             document.getElementById("btn-launch").classList.remove("hidden");
             document.getElementById("btn-stop").classList.add("hidden");
             updateQuickLaunchActionButtons();
         } else {
-            appendOutput("Started " + currentTool + " (PID: " + result.pid + ")");
-            appendOutput(result.command);
+            appendOutput("Started " + currentTool + " (PID: " + launchResult.pid + ")");
+            appendOutput(launchResult.command);
             appendOutput("---");
             startOutputPolling();
             updateServerAddressPreview();
@@ -2925,8 +2930,7 @@ function updateChatStatusBadge() {
     const noServerBadge = document.getElementById("chat-no-server-badge");
     if (!runningBadge || !noServerBadge) return;
 
-    const stopBtn = document.getElementById("btn-stop");
-    const isRunning = stopBtn && !stopBtn.classList.contains("hidden");
+    const isRunning = !!(latestStatus && latestStatus.running);
     runningBadge.style.display = isRunning ? "" : "none";
     noServerBadge.style.display = isRunning ? "none" : "";
 }
@@ -3209,6 +3213,7 @@ function stopChatStream() {
     if (chatAbortController) {
         chatAbortController.abort();
     }
+    removeChatTypingIndicator();
 }
 
 function undoChatMessage() {
