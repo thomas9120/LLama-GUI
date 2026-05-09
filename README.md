@@ -37,6 +37,13 @@ Supported prebuilt backends vary by platform:
 Windows:
 - `windows_install.bat`
 
+If macOS or Linux reports `zsh: permission denied` when running a helper
+script, restore the executable bit and rerun the command:
+
+```bash
+chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
+```
+
 2. Start the app:
 
 ```bash
