@@ -14,6 +14,28 @@ Llama GUI provides a browser UI to:
 - manage full launch presets and sampler presets
 - manage local app updates from GitHub
 
+## Contents
+
+- [Requirements](#requirements)
+- [Quick Start](#quick-start)
+- [Getting Models](#getting-models)
+- [Download the Current Release Zip](#download-the-current-release-zip)
+- [Install By Platform](#install-by-platform)
+- [First-Run Checklist (60 Seconds)](#first-run-checklist-60-seconds)
+- [What Each Tab Does](#what-each-tab-does)
+- [Chat Web Search](#chat-web-search)
+- [Suggested README Screenshots](#suggested-readme-screenshots)
+- [Sampler Presets](#sampler-presets)
+- [Server Stats Bar](#server-stats-bar)
+- [MCP and Built-in Tools Notes](#mcp-and-built-in-tools-notes)
+- [Maintenance Behavior](#maintenance-behavior)
+- [Project Layout](#project-layout)
+- [Creating a GitHub Release Asset](#creating-a-github-release-asset)
+- [Data Locations](#data-locations)
+- [Troubleshooting](#troubleshooting)
+- [Security Notes](#security-notes)
+- [Cross-Platform Notes](#cross-platform-notes)
+
 ## Requirements
 
 - Python 3.9+
