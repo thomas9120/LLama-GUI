@@ -313,26 +313,49 @@ async function restartPythonServer() {
     );
     if (!ok) return;
 
+    await restartPythonServerAndReload({
+        button: document.getElementById("btn-restart-app"),
+        showStatusFn: showStatus,
+        restartingMessage: "Restarting Python server...",
+        reconnectingMessage: "Python server is restarting. Reconnecting...",
+        successMessage: "Python server restarted successfully.",
+        timeoutMessage: "Server did not become ready in time. Try reloading manually.",
+        failurePrefix: "Failed to restart Python server: ",
+    });
+}
+
+async function restartPythonServerAndReload(options = {}) {
     const button = document.getElementById("btn-restart-app");
-    if (button) button.disabled = true;
-    showStatus("info", "Restarting Python server...");
+    const targetButton = options.button || button;
+    const showStatusFn = options.showStatusFn || showStatus;
+    if (targetButton) targetButton.disabled = true;
+    showStatusFn("info", options.restartingMessage || "Restarting Python server...");
 
     try {
         await fetchJson("/api/restart", { method: "POST" });
-        showStatus("info", "Python server is restarting. Reconnecting...");
+        showStatusFn("info", options.reconnectingMessage || "Python server is restarting. Reconnecting...");
         const ready = await waitForServerReady(30, 1000);
         if (ready) {
-            showStatus("success", "Python server restarted successfully.");
+            showStatusFn("success", options.successMessage || "Python server restarted successfully.");
         } else {
-            showStatus("error", "Server did not become ready in time. Try reloading manually.");
+            showStatusFn("error", options.timeoutMessage || "Server did not become ready in time. Try reloading manually.");
         }
         window.setTimeout(() => {
-            window.location.reload();
+            reloadAppWithCacheBust();
         }, 500);
     } catch (e) {
-        showStatus("error", "Failed to restart Python server: " + e.message);
-        if (button) button.disabled = false;
+        showStatusFn("error", (options.failurePrefix || "Failed to restart Python server: ") + e.message);
+        if (targetButton) targetButton.disabled = false;
     }
+}
+
+function reloadAppWithCacheBust() {
+    const url = new URL(window.location.href);
+    url.pathname = "/";
+    url.search = "";
+    url.hash = "";
+    url.searchParams.set("appReload", Date.now().toString());
+    window.location.replace(url.toString());
 }
 
 async function waitForServerReady(maxRetries, intervalMs) {
@@ -579,14 +602,23 @@ async function updateAppFromGitHub() {
         const result = await fetchJson("/api/app-update", { method: "POST" });
         if (result.updated) {
             if (result.dependency_error) {
-                showAppUpdateStatus("warning", "App updated, but dependency installation failed: " + result.dependency_error);
+                showAppUpdateStatus("warning", "App updated, but dependency installation failed: " + result.dependency_error + " Restart Llama GUI after fixing dependencies.");
             } else {
                 const depText = result.dependencies_installed
                     ? " Dependencies were installed."
                     : result.dependency_message
                         ? " " + result.dependency_message
                         : "";
-                showAppUpdateStatus("success", "App updated." + depText + " Restart Llama GUI to load new code.");
+                await restartPythonServerAndReload({
+                    button: document.getElementById("btn-update-app"),
+                    showStatusFn: showAppUpdateStatus,
+                    restartingMessage: "App updated." + depText + " Restarting Llama GUI...",
+                    reconnectingMessage: "Llama GUI is restarting. Reconnecting...",
+                    successMessage: "Llama GUI restarted. Loading the updated interface...",
+                    timeoutMessage: "Llama GUI updated, but the server did not become ready in time. Try reloading manually.",
+                    failurePrefix: "App updated, but restart failed: ",
+                });
+                return;
             }
         } else if (result.message) {
             showAppUpdateStatus("info", result.message);
