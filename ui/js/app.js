@@ -2837,11 +2837,14 @@ function escapeHtml(text) {
 
 function renderMarkdown(text) {
     let html = escapeHtml(text);
+    const codeBlocks = [];
 
     // Fenced code blocks ``` ... ```
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
         const langAttr = lang ? ` data-lang="${lang}"` : "";
-        return `<pre${langAttr}><code>${code.replace(/\n$/, "")}</code></pre>`;
+        const index = codeBlocks.length;
+        codeBlocks.push(`<pre${langAttr}><code>${code.replace(/\n$/, "")}</code></pre>`);
+        return `\u0000CODE_BLOCK_${index}\u0000`;
     });
 
     // Inline code `...`
@@ -2863,12 +2866,13 @@ function renderMarkdown(text) {
     html = blocks.map(block => {
         block = block.trim();
         if (!block) return "";
-        // Don't wrap pre blocks in p tags
-        if (block.startsWith("<pre")) return block;
+        if (/^\u0000CODE_BLOCK_\d+\u0000$/.test(block)) return block;
         // Convert single newlines to <br>
         block = block.replace(/\n/g, "<br>");
         return `<p>${block}</p>`;
     }).join("");
+
+    html = html.replace(/\u0000CODE_BLOCK_(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)] || "");
 
     return html;
 }

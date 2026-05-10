@@ -2268,8 +2268,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                     ).start()
                     self.send_json({"status": "started", "from": tag, "to": latest})
                 else:
+                    with install_lock:
+                        install_in_progress = False
                     self.send_json({"status": "already_latest"})
             except Exception as e:
+                with install_lock:
+                    install_in_progress = False
                 self.send_json({"error": str(e)}, 500)
             return
 
