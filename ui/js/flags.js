@@ -338,6 +338,8 @@ const FLAGS = [
       desc: "Token budget for thinking (-1 = unlimited, 0 = off)", tool: "both", default: -1, min: -1 },
     { id: "preserve_thinking", flag: "--chat-template-kwargs", category: "conversation", type: "bool", label: "Preserve Thinking",
       desc: "Preserve thinking/reasoning tokens in the response output instead of stripping them. Required for models like Qwen3, DeepSeek-R1, etc. to show their chain-of-thought. Passes {\"preserve_thinking\":true} to the chat template engine.", tool: "both", default: false },
+    { id: "jinja", flag: "--jinja", category: "conversation", type: "bool", label: "Jinja Templates",
+      desc: "Enable Jinja-based chat template processing. Required for tool calling / function calling support in llama-server.", tool: "server", default: false },
     { id: "single_turn", flag: "-st", category: "conversation", type: "bool", label: "Single Turn",
       desc: "Run for a single turn then exit", tool: "cli", default: false },
     { id: "multiline", flag: "-mli", category: "conversation", type: "bool", label: "Multiline Input",
