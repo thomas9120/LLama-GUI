@@ -23,34 +23,42 @@ import html
 import ipaddress
 from html.parser import HTMLParser
 
+from backend.config import (
+    APP_LOGO_FILE,
+    APP_REPO_URL,
+    CLOUDFLARED_DIR,
+    CONFIG_FILE,
+    GITHUB_API,
+    GUI_HOST,
+    GUI_PORT,
+    LLAMA_BIN_DIR,
+    LLAMA_DIR,
+    LLAMA_GRAMMARS_DIR,
+    LLAMA_HOST,
+    LLAMA_PORT,
+    MODELS_DIR,
+    PRESETS_DIR,
+    PROCESS_OUTPUT_LIMIT,
+    PROCESS_OUTPUT_TRIM,
+    RESTART_PORT_WAIT_ATTEMPTS,
+    RESTART_PORT_WAIT_SECONDS,
+    RESTART_STARTUP_DELAY_SECONDS,
+    ROOT_DIR as BASE_DIR,
+    TOOLS_DIR,
+    TUNNEL_LOG_LIMIT,
+    UI_DIR,
+    WEB_SEARCH_FETCH_BYTES,
+    WEB_SEARCH_FETCH_RESULTS,
+    WEB_SEARCH_MAX_RESULTS,
+    WEB_SEARCH_PAGE_CHARS,
+    WEB_SEARCH_TIMEOUT,
+    WEB_SEARCH_USER_AGENT,
+)
+
 try:
     import certifi
 except ImportError:
     certifi = None
-
-BASE_DIR = pathlib.Path(__file__).resolve().parent
-LLAMA_DIR = BASE_DIR / "llama"
-LLAMA_BIN_DIR = LLAMA_DIR / "bin"
-LLAMA_GRAMMARS_DIR = LLAMA_DIR / "grammars"
-MODELS_DIR = BASE_DIR / "models"
-PRESETS_DIR = BASE_DIR / "presets"
-CONFIG_FILE = BASE_DIR / "config.json"
-UI_DIR = BASE_DIR / "ui"
-APP_LOGO_FILE = BASE_DIR / "Llama-GUI Logo.png"
-TOOLS_DIR = BASE_DIR / "tools"
-CLOUDFLARED_DIR = TOOLS_DIR / "cloudflared"
-
-GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
-APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
-WEB_SEARCH_MAX_RESULTS = 5
-WEB_SEARCH_FETCH_RESULTS = 3
-WEB_SEARCH_FETCH_BYTES = 512 * 1024
-WEB_SEARCH_PAGE_CHARS = 12000
-WEB_SEARCH_TIMEOUT = 20
-WEB_SEARCH_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
-)
 
 
 def create_ssl_context():
@@ -226,7 +234,7 @@ remote_tunnel_state = {
     "log": "",
 }
 llama_api_target_lock = threading.Lock()
-llama_api_target = {"host": "127.0.0.1", "port": 8080}
+llama_api_target = {"host": LLAMA_HOST, "port": LLAMA_PORT}
 active_process_tool = None
 
 
@@ -346,11 +354,11 @@ def set_remote_tunnel_state(status=None, url=None, message=None, log=None):
         if message is not None:
             remote_tunnel_state["message"] = message
         if log is not None:
-            remote_tunnel_state["log"] = log[-6000:]
+            remote_tunnel_state["log"] = log[-TUNNEL_LOG_LIMIT:]
         return dict(remote_tunnel_state)
 
 
-def parse_port(value, default=8080):
+def parse_port(value, default=LLAMA_PORT):
     try:
         port = int(value or default)
     except (TypeError, ValueError):
@@ -361,9 +369,9 @@ def parse_port(value, default=8080):
 
 
 def normalize_local_proxy_host(host):
-    value = str(host or "127.0.0.1").strip() or "127.0.0.1"
+    value = str(host or LLAMA_HOST).strip() or LLAMA_HOST
     if value.lower() == "localhost" or value in {"0.0.0.0", "::", "*"}:
-        return "127.0.0.1"
+        return LLAMA_HOST
     proxy_host, host_error = get_metrics_host(value)
     if not proxy_host:
         raise ValueError(host_error)
@@ -391,8 +399,8 @@ def parse_launch_api_target(args_list):
         else:
             flat_args.append(str(entry))
 
-    host = "127.0.0.1"
-    port = 8080
+    host = LLAMA_HOST
+    port = LLAMA_PORT
     i = 0
     while i < len(flat_args):
         item = flat_args[i]
@@ -497,7 +505,7 @@ def _start_remote_tunnel_worker():
             str(binary_path),
             "tunnel",
             "--url",
-            "http://127.0.0.1:5240",
+            f"http://{GUI_HOST}:{GUI_PORT}",
         ]
         proc = subprocess.Popen(
             args,
@@ -520,7 +528,7 @@ def _start_remote_tunnel_worker():
             line = proc.stderr.readline() if proc.stderr else ""
             if not line:
                 break
-            log = (log + line)[-6000:]
+            log = (log + line)[-TUNNEL_LOG_LIMIT:]
             found = pattern.search(line)
             if found:
                 set_remote_tunnel_state(
@@ -1054,8 +1062,8 @@ def stream_output(pipe, is_stderr=False):
                 decoded = line.rstrip("\n\r")
                 with output_buffer_lock:
                     output_buffer.append(decoded)
-                    if len(output_buffer) > 5000:
-                        del output_buffer[:1000]
+                    if len(output_buffer) > PROCESS_OUTPUT_LIMIT:
+                        del output_buffer[:PROCESS_OUTPUT_TRIM]
     except Exception:
         pass
 
@@ -1161,18 +1169,18 @@ def restart_gui_server():
 
     def _restart():
         try:
-            time.sleep(2.5)
-            for i in range(10):
+            time.sleep(RESTART_STARTUP_DELAY_SECONDS)
+            for i in range(RESTART_PORT_WAIT_ATTEMPTS):
                 try:
                     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.bind(("127.0.0.1", 5240))
+                    sock.bind((GUI_HOST, GUI_PORT))
                     sock.close()
                     break
                 except OSError:
-                    if i < 9:
-                        time.sleep(0.5)
+                    if i < RESTART_PORT_WAIT_ATTEMPTS - 1:
+                        time.sleep(RESTART_PORT_WAIT_SECONDS)
                     else:
-                        print("WARNING: Port 5240 still in use after waiting, attempting restart anyway")
+                        print(f"WARNING: Port {GUI_PORT} still in use after waiting, attempting restart anyway")
             subprocess.Popen(
                 [sys.executable, restart_script],
                 cwd=str(BASE_DIR),
@@ -1800,9 +1808,9 @@ def build_search_context(search_results, fetched_pages):
 
 
 def get_local_chat_api_url(body):
-    host = str(body.get("host") or "127.0.0.1").strip() or "127.0.0.1"
+    host = str(body.get("host") or LLAMA_HOST).strip() or LLAMA_HOST
     try:
-        port = int(body.get("port") or 8080)
+        port = int(body.get("port") or LLAMA_PORT)
     except (TypeError, ValueError):
         raise ValueError("Invalid llama-server chat port.")
     if port < 1 or port > 65535:
@@ -1814,7 +1822,7 @@ def get_local_chat_api_url(body):
 
 
 def get_local_interface_addresses():
-    addresses = {"127.0.0.1", "::1"}
+    addresses = {LLAMA_HOST, "::1"}
     hostnames = {socket.gethostname(), socket.getfqdn()}
     for name in hostnames:
         try:
@@ -1826,9 +1834,9 @@ def get_local_interface_addresses():
 
 
 def get_metrics_host(host):
-    value = str(host or "127.0.0.1").strip() or "127.0.0.1"
+    value = str(host or LLAMA_HOST).strip() or LLAMA_HOST
     if value.lower() == "localhost" or value in {"0.0.0.0", "::", "*"}:
-        return "127.0.0.1", ""
+        return LLAMA_HOST, ""
     try:
         infos = socket.getaddrinfo(value, None, type=socket.SOCK_STREAM)
     except OSError as exc:
@@ -1843,7 +1851,7 @@ def get_metrics_host(host):
 
 def get_local_llama_metrics(host, port):
     try:
-        parsed_port = int(port or 8080)
+        parsed_port = int(port or LLAMA_PORT)
     except (TypeError, ValueError):
         return None, "Invalid llama-server metrics port."
     if parsed_port < 1 or parsed_port > 65535:
@@ -1857,7 +1865,7 @@ def get_local_llama_metrics(host, port):
     req = urllib.request.Request(url, headers={"Accept": "text/plain"})
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:
-            raw = resp.read(512 * 1024)
+            raw = resp.read(WEB_SEARCH_FETCH_BYTES)
             charset = resp.headers.get_content_charset() or "utf-8"
             return raw.decode(charset, errors="replace"), ""
     except urllib.error.HTTPError as exc:
@@ -1950,7 +1958,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return path == "/v1" or path.startswith("/v1/")
 
     def get_allowed_request_origins(self):
-        allowed = ["http://127.0.0.1:5240", "http://localhost:5240"]
+        allowed = [f"http://{GUI_HOST}:{GUI_PORT}", f"http://localhost:{GUI_PORT}"]
         tunnel_url = get_remote_tunnel_snapshot().get("url")
         if tunnel_url:
             allowed.append(tunnel_url)
@@ -1960,7 +1968,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         origin = self.headers.get("Origin", "")
         if origin and origin in self.get_allowed_request_origins():
             return origin
-        return "http://127.0.0.1:5240"
+        return f"http://{GUI_HOST}:{GUI_PORT}"
 
     def get_proxy_request_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -2274,8 +2282,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/llama/metrics":
             query = urllib.parse.parse_qs(parsed.query)
             metrics_text, error = get_local_llama_metrics(
-                (query.get("host") or ["127.0.0.1"])[0],
-                (query.get("port") or ["8080"])[0],
+                (query.get("host") or [LLAMA_HOST])[0],
+                (query.get("port") or [str(LLAMA_PORT)])[0],
             )
             if metrics_text is None:
                 self.send_json({"error": error}, 502)
@@ -2630,7 +2638,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     global gui_server
-    port = 5240
+    port = GUI_PORT
     for d in [
         MODELS_DIR,
         PRESETS_DIR,
@@ -2640,17 +2648,17 @@ def main():
         d.mkdir(parents=True, exist_ok=True)
 
     try:
-        gui_server = http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
+        gui_server = http.server.ThreadingHTTPServer((GUI_HOST, port), Handler)
     except OSError as e:
         if "address already in use" in str(e).lower() or e.errno == 10048:
             print(f"ERROR: Port {port} is already in use.")
-            print(f"Another instance of Llama GUI may be running at http://127.0.0.1:{port}")
+            print(f"Another instance of Llama GUI may be running at http://{GUI_HOST}:{port}")
             print("Stop the other instance first, or close the browser tab and try again.")
         else:
             print(f"ERROR: Could not start server on port {port}: {e}")
         sys.exit(1)
 
-    print(f"Llama GUI running at http://127.0.0.1:{port}")
+    print(f"Llama GUI running at http://{GUI_HOST}:{port}")
     print("Press Ctrl+C to stop the server.")
     try:
         gui_server.serve_forever()
