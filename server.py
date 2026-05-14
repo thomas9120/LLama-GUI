@@ -225,6 +225,9 @@ remote_tunnel_state = {
     "message": "Remote tunnel is not running.",
     "log": "",
 }
+llama_api_target_lock = threading.Lock()
+llama_api_target = {"host": "127.0.0.1", "port": 8080}
+active_process_tool = None
 
 
 def is_process_running():
@@ -347,11 +350,77 @@ def set_remote_tunnel_state(status=None, url=None, message=None, log=None):
         return dict(remote_tunnel_state)
 
 
+def parse_port(value, default=8080):
+    try:
+        port = int(value or default)
+    except (TypeError, ValueError):
+        port = default
+    if port < 1 or port > 65535:
+        port = default
+    return port
+
+
+def normalize_local_proxy_host(host):
+    value = str(host or "127.0.0.1").strip() or "127.0.0.1"
+    if value.lower() == "localhost" or value in {"0.0.0.0", "::", "*"}:
+        return "127.0.0.1"
+    proxy_host, host_error = get_metrics_host(value)
+    if not proxy_host:
+        raise ValueError(host_error)
+    return proxy_host
+
+
+def set_llama_api_target(host=None, port=None):
+    proxy_host = normalize_local_proxy_host(host)
+    proxy_port = parse_port(port)
+    with llama_api_target_lock:
+        llama_api_target.update({"host": proxy_host, "port": proxy_port})
+        return dict(llama_api_target)
+
+
+def get_llama_api_target():
+    with llama_api_target_lock:
+        return dict(llama_api_target)
+
+
+def parse_launch_api_target(args_list):
+    flat_args = []
+    for entry in args_list or []:
+        if isinstance(entry, list):
+            flat_args.extend(str(v) for v in entry)
+        else:
+            flat_args.append(str(entry))
+
+    host = "127.0.0.1"
+    port = 8080
+    i = 0
+    while i < len(flat_args):
+        item = flat_args[i]
+        if item == "--host" and i + 1 < len(flat_args):
+            host = flat_args[i + 1]
+            i += 2
+            continue
+        if item.startswith("--host="):
+            host = item.split("=", 1)[1]
+        elif item == "--port" and i + 1 < len(flat_args):
+            port = flat_args[i + 1]
+            i += 2
+            continue
+        elif item.startswith("--port="):
+            port = item.split("=", 1)[1]
+        i += 1
+    try:
+        return set_llama_api_target(host, port)
+    except ValueError:
+        return get_llama_api_target()
+
+
 def get_remote_tunnel_snapshot():
     with remote_tunnel_lock:
         proc = remote_tunnel_process
         snapshot = dict(remote_tunnel_state)
         if proc is not None and proc.poll() is not None and snapshot["status"] in {
+            "preparing",
             "downloading",
             "starting",
             "running",
@@ -375,6 +444,7 @@ def ensure_cloudflared():
             os.chmod(binary_path, 0o755)
         return binary_path
 
+    set_remote_tunnel_state(status="downloading", message="Downloading Cloudflare tunnel helper...")
     if spec["archive"]:
         archive_path = CLOUDFLARED_DIR / pathlib.Path(spec["url"]).name
         download_file(spec["url"], archive_path)
@@ -411,7 +481,7 @@ def _start_remote_tunnel_worker():
     log = ""
     try:
         set_remote_tunnel_state(
-            status="downloading",
+            status="preparing",
             url="",
             message="Preparing Cloudflare tunnel...",
             log="",
@@ -485,11 +555,11 @@ def start_remote_tunnel():
         proc = remote_tunnel_process
         if proc is not None and proc.poll() is None:
             return dict(remote_tunnel_state)
-        if remote_tunnel_state["status"] in {"downloading", "starting"}:
+        if remote_tunnel_state["status"] in {"preparing", "downloading", "starting"}:
             return dict(remote_tunnel_state)
         remote_tunnel_state.update(
             {
-                "status": "downloading",
+                "status": "preparing",
                 "url": "",
                 "message": "Preparing Cloudflare tunnel...",
                 "log": "",
@@ -991,7 +1061,7 @@ def stream_output(pipe, is_stderr=False):
 
 
 def launch_process(tool, args_list):
-    global process
+    global process, active_process_tool
     with process_lock:
         if process and process.poll() is None:
             return {"error": "A process is already running"}
@@ -1046,13 +1116,16 @@ def launch_process(tool, args_list):
             threading.Thread(
                 target=stream_output, args=(process.stderr, True), daemon=True
             ).start()
+            active_process_tool = tool
+            if tool == "llama-server":
+                parse_launch_api_target(args_list)
             return {"pid": process.pid, "command": " ".join(args)}
         except Exception as e:
             return {"error": str(e)}
 
 
 def stop_process():
-    global process
+    global process, active_process_tool
     with process_lock:
         if process and process.poll() is None:
             if sys.platform == "win32":
@@ -1063,6 +1136,7 @@ def stop_process():
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
+            active_process_tool = None
             return True
         return False
 
@@ -1818,12 +1892,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
     def do_OPTIONS(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if self.is_v1_proxy_path(parsed.path):
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Max-Age", "86400")
+            self.end_headers()
+            return
+
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
         self.send_header(
             "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS"
         )
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     def send_json(self, data, status=200):
@@ -1862,6 +1946,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return referer.startswith(allowed)
         return True
 
+    def is_v1_proxy_path(self, path):
+        return path == "/v1" or path.startswith("/v1/")
+
     def get_allowed_request_origins(self):
         allowed = ["http://127.0.0.1:5240", "http://localhost:5240"]
         tunnel_url = get_remote_tunnel_snapshot().get("url")
@@ -1874,6 +1961,101 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if origin and origin in self.get_allowed_request_origins():
             return origin
         return "http://127.0.0.1:5240"
+
+    def get_proxy_request_body(self):
+        length = int(self.headers.get("Content-Length", 0))
+        if length <= 0:
+            return None
+        return self.rfile.read(length)
+
+    def send_proxy_error(self, message, status=502):
+        self.send_json({"error": message}, status)
+
+    def handle_v1_index(self):
+        target = get_llama_api_target()
+        body = (
+            "Llama-GUI OpenAI-compatible proxy is running.\n"
+            f"Local llama-server target: http://{target['host']}:{target['port']}\n"
+            "Use /v1/models or /v1/chat/completions with an OpenAI-compatible client.\n"
+        ).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+        self.end_headers()
+        self.wfile.write(body)
+
+    def proxy_v1_request(self, method, parsed):
+        if not self.is_safe_request_origin():
+            self.send_json({"error": "Request origin not allowed"}, 403)
+            return
+
+        if parsed.path == "/v1":
+            self.handle_v1_index()
+            return
+
+        target = get_llama_api_target()
+        path = parsed.path
+        query = f"?{parsed.query}" if parsed.query else ""
+        url = f"http://{target['host']}:{target['port']}{path}{query}"
+        data = self.get_proxy_request_body() if method in {"POST", "PUT", "PATCH"} else None
+
+        headers = {}
+        for name in ("Content-Type", "Accept", "Authorization"):
+            value = self.headers.get(name)
+            if value:
+                headers[name] = value
+        if "Accept" not in headers:
+            headers["Accept"] = "*/*"
+
+        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=300) as resp:
+                self.send_response(resp.status)
+                excluded = {
+                    "connection",
+                    "content-length",
+                    "date",
+                    "server",
+                    "transfer-encoding",
+                    "content-encoding",
+                }
+                for key, value in resp.headers.items():
+                    if key.lower() not in excluded:
+                        self.send_header(key, value)
+                self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+                self.end_headers()
+                content_type = resp.headers.get("Content-Type", "")
+                if content_type.startswith("text/event-stream"):
+                    while True:
+                        line = resp.readline()
+                        if not line:
+                            break
+                        self.wfile.write(line)
+                        self.wfile.flush()
+                else:
+                    while True:
+                        chunk = resp.read(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            return
+        except urllib.error.HTTPError as exc:
+            body = exc.read()
+            self.send_response(exc.code)
+            content_type = exc.headers.get("Content-Type", "application/json")
+            self.send_header("Content-Type", content_type)
+            self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as exc:
+            self.send_proxy_error(
+                f"Failed to reach llama-server at {target['host']}:{target['port']}. "
+                "Start llama-server or check the API host/port before using the /v1 proxy. "
+                f"Details: {exc}"
+            )
 
     def handle_web_search_request(self, body):
         query = body.get("query", "")
@@ -1992,6 +2174,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        if self.is_v1_proxy_path(path):
+            self.proxy_v1_request("GET", parsed)
+            return
 
         if path == "/assets/app-logo.png":
             if not APP_LOGO_FILE.exists():
@@ -2138,6 +2324,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         global process
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        if self.is_v1_proxy_path(path):
+            self.proxy_v1_request("POST", parsed)
+            return
+
         body = self.read_body()
 
         if body is None:
@@ -2157,6 +2348,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/api/remote-tunnel/start":
+            try:
+                set_llama_api_target(body.get("host"), body.get("port"))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 400)
+                return
             self.send_json(start_remote_tunnel())
             return
 

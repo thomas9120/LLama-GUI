@@ -681,17 +681,25 @@
                     <div class="remote-access-header">
                         <div>
                             <h3>Remote Access</h3>
-                            <p class="api-intro">Start an opt-in Cloudflare tunnel for the Llama-GUI control panel.</p>
+                            <p class="api-intro">Start an opt-in Cloudflare tunnel for Llama-GUI and its proxied OpenAI-compatible API.</p>
                         </div>
                         <div id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</div>
                     </div>
                     <div id="remote-tunnel-warning" class="remote-tunnel-warning">
-                        Anyone with the tunnel URL can access and control this Llama-GUI session until you stop the tunnel.
+                        Anyone with the tunnel URL can access and control this Llama-GUI session and use the proxied OpenAI-compatible API until you stop the tunnel.
                     </div>
                     <div id="remote-tunnel-url-row" class="api-base-row hidden">
                         <span class="api-base-label">Remote URL</span>
                         <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
                         <button id="btn-copy-remote-tunnel" class="btn btn-sm btn-ghost" type="button" title="Copy remote URL">
+                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                            Copy
+                        </button>
+                    </div>
+                    <div id="remote-openai-url-row" class="api-base-row hidden">
+                        <span class="api-base-label">Remote OpenAI Base URL</span>
+                        <a id="remote-openai-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                        <button id="btn-copy-remote-openai" class="btn btn-sm btn-ghost" type="button" title="Copy remote OpenAI base URL">
                             <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
                             Copy
                         </button>

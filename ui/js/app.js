@@ -1564,6 +1564,7 @@ function initRemoteTunnelControls() {
     const startBtn = document.getElementById("btn-start-remote-tunnel");
     const stopBtn = document.getElementById("btn-stop-remote-tunnel");
     const copyBtn = document.getElementById("btn-copy-remote-tunnel");
+    const copyOpenAiBtn = document.getElementById("btn-copy-remote-openai");
     if (!startBtn || !stopBtn) return;
 
     startBtn.addEventListener("click", startRemoteTunnel);
@@ -1571,6 +1572,12 @@ function initRemoteTunnelControls() {
     if (copyBtn) {
         copyBtn.addEventListener("click", () => {
             const link = document.getElementById("remote-tunnel-url");
+            copyText(link ? link.href : "");
+        });
+    }
+    if (copyOpenAiBtn) {
+        copyOpenAiBtn.addEventListener("click", () => {
+            const link = document.getElementById("remote-openai-url");
             copyText(link ? link.href : "");
         });
     }
@@ -1596,8 +1603,10 @@ function renderRemoteTunnelStatus(state) {
     const statusEl = document.getElementById("remote-tunnel-status");
     const urlRow = document.getElementById("remote-tunnel-url-row");
     const urlLink = document.getElementById("remote-tunnel-url");
+    const openAiRow = document.getElementById("remote-openai-url-row");
+    const openAiLink = document.getElementById("remote-openai-url");
 
-    const isWorking = status === "downloading" || status === "starting";
+    const isWorking = status === "preparing" || status === "downloading" || status === "starting";
     const isRunning = status === "running";
     const isError = status === "error";
 
@@ -1619,6 +1628,18 @@ function renderRemoteTunnelStatus(state) {
             urlLink.href = "#";
             urlLink.textContent = "";
             urlRow.classList.add("hidden");
+        }
+    }
+    if (openAiRow && openAiLink) {
+        if (url) {
+            const apiUrl = url.replace(/\/+$/, "") + "/v1";
+            openAiLink.href = apiUrl;
+            openAiLink.textContent = apiUrl;
+            openAiRow.classList.remove("hidden");
+        } else {
+            openAiLink.href = "#";
+            openAiLink.textContent = "";
+            openAiRow.classList.add("hidden");
         }
     }
     if (startBtn) {
@@ -1650,7 +1671,10 @@ async function startRemoteTunnel() {
         const state = await fetchJson("/api/remote-tunnel/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
+            body: JSON.stringify({
+                host: flagValues.host || "127.0.0.1",
+                port: flagValues.port || 8080,
+            }),
         });
         renderRemoteTunnelStatus(state);
         setRemoteTunnelPolling(true);
