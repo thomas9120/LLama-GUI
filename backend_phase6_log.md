@@ -89,10 +89,10 @@ Primary route groups:
 
 ### 6D: App update extraction
 
-- Create `backend/services/git_update.py`.
-- Create `backend/routes/git_update.py`.
-- Move git status, safe dirty path classification, dependency install, and app update execution.
-- Verify dirty-path classification and update status behavior.
+- [x] Create `backend/services/git_update.py`.
+- [x] Create `backend/routes/git_update.py`.
+- [x] Move git status, safe dirty path classification, dependency install, and app update execution.
+- [x] Verify dirty-path classification and update status behavior.
 
 ### 6E: Lifecycle extraction
 
@@ -142,3 +142,15 @@ Primary route groups:
 - Cleaned up unused imports (`tarfile`, `shutil`, `signal`, `re`, `pathlib`) from `server.py`.
 - Added route tests for idle status, reflected state, dead-process detection, invalid host rejection, worker thread spawning, stop with/witout process, and process cleanup.
 - Verification: `python -m unittest discover -s tests` passed 96 tests.
+
+### 2026-05-14 (cont.)
+
+- 6D app update extraction.
+- Created `backend/services/git_update.py` and `backend/routes/git_update.py`.
+- Moved `run_git`, `install_python_dependencies`, `SAFE_DIRTY_PATH_PREFIXES`, `SAFE_DIRTY_PATHS`, `SAFE_DIRTY_SUFFIXES`, `normalize_git_path`, `parse_git_status_porcelain_z`, `is_safe_dirty_path`, `classify_git_dirty_paths`, `get_app_update_status`, and `update_app_from_git` behind the git_update service.
+- Registered `/api/app-update-status` and `/api/app-update` as callable extracted routes.
+- Removed all old function bodies and constants from `server.py` (no external callers existed — no compatibility delegates needed).
+- Removed dead Handler methods: `handle_get_app_update_status`, `handle_post_app_update`.
+- Added service tests for: git path normalization, porcelain parsing (basic + rename detection), safe/blocking dirty path classification, dependency installation (missing requirements, subprocess success/failure), app update status (no git repo, git unavailable, branch error, up-to-date, behind, blocking changes, ahead, diverged), and update_app_from_git (unavailable, up-to-date, blocking, ahead, diverged, pull success, pull failure, deps failure).
+- Added route tests for status and update endpoints.
+- Verification: `python -m unittest discover -s tests` passed 127 tests.

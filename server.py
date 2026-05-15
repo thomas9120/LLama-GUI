@@ -63,6 +63,7 @@ from backend.routes import process as process_routes
 from backend.routes import search as search_routes
 from backend.routes import status as status_routes
 from backend.routes import tunnel as tunnel_routes
+from backend.routes import git_update as git_update_routes
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
@@ -454,315 +455,6 @@ def remove_llama_files():
     return process_service.remove_llama_files(APP_CONTEXT)
 
 
-def run_git(args):
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(BASE_DIR),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def install_python_dependencies():
-    requirements_path = BASE_DIR / "requirements.txt"
-    if not requirements_path.exists():
-        return {"installed": False, "message": "requirements.txt was not found."}
-
-    res = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
-        cwd=str(BASE_DIR),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = (res.stdout or res.stderr or "").strip()
-    if res.returncode != 0:
-        return {
-            "installed": False,
-            "error": (res.stderr or res.stdout or "Dependency installation failed.").strip(),
-        }
-    return {
-        "installed": True,
-        "message": output.splitlines()[-1] if output else "Dependencies are up to date.",
-    }
-
-
-SAFE_DIRTY_PATH_PREFIXES = (
-    "llama/",
-    "models/",
-    "presets/",
-    "releases/",
-    "__pycache__/",
-    ".ruff_cache/",
-    ".pytest_cache/",
-    ".mypy_cache/",
-    ".venv/",
-    "venv/",
-    "env/",
-    "logs/",
-    "tmp/",
-    "temp/",
-)
-
-SAFE_DIRTY_PATHS = {
-    "config.json",
-    ".DS_Store",
-    "Thumbs.db",
-    "desktop.ini",
-}
-
-SAFE_DIRTY_SUFFIXES = (
-    ".pyc",
-    ".pyo",
-    ".log",
-    ".tmp",
-    ".temp",
-    ".bak",
-    ".orig",
-    ".swp",
-    ".swo",
-    ".zip",
-    ".tar.gz",
-    ".tgz",
-)
-
-
-def normalize_git_path(path):
-    return str(path or "").replace("\\", "/").strip()
-
-
-def parse_git_status_porcelain_z(output):
-    entries = []
-    parts = output.split("\0")
-    i = 0
-    while i < len(parts):
-        raw = parts[i]
-        i += 1
-        if not raw:
-            continue
-
-        status = raw[:2]
-        path = normalize_git_path(raw[3:])
-        if not path:
-            continue
-
-        entries.append({"status": status, "path": path})
-
-        if status[0] in {"R", "C"} or status[1] in {"R", "C"}:
-            # Rename/copy records include the source path as the next NUL item.
-            if i < len(parts) and parts[i]:
-                entries[-1]["source_path"] = normalize_git_path(parts[i])
-                i += 1
-
-    return entries
-
-
-def is_safe_dirty_path(path):
-    path = normalize_git_path(path)
-    if not path:
-        return False
-    if path in SAFE_DIRTY_PATHS:
-        return True
-    if path.startswith(".env"):
-        return True
-    if any(path.startswith(prefix) for prefix in SAFE_DIRTY_PATH_PREFIXES):
-        return True
-    return any(path.endswith(suffix) for suffix in SAFE_DIRTY_SUFFIXES)
-
-
-def classify_git_dirty_paths(entries):
-    safe = []
-    blocking = []
-
-    for entry in entries:
-        path = entry.get("path", "")
-        target = safe if is_safe_dirty_path(path) else blocking
-        target.append(entry)
-
-    return {
-        "dirty_paths": [entry["path"] for entry in entries],
-        "safe_dirty_paths": [entry["path"] for entry in safe],
-        "blocking_dirty_paths": [entry["path"] for entry in blocking],
-        "dirty_entries": entries,
-    }
-
-
-def get_app_update_status(fetch=False):
-    if not (BASE_DIR / ".git").exists():
-        return {
-            "available": False,
-            "can_update": False,
-            "reason": "This folder is not a git repository.",
-            "repo_url": APP_REPO_URL,
-        }
-
-    git_version = run_git(["--version"])
-    if git_version.returncode != 0:
-        return {
-            "available": False,
-            "can_update": False,
-            "reason": "Git is not available on this system.",
-            "repo_url": APP_REPO_URL,
-        }
-
-    branch_res = run_git(["rev-parse", "--abbrev-ref", "HEAD"])
-    if branch_res.returncode != 0:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": (
-                branch_res.stderr or "Unable to read current git branch"
-            ).strip(),
-            "repo_url": APP_REPO_URL,
-        }
-    branch = branch_res.stdout.strip()
-
-    remote_res = run_git(["config", "--get", "remote.origin.url"])
-    origin_url = remote_res.stdout.strip() if remote_res.returncode == 0 else ""
-
-    dirty_res = run_git(["status", "--porcelain=v1", "-z"])
-    if dirty_res.returncode != 0:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": (dirty_res.stderr or "Unable to inspect git status").strip(),
-            "repo_url": APP_REPO_URL,
-            "origin_url": origin_url,
-            "branch": branch,
-        }
-    dirty_entries = parse_git_status_porcelain_z(dirty_res.stdout)
-    dirty_info = classify_git_dirty_paths(dirty_entries)
-    has_local_changes = bool(dirty_info["dirty_paths"])
-    has_blocking_changes = bool(dirty_info["blocking_dirty_paths"])
-
-    if fetch:
-        fetch_res = run_git(["fetch", "origin", "--prune"])
-        if fetch_res.returncode != 0:
-            return {
-                "available": True,
-                "can_update": False,
-                "reason": (fetch_res.stderr or "Failed to fetch from origin").strip(),
-                "repo_url": APP_REPO_URL,
-                "origin_url": origin_url,
-                "branch": branch,
-                "dirty": has_local_changes,
-                "has_blocking_changes": has_blocking_changes,
-                **dirty_info,
-            }
-
-    upstream_ref = f"origin/{branch}"
-    behind_ahead_res = run_git(
-        ["rev-list", "--left-right", "--count", f"HEAD...{upstream_ref}"]
-    )
-    if behind_ahead_res.returncode != 0:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": f"No upstream branch found at {upstream_ref}.",
-            "repo_url": APP_REPO_URL,
-            "origin_url": origin_url,
-            "branch": branch,
-            "dirty": has_local_changes,
-            "has_blocking_changes": has_blocking_changes,
-            **dirty_info,
-        }
-
-    parts = behind_ahead_res.stdout.strip().split()
-    ahead = int(parts[0]) if len(parts) > 0 else 0
-    behind = int(parts[1]) if len(parts) > 1 else 0
-
-    if ahead > 0 and behind > 0:
-        state = "diverged"
-    elif ahead > 0:
-        state = "ahead"
-    elif behind > 0:
-        state = "behind"
-    else:
-        state = "up_to_date"
-
-    can_update = state == "behind" and not has_blocking_changes
-
-    return {
-        "available": True,
-        "can_update": can_update,
-        "repo_url": APP_REPO_URL,
-        "origin_url": origin_url,
-        "branch": branch,
-        "dirty": has_local_changes,
-        "has_blocking_changes": has_blocking_changes,
-        **dirty_info,
-        "ahead": ahead,
-        "behind": behind,
-        "state": state,
-    }
-
-
-def update_app_from_git():
-    status = get_app_update_status(fetch=True)
-    if not status.get("available"):
-        return {
-            "updated": False,
-            "error": status.get("reason", "App update is unavailable"),
-            "status": status,
-        }
-
-    if not status.get("can_update"):
-        state = status.get("state")
-        if state == "up_to_date":
-            return {"updated": False, "status": status, "message": "Already up to date"}
-        if status.get("has_blocking_changes"):
-            paths = status.get("blocking_dirty_paths") or []
-            detail = f" Blocking paths: {', '.join(paths[:8])}" if paths else ""
-            return {
-                "updated": False,
-                "error": "Cannot auto-update with source changes. Commit or stash first." + detail,
-                "status": status,
-            }
-        if state == "ahead":
-            return {
-                "updated": False,
-                "error": "Local branch is ahead of origin; not pulling automatically.",
-                "status": status,
-            }
-        if state == "diverged":
-            return {
-                "updated": False,
-                "error": "Branch has diverged from origin; manual merge/rebase required.",
-                "status": status,
-            }
-        return {
-            "updated": False,
-            "error": status.get("reason", "App cannot be updated automatically."),
-            "status": status,
-        }
-
-    pull_res = run_git(["pull", "--ff-only", "origin", status["branch"]])
-    if pull_res.returncode != 0:
-        return {
-            "updated": False,
-            "error": (pull_res.stderr or pull_res.stdout or "git pull failed").strip(),
-            "status": get_app_update_status(fetch=False),
-        }
-
-    deps_res = install_python_dependencies()
-    if deps_res.get("error"):
-        return {
-            "updated": True,
-            "dependencies_installed": False,
-            "dependency_error": deps_res["error"],
-            "message": (pull_res.stdout or "Updated successfully").strip(),
-            "status": get_app_update_status(fetch=False),
-        }
-
-    return {
-        "updated": True,
-        "dependencies_installed": deps_res.get("installed", False),
-        "dependency_message": deps_res.get("message", ""),
-        "message": (pull_res.stdout or "Updated successfully").strip(),
-        "status": get_app_update_status(fetch=False),
-    }
-
 
 def open_folder_in_file_manager(target):
     if CURRENT_PLATFORM == "win32":
@@ -1045,12 +737,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         )
         match.handler(request, Response(self), APP_CONTEXT)
 
-    def handle_get_app_update_status(self, parsed, body=None, params=None):
-        try:
-            self.send_json(get_app_update_status(fetch=True))
-        except Exception as e:
-            self.send_error_json(str(e), 500)
-
     def handle_post_shutdown(self, parsed, body=None, params=None):
         shutting_down = shutdown_gui_server()
         self.send_json({"shutting_down": shutting_down})
@@ -1058,20 +744,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def handle_post_restart(self, parsed, body=None, params=None):
         restarting = restart_gui_server()
         self.send_json({"restarting": restarting})
-
-    def handle_post_app_update(self, parsed, body=None, params=None):
-        try:
-            result = update_app_from_git()
-            if result.get("error"):
-                self.send_error_json(
-                    result.get("error", "App update failed"),
-                    400,
-                    extra={key: value for key, value in result.items() if key != "error"},
-                )
-            else:
-                self.send_json(result)
-        except Exception as e:
-            self.send_error_json(str(e), 500)
 
     def handle_post_open_folder(self, parsed, body=None, params=None):
         folder = body.get("folder", "models")
@@ -1159,7 +831,7 @@ API_ROUTER = (
     .add("GET", "/api/remote-tunnel/status", tunnel_routes.get_status)
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/models", models_routes.list_models)
-    .add("GET", "/api/app-update-status", "handle_get_app_update_status")
+    .add("GET", "/api/app-update-status", git_update_routes.get_status)
     .add("GET", "/api/presets", presets_routes.list_presets)
     .add("POST", "/api/web-search", search_routes.search)
     .add("POST", "/api/chat/completions", chat_routes.completions)
@@ -1175,7 +847,7 @@ API_ROUTER = (
     .add("POST", "/api/shutdown", "handle_post_shutdown")
     .add("POST", "/api/restart", "handle_post_restart")
     .add("POST", "/api/cleanup-llama", process_routes.cleanup_llama)
-    .add("POST", "/api/app-update", "handle_post_app_update")
+    .add("POST", "/api/app-update", git_update_routes.start_update)
     .add("POST", "/api/send-input", process_routes.send_input)
     .add("POST", "/api/presets", presets_routes.save_preset)
     .add("POST", "/api/open-folder", "handle_post_open_folder")

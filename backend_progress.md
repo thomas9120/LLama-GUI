@@ -147,8 +147,8 @@ Goal: move subprocess/threaded code after state ownership and adapters are stabl
 - [x] Move release selection, download, SHA256 verification, extraction, backend specs, and install/update operations.
 - [x] Create `backend/routes/install.py`.
 - [x] Create `backend/services/tunnel.py` and `backend/routes/tunnel.py`.
-- [ ] Move Cloudflare download/start/stop/status logic.
-- [ ] Create `backend/services/git_update.py` and `backend/routes/git_update.py`.
+- [x] Move Cloudflare download/start/stop/status logic.
+- [x] Create `backend/services/git_update.py` and `backend/routes/git_update.py`.
 - [ ] Create `backend/services/lifecycle.py` for coordinated shutdown/restart cleanup.
 - [ ] Make `main()`, `/api/shutdown`, `/api/restart`, and app-update restart logic call lifecycle helpers.
 
