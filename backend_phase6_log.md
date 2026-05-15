@@ -96,10 +96,10 @@ Primary route groups:
 
 ### 6E: Lifecycle extraction
 
-- Create `backend/services/lifecycle.py`.
-- Move shutdown/restart coordination.
-- Make `main()`, shutdown/restart routes, and app-update restart flow call lifecycle helpers.
-- Verify cleanup order.
+- [x] Create `backend/services/lifecycle.py`.
+- [x] Create `backend/routes/lifecycle.py`.
+- [x] Move shutdown/restart coordination, open-folder, and port-polling logic.
+- [x] Verify shutdown, restart, and open-folder behavior.
 
 ---
 
@@ -154,3 +154,26 @@ Primary route groups:
 - Added service tests for: git path normalization, porcelain parsing (basic + rename detection), safe/blocking dirty path classification, dependency installation (missing requirements, subprocess success/failure), app update status (no git repo, git unavailable, branch error, up-to-date, behind, blocking changes, ahead, diverged), and update_app_from_git (unavailable, up-to-date, blocking, ahead, diverged, pull success, pull failure, deps failure).
 - Added route tests for status and update endpoints.
 - Verification: `python -m unittest discover -s tests` passed 127 tests.
+
+### 2026-05-14 (cont.)
+
+- 6D app update extraction.
+- Created `backend/services/git_update.py` and `backend/routes/git_update.py`.
+- Moved `run_git`, `install_python_dependencies`, `SAFE_DIRTY_PATH_PREFIXES`, `SAFE_DIRTY_PATHS`, `SAFE_DIRTY_SUFFIXES`, `normalize_git_path`, `parse_git_status_porcelain_z`, `is_safe_dirty_path`, `classify_git_dirty_paths`, `get_app_update_status`, and `update_app_from_git` behind the git_update service.
+- Registered `/api/app-update-status` and `/api/app-update` as callable extracted routes.
+- Removed all old function bodies and constants from `server.py` (no external callers existed — no compatibility delegates needed).
+- Removed dead Handler methods: `handle_get_app_update_status`, `handle_post_app_update`.
+- Added service tests for: git path normalization, porcelain parsing (basic + rename detection), safe/blocking dirty path classification, dependency installation (missing requirements, subprocess success/failure), app update status (no git repo, git unavailable, branch error, up-to-date, behind, blocking changes, ahead, diverged), and update_app_from_git (unavailable, up-to-date, blocking, ahead, diverged, pull success, pull failure, deps failure).
+- Added route tests for status and update endpoints.
+- Verification: `python -m unittest discover -s tests` passed 127 tests.
+
+### 2026-05-14 (cont.)
+
+- 6E lifecycle extraction (final).
+- Created `backend/services/lifecycle.py` with `shutdown_gui_server(ctx)`, `restart_gui_server(ctx)`, `cleanup_gui_server(ctx)`, `_wait_for_port_release(...)`, and `open_folder_in_file_manager(target)`.
+- Created `backend/routes/lifecycle.py` with 3 callable route handlers: `post_shutdown`, `post_restart`, `post_open_folder`.
+- Updated `server.py`: added `lifecycle_routes` import; replaced 3 string-based router entries; removed 3 functions (`shutdown_gui_server`, `restart_gui_server`, `open_folder_in_file_manager`); removed 3 Handler methods (`handle_post_shutdown`, `handle_post_restart`, `handle_post_open_folder`).
+- Cleaned up unused imports from `server.py`: `os`, `subprocess`, `time`, `RESTART_PORT_WAIT_ATTEMPTS`, `RESTART_PORT_WAIT_SECONDS`, `RESTART_STARTUP_DELAY_SECONDS`, `ROOT_DIR as BASE_DIR`, `LLAMA_DIR`, `APP_REPO_URL`, `TOOLS_DIR`, `PROCESS_OUTPUT_LIMIT`, `PROCESS_OUTPUT_TRIM`.
+- Fixed `test_server_baseline.py` reference to removed `server.BASE_DIR` (uses `Path(server.__file__).parent` instead).
+- Added 18 lifecycle tests: shutdown (no-server + stop), cleanup, restart (no-server + spawn + context host/port), 3 platform open-folder tests, 2 `_wait_for_port_release` tests, and 6 route tests (shutdown 2, restart 2, open-folder 3).
+- Phase 6 complete. Verification: `python -m unittest discover -s tests` passed 146 tests.

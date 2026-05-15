@@ -149,16 +149,16 @@ Goal: move subprocess/threaded code after state ownership and adapters are stabl
 - [x] Create `backend/services/tunnel.py` and `backend/routes/tunnel.py`.
 - [x] Move Cloudflare download/start/stop/status logic.
 - [x] Create `backend/services/git_update.py` and `backend/routes/git_update.py`.
-- [ ] Create `backend/services/lifecycle.py` for coordinated shutdown/restart cleanup.
-- [ ] Make `main()`, `/api/shutdown`, `/api/restart`, and app-update restart logic call lifecycle helpers.
+- [x] Create `backend/services/lifecycle.py` for coordinated shutdown/restart cleanup.
+- [x] Make `main()`, `/api/shutdown`, `/api/restart`, and app-update restart logic call lifecycle helpers.
 
 Exit criteria:
 
 - [ ] Launch/stop/send-input/output polling work for both `llama-server` and `llama-cli`.
 - [x] Install and update still manage progress state and prevent concurrent installs.
 - [ ] Tunnel start/stop/status still works and updates allowed CORS origins.
-- [ ] Shutdown and restart preserve cleanup order.
-- [ ] No high-risk service imports `server.py`.
+- [x] Shutdown and restart preserve cleanup order.
+- [x] No high-risk service imports `server.py`.
 
 ---
 

@@ -379,9 +379,11 @@ class ImportSmokeTests(unittest.TestCase):
             "['huggingface_hub', 'ddgs', 'tkinter']}))"
         )
 
+        from pathlib import Path
+        server_dir = str(Path(server.__file__).parent)
         result = subprocess.run(
             [sys.executable, "-c", script],
-            cwd=str(server.BASE_DIR),
+            cwd=server_dir,
             text=True,
             capture_output=True,
             check=True,

@@ -1,38 +1,26 @@
 import http.server
 import json
-import os
 import platform
 import socket
 import ssl
-import subprocess
 import sys
 import threading
 import urllib.request
 import urllib.parse
 import urllib.error
-import time
 import ipaddress
 
 from backend.config import (
     APP_LOGO_FILE,
-    APP_REPO_URL,
     CONFIG_FILE,
     GUI_HOST,
     GUI_PORT,
     LLAMA_BIN_DIR,
-    LLAMA_DIR,
     LLAMA_GRAMMARS_DIR,
     LLAMA_HOST,
     LLAMA_PORT,
     MODELS_DIR,
     PRESETS_DIR,
-    PROCESS_OUTPUT_LIMIT,
-    PROCESS_OUTPUT_TRIM,
-    RESTART_PORT_WAIT_ATTEMPTS,
-    RESTART_PORT_WAIT_SECONDS,
-    RESTART_STARTUP_DELAY_SECONDS,
-    ROOT_DIR as BASE_DIR,
-    TOOLS_DIR,
     UI_DIR,
     WEB_SEARCH_FETCH_BYTES,
     WEB_SEARCH_MAX_RESULTS,
@@ -64,10 +52,12 @@ from backend.routes import search as search_routes
 from backend.routes import status as status_routes
 from backend.routes import tunnel as tunnel_routes
 from backend.routes import git_update as git_update_routes
+from backend.routes import lifecycle as lifecycle_routes
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
 from backend.services import llama_manager as llama_manager_service
+from backend.services import lifecycle as lifecycle_service
 from backend.services import process_manager as process_service
 from backend.services import tunnel as tunnel_service
 from backend.services import web_search as web_search_service
@@ -399,73 +389,6 @@ def stop_process():
     return process_service.stop_process(APP_CONTEXT)
 
 
-def shutdown_gui_server():
-    server = STATE.gui_server
-    if server is None:
-        return False
-    stop_remote_tunnel()
-    stop_process()
-    threading.Thread(target=server.shutdown, daemon=True).start()
-    return True
-
-
-def restart_gui_server():
-    server = STATE.gui_server
-    if server is None:
-        return False
-    stop_remote_tunnel()
-    stop_process()
-    restart_script = str(BASE_DIR / "server.py")
-
-    def _restart():
-        try:
-            time.sleep(RESTART_STARTUP_DELAY_SECONDS)
-            for i in range(RESTART_PORT_WAIT_ATTEMPTS):
-                try:
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    sock.bind((GUI_HOST, GUI_PORT))
-                    sock.close()
-                    break
-                except OSError:
-                    if i < RESTART_PORT_WAIT_ATTEMPTS - 1:
-                        time.sleep(RESTART_PORT_WAIT_SECONDS)
-                    else:
-                        print(f"WARNING: Port {GUI_PORT} still in use after waiting, attempting restart anyway")
-            subprocess.Popen(
-                [sys.executable, restart_script],
-                cwd=str(BASE_DIR),
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                if sys.platform == "win32"
-                else 0,
-            )
-            print("Restarting Llama GUI...")
-        except Exception as e:
-            print(f"ERROR: Failed to restart server: {e}")
-            import traceback
-            traceback.print_exc()
-            return
-        os._exit(0)
-
-    threading.Thread(target=_restart, daemon=False).start()
-    threading.Thread(target=server.shutdown, daemon=True).start()
-    return True
-
-
-def remove_llama_files():
-    return process_service.remove_llama_files(APP_CONTEXT)
-
-
-
-def open_folder_in_file_manager(target):
-    if CURRENT_PLATFORM == "win32":
-        os.startfile(str(target))
-        return
-    if CURRENT_PLATFORM == "darwin":
-        subprocess.run(["open", str(target)], check=False)
-        return
-    subprocess.run(["xdg-open", str(target)], check=False)
-
-
 def select_file_in_native_dialog(title="Select File", initial_dir=None, filetypes=None):
     return file_picker_service.select_file_in_native_dialog(title, initial_dir, filetypes)
 
@@ -737,25 +660,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         )
         match.handler(request, Response(self), APP_CONTEXT)
 
-    def handle_post_shutdown(self, parsed, body=None, params=None):
-        shutting_down = shutdown_gui_server()
-        self.send_json({"shutting_down": shutting_down})
-
-    def handle_post_restart(self, parsed, body=None, params=None):
-        restarting = restart_gui_server()
-        self.send_json({"restarting": restarting})
-
-    def handle_post_open_folder(self, parsed, body=None, params=None):
-        folder = body.get("folder", "models")
-        folder_map = {"models": MODELS_DIR, "llama": LLAMA_DIR}
-        target = folder_map.get(folder, MODELS_DIR)
-        target.mkdir(parents=True, exist_ok=True)
-        try:
-            open_folder_in_file_manager(target)
-            self.send_json({"opened": True})
-        except Exception as e:
-            self.send_error_json(str(e), 500)
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -844,13 +748,13 @@ API_ROUTER = (
     .add("POST", "/api/update", install_routes.start_update)
     .add("POST", "/api/launch", process_routes.launch)
     .add("POST", "/api/stop", process_routes.stop)
-    .add("POST", "/api/shutdown", "handle_post_shutdown")
-    .add("POST", "/api/restart", "handle_post_restart")
+    .add("POST", "/api/shutdown", lifecycle_routes.post_shutdown)
+    .add("POST", "/api/restart", lifecycle_routes.post_restart)
     .add("POST", "/api/cleanup-llama", process_routes.cleanup_llama)
     .add("POST", "/api/app-update", git_update_routes.start_update)
     .add("POST", "/api/send-input", process_routes.send_input)
     .add("POST", "/api/presets", presets_routes.save_preset)
-    .add("POST", "/api/open-folder", "handle_post_open_folder")
+    .add("POST", "/api/open-folder", lifecycle_routes.post_open_folder)
     .add("POST", "/api/select-file", file_picker_routes.select_file)
     .add_prefix("DELETE", "/api/presets/", presets_routes.delete_preset, "name")
 )
@@ -884,11 +788,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        stop_remote_tunnel()
-        stop_process()
-        if STATE.gui_server is not None:
-            STATE.gui_server.server_close()
-            STATE.gui_server = None
+        lifecycle_service.cleanup_gui_server(APP_CONTEXT)
 
 
 if __name__ == "__main__":

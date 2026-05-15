@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import chat, file_picker, git_update, hf_download, install, metrics, models, presets, process, search, status, tunnel
+from backend.routes import chat, file_picker, git_update, hf_download, install, lifecycle, metrics, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
+from backend.services import lifecycle as lifecycle_service
 from backend.services import llama_manager
 from backend.services import process_manager
 from backend.services import web_search
@@ -1517,6 +1518,213 @@ class GitUpdateRouteTests(unittest.TestCase):
             )
         self.assertEqual(response.status, 200)
         self.assertTrue(response.payload["updated"])
+
+
+class LifecycleTests(unittest.TestCase):
+    """Tests for backend/services/lifecycle.py and backend/routes/lifecycle.py."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ctx = make_context(self.tmp.name)
+        self.response = DummyResponse()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    # --- Service: shutdown_gui_server ---
+
+    def test_shutdown_returns_false_when_no_server(self):
+        self.ctx.state.gui_server = None
+        result = lifecycle_service.shutdown_gui_server(self.ctx)
+        self.assertFalse(result)
+
+    def test_shutdown_stops_tunnel_and_process(self):
+        self.ctx.state.gui_server = mock.Mock()
+        with mock.patch("backend.services.tunnel.stop_remote_tunnel") as mock_tun, \
+             mock.patch("backend.services.process_manager.stop_process") as mock_proc:
+            result = lifecycle_service.shutdown_gui_server(self.ctx)
+        self.assertTrue(result)
+        mock_tun.assert_called_once_with(self.ctx)
+        mock_proc.assert_called_once_with(self.ctx)
+        self.ctx.state.gui_server.shutdown.assert_called_once()
+
+    def test_cleanup_gui_server_stops_runtime_and_closes_server(self):
+        server = mock.Mock()
+        self.ctx.state.gui_server = server
+        with mock.patch("backend.services.tunnel.stop_remote_tunnel") as mock_tun, \
+             mock.patch("backend.services.process_manager.stop_process") as mock_proc:
+            result = lifecycle_service.cleanup_gui_server(self.ctx)
+        self.assertTrue(result)
+        mock_tun.assert_called_once_with(self.ctx)
+        mock_proc.assert_called_once_with(self.ctx)
+        server.server_close.assert_called_once()
+        self.assertIsNone(self.ctx.state.gui_server)
+
+    # --- Service: restart_gui_server ---
+
+    def test_restart_returns_false_when_no_server(self):
+        self.ctx.state.gui_server = None
+        result = lifecycle_service.restart_gui_server(self.ctx)
+        self.assertFalse(result)
+
+    def test_restart_spawns_new_process(self):
+        self.ctx.state.gui_server = mock.Mock()
+
+        class SyncThread:
+            def __init__(self, **kw):
+                self._target = kw.get("target")
+                self.daemon = kw.get("daemon", False)
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        with mock.patch("backend.services.tunnel.stop_remote_tunnel") as mock_tun, \
+             mock.patch("backend.services.process_manager.stop_process") as mock_proc, \
+             mock.patch("backend.services.lifecycle._wait_for_port_release", return_value=True), \
+             mock.patch("backend.services.lifecycle.subprocess.Popen") as mock_popen, \
+             mock.patch("backend.services.lifecycle.os._exit", side_effect=SystemExit(0)), \
+             mock.patch("backend.services.lifecycle.threading.Thread", SyncThread):
+            with self.assertRaises(SystemExit):
+                lifecycle_service.restart_gui_server(self.ctx)
+
+        mock_tun.assert_called_once_with(self.ctx)
+        mock_proc.assert_called_once_with(self.ctx)
+        mock_popen.assert_called_once()
+
+    def test_restart_uses_context_host_and_port(self):
+        self.ctx.config = ServerConfig(gui_host="127.0.0.2", gui_port=61234)
+        self.ctx.state.gui_server = mock.Mock()
+
+        class SyncThread:
+            def __init__(self, **kw):
+                self._target = kw.get("target")
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        with mock.patch("backend.services.tunnel.stop_remote_tunnel"), \
+             mock.patch("backend.services.process_manager.stop_process"), \
+             mock.patch("backend.services.lifecycle._wait_for_port_release", return_value=True) as mock_wait, \
+             mock.patch("backend.services.lifecycle.subprocess.Popen"), \
+             mock.patch("backend.services.lifecycle.os._exit", side_effect=SystemExit(0)), \
+             mock.patch("backend.services.lifecycle.threading.Thread", SyncThread):
+            with self.assertRaises(SystemExit):
+                lifecycle_service.restart_gui_server(self.ctx)
+
+        wait_args = mock_wait.call_args.args
+        self.assertEqual(wait_args[:2], ("127.0.0.2", 61234))
+
+    # --- Service: open_folder_in_file_manager ---
+
+    def test_open_folder_windows(self):
+        with mock.patch("backend.services.lifecycle.sys.platform", "win32"), \
+             mock.patch("backend.services.lifecycle.os.startfile") as mock_sf:
+            lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
+        mock_sf.assert_called_once()
+
+    def test_open_folder_darwin(self):
+        with mock.patch("backend.services.lifecycle.sys.platform", "darwin"), \
+             mock.patch("backend.services.lifecycle.subprocess.run") as mock_run:
+            lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
+        mock_run.assert_called_once_with(["open", str(self.ctx.paths.root / "test")], check=False)
+
+    def test_open_folder_linux(self):
+        with mock.patch("backend.services.lifecycle.sys.platform", "linux"), \
+             mock.patch("backend.services.lifecycle.subprocess.run") as mock_run:
+            lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
+        mock_run.assert_called_once_with(["xdg-open", str(self.ctx.paths.root / "test")], check=False)
+
+    # --- Service: _wait_for_port_release ---
+
+    def test_wait_for_port_release_success(self):
+        mock_sock = mock.Mock()
+        with mock.patch("backend.services.lifecycle.socket.socket", return_value=mock_sock), \
+             mock.patch("backend.services.lifecycle.time.sleep"):
+            result = lifecycle_service._wait_for_port_release("127.0.0.1", 9999, 0, 3, 0)
+        self.assertTrue(result)
+        mock_sock.bind.assert_called_once_with(("127.0.0.1", 9999))
+        mock_sock.close.assert_called_once()
+
+    def test_wait_for_port_release_failure(self):
+        mock_sock = mock.Mock()
+        mock_sock.bind.side_effect = OSError("port in use")
+        with mock.patch("backend.services.lifecycle.socket.socket", return_value=mock_sock), \
+             mock.patch("backend.services.lifecycle.time.sleep"):
+            result = lifecycle_service._wait_for_port_release("127.0.0.1", 9999, 0, 3, 0)
+        self.assertFalse(result)
+        self.assertEqual(mock_sock.close.call_count, 3)
+
+    # --- Routes ---
+
+    def test_post_shutdown_route(self):
+        with mock.patch.object(lifecycle_service, "shutdown_gui_server", return_value=True):
+            lifecycle.post_shutdown(
+                Request("POST", "/api/shutdown", "", {}, body={}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"shutting_down": True})
+
+    def test_post_shutdown_route_no_server(self):
+        with mock.patch.object(lifecycle_service, "shutdown_gui_server", return_value=False):
+            lifecycle.post_shutdown(
+                Request("POST", "/api/shutdown", "", {}, body={}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"shutting_down": False})
+
+    def test_post_restart_route(self):
+        with mock.patch.object(lifecycle_service, "restart_gui_server", return_value=True):
+            lifecycle.post_restart(
+                Request("POST", "/api/restart", "", {}, body={}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"restarting": True})
+
+    def test_post_restart_route_no_server(self):
+        with mock.patch.object(lifecycle_service, "restart_gui_server", return_value=False):
+            lifecycle.post_restart(
+                Request("POST", "/api/restart", "", {}, body={}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"restarting": False})
+
+    def test_post_open_folder_route_default(self):
+        with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
+            lifecycle.post_open_folder(
+                Request("POST", "/api/open-folder", "", {}, body={}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"opened": True})
+        mock_of.assert_called_once_with(self.ctx.paths.models)
+
+    def test_post_open_folder_route_llama(self):
+        with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
+            target = self.ctx.paths.llama / "subdir"
+            self.ctx.paths.llama.mkdir(parents=True, exist_ok=True)
+            lifecycle.post_open_folder(
+                Request("POST", "/api/open-folder", "", {}, body={"folder": "llama"}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"opened": True})
+        mock_of.assert_called_once_with(self.ctx.paths.llama)
+
+    def test_post_open_folder_route_invalid_falls_back(self):
+        with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
+            lifecycle.post_open_folder(
+                Request("POST", "/api/open-folder", "", {}, body={"folder": "nonexistent"}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"opened": True})
+        mock_of.assert_called_once_with(self.ctx.paths.models)
 
 
 if __name__ == "__main__":
