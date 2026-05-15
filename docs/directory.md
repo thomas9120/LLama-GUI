@@ -4,7 +4,8 @@
 
 ## Architecture
 
-- **Backend:** Single Python file (`server.py`) using `http.server` — no external frameworks
+- **Backend:** `backend/` package using stdlib `http.server`; `server.py` remains the compatibility entrypoint
+
 - **Frontend:** Vanilla HTML/CSS/JS, served statically from `ui/`
 - **Dependencies:** `certifi` (SSL verification), `ddgs` (DuckDuckGo web search), `huggingface_hub` (model downloads)
 - **GUI server port:** `127.0.0.1:5240`
@@ -14,7 +15,12 @@
 
 | File / Dir | Role |
 |------------|------|
-| `server.py` | HTTP server, llama.cpp installer/updater, process manager, model downloader, remote tunnel, web search, auto-updater, config |
+| `server.py` | Small compatibility wrapper that re-exports `backend.app` and starts `main()` when executed |
+| `backend/app.py` | HTTP handler, app context wiring, route registry, CORS/proxy helpers, and GUI server startup |
+| `backend/routes/` | API route handlers grouped by feature |
+| `backend/services/` | Feature services for llama.cpp install/processes, HF downloads, web search, tunnels, git updates, lifecycle, and file picking |
+| `backend/http.py` | Request/response adapters, standardized API errors, CORS helpers, and SSE writer |
+| `backend/routing.py` | Dispatch-table route matching for API routes |
 | `ui/js/app.js` | Main UI logic (~3600 lines): shared state, tab switching, flags, launch, chat (streaming, web search, history), Quick Launch (profiles, HF download, sampler presets), remote tunnel, stats polling, toasts |
 | `ui/js/flags.js` | All llama.cpp flag definitions (15 categories, ~120 flags), flag types (`bool`/`int`/`float`/`text`/`path`/`enum`/`multi_enum`), chat template presets, command builder |
 | `ui/js/manager.js` | Install flow, GitHub release fetch, backend selection, status polling, app auto-update (git), confirmation modal |

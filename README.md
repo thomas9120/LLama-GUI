@@ -427,7 +427,8 @@ It does not remove:
 
 ## Project Layout
 
-- `server.py` - local HTTP API, installer/update logic, process manager
+- `server.py` - compatibility entrypoint that starts the backend app
+- `backend/` - local HTTP API, route handlers, service modules, installer/update logic, process manager, HF downloads, web search, remote tunnel, and lifecycle helpers
 - `requirements.txt` - Python dependencies, including optional Chat web search support
 - `ui/` - static frontend (HTML/CSS/JS)
 - `llama/bin/` - installed `llama.cpp` executables/runtime files

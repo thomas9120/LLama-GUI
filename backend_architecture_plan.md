@@ -1,12 +1,12 @@
 # Backend Architecture Plan
 
-Maintainability plan for refactoring the Python backend currently concentrated in `server.py`.
+Maintainability plan for the completed refactor from a Python backend concentrated in `server.py` to a modular `backend/` package with `server.py` kept as the compatibility entrypoint.
 
 ---
 
 ## Summary
 
-The backend should be refactored in stages, with tests and shared context introduced before splitting files. The goal is not just to make `server.py` smaller, but to reduce hidden global state coupling, make routes testable, preserve optional dependency behavior, and avoid circular imports.
+The backend was refactored in stages, with tests and shared context introduced before splitting files. The goal was not just to make `server.py` smaller, but to reduce hidden global state coupling, make routes testable, preserve optional dependency behavior, and avoid circular imports.
 
 Recommended order:
 

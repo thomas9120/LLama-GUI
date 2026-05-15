@@ -154,9 +154,9 @@ Goal: move subprocess/threaded code after state ownership and adapters are stabl
 
 Exit criteria:
 
-- [ ] Launch/stop/send-input/output polling work for both `llama-server` and `llama-cli`.
+- [x] Launch/stop/send-input/output polling work for both `llama-server` and `llama-cli`.
 - [x] Install and update still manage progress state and prevent concurrent installs.
-- [ ] Tunnel start/stop/status still works and updates allowed CORS origins.
+- [x] Tunnel status and idle stop flow work locally; public tunnel start was intentionally skipped during Phase 8 to avoid opening a temporary Cloudflare URL.
 - [x] Shutdown and restart preserve cleanup order.
 - [x] No high-risk service imports `server.py`.
 
@@ -186,25 +186,25 @@ Exit criteria:
 
 Goal: verify the refactor from the user's point of view.
 
-- [ ] Start the backend and open the UI.
-- [ ] Confirm Install tab status and release fetching.
-- [ ] Confirm Configure command preview still generates expected launch arguments.
-- [ ] Confirm Quick Launch can select a model and launch.
-- [ ] Confirm server output polling works.
-- [ ] Confirm Chat streams responses from llama-server.
-- [ ] Confirm Chat with web search streams status, sources, and final response.
-- [ ] Confirm API metrics proxy works for local llama-server metrics.
-- [ ] Confirm Presets list/save/load/delete work.
-- [ ] Confirm HF model finder/download/cancel flow works.
-- [ ] Confirm Cloudflare tunnel start/stop/status flow works.
-- [ ] Confirm app update status still classifies safe vs blocking dirty paths.
+- [x] Start the backend and open the UI.
+- [x] Confirm Install tab status and release fetching.
+- [x] Confirm Configure command preview still generates expected launch arguments.
+- [x] Confirm Quick Launch can select a model and launch.
+- [x] Confirm server output polling works.
+- [x] Confirm Chat streams responses from llama-server.
+- [x] Confirm Chat with web search streams status, sources, and final response.
+- [x] Confirm API metrics proxy works for local llama-server metrics.
+- [x] Confirm Presets list/save/load/delete work.
+- [x] Confirm HF model finder/download/cancel flow works.
+- [x] Confirm Cloudflare tunnel status and idle stop flow locally; public tunnel start/stop was skipped by design.
+- [x] Confirm app update status still reports dirty-path classification fields without running a real update.
 
 Exit criteria:
 
-- [ ] All automated tests pass.
-- [ ] Manual smoke checks pass for the major tabs.
-- [ ] Any intentionally changed API behavior is documented.
-- [ ] `backend_architecture_plan.md` and this progress file reflect the final structure.
+- [x] All automated tests pass.
+- [x] Manual smoke checks pass for the major tabs.
+- [x] Any intentionally changed API behavior is documented.
+- [x] `backend_architecture_plan.md` and this progress file reflect the final structure.
 
 ---
 
@@ -220,6 +220,7 @@ Exit criteria:
 - Phase 6 completed. Install/update, Cloudflare tunnel, git app update, and lifecycle/open-folder routes now dispatch through extracted route modules backed by service modules. `main()` now uses lifecycle cleanup, high-risk services do not import `server.py`, and the temporary `backend_phase6_log.md` was removed after its useful notes were folded into this progress file. Latest run: `python -m unittest discover -s tests` passed 146 tests.
 - Phase 7 started. `server.py` is now a compatibility wrapper that re-exports `backend.app` and calls `main()` when executed; launch scripts continue to invoke `server.py`, while the real app startup and HTTP handler live in `backend/app.py`. The wrapper forwards app-level assignments such as `server.API_ROUTER = ...` for compatibility with older tests/callers. Latest run: `python -m unittest discover -s tests` passed 148 tests.
 - Phase 7 completed. `backend/app.py` now owns service wiring through `configure_services(APP_CONTEXT)` and uses `APP_CONTEXT.state` internally; `STATE` remains only as a compatibility alias for older imports/tests. Latest run: `python -m unittest discover -s tests` passed 148 tests.
+- Phase 8 completed. `python -m py_compile server.py backend\app.py` passed, and `python -m unittest discover -s tests` passed 236 tests. Runtime smoke used `models/Qwen3-0.6B-Q4_K_M.gguf`: backend startup through `server.py`, UI load, model selection and command preview sync, `llama-server` launch/stop/output, metrics proxy, chat streaming, web-search streaming with sources, presets save/list/delete, HF repo finder plus duplicate-download/cancel path, app-update status, and local-only tunnel status/idle stop all passed. Public Cloudflare tunnel start was intentionally skipped.
 - The safest first implementation milestone is Phase 0 plus the non-invasive parts of Phase 1.
 - Keep route extraction incremental. One route group per commit is preferred.
 - Do not convert lazy optional imports to module-level imports unless the startup behavior is intentionally changed.
