@@ -4,6 +4,7 @@ import subprocess
 import sys
 import unittest
 from email.message import Message
+from pathlib import Path
 
 import server
 
@@ -371,6 +372,23 @@ class StreamingTests(unittest.TestCase):
 
 
 class ImportSmokeTests(unittest.TestCase):
+    def test_server_py_is_compatibility_entrypoint(self):
+        import backend.app
+
+        self.assertIs(server.main, backend.app.main)
+        self.assertEqual(Path(server.__file__).name, "server.py")
+
+    def test_server_wrapper_forwards_app_assignments(self):
+        import backend.app
+
+        original_router = server.API_ROUTER
+        try:
+            sentinel = object()
+            server.API_ROUTER = sentinel
+            self.assertIs(backend.app.API_ROUTER, sentinel)
+        finally:
+            server.API_ROUTER = original_router
+
     def test_server_import_does_not_load_feature_optional_dependencies(self):
         script = (
             "import json, sys; "
@@ -379,7 +397,6 @@ class ImportSmokeTests(unittest.TestCase):
             "['huggingface_hub', 'ddgs', 'tkinter']}))"
         )
 
-        from pathlib import Path
         server_dir = str(Path(server.__file__).parent)
         result = subprocess.run(
             [sys.executable, "-c", script],

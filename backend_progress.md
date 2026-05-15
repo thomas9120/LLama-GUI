@@ -166,19 +166,19 @@ Exit criteria:
 
 Goal: leave `server.py` as a small entrypoint or rename it safely.
 
-- [ ] Reduce `server.py` to entrypoint/bootstrap duties.
-- [ ] Decide whether to keep `server.py` as the compatibility entrypoint or move startup to `backend/app.py` with a wrapper.
-- [ ] Ensure any launchers, scripts, docs, or shortcuts still start the backend correctly.
-- [ ] Remove dead helper functions from `server.py`.
-- [ ] Remove obsolete globals once all state has moved into `AppContext`.
-- [ ] Review imports for circular dependencies and optional dependency startup failures.
+- [x] Reduce `server.py` to entrypoint/bootstrap duties.
+- [x] Decide whether to keep `server.py` as the compatibility entrypoint or move startup to `backend/app.py` with a wrapper.
+- [x] Ensure any launchers, scripts, docs, or shortcuts still start the backend correctly.
+- [x] Remove dead helper functions from `server.py`.
+- [x] Remove obsolete globals once all state has moved into `AppContext`.
+- [x] Review imports for circular dependencies and optional dependency startup failures.
 
 Exit criteria:
 
-- [ ] `server.py` is small and mostly delegates to backend package modules.
-- [ ] Existing user startup flow still works.
-- [ ] No circular imports are required for normal startup.
-- [ ] Optional dependency failures remain feature-scoped.
+- [x] `server.py` is small and mostly delegates to backend package modules.
+- [x] Existing user startup flow still works.
+- [x] No circular imports are required for normal startup.
+- [x] Optional dependency failures remain feature-scoped.
 
 ---
 
@@ -217,7 +217,9 @@ Exit criteria:
 - Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` now uses a typed `BackendServices` bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 54 tests.
 - Phase 5 completed. Hugging Face validation, repo file listing, background model download, duplicate-file handling, status polling, and cancellation now live under `backend/services/hf_download.py` and `backend/routes/hf_download.py`. Web search/page fetching now live under `backend/services/web_search.py` and `backend/routes/search.py`; chat request shaping and streaming dispatch now live under `backend/services/chat.py` and `backend/routes/chat.py`. Native file selection now lives under `backend/services/file_picker.py` and `backend/routes/file_picker.py`. `server.py` keeps thin compatibility delegates for baseline tests and older internal references. Latest run: `python -m unittest discover -s tests` passed 63 tests.
 - Phase 6A completed. Process/runtime routes now dispatch through `backend/routes/process.py`, with implementation in `backend/services/process_manager.py`; dead process Handler methods were removed and compatibility delegates retained in `server.py` for old helper names and remaining internal callers. Latest run: `python -m unittest discover -s tests` passed 77 tests.
+- Phase 6 completed. Install/update, Cloudflare tunnel, git app update, and lifecycle/open-folder routes now dispatch through extracted route modules backed by service modules. `main()` now uses lifecycle cleanup, high-risk services do not import `server.py`, and the temporary `backend_phase6_log.md` was removed after its useful notes were folded into this progress file. Latest run: `python -m unittest discover -s tests` passed 146 tests.
+- Phase 7 started. `server.py` is now a compatibility wrapper that re-exports `backend.app` and calls `main()` when executed; launch scripts continue to invoke `server.py`, while the real app startup and HTTP handler live in `backend/app.py`. The wrapper forwards app-level assignments such as `server.API_ROUTER = ...` for compatibility with older tests/callers. Latest run: `python -m unittest discover -s tests` passed 148 tests.
+- Phase 7 completed. `backend/app.py` now owns service wiring through `configure_services(APP_CONTEXT)` and uses `APP_CONTEXT.state` internally; `STATE` remains only as a compatibility alias for older imports/tests. Latest run: `python -m unittest discover -s tests` passed 148 tests.
 - The safest first implementation milestone is Phase 0 plus the non-invasive parts of Phase 1.
-- Avoid extracting process, install, tunnel, shutdown, or restart logic until the shared state/context and lifecycle abstractions are in place.
 - Keep route extraction incremental. One route group per commit is preferred.
 - Do not convert lazy optional imports to module-level imports unless the startup behavior is intentionally changed.
