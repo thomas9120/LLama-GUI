@@ -19,9 +19,7 @@ import re
 import time
 import pathlib
 import tempfile
-import html
 import ipaddress
-from html.parser import HTMLParser
 
 from backend.config import (
     APP_LOGO_FILE,
@@ -48,11 +46,9 @@ from backend.config import (
     TUNNEL_LOG_LIMIT,
     UI_DIR,
     WEB_SEARCH_FETCH_BYTES,
-    WEB_SEARCH_FETCH_RESULTS,
     WEB_SEARCH_MAX_RESULTS,
     WEB_SEARCH_PAGE_CHARS,
     WEB_SEARCH_TIMEOUT,
-    WEB_SEARCH_USER_AGENT,
 )
 from backend.context import DEFAULT_CONTEXT
 from backend.http import (
@@ -67,10 +63,18 @@ from backend.http import (
     is_v1_proxy_path,
 )
 from backend.routing import Router
+from backend.routes import chat as chat_routes
+from backend.routes import file_picker as file_picker_routes
+from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
 from backend.routes import models as models_routes
 from backend.routes import presets as presets_routes
+from backend.routes import search as search_routes
 from backend.routes import status as status_routes
+from backend.services import chat as chat_service
+from backend.services import file_picker as file_picker_service
+from backend.services import hf_download as hf_download_service
+from backend.services import web_search as web_search_service
 
 try:
     import certifi
@@ -301,6 +305,8 @@ APP_CONTEXT.services.get_tool_filename = get_tool_filename
 APP_CONTEXT.services.is_process_running = is_process_running
 APP_CONTEXT.services.llama_tools = LLAMA_TOOLS
 APP_CONTEXT.services.load_config = load_config
+APP_CONTEXT.services.ssl_context = SSL_CONTEXT
+APP_CONTEXT.services.urlopen_with_ssl = urlopen_with_ssl
 
 
 def download_file(url, dest, progress_cb=None):
@@ -646,231 +652,78 @@ def set_model_download_state(**updates):
 
 
 def get_model_download_snapshot():
-    return STATE.model_download.snapshot()
+    return hf_download_service.get_model_download_snapshot(APP_CONTEXT)
 
 
 def normalize_hf_token(token):
-    value = str(token or "").strip()
-    return value or None
+    return hf_download_service.normalize_hf_token(token)
 
 
 def validate_hf_repo_id(repo_id):
-    value = str(repo_id or "").strip()
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*", value):
-        raise ValueError("Enter a Hugging Face repo ID like owner/model.")
-    if ".." in value or value.endswith("."):
-        raise ValueError("Invalid Hugging Face repo ID.")
-    return value
+    return hf_download_service.validate_hf_repo_id(repo_id)
 
 
 def validate_hf_revision(revision):
-    value = str(revision or "main").strip() or "main"
-    if value.startswith("/") or "\\" in value or "\x00" in value or ".." in pathlib.PurePosixPath(value).parts:
-        raise ValueError("Invalid Hugging Face revision.")
-    return value
+    return hf_download_service.validate_hf_revision(revision)
 
 
 def validate_hf_filename(filename):
-    value = str(filename or "").strip().replace("\\", "/")
-    pure = pathlib.PurePosixPath(value)
-    if not value or pure.is_absolute() or "\x00" in value or ".." in pure.parts:
-        raise ValueError("Invalid Hugging Face filename.")
-    if pure.name != pathlib.PureWindowsPath(pure.name).name:
-        raise ValueError("Invalid Hugging Face filename.")
-    if re.search(r'[<>:"/\\|?*]', pure.name):
-        raise ValueError("Hugging Face filename is not safe to save locally.")
-    if not pure.name.lower().endswith(".gguf"):
-        raise ValueError("Only .gguf files can be downloaded.")
-    return value
+    return hf_download_service.validate_hf_filename(filename)
 
 
 def is_mmproj_filename(filename):
-    name = pathlib.PurePosixPath(str(filename or "").replace("\\", "/")).name.lower()
-    stem = pathlib.Path(name).stem
-    return "mmproj" in stem or stem.startswith("clip") or "projector" in stem
+    return hf_download_service.is_mmproj_filename(filename)
 
 
 def slugify_repo_id(repo_id):
-    return re.sub(r"[^A-Za-z0-9._-]+", "_", repo_id).strip("._-") or "repo"
+    return hf_download_service.slugify_repo_id(repo_id)
 
 
 def hf_file_to_dict(file_obj):
-    filename = (
-        getattr(file_obj, "rfilename", None)
-        or getattr(file_obj, "path", None)
-        or getattr(file_obj, "name", None)
-        or ""
-    )
-    size = getattr(file_obj, "size", None)
-    if size is None:
-        lfs = getattr(file_obj, "lfs", None)
-        if isinstance(lfs, dict):
-            size = lfs.get("size")
-    try:
-        size = int(size) if size is not None else None
-    except (TypeError, ValueError):
-        size = None
-    return {"name": str(filename), "size": size, "size_mb": round(size / 1048576, 2) if size else None}
+    return hf_download_service.hf_file_to_dict(file_obj)
 
 
 def get_hf_gguf_files(repo_id, revision="main", token=None):
-    try:
-        from huggingface_hub import HfApi
-    except ImportError as exc:
-        raise RuntimeError("Hugging Face downloads require the huggingface_hub package. Re-run the install script.") from exc
-
-    auth_token = token or False
-    api = HfApi(token=auth_token)
-    info = api.model_info(
-        repo_id=repo_id,
-        revision=revision,
-        files_metadata=True,
-        token=auth_token,
-        timeout=30,
-    )
-    files = []
-    for sibling in info.siblings or []:
-        item = hf_file_to_dict(sibling)
-        if item["name"].lower().endswith(".gguf"):
-            files.append(item)
-    files.sort(key=lambda item: item["name"].lower())
-    main_files = [item for item in files if not is_mmproj_filename(item["name"])]
-    mmproj_files = [item for item in files if is_mmproj_filename(item["name"])]
-    return {"repo_id": repo_id, "revision": revision, "models": main_files, "mmproj": mmproj_files}
+    return hf_download_service.get_hf_gguf_files(repo_id, revision, token)
 
 
 def get_hf_file_size(repo_id, filename, revision, token=None):
-    try:
-        from huggingface_hub import get_hf_file_metadata, hf_hub_url
-    except ImportError:
-        return 0
-
-    try:
-        url = hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
-        metadata = get_hf_file_metadata(url, token=token or False, timeout=20)
-        return int(metadata.size or 0)
-    except Exception:
-        return 0
+    return hf_download_service.get_hf_file_size(repo_id, filename, revision, token)
 
 
 def build_hf_download_url(repo_id, filename, revision):
-    try:
-        from huggingface_hub import hf_hub_url
-    except ImportError as exc:
-        raise RuntimeError("Hugging Face downloads require the huggingface_hub package. Re-run the install script.") from exc
-    return hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
+    return hf_download_service.build_hf_download_url(repo_id, filename, revision)
 
 
 def download_hf_file(repo_id, filename, revision, token, dest, completed_bytes, total_bytes):
-    url = build_hf_download_url(repo_id, filename, revision)
-    headers = {"User-Agent": "Llama-GUI"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers)
-    tmp_path = dest.with_suffix(dest.suffix + ".part")
-    downloaded = 0
-    with urlopen_with_ssl(req, timeout=60) as resp, open(tmp_path, "wb") as f:
-        while True:
-            if STATE.model_download_cancel.is_set():
-                raise InterruptedError("Download cancelled.")
-            chunk = resp.read(1024 * 1024)
-            if not chunk:
-                break
-            f.write(chunk)
-            downloaded += len(chunk)
-            set_model_download_state(
-                downloaded=completed_bytes + downloaded,
-                total=total_bytes,
-                current_file=pathlib.PurePosixPath(filename).name,
-            )
-    tmp_path.replace(dest)
-    return downloaded
+    return hf_download_service.download_hf_file(
+        APP_CONTEXT,
+        repo_id,
+        filename,
+        revision,
+        token,
+        dest,
+        completed_bytes,
+        total_bytes,
+        urlopen_with_ssl,
+    )
 
 
 def remove_partial_downloads(paths):
-    for path in paths:
-        tmp_path = path.with_suffix(path.suffix + ".part")
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        except OSError:
-            pass
+    return hf_download_service.remove_partial_downloads(paths)
 
 
 def start_hf_model_download(repo_id, revision, model_file, mmproj_file, token, overwrite=False):
-    repo_id = validate_hf_repo_id(repo_id)
-    revision = validate_hf_revision(revision)
-    model_file = validate_hf_filename(model_file)
-    mmproj_file = validate_hf_filename(mmproj_file) if mmproj_file else ""
-
-    if is_mmproj_filename(model_file):
-        raise ValueError("Choose a main model file, not an mmproj file.")
-    if mmproj_file and not is_mmproj_filename(mmproj_file):
-        raise ValueError("Choose an mmproj/projector file for the companion mmproj download.")
-
-    model_name = pathlib.PurePosixPath(model_file).name
-    model_dest = MODELS_DIR / model_name
-    mmproj_dest = None
-    if mmproj_file:
-        mmproj_dest = MODELS_DIR / "mmproj" / slugify_repo_id(repo_id) / pathlib.PurePosixPath(mmproj_file).name
-
-    existing = [path.name for path in [model_dest, mmproj_dest] if path and path.exists()]
-    if existing and not overwrite:
-        raise FileExistsError(f"Already exists: {', '.join(existing)}")
-
-    with STATE.model_download_lock:
-        if STATE.model_download_in_progress:
-            raise RuntimeError("A model download is already in progress.")
-        STATE.model_download_in_progress = True
-    STATE.model_download_cancel.clear()
-
-    def _worker():
-        destinations = [model_dest]
-        if mmproj_dest:
-            destinations.append(mmproj_dest)
-        try:
-            MODELS_DIR.mkdir(parents=True, exist_ok=True)
-            if mmproj_dest:
-                mmproj_dest.parent.mkdir(parents=True, exist_ok=True)
-            total = get_hf_file_size(repo_id, model_file, revision, token)
-            if mmproj_file:
-                total += get_hf_file_size(repo_id, mmproj_file, revision, token)
-            reset_model_download_state(
-                status="downloading",
-                message=f"Downloading {model_name}...",
-                total=total,
-                downloaded=0,
-            )
-            completed = download_hf_file(repo_id, model_file, revision, token, model_dest, 0, total)
-            mmproj_path = ""
-            if mmproj_file and mmproj_dest:
-                set_model_download_state(message=f"Downloading {mmproj_dest.name}...")
-                completed += download_hf_file(repo_id, mmproj_file, revision, token, mmproj_dest, completed, total)
-                mmproj_path = str(mmproj_dest)
-            set_model_download_state(
-                status="done",
-                message=f"Downloaded {model_name}.",
-                downloaded=total or completed,
-                total=total or completed,
-                current_file="",
-                model_name=model_name,
-                model_path=str(model_dest),
-                mmproj_path=mmproj_path,
-            )
-        except InterruptedError as exc:
-            remove_partial_downloads(destinations)
-            set_model_download_state(status="cancelled", message=str(exc), current_file="")
-        except Exception as exc:
-            remove_partial_downloads(destinations)
-            set_model_download_state(status="error", message=str(exc), current_file="")
-        finally:
-            with STATE.model_download_lock:
-                STATE.model_download_in_progress = False
-            STATE.model_download_cancel.clear()
-
-    reset_model_download_state(status="starting", message="Preparing Hugging Face download...")
-    threading.Thread(target=_worker, daemon=True).start()
-    return get_model_download_snapshot()
+    return hf_download_service.start_hf_model_download(
+        APP_CONTEXT,
+        repo_id,
+        revision,
+        model_file,
+        mmproj_file,
+        token,
+        overwrite,
+        urlopen_with_ssl,
+    )
 
 
 def extract_zip_file_flat(zf, info, dest_dir):
@@ -1523,284 +1376,42 @@ def open_folder_in_file_manager(target):
 
 
 def select_file_in_native_dialog(title="Select File", initial_dir=None, filetypes=None):
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except Exception as exc:
-        raise RuntimeError(f"Native file picker unavailable: {exc}") from exc
-
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        root.attributes("-topmost", True)
-    except Exception:
-        pass
-
-    dialog_options = {"title": title, "parent": root}
-    if initial_dir:
-        dialog_options["initialdir"] = str(initial_dir)
-    if filetypes:
-        dialog_options["filetypes"] = filetypes
-
-    try:
-        root.update()
-        selected = filedialog.askopenfilename(**dialog_options)
-        return selected or ""
-    finally:
-        root.destroy()
-
-
-class ReadableHTMLParser(HTMLParser):
-    def __init__(self):
-        super().__init__(convert_charrefs=True)
-        self.parts = []
-        self.skip_depth = 0
-        self.block_tags = {
-            "article",
-            "blockquote",
-            "br",
-            "dd",
-            "div",
-            "dl",
-            "dt",
-            "figcaption",
-            "h1",
-            "h2",
-            "h3",
-            "h4",
-            "h5",
-            "h6",
-            "header",
-            "li",
-            "main",
-            "nav",
-            "ol",
-            "p",
-            "pre",
-            "section",
-            "table",
-            "td",
-            "th",
-            "tr",
-            "ul",
-        }
-
-    def handle_starttag(self, tag, attrs):
-        tag = tag.lower()
-        if tag in {"script", "style", "noscript", "svg"}:
-            self.skip_depth += 1
-            return
-        if self.skip_depth:
-            return
-        if tag in self.block_tags:
-            self.parts.append("\n")
-
-    def handle_endtag(self, tag):
-        tag = tag.lower()
-        if tag in {"script", "style", "noscript", "svg"} and self.skip_depth:
-            self.skip_depth -= 1
-            return
-        if self.skip_depth:
-            return
-        if tag in self.block_tags:
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if self.skip_depth:
-            return
-        text = data.strip()
-        if text:
-            self.parts.append(text)
-
-    def text(self):
-        raw = html.unescape(" ".join(self.parts))
-        raw = re.sub(r"[ \t\r\f\v]+", " ", raw)
-        raw = re.sub(r"\n\s+", "\n", raw)
-        raw = re.sub(r"\n{3,}", "\n\n", raw)
-        return raw.strip()
+    return file_picker_service.select_file_in_native_dialog(title, initial_dir, filetypes)
 
 
 def html_to_readable_text(raw_html):
-    parser = ReadableHTMLParser()
-    try:
-        parser.feed(raw_html)
-        parser.close()
-        return parser.text()
-    except Exception:
-        text = re.sub(r"(?is)<(script|style|noscript|svg).*?</\1>", " ", raw_html)
-        text = re.sub(r"(?s)<[^>]+>", " ", text)
-        text = html.unescape(text)
-        return re.sub(r"\s+", " ", text).strip()
+    return web_search_service.html_to_readable_text(raw_html)
 
 
 def validate_public_hostname(hostname, port):
-    try:
-        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        return False, f"Failed to resolve host: {exc}"
-    if not infos:
-        return False, f"Failed to resolve host: no addresses for {hostname!r}"
-    for *_, sockaddr in infos:
-        ip = ipaddress.ip_address(sockaddr[0])
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return False, f"Blocked: refusing to fetch non-public address {ip}."
-    return True, ""
+    return web_search_service.validate_public_hostname(hostname, port)
 
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
+NoRedirect = web_search_service.NoRedirect
 
 
 def fetch_page_text(url, max_chars=WEB_SEARCH_PAGE_CHARS, timeout=WEB_SEARCH_TIMEOUT):
-    parsed = urllib.parse.urlparse(str(url or "").strip())
-    if parsed.scheme not in {"http", "https"}:
-        return {"ok": False, "error": f"Blocked: only http/https URLs are allowed (got {parsed.scheme!r})."}
-    if not parsed.hostname:
-        return {"ok": False, "error": "Blocked: URL is missing a hostname."}
-
-    current_url = urllib.parse.urlunparse(parsed)
-    opener = urllib.request.build_opener(
-        NoRedirect,
-        urllib.request.HTTPSHandler(context=SSL_CONTEXT),
-    )
-    for _ in range(5):
-        parsed = urllib.parse.urlparse(current_url)
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
-        ok, reason = validate_public_hostname(parsed.hostname, port)
-        if not ok:
-            return {"ok": False, "error": reason}
-
-        req = urllib.request.Request(
-            current_url,
-            headers={
-                "User-Agent": WEB_SEARCH_USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.2",
-            },
-        )
-        try:
-            resp = opener.open(req, timeout=timeout)
-            raw = resp.read(WEB_SEARCH_FETCH_BYTES)
-            charset = resp.headers.get_content_charset() or "utf-8"
-            text = html_to_readable_text(raw.decode(charset, errors="replace"))
-            if len(text) > max_chars:
-                text = text[:max_chars].rstrip() + f"\n\n... (truncated, {len(text)} chars total)"
-            return {"ok": True, "url": current_url, "text": text or "(page returned no readable text)"}
-        except urllib.error.HTTPError as exc:
-            if exc.code not in {301, 302, 303, 307, 308}:
-                return {"ok": False, "error": f"Failed to fetch URL: HTTP {exc.code} {getattr(exc, 'reason', '')}"}
-            location = exc.headers.get("Location")
-            if not location:
-                return {"ok": False, "error": "Failed to fetch URL: redirect missing Location header."}
-            next_url = urllib.parse.urljoin(current_url, location)
-            next_parsed = urllib.parse.urlparse(next_url)
-            if next_parsed.scheme not in {"http", "https"} or not next_parsed.hostname:
-                return {"ok": False, "error": "Blocked: redirect target is not a valid http/https URL."}
-            current_url = next_url
-        except Exception as exc:
-            return {"ok": False, "error": f"Failed to fetch URL: {exc}"}
-
-    return {"ok": False, "error": "Failed to fetch URL: too many redirects."}
+    return web_search_service.fetch_page_text(url, max_chars=max_chars, timeout=timeout, ssl_context=SSL_CONTEXT)
 
 
 def web_search(query, max_results=WEB_SEARCH_MAX_RESULTS):
-    query = str(query or "").strip()
-    if not query:
-        return {"ok": False, "error": "No query provided.", "results": []}
-    try:
-        from ddgs import DDGS
-    except ImportError:
-        return {
-            "ok": False,
-            "error": "Search unavailable: install dependencies again so the ddgs package is available.",
-            "results": [],
-        }
-
-    try:
-        rows = DDGS(timeout=WEB_SEARCH_TIMEOUT).text(query, max_results=max_results)
-    except Exception as exc:
-        return {"ok": False, "error": f"Search failed: {exc}", "results": []}
-
-    results = []
-    for row in rows or []:
-        url = row.get("href") or row.get("url") or ""
-        if not url:
-            continue
-        results.append(
-            {
-                "title": row.get("title") or url,
-                "url": url,
-                "snippet": row.get("body") or row.get("snippet") or "",
-            }
-        )
-    return {"ok": True, "query": query, "results": results}
+    return web_search_service.web_search(query, max_results)
 
 
 def get_latest_user_message(messages):
-    for msg in reversed(messages or []):
-        if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                return content.strip()
-    return ""
+    return chat_service.get_latest_user_message(messages)
 
 
 def build_search_queries(user_text):
-    query = re.sub(r"\s+", " ", str(user_text or "").strip())
-    if len(query) > 180:
-        query = query[:180].rsplit(" ", 1)[0]
-    return [query] if query else []
+    return chat_service.build_search_queries(user_text)
 
 
 def build_search_context(search_results, fetched_pages):
-    sources = []
-    context_parts = []
-    for idx, result in enumerate(search_results, 1):
-        url = result.get("url", "")
-        title = result.get("title") or url
-        snippet = result.get("snippet", "")
-        fetched = fetched_pages.get(url, {})
-        text = fetched.get("text") if fetched.get("ok") else ""
-        if not text:
-            text = snippet
-        text = (text or "").strip()
-        if len(text) > 3500:
-            text = text[:3500].rstrip() + "\n... (source excerpt truncated)"
-        sources.append({"index": idx, "title": title, "url": url, "snippet": snippet})
-        context_parts.append(
-            f"[{idx}] {title}\nURL: {url}\nSnippet: {snippet}\nContent excerpt:\n{text}"
-        )
-
-    if not context_parts:
-        return "", sources
-
-    context = (
-        "You have fresh web search context below. Answer the user's question using these sources. "
-        "Cite source numbers like [1] or [2] for factual claims. If the sources are insufficient, say so.\n\n"
-        + "\n\n---\n\n".join(context_parts)
-    )
-    return context, sources
+    return chat_service.build_search_context(search_results, fetched_pages)
 
 
 def get_local_chat_api_url(body):
-    host = str(body.get("host") or LLAMA_HOST).strip() or LLAMA_HOST
-    try:
-        port = int(body.get("port") or LLAMA_PORT)
-    except (TypeError, ValueError):
-        raise ValueError("Invalid llama-server chat port.")
-    if port < 1 or port > 65535:
-        raise ValueError("Invalid llama-server chat port.")
-    chat_host, host_error = get_metrics_host(host)
-    if not chat_host:
-        raise ValueError(host_error)
-    return f"http://{chat_host}:{port}/v1/chat/completions"
+    return chat_service.get_local_chat_api_url(body)
 
 
 def get_local_interface_addresses():
@@ -2011,120 +1622,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 f"Details: {exc}"
             )
 
-    def handle_web_search_request(self, body):
-        query = body.get("query", "")
-        url = body.get("url", "")
-        if url:
-            self.send_json(fetch_page_text(url))
-            return
-        try:
-            max_results = int(body.get("max_results") or WEB_SEARCH_MAX_RESULTS)
-        except (TypeError, ValueError):
-            max_results = WEB_SEARCH_MAX_RESULTS
-        self.send_json(web_search(query, max_results=max(1, min(max_results, 10))))
-
-    def handle_chat_completions(self, body):
-        self.send_sse_headers()
-        try:
-            messages = list(body.get("messages") or [])
-            proxied_messages = messages
-
-            if body.get("web_search"):
-                latest_user = get_latest_user_message(messages)
-                queries = build_search_queries(latest_user)
-                all_results = []
-                fetched_pages = {}
-
-                for query in queries:
-                    write_sse(self.wfile, {"type": "web_status", "content": f"Searching: {query}"})
-                    search_response = web_search(query)
-                    if not search_response.get("ok"):
-                        write_sse(self.wfile, {"error": {"message": search_response.get("error", "Search unavailable")}})
-                        write_sse(self.wfile, "[DONE]")
-                        return
-                    for result in search_response.get("results", []):
-                        if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
-                            all_results.append(result)
-                        if len(all_results) >= WEB_SEARCH_MAX_RESULTS:
-                            break
-
-                for result in all_results[:WEB_SEARCH_FETCH_RESULTS]:
-                    url = result.get("url", "")
-                    host = urllib.parse.urlparse(url).hostname or url
-                    if host.startswith("www."):
-                        host = host[4:]
-                    write_sse(self.wfile, {"type": "web_status", "content": f"Reading: {host}"})
-                    fetched_pages[url] = fetch_page_text(url)
-
-                context, sources = build_search_context(all_results, fetched_pages)
-                if not context:
-                    write_sse(self.wfile, {"error": {"message": "Search returned no usable sources."}})
-                    write_sse(self.wfile, "[DONE]")
-                    return
-
-                write_sse(self.wfile, {"type": "web_sources", "sources": sources})
-                write_sse(self.wfile, {"type": "web_status", "content": "Answering..."})
-
-                proxied_messages = []
-                inserted_context = False
-                for msg in messages:
-                    if msg.get("role") == "system" and not inserted_context:
-                        proxied_messages.append(
-                            {
-                                "role": "system",
-                                "content": f"{msg.get('content', '').rstrip()}\n\n{context}".strip(),
-                            }
-                        )
-                        inserted_context = True
-                    else:
-                        proxied_messages.append(
-                            {
-                                "role": msg.get("role", "user"),
-                                "content": msg.get("content", ""),
-                            }
-                        )
-                if not inserted_context:
-                    proxied_messages.insert(0, {"role": "system", "content": context})
-
-            proxy_body = dict(body)
-            proxy_body["messages"] = proxied_messages
-            proxy_body["stream"] = True
-            proxy_body.pop("web_search", None)
-            proxy_body.pop("api_url", None)
-            proxy_body.pop("host", None)
-            proxy_body.pop("port", None)
-
-            api_url = get_local_chat_api_url(body)
-            req = urllib.request.Request(
-                api_url,
-                data=json.dumps(proxy_body).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=300) as resp:
-                while True:
-                    line = resp.readline()
-                    if not line:
-                        break
-                    self.wfile.write(line)
-                    self.wfile.flush()
-                    if line.strip() == b"data: [DONE]":
-                        break
-        except BrokenPipeError:
-            return
-        except urllib.error.HTTPError as exc:
-            try:
-                err = exc.read().decode("utf-8", errors="replace")
-            except Exception:
-                err = str(exc)
-            write_sse(self.wfile, {"error": {"message": f"llama-server returned HTTP {exc.code}: {err}"}})
-            write_sse(self.wfile, "[DONE]")
-        except Exception as exc:
-            write_sse(self.wfile, {"error": {"message": str(exc)}})
-            write_sse(self.wfile, "[DONE]")
-        finally:
-            self.close_connection = True
-
     def dispatch_api_request(self, method, parsed, body=None):
         path = parsed.path
         match = API_ROUTER.match(method, path)
@@ -2175,9 +1672,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def handle_get_download_progress(self, parsed, body=None, params=None):
         self.send_json(get_download_progress_snapshot())
 
-    def handle_get_hf_download_status(self, parsed, body=None, params=None):
-        self.send_json(get_model_download_snapshot())
-
     def handle_get_remote_tunnel_status(self, parsed, body=None, params=None):
         self.send_json(get_remote_tunnel_snapshot())
 
@@ -2186,12 +1680,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_json(get_app_update_status(fetch=True))
         except Exception as e:
             self.send_error_json(str(e), 500)
-
-    def handle_post_web_search(self, parsed, body=None, params=None):
-        self.handle_web_search_request(body)
-
-    def handle_post_chat_completions(self, parsed, body=None, params=None):
-        self.handle_chat_completions(body)
 
     def handle_post_remote_tunnel_start(self, parsed, body=None, params=None):
         try:
@@ -2203,36 +1691,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def handle_post_remote_tunnel_stop(self, parsed, body=None, params=None):
         self.send_json(stop_remote_tunnel())
-
-    def handle_post_hf_repo_files(self, parsed, body=None, params=None):
-        try:
-            repo_id = validate_hf_repo_id(body.get("repo_id"))
-            revision = validate_hf_revision(body.get("revision"))
-            token = normalize_hf_token(body.get("token"))
-            self.send_json(get_hf_gguf_files(repo_id, revision, token))
-        except Exception as e:
-            self.send_error_json(str(e), 400)
-
-    def handle_post_hf_download(self, parsed, body=None, params=None):
-        try:
-            result = start_hf_model_download(
-                repo_id=body.get("repo_id"),
-                revision=body.get("revision"),
-                model_file=body.get("model_file"),
-                mmproj_file=body.get("mmproj_file"),
-                token=normalize_hf_token(body.get("token")),
-                overwrite=bool(body.get("overwrite")),
-            )
-            self.send_json(result)
-        except FileExistsError as e:
-            self.send_error_json(str(e), 409, code="exists")
-        except Exception as e:
-            self.send_error_json(str(e), 400)
-
-    def handle_post_hf_download_cancel(self, parsed, body=None, params=None):
-        STATE.model_download_cancel.set()
-        set_model_download_state(status="cancelling", message="Cancelling download...")
-        self.send_json(get_model_download_snapshot())
 
     def handle_post_install(self, parsed, body=None, params=None):
         tag = body.get("tag")
@@ -2379,42 +1837,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except Exception as e:
             self.send_error_json(str(e), 500)
 
-    def handle_post_select_file(self, parsed, body=None, params=None):
-        purpose = str(body.get("purpose") or "").strip().lower()
-        title = str(body.get("title") or "Select File").strip() or "Select File"
-
-        initial_dir = MODELS_DIR if purpose in {
-            "model",
-            "model_draft",
-            "mmproj",
-            "model_vocoder",
-        } else BASE_DIR
-        initial_dir.mkdir(parents=True, exist_ok=True)
-
-        filetypes = [("All files", "*.*")]
-        if purpose in {"model", "model_draft", "mmproj", "model_vocoder"}:
-            filetypes = [
-                ("Model files", "*.gguf *.bin"),
-                ("GGUF files", "*.gguf"),
-                ("BIN files", "*.bin"),
-                ("All files", "*.*"),
-            ]
-
-        try:
-            selected_path = select_file_in_native_dialog(
-                title=title,
-                initial_dir=initial_dir,
-                filetypes=filetypes,
-            )
-            self.send_json(
-                {
-                    "selected": bool(selected_path),
-                    "path": selected_path,
-                }
-            )
-        except Exception as e:
-            self.send_error_json(str(e), 500)
-
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -2486,19 +1908,19 @@ API_ROUTER = (
     .add("GET", "/api/releases", "handle_get_releases")
     .add("GET", "/api/output", "handle_get_output")
     .add("GET", "/api/download-progress", "handle_get_download_progress")
-    .add("GET", "/api/hf/download-status", "handle_get_hf_download_status")
+    .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
     .add("GET", "/api/remote-tunnel/status", "handle_get_remote_tunnel_status")
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/models", models_routes.list_models)
     .add("GET", "/api/app-update-status", "handle_get_app_update_status")
     .add("GET", "/api/presets", presets_routes.list_presets)
-    .add("POST", "/api/web-search", "handle_post_web_search")
-    .add("POST", "/api/chat/completions", "handle_post_chat_completions")
+    .add("POST", "/api/web-search", search_routes.search)
+    .add("POST", "/api/chat/completions", chat_routes.completions)
     .add("POST", "/api/remote-tunnel/start", "handle_post_remote_tunnel_start")
     .add("POST", "/api/remote-tunnel/stop", "handle_post_remote_tunnel_stop")
-    .add("POST", "/api/hf/repo-files", "handle_post_hf_repo_files")
-    .add("POST", "/api/hf/download", "handle_post_hf_download")
-    .add("POST", "/api/hf/download-cancel", "handle_post_hf_download_cancel")
+    .add("POST", "/api/hf/repo-files", hf_download_routes.list_repo_files)
+    .add("POST", "/api/hf/download", hf_download_routes.start_download)
+    .add("POST", "/api/hf/download-cancel", hf_download_routes.cancel_download)
     .add("POST", "/api/install", "handle_post_install")
     .add("POST", "/api/update", "handle_post_update")
     .add("POST", "/api/launch", "handle_post_launch")
@@ -2510,7 +1932,7 @@ API_ROUTER = (
     .add("POST", "/api/send-input", "handle_post_send_input")
     .add("POST", "/api/presets", presets_routes.save_preset)
     .add("POST", "/api/open-folder", "handle_post_open_folder")
-    .add("POST", "/api/select-file", "handle_post_select_file")
+    .add("POST", "/api/select-file", file_picker_routes.select_file)
     .add_prefix("DELETE", "/api/presets/", presets_routes.delete_preset, "name")
 )
 

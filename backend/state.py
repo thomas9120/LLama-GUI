@@ -7,11 +7,11 @@ from typing import Any, Mapping, Optional
 from . import config
 
 
-def default_download_progress():
+def default_download_progress() -> dict[str, Any]:
     return {"total": 0, "downloaded": 0, "status": "idle", "message": ""}
 
 
-def default_model_download_state():
+def default_model_download_state() -> dict[str, Any]:
     return {
         "status": "idle",
         "message": "",
@@ -24,7 +24,7 @@ def default_model_download_state():
     }
 
 
-def default_remote_tunnel_state():
+def default_remote_tunnel_state() -> dict[str, Any]:
     return {
         "status": "idle",
         "url": "",
@@ -33,29 +33,33 @@ def default_remote_tunnel_state():
     }
 
 
-def default_llama_api_target():
+def default_llama_api_target() -> dict[str, Any]:
     return {"host": config.LLAMA_HOST, "port": config.LLAMA_PORT}
 
 
 class AtomicDict:
-    """Small lock-protected dict wrapper used for status snapshots."""
+    """Small lock-protected dict wrapper used for status snapshots.
 
-    def __init__(self, initial: Optional[Mapping[str, Any]] = None):
+    Mutating methods return a copied post-mutation snapshot so callers can use
+    the new state without holding the internal lock.
+    """
+
+    def __init__(self, initial: Optional[Mapping[str, Any]] = None) -> None:
         self._lock = threading.Lock()
         self._data = dict(initial or {})
 
-    def update(self, **updates):
+    def update(self, **updates: Any) -> dict[str, Any]:
         with self._lock:
             self._data.update(updates)
             return dict(self._data)
 
-    def replace(self, values: Mapping[str, Any]):
+    def replace(self, values: Mapping[str, Any]) -> dict[str, Any]:
         with self._lock:
             self._data.clear()
             self._data.update(values)
             return dict(self._data)
 
-    def snapshot(self):
+    def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return dict(self._data)
 

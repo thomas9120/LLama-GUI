@@ -1,6 +1,7 @@
 """HTTP adapter helpers for the stdlib server backend."""
 
 from dataclasses import dataclass, field
+from email.message import Message
 import json
 from typing import Any, Mapping, Optional, Sequence
 import urllib.parse
@@ -13,8 +14,8 @@ class Request:
     method: str
     path: str
     query: str
-    headers: Any
-    body: Any = None
+    headers: Message
+    body: Optional[Mapping[str, Any]] = None
     params: Mapping[str, str] = field(default_factory=dict)
 
 

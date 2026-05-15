@@ -26,9 +26,16 @@ class _Route:
 
 
 class Router:
+    """Registry for exact and prefix routes.
+
+    Prefix routes are checked in registration order after exact routes. When a
+    prefix route has a parameter name, the parameter receives the full raw path
+    suffix after the prefix; route handlers can decode or further validate it.
+    """
+
     def __init__(self) -> None:
         self._exact: Dict[Tuple[str, str], RouteMatch] = {}
-        self._prefixes = []
+        self._prefixes: list[_Route] = []
 
     def add(self, method: str, path: str, handler: Any) -> "Router":
         self._exact[(method.upper(), path)] = RouteMatch(handler, {})

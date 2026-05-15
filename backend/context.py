@@ -51,6 +51,8 @@ class BackendServices:
     is_process_running: Callable[[], bool] = _missing_service
     llama_tools: Sequence[str] = field(default_factory=tuple)
     load_config: Callable[[], Mapping[str, Any]] = _missing_service
+    ssl_context: Any = None
+    urlopen_with_ssl: Callable[..., Any] = _missing_service
 
 
 @dataclass

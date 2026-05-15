@@ -118,22 +118,22 @@ Exit criteria:
 
 Goal: extract feature modules that depend on optional packages, network calls, or streaming.
 
-- [ ] Create `backend/services/hf_download.py` and `backend/routes/hf_download.py`.
-- [ ] Preserve lazy imports for `huggingface_hub`.
-- [ ] Create `backend/services/web_search.py` and `backend/routes/search.py`.
-- [ ] Preserve lazy imports for `ddgs`.
-- [ ] Create `backend/routes/chat.py` using `SseWriter`.
-- [ ] Keep web-search context injection behavior unchanged.
-- [ ] Keep `/api/chat/completions` streaming OpenAI-compatible SSE unchanged.
-- [ ] Create `backend/services/file_picker.py`.
-- [ ] Preserve lazy imports for `tkinter`.
+- [x] Create `backend/services/hf_download.py` and `backend/routes/hf_download.py`.
+- [x] Preserve lazy imports for `huggingface_hub`.
+- [x] Create `backend/services/web_search.py` and `backend/routes/search.py`.
+- [x] Preserve lazy imports for `ddgs`.
+- [x] Create `backend/routes/chat.py` using `SseWriter`.
+- [x] Keep web-search context injection behavior unchanged.
+- [x] Keep `/api/chat/completions` streaming OpenAI-compatible SSE unchanged.
+- [x] Create `backend/services/file_picker.py`.
+- [x] Preserve lazy imports for `tkinter`.
 
 Exit criteria:
 
-- [ ] HF repo listing, download, status polling, duplicate-file handling, and cancellation still work.
-- [ ] Web search still returns results and page text.
-- [ ] Chat streaming still works with and without web search.
-- [ ] Backend startup still succeeds without optional dependencies installed.
+- [x] HF repo listing, download, status polling, duplicate-file handling, and cancellation still work.
+- [x] Web search still returns results and page text.
+- [x] Chat streaming still works with and without web search.
+- [x] Backend startup still succeeds without optional dependencies installed.
 
 ---
 
@@ -211,10 +211,11 @@ Exit criteria:
 ## Current Notes
 
 - Phase 0 completed with `tests/backend/test_server_baseline.py`; latest run: `python -m unittest discover -s tests` passed 19 tests.
-- Phase 1 completed. Runtime process, install/update, HF download, tunnel, output buffer, GUI server, and llama API target state now live under `APP_CONTEXT.state`; latest run: `python -m unittest discover -s tests` passed 26 tests.
-- Phase 2 completed. `backend/http.py` now owns response helpers, standardized API errors, CORS helpers, and SSE writing; latest run: `python -m unittest discover -s tests` passed 35 tests.
-- Phase 3 completed. `backend/routing.py` now owns route registration/lookup, API routes dispatch through `API_ROUTER`, and `/v1/*` proxy plus static UI handling remain outside API dispatch; latest run: `python -m unittest discover -s tests` passed 41 tests.
-- Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` now uses a typed `BackendServices` bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 47 tests.
+- Phase 1 completed. Runtime process, install/update, HF download, tunnel, output buffer, GUI server, and llama API target state now live under `APP_CONTEXT.state`. Follow-up review fixes documented the `AtomicDict` snapshot-return contract and added explicit state helper annotations; latest run: `python -m unittest discover -s tests` passed 54 tests.
+- Phase 2 completed. `backend/http.py` now owns response helpers, standardized API errors, CORS helpers, and SSE writing. Follow-up review fixes tightened `Request` header/body typing and added baseline test state isolation around singleton mutations; latest run: `python -m unittest discover -s tests` passed 54 tests.
+- Phase 3 completed. `backend/routing.py` now owns route registration/lookup, API routes dispatch through `API_ROUTER`, and `/v1/*` proxy plus static UI handling remain outside API dispatch. Follow-up review fixes added typed prefix storage, documented prefix matching semantics, and tests for router prefix contracts plus string/callable dispatch paths; latest run: `python -m unittest discover -s tests` passed 54 tests.
+- Phase 4 completed. Status, models, presets, and metrics route handlers now live under `backend/routes/` with `handler(request, response, ctx)` signatures; `APP_CONTEXT.services` now uses a typed `BackendServices` bridge for server-owned helpers until later service extraction. Latest run: `python -m unittest discover -s tests` passed 54 tests.
+- Phase 5 completed. Hugging Face validation, repo file listing, background model download, duplicate-file handling, status polling, and cancellation now live under `backend/services/hf_download.py` and `backend/routes/hf_download.py`. Web search/page fetching now live under `backend/services/web_search.py` and `backend/routes/search.py`; chat request shaping and streaming dispatch now live under `backend/services/chat.py` and `backend/routes/chat.py`. Native file selection now lives under `backend/services/file_picker.py` and `backend/routes/file_picker.py`. `server.py` keeps thin compatibility delegates for baseline tests and older internal references. Latest run: `python -m unittest discover -s tests` passed 63 tests.
 - The safest first implementation milestone is Phase 0 plus the non-invasive parts of Phase 1.
 - Avoid extracting process, install, tunnel, shutdown, or restart logic until the shared state/context and lifecycle abstractions are in place.
 - Keep route extraction incremental. One route group per commit is preferred.
