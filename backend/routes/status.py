@@ -1,5 +1,7 @@
 """Backend status API route."""
 
+from ..config import LLAMA_HOST, LLAMA_PORT
+
 
 def get_status(request, response, ctx):
     try:
@@ -21,6 +23,10 @@ def get_status(request, response, ctx):
         config_stale = has_config and not installed
         running = services.is_process_running()
         backend_specs = services.backend_specs
+        try:
+            api_target = dict(services.get_llama_api_target())
+        except Exception:
+            api_target = {"host": LLAMA_HOST, "port": LLAMA_PORT}
 
         response.json(
             {
@@ -35,6 +41,8 @@ def get_status(request, response, ctx):
                 "missing_runtime_files": runtime_health.get("missing_runtime_files", []),
                 "models_dir": str(ctx.paths.models),
                 "running": running,
+                "active_process_tool": ctx.state.active_process_tool,
+                "api_target": api_target,
                 "platform": services.current_platform,
                 "platform_label": services.get_platform_label(),
                 "arch": services.current_arch,

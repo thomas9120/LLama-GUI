@@ -1471,7 +1471,7 @@ function initQuickLaunch() {
     refreshQuickLaunchUI();
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     initTabs();
     initToolSelect();
     initConfigControls();
@@ -1483,7 +1483,6 @@ document.addEventListener("DOMContentLoaded", () => {
     initChatTab();
     renderFlags();
     refreshModels();
-    checkStatus();
     fetchReleases();
     updateCommandPreview();
     updateApiEndpoints();
@@ -1509,6 +1508,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (btnImportPreset) btnImportPreset.addEventListener("click", () => document.getElementById("preset-import").click());
 
     showToast("Llama GUI ready", "info");
+
+    const initStatus = await checkStatus();
+    if (initStatus && initStatus.running) {
+        restoreRunningState(initStatus);
+    }
 });
 
 function initTabs() {
@@ -2562,6 +2566,43 @@ function getLaunchArgs() {
     }
 
     return { args, error: null };
+}
+
+function restoreRunningState(status) {
+    if (!status || !status.running) return;
+
+    const tool = status.active_process_tool || "llama-server";
+    currentTool = tool;
+    const toolSelect = document.getElementById("tool-select");
+    if (toolSelect) toolSelect.value = tool;
+
+    if (status.api_target) {
+        if (status.api_target.host) setFlagValue("host", status.api_target.host);
+        if (status.api_target.port) setFlagValue("port", status.api_target.port);
+    }
+
+    document.getElementById("btn-launch").classList.add("hidden");
+    document.getElementById("btn-stop").classList.remove("hidden");
+    document.getElementById("output-section").classList.remove("hidden");
+    updateQuickLaunchActionButtons();
+
+    if (tool === "llama-cli") {
+        document.getElementById("input-row").classList.remove("hidden");
+    } else {
+        document.getElementById("input-row").classList.add("hidden");
+    }
+
+    appendOutput("--- Reconnected to running " + tool + " process ---");
+    startOutputPolling();
+
+    if (tool === "llama-server") {
+        updateServerAddressPreview();
+        updateQuickServerAddressPreview();
+        startStatsPolling();
+    }
+
+    updateApiEndpoints();
+    updateChatStatusBadge();
 }
 
 async function launchLlama() {
