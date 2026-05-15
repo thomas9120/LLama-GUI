@@ -143,9 +143,9 @@ Goal: move subprocess/threaded code after state ownership and adapters are stabl
 
 - [x] Create `backend/services/process_manager.py` and `backend/routes/process.py`.
 - [x] Move launch, stop, send-input, output polling, and process-running checks.
-- [ ] Create `backend/services/llama_manager.py`.
-- [ ] Move release selection, download, SHA256 verification, extraction, backend specs, and install/update operations.
-- [ ] Create `backend/routes/install.py`.
+- [x] Create `backend/services/llama_manager.py`.
+- [x] Move release selection, download, SHA256 verification, extraction, backend specs, and install/update operations.
+- [x] Create `backend/routes/install.py`.
 - [ ] Create `backend/services/tunnel.py` and `backend/routes/tunnel.py`.
 - [ ] Move Cloudflare download/start/stop/status logic.
 - [ ] Create `backend/services/git_update.py` and `backend/routes/git_update.py`.
@@ -155,7 +155,7 @@ Goal: move subprocess/threaded code after state ownership and adapters are stabl
 Exit criteria:
 
 - [ ] Launch/stop/send-input/output polling work for both `llama-server` and `llama-cli`.
-- [ ] Install and update still manage progress state and prevent concurrent installs.
+- [x] Install and update still manage progress state and prevent concurrent installs.
 - [ ] Tunnel start/stop/status still works and updates allowed CORS origins.
 - [ ] Shutdown and restart preserve cleanup order.
 - [ ] No high-risk service imports `server.py`.

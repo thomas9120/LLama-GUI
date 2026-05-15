@@ -75,10 +75,10 @@ Primary route groups:
 
 ### 6B: Install/update extraction
 
-- Create `backend/services/llama_manager.py`.
-- Create `backend/routes/install.py`.
-- Move release fetching, install progress, download, hash verification, extraction, and install/update route logic.
-- Verify install route error paths and progress snapshots.
+- [x] Create `backend/services/llama_manager.py`.
+- [x] Create `backend/routes/install.py`.
+- [x] Move release fetching, install progress, download, hash verification, extraction, and install/update route logic.
+- [x] Verify install route error paths and progress snapshots.
 
 ### 6C: Remote tunnel extraction
 
@@ -118,3 +118,15 @@ Primary route groups:
 - Removed dead process Handler methods that were no longer registered by `API_ROUTER`.
 - Added direct service tests for launch-argument flattening and launch API target parsing/fallback behavior.
 - 6A complete. Verification: `python -m unittest discover -s tests` passed 77 tests.
+
+### 2026-05-14 (cont.)
+
+- 6B install/update extraction.
+- Created `backend/services/llama_manager.py` and `backend/routes/install.py`.
+- Moved build_backend_specs, get_releases, get_release_by_tag, sha256_file, download_file, archive extraction (zip/tar), install_release, and download progress helpers behind the llama_manager service.
+- Registered `/api/releases`, `/api/download-progress`, `/api/install`, and `/api/update` as callable extracted routes.
+- Kept `server.py` compatibility delegates for all moved helpers.
+- Removed dead Handler methods: `handle_get_releases`, `handle_get_download_progress`, `handle_post_install`, `handle_post_update`.
+- Cleaned up unused imports (`zipfile`, `hashlib`, `tempfile`) from `server.py`.
+- Added route tests for releases listing, download progress snapshot, install validation (missing tag/backend, unknown backend, process-running guard, in-progress guard), update validation (nothing-installed, process-running guard), and already-latest detection.
+- Verification: `python -m unittest discover -s tests` passed 87 tests.

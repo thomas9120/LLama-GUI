@@ -10,8 +10,9 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import chat, file_picker, hf_download, metrics, models, presets, process, search, status
+from backend.routes import chat, file_picker, hf_download, install, metrics, models, presets, process, search, status
 from backend.services import chat as chat_service
+from backend.services import llama_manager
 from backend.services import process_manager
 from backend.services import web_search
 
@@ -641,6 +642,250 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(kwargs["initial_dir"], ctx.paths.models)
             self.assertEqual(kwargs["filetypes"][0], ("Model files", "*.gguf *.bin"))
             self.assertEqual(response.payload, {"selected": True, "path": str(ctx.paths.models / "model.gguf")})
+
+
+class InstallRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ctx = make_context(self.tmp.name)
+        self.ctx.paths.models.mkdir(parents=True)
+        self.ctx.services.backend_specs = {
+            "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-ubuntu-x64.tar.gz"},
+        }
+        self.ctx.services.load_config = lambda: {"tag": "b1", "backend": "cpu"}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_route_threads_immediately(self):
+        class ImmediateThread:
+            instances = []
+
+            def __init__(self, target, args=(), daemon=None):
+                self.target = target
+                self.args = args
+                self.daemon = daemon
+                ImmediateThread.instances.append(self)
+
+            def start(self):
+                self.target(*self.args)
+
+        return ImmediateThread
+
+    def test_install_get_releases_returns_list(self):
+        fake_releases = [
+            {
+                "tag_name": "b1",
+                "name": "b1 release",
+                "published_at": "2024-01-01T00:00:00Z",
+                "assets": [{"name": "asset1.zip"}],
+            }
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=fake_releases):
+            install.get_releases(
+                Request("GET", "/api/releases", "", {}), response, self.ctx
+            )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(len(response.payload), 1)
+        self.assertEqual(response.payload[0]["tag"], "b1")
+
+    def test_install_get_releases_error_returns_500(self):
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager, "get_releases", side_effect=RuntimeError("API down")
+        ):
+            install.get_releases(
+                Request("GET", "/api/releases", "", {}), response, self.ctx
+            )
+        self.assertEqual(response.status, 500)
+        self.assertIn("API down", response.payload["error"])
+
+    def test_install_get_download_progress_returns_snapshot(self):
+        self.ctx.state.download_progress.update(status="downloading", downloaded=50, total=100)
+        response = DummyResponse()
+        install.get_download_progress(
+            Request("GET", "/api/download-progress", "", {}), response, self.ctx
+        )
+        self.assertEqual(response.payload["status"], "downloading")
+        self.assertEqual(response.payload["downloaded"], 50)
+        self.assertEqual(response.payload["total"], 100)
+
+    def test_install_validates_tag_and_backend_required(self):
+        response = DummyResponse()
+        for body in ({}, {"tag": "b1"}, {"backend": "cpu"}):
+            with self.subTest(body=body):
+                response = DummyResponse()
+                install.start_install(
+                    Request("POST", "/api/install", "", {}, body=body),
+                    response,
+                    self.ctx,
+                )
+                self.assertEqual(response.status, 400)
+                self.assertIn("tag and backend required", response.payload["error"])
+
+    def test_install_validates_backend(self):
+        response = DummyResponse()
+        install.start_install(
+            Request(
+                "POST",
+                "/api/install",
+                "",
+                {},
+                body={"tag": "b1", "backend": "nonexistent"},
+            ),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("Unsupported backend", response.payload["error"])
+
+    def test_install_blocks_when_process_running(self):
+        class FakeProcess:
+            def poll(self):
+                return None
+
+        self.ctx.state.process = FakeProcess()
+        response = DummyResponse()
+        install.start_install(
+            Request(
+                "POST",
+                "/api/install",
+                "",
+                {},
+                body={"tag": "b1", "backend": "cpu"},
+            ),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("Stop running process first", response.payload["error"])
+
+    def test_install_blocks_when_already_in_progress(self):
+        with self.ctx.state.install_lock:
+            self.ctx.state.install_in_progress = True
+        response = DummyResponse()
+        install.start_install(
+            Request(
+                "POST",
+                "/api/install",
+                "",
+                {},
+                body={"tag": "b1", "backend": "cpu"},
+            ),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 409)
+        self.assertIn("Installation already in progress", response.payload["error"])
+
+    def test_install_starts_worker_and_clears_in_progress(self):
+        response = DummyResponse()
+        immediate_thread = self.run_route_threads_immediately()
+
+        with (
+            mock.patch.object(install.threading, "Thread", immediate_thread),
+            mock.patch.object(
+                llama_manager, "install_release", return_value=True
+            ) as install_release,
+        ):
+            install.start_install(
+                Request(
+                    "POST",
+                    "/api/install",
+                    "",
+                    {},
+                    body={"tag": "b2", "backend": "cpu"},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload, {"status": "started"})
+        self.assertFalse(self.ctx.state.install_in_progress)
+        self.assertTrue(immediate_thread.instances[0].daemon)
+        install_release.assert_called_once_with(
+            self.ctx, "b2", "cpu", self.ctx.services.backend_specs
+        )
+
+    def test_update_validates_nothing_installed(self):
+        self.ctx.services.load_config = lambda: {}
+        response = DummyResponse()
+        install.start_update(
+            Request("POST", "/api/update", "", {}, body={}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("Nothing installed", response.payload["error"])
+
+    def test_update_blocks_when_process_running(self):
+        class FakeProcess:
+            def poll(self):
+                return None
+
+        self.ctx.state.process = FakeProcess()
+        response = DummyResponse()
+        install.start_update(
+            Request("POST", "/api/update", "", {}, body={}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("Stop running process first", response.payload["error"])
+
+    def test_update_returns_already_latest(self):
+        fake_releases = [
+            {
+                "tag_name": "b1",
+                "name": "b1 release",
+                "published_at": "2024-01-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=fake_releases):
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "already_latest")
+
+    def test_update_starts_worker_for_newer_release_and_clears_in_progress(self):
+        fake_releases = [
+            {
+                "tag_name": "b2",
+                "name": "b2 release",
+                "published_at": "2024-02-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+        response = DummyResponse()
+        immediate_thread = self.run_route_threads_immediately()
+
+        with (
+            mock.patch.object(install.threading, "Thread", immediate_thread),
+            mock.patch.object(llama_manager, "get_releases", return_value=fake_releases),
+            mock.patch.object(
+                llama_manager, "install_release", return_value=True
+            ) as install_release,
+        ):
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload, {"status": "started", "from": "b1", "to": "b2"})
+        self.assertFalse(self.ctx.state.install_in_progress)
+        self.assertTrue(immediate_thread.instances[0].daemon)
+        install_release.assert_called_once_with(
+            self.ctx, "b2", "cpu", self.ctx.services.backend_specs
+        )
 
 
 if __name__ == "__main__":

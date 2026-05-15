@@ -8,9 +8,7 @@ import subprocess
 import sys
 import signal
 import threading
-import zipfile
 import tarfile
-import hashlib
 import shutil
 import urllib.request
 import urllib.parse
@@ -18,7 +16,6 @@ import urllib.error
 import re
 import time
 import pathlib
-import tempfile
 import ipaddress
 
 from backend.config import (
@@ -26,7 +23,6 @@ from backend.config import (
     APP_REPO_URL,
     CLOUDFLARED_DIR,
     CONFIG_FILE,
-    GITHUB_API,
     GUI_HOST,
     GUI_PORT,
     LLAMA_BIN_DIR,
@@ -69,12 +65,14 @@ from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
 from backend.routes import models as models_routes
 from backend.routes import presets as presets_routes
+from backend.routes import install as install_routes
 from backend.routes import process as process_routes
 from backend.routes import search as search_routes
 from backend.routes import status as status_routes
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
+from backend.services import llama_manager as llama_manager_service
 from backend.services import process_manager as process_service
 from backend.services import web_search as web_search_service
 
@@ -127,101 +125,7 @@ def get_platform_label():
 
 
 def build_backend_specs():
-    if CURRENT_PLATFORM == "win32":
-        if CURRENT_ARCH == "arm64":
-            return {
-                "cpu": {
-                    "label": "CPU",
-                    "asset": "llama-{tag}-bin-win-cpu-arm64.zip",
-                },
-                "opencl-adreno": {
-                    "label": "OpenCL (Adreno)",
-                    "asset": "llama-{tag}-bin-win-opencl-adreno-arm64.zip",
-                },
-            }
-        return {
-            "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-win-cpu-x64.zip"},
-            "cuda-12.4": {
-                "label": "CUDA 12.4 (NVIDIA)",
-                "asset": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
-                "extra_assets": ["cudart-llama-bin-win-cuda-12.4-x64.zip"],
-            },
-            "cuda-13.1": {
-                "label": "CUDA 13.1 (NVIDIA)",
-                "asset": "llama-{tag}-bin-win-cuda-13.1-x64.zip",
-                "extra_assets": ["cudart-llama-bin-win-cuda-13.1-x64.zip"],
-            },
-            "vulkan": {
-                "label": "Vulkan",
-                "asset": "llama-{tag}-bin-win-vulkan-x64.zip",
-            },
-            "sycl": {
-                "label": "SYCL (Intel)",
-                "asset": "llama-{tag}-bin-win-sycl-x64.zip",
-            },
-            "hip": {
-                "label": "HIP (AMD Radeon)",
-                "asset": "llama-{tag}-bin-win-hip-radeon-x64.zip",
-            },
-        }
-
-    if CURRENT_PLATFORM == "darwin":
-        if CURRENT_ARCH == "arm64":
-            return {
-                "metal": {
-                    "label": "Metal (Apple Silicon)",
-                    "asset": "llama-{tag}-bin-macos-arm64.tar.gz",
-                },
-                "metal-kleidiai": {
-                    "label": "Metal + KleidiAI (Apple Silicon)",
-                    "asset": "llama-{tag}-bin-macos-arm64-kleidiai.tar.gz",
-                },
-            }
-        if CURRENT_ARCH == "x64":
-            return {
-                "cpu": {
-                    "label": "CPU (Intel Mac)",
-                    "asset": "llama-{tag}-bin-macos-x64.tar.gz",
-                }
-            }
-        return {}
-
-    if CURRENT_PLATFORM.startswith("linux"):
-        if CURRENT_ARCH == "x64":
-            return {
-                "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-ubuntu-x64.tar.gz"},
-                "vulkan": {
-                    "label": "Vulkan",
-                    "asset": "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz",
-                },
-                "rocm": {
-                    "label": "ROCm 7.2 (AMD)",
-                    "asset": "llama-{tag}-bin-ubuntu-rocm-7.2-x64.tar.gz",
-                },
-                "openvino": {
-                    "label": "OpenVINO",
-                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.0-x64.tar.gz",
-                },
-            }
-        if CURRENT_ARCH == "arm64":
-            return {
-                "cpu": {
-                    "label": "CPU",
-                    "asset": "llama-{tag}-bin-ubuntu-arm64.tar.gz",
-                },
-                "vulkan": {
-                    "label": "Vulkan",
-                    "asset": "llama-{tag}-bin-ubuntu-vulkan-arm64.tar.gz",
-                },
-            }
-        if CURRENT_ARCH == "s390x":
-            return {
-                "cpu": {
-                    "label": "CPU",
-                    "asset": "llama-{tag}-bin-ubuntu-s390x.tar.gz",
-                }
-            }
-    return {}
+    return llama_manager_service.build_backend_specs(CURRENT_PLATFORM, CURRENT_ARCH)
 
 
 BACKEND_SPECS = build_backend_specs()
@@ -252,19 +156,11 @@ def save_config(cfg):
 
 
 def get_releases():
-    req = urllib.request.Request(
-        GITHUB_API, headers={"Accept": "application/vnd.github+json"}
-    )
-    with urlopen_with_ssl(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    return llama_manager_service.get_releases(APP_CONTEXT)
 
 
 def get_release_by_tag(tag):
-    req = urllib.request.Request(
-        f"{GITHUB_API}/tags/{tag}", headers={"Accept": "application/vnd.github+json"}
-    )
-    with urlopen_with_ssl(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    return llama_manager_service.get_release_by_tag(APP_CONTEXT, tag)
 
 
 LLAMA_TOOLS = [
@@ -312,20 +208,7 @@ APP_CONTEXT.services.urlopen_with_ssl = urlopen_with_ssl
 
 
 def download_file(url, dest, progress_cb=None):
-    req = urllib.request.Request(url)
-    with urlopen_with_ssl(req, timeout=60) as resp:
-        total = int(resp.headers.get("Content-Length", 0))
-        downloaded = 0
-        with open(dest, "wb") as f:
-            while True:
-                chunk = resp.read(65536)
-                if not chunk:
-                    break
-                f.write(chunk)
-                downloaded += len(chunk)
-                if progress_cb:
-                    progress_cb(downloaded, total)
-    return downloaded
+    return llama_manager_service.download_file(APP_CONTEXT, url, dest, progress_cb)
 
 
 def get_cloudflared_asset():
@@ -584,30 +467,19 @@ def stop_remote_tunnel():
 
 
 def sha256_file(filepath):
-    h = hashlib.sha256()
-    with open(filepath, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+    return llama_manager_service.sha256_file(filepath)
 
 
 def set_download_progress(**updates):
-    STATE.download_progress.update(**updates)
+    llama_manager_service.set_download_progress(APP_CONTEXT, **updates)
 
 
 def reset_download_progress(status="idle", message="", total=0, downloaded=0):
-    STATE.download_progress.replace(
-        {
-            "total": total,
-            "downloaded": downloaded,
-            "status": status,
-            "message": message,
-        }
-    )
+    llama_manager_service.reset_download_progress(APP_CONTEXT, status, message, total, downloaded)
 
 
 def get_download_progress_snapshot():
-    return STATE.download_progress.snapshot()
+    return llama_manager_service.get_download_progress_snapshot(APP_CONTEXT)
 
 
 def reset_model_download_state(status="idle", message="", total=0, downloaded=0):
@@ -705,169 +577,21 @@ def start_hf_model_download(repo_id, revision, model_file, mmproj_file, token, o
 
 
 def extract_zip_file_flat(zf, info, dest_dir):
-    if info.is_dir():
-        return
-
-    fname = pathlib.Path(info.filename).name
-    if not fname:
-        return
-
-    out_path = pathlib.Path(dest_dir) / fname
-    with zf.open(info, "r") as src, open(out_path, "wb") as dst:
-        shutil.copyfileobj(src, dst)
+    return llama_manager_service.extract_zip_file_flat(zf, info, dest_dir)
 
 
 def extract_tar_member_flat(tf, member, dest_dir):
-    fname = pathlib.Path(member.name).name
-    if not fname:
-        return
-
-    out_path = pathlib.Path(dest_dir) / fname
-
-    if member.issym():
-        target_name = pathlib.Path(member.linkname).name
-        if not target_name:
-            return
-        try:
-            if out_path.exists() or out_path.is_symlink():
-                out_path.unlink()
-            out_path.symlink_to(target_name)
-        except OSError:
-            pass
-        return
-
-    if member.islnk():
-        target_name = pathlib.Path(member.linkname).name
-        if not target_name:
-            return
-        target_path = pathlib.Path(dest_dir) / target_name
-        if not target_path.exists():
-            return
-        try:
-            if out_path.exists() or out_path.is_symlink():
-                out_path.unlink()
-            os.link(target_path, out_path)
-        except OSError:
-            pass
-        return
-
-    if not member.isfile():
-        return
-
-    src = tf.extractfile(member)
-    if src is None:
-        return
-    with src, open(out_path, "wb") as dst:
-        shutil.copyfileobj(src, dst)
-    if member.mode:
-        os.chmod(out_path, member.mode)
+    return llama_manager_service.extract_tar_member_flat(tf, member, dest_dir)
 
 
 def extract_archive_flat(archive_path):
-    lower_name = archive_path.name.lower()
-    if lower_name.endswith(".zip"):
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            for info in zf.infolist():
-                fname = pathlib.Path(info.filename).name
-                if not fname:
-                    continue
-                lower = fname.lower()
-                if lower.endswith((".gbnf", ".json")):
-                    extract_zip_file_flat(zf, info, LLAMA_GRAMMARS_DIR)
-                else:
-                    extract_zip_file_flat(zf, info, LLAMA_BIN_DIR)
-        return
-
-    if lower_name.endswith((".tar.gz", ".tgz")):
-        with tarfile.open(archive_path, "r:gz") as tf:
-            for member in tf.getmembers():
-                fname = pathlib.Path(member.name).name
-                if not fname:
-                    continue
-                lower = fname.lower()
-                if lower.endswith((".gbnf", ".json")):
-                    extract_tar_member_flat(tf, member, LLAMA_GRAMMARS_DIR)
-                else:
-                    extract_tar_member_flat(tf, member, LLAMA_BIN_DIR)
-        return
-
-    raise ValueError(f"Unsupported archive format: {archive_path.name}")
+    return llama_manager_service.extract_archive_flat(
+        archive_path, LLAMA_BIN_DIR, LLAMA_GRAMMARS_DIR
+    )
 
 
 def install_release(tag, backend):
-    reset_download_progress(status="downloading", message=f"Fetching release {tag}...")
-
-    try:
-        release = get_release_by_tag(tag)
-    except Exception:
-        releases = get_releases()
-        release = next((r for r in releases if r["tag_name"] == tag), None)
-        if not release:
-            set_download_progress(status="error", message=f"Release {tag} not found")
-            return False
-
-    asset_map = {a["name"]: a for a in release["assets"]}
-
-    def progress_cb(downloaded, total):
-        set_download_progress(downloaded=downloaded, total=total)
-
-    backend_spec = BACKEND_SPECS[backend]
-    bin_filename = backend_spec["asset"].format(tag=tag)
-    if bin_filename not in asset_map:
-        set_download_progress(
-            status="error", message=f"Asset {bin_filename} not found in release {tag}"
-        )
-        return False
-
-    bin_url = asset_map[bin_filename]["browser_download_url"]
-    expected_sha = asset_map[bin_filename].get("sha256", None)
-
-    tmpdir = tempfile.mkdtemp(prefix="llama_install_")
-    try:
-        bin_archive = pathlib.Path(tmpdir) / bin_filename
-        set_download_progress(message=f"Downloading {bin_filename}...")
-        download_file(bin_url, bin_archive, progress_cb)
-
-        if expected_sha:
-            actual_sha = sha256_file(bin_archive)
-            if actual_sha != expected_sha:
-                set_download_progress(
-                    status="error", message=f"SHA256 mismatch for {bin_filename}"
-                )
-                return False
-
-        extra_archives = []
-        for extra_filename in backend_spec.get("extra_assets", []):
-            if extra_filename not in asset_map:
-                continue
-            extra_url = asset_map[extra_filename]["browser_download_url"]
-            extra_archive = pathlib.Path(tmpdir) / extra_filename
-            set_download_progress(message=f"Downloading {extra_filename}...")
-            download_file(extra_url, extra_archive, progress_cb)
-            extra_archives.append(extra_archive)
-
-        set_download_progress(status="extracting", message="Extracting binaries...")
-
-        for d in [LLAMA_BIN_DIR, LLAMA_GRAMMARS_DIR]:
-            if d.exists():
-                shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)
-
-        extract_archive_flat(bin_archive)
-        for extra_archive in extra_archives:
-            extract_archive_flat(extra_archive)
-
-        save_config(
-            {"version": release.get("name", tag), "backend": backend, "tag": tag}
-        )
-        set_download_progress(status="done", message=f"Installed {tag} ({backend})")
-        return True
-
-    except Exception as e:
-        set_download_progress(status="error", message=str(e))
-        return False
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+    return llama_manager_service.install_release(APP_CONTEXT, tag, backend, BACKEND_SPECS)
 
 
 def stream_output(pipe, is_stderr=False):
@@ -1529,26 +1253,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         )
         match.handler(request, Response(self), APP_CONTEXT)
 
-    def handle_get_releases(self, parsed, body=None, params=None):
-        try:
-            releases = get_releases()
-            result = []
-            for r in releases[:20]:
-                result.append(
-                    {
-                        "tag": r["tag_name"],
-                        "name": r.get("name", r["tag_name"]),
-                        "published": r["published_at"],
-                        "assets": [a["name"] for a in r["assets"]],
-                    }
-                )
-            self.send_json(result)
-        except Exception as e:
-            self.send_error_json(str(e), 500)
-
-    def handle_get_download_progress(self, parsed, body=None, params=None):
-        self.send_json(get_download_progress_snapshot())
-
     def handle_get_remote_tunnel_status(self, parsed, body=None, params=None):
         self.send_json(get_remote_tunnel_snapshot())
 
@@ -1568,79 +1272,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def handle_post_remote_tunnel_stop(self, parsed, body=None, params=None):
         self.send_json(stop_remote_tunnel())
-
-    def handle_post_install(self, parsed, body=None, params=None):
-        tag = body.get("tag")
-        backend = body.get("backend")
-        if not tag or not backend:
-            self.send_error_json("tag and backend required", 400)
-            return
-        if backend not in BACKEND_SPECS:
-            self.send_error_json(f"Unsupported backend: {backend}", 400)
-            return
-        if is_process_running():
-            self.send_error_json("Stop running process first", 400)
-            return
-        with STATE.install_lock:
-            if STATE.install_in_progress:
-                self.send_error_json("Installation already in progress", 409)
-                return
-            STATE.install_in_progress = True
-
-        def _install(tag, backend):
-            try:
-                install_release(tag, backend)
-            finally:
-                with STATE.install_lock:
-                    STATE.install_in_progress = False
-
-        threading.Thread(
-            target=_install, args=(tag, backend), daemon=True
-        ).start()
-        self.send_json({"status": "started"})
-
-    def handle_post_update(self, parsed, body=None, params=None):
-        cfg = load_config()
-        tag = cfg.get("tag")
-        backend = cfg.get("backend")
-        if not tag or not backend:
-            self.send_error_json("Nothing installed to update", 400)
-            return
-        if backend not in BACKEND_SPECS:
-            self.send_error_json(f"Unsupported configured backend: {backend}", 400)
-            return
-        if is_process_running():
-            self.send_error_json("Stop running process first", 400)
-            return
-        with STATE.install_lock:
-            if STATE.install_in_progress:
-                self.send_error_json("Installation already in progress", 409)
-                return
-            STATE.install_in_progress = True
-        try:
-            releases = get_releases()
-            latest = releases[0]["tag_name"] if releases else None
-            if latest and latest != tag:
-
-                def _update(latest_tag, backend_name):
-                    try:
-                        install_release(latest_tag, backend_name)
-                    finally:
-                        with STATE.install_lock:
-                            STATE.install_in_progress = False
-
-                threading.Thread(
-                    target=_update, args=(latest, backend), daemon=True
-                ).start()
-                self.send_json({"status": "started", "from": tag, "to": latest})
-            else:
-                with STATE.install_lock:
-                    STATE.install_in_progress = False
-                self.send_json({"status": "already_latest"})
-        except Exception as e:
-            with STATE.install_lock:
-                STATE.install_in_progress = False
-            self.send_error_json(str(e), 500)
 
     def handle_post_shutdown(self, parsed, body=None, params=None):
         shutting_down = shutdown_gui_server()
@@ -1743,9 +1374,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 API_ROUTER = (
     Router()
     .add("GET", "/api/status", status_routes.get_status)
-    .add("GET", "/api/releases", "handle_get_releases")
+    .add("GET", "/api/releases", install_routes.get_releases)
     .add("GET", "/api/output", process_routes.get_output)
-    .add("GET", "/api/download-progress", "handle_get_download_progress")
+    .add("GET", "/api/download-progress", install_routes.get_download_progress)
     .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
     .add("GET", "/api/remote-tunnel/status", "handle_get_remote_tunnel_status")
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
@@ -1759,8 +1390,8 @@ API_ROUTER = (
     .add("POST", "/api/hf/repo-files", hf_download_routes.list_repo_files)
     .add("POST", "/api/hf/download", hf_download_routes.start_download)
     .add("POST", "/api/hf/download-cancel", hf_download_routes.cancel_download)
-    .add("POST", "/api/install", "handle_post_install")
-    .add("POST", "/api/update", "handle_post_update")
+    .add("POST", "/api/install", install_routes.start_install)
+    .add("POST", "/api/update", install_routes.start_update)
     .add("POST", "/api/launch", process_routes.launch)
     .add("POST", "/api/stop", process_routes.stop)
     .add("POST", "/api/shutdown", "handle_post_shutdown")
