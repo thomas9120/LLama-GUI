@@ -53,6 +53,14 @@ Supported prebuilt backends vary by platform:
 - macOS: Apple Silicon (`Metal`, optional `KleidiAI`) and Intel CPU builds
 - Linux: CPU, Vulkan, ROCm, OpenVINO (depends on architecture)
 
+## Running Tests
+
+```bash
+python -m unittest discover tests -v
+```
+
+Tests run automatically on every push and pull request via GitHub Actions (Ubuntu, Windows, macOS with Python 3.9 and 3.12).
+
 ## Quick Start
 
 1. Install Python dependencies into the local virtual environment:
