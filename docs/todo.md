@@ -1,127 +1,203 @@
 # TODO
 
-## Code Review Checklist
+This backlog is ordered by implementation value. Prefer finishing the early safety and shared-state items before large refactors; the app's most important invariant is that Configure, Quick Launch, Chat, presets, and command preview all read from the same `flagCore` state.
 
-### Architecture
+## Phase 1 - Safety and Correctness Fixes
 
-- [ ] **Decompose `app.js` (3,190 lines)** into focused feature modules (chat, quick-launch, hf-download, tunnel, stats, output-polling, toast, conversation-history).
-- [ ] **Split `backend/app.py` (819 lines)** into separate handler, service wiring, and proxy modules. Extract metrics host validation, port parsing, and arch normalization out of the Handler class.
-- [ ] **Wrap `flags.js` in an IIFE** with a namespaced export (e.g. `window.LlamaGui.flags`) to match the encapsulation pattern used by `flag-core.js` and `config-flags-ui.js`.
-- [ ] **Remove direct `FLAGS` global reference** in `config-flags-ui.js:580` and route it through the dependency injection pattern used everywhere else in that module.
+- [x] **Fix toast HTML injection in `showToast()`**
+  - Replace the `toast.innerHTML` message interpolation in `ui/js/app.js` with DOM construction.
+  - Keep the icon markup static, then append the user-facing message with `textContent`.
+  - Add or update a frontend test that calls `showToast("<img onerror=...>")` and verifies the text is displayed as text, not parsed as HTML.
 
-### Security
+- [x] **Validate search source chip URLs before assigning `href`**
+  - Add a small helper such as `getSafeExternalUrl(url)` in `ui/js/app.js`.
+  - Accept only `http:` and `https:` URLs.
+  - For invalid, empty, or unsupported schemes, render a non-link source chip or use `"#"` without opening a new page.
+  - Cover `javascript:`, `data:`, protocol-relative, invalid URL strings, and normal HTTPS URLs.
 
-- [ ] **Escape `message` in `showToast()`** (`app.js:2282`) — `toast.innerHTML` interpolates `message` without escaping. Switch to `textContent` or run through `escapeHtml()`.
-- [ ] **Validate URL scheme on search source chips** (`app.js:2583`) — `chip.href = source.url` should reject `javascript:` and other dangerous schemes before assignment.
-- [ ] **Add direct unit tests for `get_local_proxy_host()`** (`backend/services/chat.py`) — the SSRF gate for metrics/chat proxy has only indirect coverage.
-- [ ] **Escape single quotes in `escapeHtml()`** (`app.js:2299`) — currently only escapes `&`, `<`, `>`, `"`. Add `'` → `&#39;` for defense in depth.
-- [ ] **Replace `innerHTML` interpolation in `config-flags-ui.js:168-172`** with `textContent`/`createElement` for category headers to eliminate a latent XSS vector.
+- [x] **Replace category-header `innerHTML` in `config-flags-ui.js`**
+  - Build the arrow, heading, and count elements with `document.createElement()`.
+  - Assign `group.name` and `countText` with `textContent`.
+  - This is low-risk because category names are local today, but it removes a latent XSS pattern before more dynamic metadata is added.
 
-### Code Quality — Duplication
+- [x] **Harden `escapeHtml()`**
+  - Add `'` -> `&#39;` escaping in `ui/js/app.js`.
+  - Keep this as defense in depth; do not treat it as a substitute for avoiding unsafe `innerHTML`.
 
-- [ ] **Extract shared sampler preset dropdown helper** — `createSamplerPresetControls()` and `refreshQuickSamplerPresetSelect()` duplicate ~40 lines each populating sampler preset `<select>` elements.
-- [ ] **Extract shared sampler save/delete logic** — Configure tab and Quick Launch tab have near-identical save and delete handler code.
-- [ ] **Consolidate host/port extraction** — The same 3–4 line pattern appears at 5 locations in `app.js`. Route all through the existing `getServerBaseUrl()` helper.
-- [ ] **Extract `resetServerUI()` function** — The 8-line server-not-running UI cleanup block is copy-pasted at 4 locations.
-- [ ] **Share KV cache type enum options** in `flags.js` — The same 9-option list is duplicated 4 times for `cache_type_k`, `cache_type_v`, `draft_cache_type_k`, `draft_cache_type_v`.
+- [x] **Add direct SSRF-gate tests for `get_local_proxy_host()`**
+  - Add focused tests for `backend/services/chat.py`.
+  - Cover allowed local hosts, rejected public hosts, malformed hosts, IPv6 local forms if supported, and port parsing behavior where relevant.
+  - Keep these tests direct, not only through route/proxy tests.
 
-### Code Quality — Error Handling
+## Phase 2 - Shared State and Flag Correctness
 
-- [ ] **Reduce silent error swallowing in `app.js`** — 19 try/catch blocks all swallow errors. At minimum, log unexpected errors to the console instead of silently discarding them.
-- [ ] **Add `isNaN` guard after `parseInt`/`parseFloat`** in `config-flags-ui.js` numeric input handlers — `parseInt("abc")` stores `NaN` as the flag value.
-- [ ] **Narrow `except Exception` in `llama_manager.py:install_release()`** — Distinguish network errors from disk errors to give users actionable messages.
-- [ ] **Add warning for invalid tool values** in `getFlagsForTool()` (`flags.js`) — silently returns `[]` for invalid tools including `undefined`.
+- [ ] **Remove direct global `FLAGS` usage from `config-flags-ui.js`**
+  - Route `restoreFlagInputs()` through the existing dependency/configuration pattern instead of referencing `FLAGS` directly.
+  - Reuse the same `getFlags()` source used by rendering and filtering.
+  - Verify Configure controls still restore correctly after preset load, Quick Launch edits, and tool switches.
 
-### Code Quality — Other
+- [ ] **Guard numeric flag parsing against `NaN`**
+  - In numeric input handlers, check `Number.isNaN()` after `parseInt()` / `parseFloat()`.
+  - Empty input should clear the flag with `undefined`.
+  - Invalid non-empty input should not write `NaN` into `flagCore`; show the browser's normal invalid state or a small inline validation state.
+  - Confirm command preview never receives `NaN`.
 
-- [ ] **Validate `gpu_layers` numeric input** — Defined as `type: "text"` in `flags.js` to support `"auto"`/`"all"`, but custom numeric values pass with no validation.
-- [ ] **Rename colliding category/flag IDs** in `flags.js` — `"conversation"`, `"lora"`, and `"grammar"` exist in both `FLAG_CATEGORIES` and `FLAGS`, creating a maintenance hazard.
-- [ ] **Extract magic numbers into named constants** — debounce `200`ms, poll intervals `300`/`3000`ms, toast duration `4300`ms, etc.
+- [ ] **Validate custom `gpu_layers` values**
+  - Keep `gpu_layers` text-compatible because Quick Launch supports `auto`, `all`, and custom values.
+  - Accept `auto`, `all`, `0`, and integer strings.
+  - Reject or block launch-preview update for values like `abc`, `1.5`, whitespace-only strings, and negative values unless upstream explicitly supports them.
+  - Route Quick Launch and Configure edits through the same validation path so mirrored controls cannot disagree.
 
-### Testing — Frontend
+- [ ] **Share KV cache enum options in `flags.js`**
+  - Define one constant for the cache type options.
+  - Reuse it for `cache_type_k`, `cache_type_v`, `draft_cache_type_k`, and `draft_cache_type_v`.
+  - Confirm option labels/values remain unchanged in the UI.
 
-- [ ] **Add `flag-core.js` unit tests** — cover `setFlagValue`/`setMultipleFlagValues` for all data types, `getLaunchArgs()` for bool/int/float/text/enum/multi_enum, `false_flag` handling, inert-default filtering, and tool switching.
-- [ ] **Add `flags.js` validation tests** — verify flag IDs, types, categories, defaults, enum options, CLI flag names, and chat template preset structure.
-- [ ] **Add `presets.js` tests** — cover save, load, delete, export, import, group-by-model rendering, and search.
-- [ ] **Add `config-flags-ui.js` tests** — cover search/filtering, expand/collapse state, type-specific input builders, and input restoration.
-- [ ] **Add `manager.js` tests** — cover `fetchJson()`, release fetching, installation progress UI, and app update flow.
-- [ ] **Add `flag-validation.js` tests** — cover duplicate ID detection, invalid category/type/enum checks, and CLI flag collision detection.
-- [ ] **Add `app.js` feature tests** — cover tab switching, conversation history CRUD, markdown rendering, Quick Launch profiles, and toast lifecycle.
-- [ ] **Split `flag_sync_smoke.cjs` into named test cases** — current single `main()` function makes diagnosing failures harder.
+- [ ] **Warn on invalid tool values in `getFlagsForTool()`**
+  - Keep the current safe behavior of returning `[]`.
+  - Add a `console.warn()` for unexpected tool values, including `undefined`, to make integration mistakes visible during development.
 
-### Testing — Backend
+- [ ] **Resolve category/flag ID collisions deliberately**
+  - Audit the collisions for `conversation`, `lora`, and `grammar`.
+  - Prefer renaming category IDs only if they are not persisted or externally referenced.
+  - If renaming would break saved state or tests, leave the IDs and add validation warnings/documentation instead of forcing churn.
 
-- [ ] **Test `download_file()` and archive extraction** — `download_file()`, `extract_zip_file_flat()`, `extract_tar_member_flat()`, `extract_archive_flat()` have no test coverage.
-- [ ] **Test `install_release()` end-to-end** — the full install workflow (download, hash verify, extract, config save) is untested.
-- [ ] **Test `stream_output()` and `_build_process_env()`** — output buffering/trimming and PATH/LD_LIBRARY_PATH/DYLD setup are untested.
-- [ ] **Test `stop_process()` and `launch_process()` happy path** — only the missing-runtime error path is currently tested.
-- [ ] **Test `_start_remote_tunnel_worker()`** — tunnel URL regex, stderr parsing, and error state transitions are untested.
-- [ ] **Test `download_hf_file()` chunked download** — cancellation via `model_download_cancel` event and partial file cleanup are untested.
-- [ ] **Test concurrent state mutation** — verify `install_in_progress` and `model_download_in_progress` locks prevent race conditions under concurrent requests.
-- [ ] **Split `test_extracted_routes.py`** (~1,826 lines, 101 tests) into per-route or per-service test files.
+## Phase 3 - Test Foundations
 
----
+- [ ] **Add `flag-core.js` unit tests first**
+  - Cover `setFlagValue()`, `setMultipleFlagValues()`, `applyFlagValues()`, `collectFlagValues()`, and tool switching.
+  - Cover `getLaunchArgs()` for `bool`, `false_flag`, `int`, `float`, `text`, `enum`, `multi_enum`, inert-default filtering, unsupported chat templates, speculative flag omission, and model path validation.
+  - These tests should be pure JS and not require a browser when possible.
 
-## Custom Launch Args Input
+- [ ] **Add `flags.js` validation tests**
+  - Verify unique flag IDs, valid categories/tools/types, enum option shape, default value shape, duplicate CLI flags, and chat-template preset structure.
+  - Reuse or expose logic from `flag-validation.js` instead of duplicating validation rules in tests.
 
-Goal: add an advanced Configure-tab input where users can enter raw llama.cpp flags that are not yet represented in `ui/js/flags.js`. These args should be appended to the generated launch arguments so Llama GUI can temporarily support new or renamed upstream flags without waiting for a full UI flag-definition update.
+- [ ] **Split `tests/frontend/flag_sync_smoke.cjs` into named cases**
+  - Preserve the current coverage, but split the single `main()` flow into named scenarios.
+  - Keep serving `ui/` as the web root.
+  - Make failures point to the broken mirrored-control contract: Quick Launch -> Configure, Configure -> Quick Launch, Chat -> shared sampler state, and launch args.
 
-### Intended Behavior
+- [ ] **Add targeted frontend feature tests after the flag-core base exists**
+  - `config-flags-ui.js`: search/filtering, expand/collapse state, type-specific input builders, input restoration.
+  - `presets.js`: save, load, update, delete, export, import, group-by-model rendering, warnings, search.
+  - `manager.js`: `fetchJson()`, release fetching, installation progress UI, app update status.
+  - `app.js`: tab switching, conversation history CRUD, markdown rendering, Quick Launch profiles, toast lifecycle, source-chip URL safety.
 
-- Add a `Custom Launch Args` textarea to the Configure tab near the command preview.
-- Treat the value as shared launch state, not as a per-tab scratch field.
-- Save and load the value with presets by storing it in the preset `flags` object under a reserved key such as `custom_args`.
-- Include the value in preset import/export without requiring a new preset schema version.
-- Update command preview immediately when the textarea changes.
-- Include parsed custom args in `flagCore.getLaunchArgs()`.
-- Show a clear warning that custom args may conflict with configured UI flags and should only be used when the user understands the llama.cpp option they are adding.
+- [ ] **Add backend service tests around side-effect-heavy paths**
+  - `download_file()` and archive extraction: success, checksum failure, traversal attempts, flat extraction behavior.
+  - `install_release()`: mocked download/hash/extract/config save, plus network vs disk error messages.
+  - `stream_output()` and `_build_process_env()`: output trimming and platform-specific path environment.
+  - `launch_process()` / `stop_process()`: happy path, already-running path, missing-runtime path, graceful termination.
+  - Remote tunnel worker: URL regex, stderr parsing, stopped state, error state.
+  - HF download: chunked progress, cancellation event, partial file cleanup, overwrite behavior.
+  - Concurrent state mutation: install and model-download locks reject duplicate starts.
 
-### Implementation Plan
+- [ ] **Split `test_extracted_routes.py` when touching those routes**
+  - Do this opportunistically, not as a standalone churn task.
+  - Group by route family or service boundary so failures are easier to navigate.
 
-1. Add shared state support in `ui/js/flag-core.js`.
-   - Keep the raw textarea value in `flagValues.custom_args`.
-   - Let existing `setFlagValue()`, `collectFlagValues()`, and `applyFlagValues()` handle it naturally.
-   - Do not add `custom_args` to `FLAGS`, because it is not a real llama.cpp flag definition.
+## Phase 4 - Custom Launch Args
 
-2. Add a parser for custom args.
-   - Parse shell-like tokens instead of splitting on spaces.
-   - Support quoted values so JSON-style args can work, for example:
-     `--chat-template-kwargs '{"preserve_thinking":true}'`
-   - Return a structured error for unmatched quotes or malformed escapes.
-   - Keep the parser frontend-only unless backend launch handling later needs the same logic.
+Goal: add an advanced Configure-tab textarea for raw `llama.cpp` flags that are not yet represented in `ui/js/flags.js`. This lets Llama GUI temporarily support new or renamed upstream flags without waiting for a full typed UI update.
 
-3. Append custom args during launch argument generation.
-   - In `getLaunchArgs()`, generate normal known flags first.
-   - Parse `flagValues.custom_args`.
-   - If parsing fails, return the existing launch args plus an error message so command preview and launch can block safely.
-   - Append parsed custom args after known UI-generated flags.
-   - Keep model arg handling unchanged unless testing proves llama.cpp requires custom args after `-m`.
+### Behavior
 
-4. Render the Configure-tab control in `ui/js/config-flags-ui.js` or directly in `ui/index.html`.
-   - Prefer a simple static textarea in `ui/index.html` near the command preview.
-   - Wire its `input` event to `window.LlamaGui.flagCore.setFlagValue("custom_args", value || undefined)`.
-   - Add a refresh path so loading presets updates the textarea.
-   - Display parser errors close to the textarea and in command-preview status when possible.
+- [ ] Add a `Custom Launch Args` textarea near the Configure command preview.
+- [ ] Treat the value as shared launch state in `flagCore`, not as a per-tab scratch field.
+- [ ] Store the raw value in preset `flags` under reserved key `custom_args`.
+- [ ] Preserve `custom_args` through preset save, update, load, import, and export without a schema version bump.
+- [ ] Update command preview immediately as the textarea changes.
+- [ ] Parse shell-like tokens, including quoted values such as `--chat-template-kwargs '{"preserve_thinking":true}'`.
+- [ ] Show an advanced-use warning that custom args may conflict with UI controls and may enable risky `llama.cpp` features.
+- [ ] If parsing fails, show the parser error near the textarea and block launch with a clear command-preview status.
 
-5. Preserve existing preset behavior in `ui/js/presets.js`.
-   - No schema change should be required because preset flags already preserve unknown keys.
-   - Confirm save, update, load, import, and export keep `custom_args`.
-   - If preset warnings are expanded later, consider warning when a preset includes custom args.
+### Implementation
 
-6. Add verification coverage.
-   - Extend `tests/frontend/flag_sync_smoke.cjs` to enter custom args and confirm:
-     - command preview includes the parsed args
-     - `flagCore.getLaunchArgs().args` includes the parsed tokens
-     - `flagCore.collectFlagValues().custom_args` preserves the raw text
-     - loading/applying preset-shaped state restores the textarea
-   - Add a parser-error smoke case for unmatched quotes.
+1. **Extend `ui/js/flag-core.js`**
+   - Keep `flagValues.custom_args` as the raw textarea string.
+   - Let existing `setFlagValue()`, `collectFlagValues()`, and `applyFlagValues()` preserve it naturally.
+   - Do not add `custom_args` to `FLAGS`; it is not a real upstream flag definition.
+   - Update `getLaunchArgs()` to return `{ args, error, warnings }`, keeping `warnings` optional for existing callers.
+
+2. **Add a frontend parser**
+   - Implement a pure helper such as `parseCustomLaunchArgs(raw)`.
+   - Support whitespace splitting, single quotes, double quotes, and escaped characters inside double quotes.
+   - Return `{ tokens }` on success or `{ error }` for unmatched quotes / malformed escapes.
+   - Keep the parser frontend-only unless backend launch handling later needs the same exact parser.
+
+3. **Append custom args deterministically**
+   - Generate known UI flags first.
+   - Parse and append custom tokens second.
+   - Append the model argument last: `-m models/<selected model>`.
+   - This lets advanced users override or supplement UI flags while keeping model placement predictable.
+   - If duplicate known flags are detected in custom args, allow them but add a warning in the command-preview UI.
+
+4. **Render and sync the textarea**
+   - Prefer a static block in `ui/index.html` near the command preview.
+   - Wire `input` to `window.LlamaGui.flagCore.setFlagValue("custom_args", value || undefined)`.
+   - Add a refresh hook so `applyFlagValues()` and preset loads update the textarea.
+   - Keep this Configure-only for now; do not add a Quick Launch duplicate unless there is a strong reason.
+
+5. **Preserve preset behavior**
+   - Confirm `presets.js` already preserves unknown flag keys.
+   - Add a preset warning when `custom_args` is present, similar to unsupported chat-template warnings.
+   - Do not change the preset wire shape unless a test proves unknown keys are being dropped.
+
+6. **Verify**
+   - Add unit tests for parser success and failure cases.
+   - Extend frontend smoke coverage to enter custom args and verify command preview, `flagCore.getLaunchArgs().args`, and `flagCore.collectFlagValues().custom_args`.
+   - Add a smoke case where a preset-shaped `applyFlagValues({ custom_args: "..." })` restores the textarea.
    - Run `node --check` on touched frontend scripts.
-   - Run the Playwright smoke test from the repo root with the existing `NODE_PATH` setup.
+   - Run `tests/frontend/flag_sync_smoke.cjs` when Playwright is available.
 
-### Open Design Notes
+## Phase 5 - Refactors After Coverage
 
-- Default persistence: save custom args with presets.
-- Recommended placement: Configure tab only, near command preview.
-- Recommended append order: after known UI flags and before the model arg, unless runtime testing shows llama.cpp expects otherwise.
-- Security posture: this should not execute shell commands by itself, but it can enable dangerous llama.cpp flags such as tool execution, so the UI should label it as advanced.
-- Future cleanup: once a custom arg becomes common or stable upstream, move it into `ui/js/flags.js` as a normal typed control.
+- [ ] **Extract sampler preset UI helpers**
+  - Share the dropdown population logic used by Configure and Quick Launch.
+  - Share save/delete/export/import handler pieces where the behavior is identical.
+  - Keep both tabs writing through `applySamplerPresetValues()` and `flagCore.setMultipleFlagValues()`.
+
+- [ ] **Consolidate host/port extraction in `app.js`**
+  - Route repeated host/port parsing through `getServerBaseUrl()` or one helper that returns `{ host, port, baseUrl }`.
+  - Keep local-host validation on the backend; frontend cleanup is for consistency and fewer parsing bugs.
+
+- [ ] **Extract `resetServerUI()`**
+  - Centralize the repeated server-not-running cleanup block.
+  - Include terminal/status text, quick launch status, server URL visibility, stats state, and disabled/enabled button states.
+  - Avoid changing behavior while extracting.
+
+- [ ] **Reduce silent error swallowing**
+  - Replace empty `catch` blocks with `console.debug()` for expected optional failures and `console.warn()` for unexpected failures.
+  - Do not spam the console for polling races or clipboard permission denials.
+  - Add comments only where an ignored failure is intentional.
+
+- [ ] **Extract magic numbers into named constants**
+  - Start with values that are repeated or user-visible: debounce delay, poll intervals, toast duration, animation delay.
+  - Keep constants close to the module using them unless a value is shared across modules.
+
+- [ ] **Wrap `flags.js` in a namespace**
+  - Move exported data under `window.LlamaGui.flags`.
+  - Maintain backward-compatible globals temporarily if needed for existing scripts/tests.
+  - Update consumers gradually to avoid a broad, fragile change.
+
+- [ ] **Decompose `app.js` feature-by-feature**
+  - Start only after the relevant tests exist.
+  - Suggested order: toast/utilities, sampler presets, HF download, remote tunnel, stats/output polling, conversation history, chat, Quick Launch.
+  - Each extraction should preserve script loading from `ui/index.html` and avoid changing the `python server.py` entrypoint.
+
+- [ ] **Re-check backend split target before acting**
+  - The old note references `backend/app.py`, but the current repo has behavior split between `server.py` and `backend/services/*`.
+  - Before planning a split, map current route registration, service modules, and compatibility with the Pinokio launcher.
+  - Prefer incremental service extraction over moving the server entrypoint.
+
+## Ongoing llama.cpp Compatibility Work
+
+- [ ] **Before adding or changing any flag in `flags.js`, verify upstream**
+  - Check official `llama.cpp` docs and/or `llama-server --help`.
+  - Confirm flag names, short aliases, value types, defaults, enum values, and deprecations.
+  - Update tests and `flag_report.md` when the local UI intentionally differs from upstream defaults.
+
+- [ ] **Move common Custom Launch Args into typed controls**
+  - If users repeatedly need the same raw custom arg, add it to `ui/js/flags.js` as a normal typed flag.
+  - Remove or reduce any docs that recommend raw args once a typed control exists.

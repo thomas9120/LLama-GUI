@@ -376,6 +376,74 @@ class GetLatestUserMessageTests(unittest.TestCase):
         self.assertEqual(chat_service.get_latest_user_message(messages), "")
 
 
+class GetLocalProxyHostTests(unittest.TestCase):
+    def test_defaults_empty_host_to_configured_llama_host(self):
+        result, error = chat_service.get_local_proxy_host("")
+
+        self.assertEqual(result, "127.0.0.1")
+        self.assertEqual(error, "")
+
+    def test_maps_wildcard_hosts_to_configured_llama_host(self):
+        for host in ["localhost", "0.0.0.0", "::", "*"]:
+            with self.subTest(host=host):
+                result, error = chat_service.get_local_proxy_host(host)
+
+                self.assertEqual(result, "127.0.0.1")
+                self.assertEqual(error, "")
+
+    def test_allows_loopback_address(self):
+        with mock.patch.object(
+            chat_service.socket,
+            "getaddrinfo",
+            return_value=[(None, None, None, None, ("127.0.0.1", 0))],
+        ):
+            result, error = chat_service.get_local_proxy_host("127.0.0.1")
+
+        self.assertEqual(result, "127.0.0.1")
+        self.assertEqual(error, "")
+
+    def test_allows_known_local_interface_address(self):
+        with mock.patch.object(
+            chat_service.socket,
+            "getaddrinfo",
+            return_value=[(None, None, None, None, ("192.168.1.25", 0))],
+        ), mock.patch.object(
+            chat_service,
+            "get_local_interface_addresses",
+            return_value=frozenset({"192.168.1.25"}),
+        ):
+            result, error = chat_service.get_local_proxy_host("my-hostname")
+
+        self.assertEqual(result, "my-hostname")
+        self.assertEqual(error, "")
+
+    def test_rejects_public_address(self):
+        with mock.patch.object(
+            chat_service.socket,
+            "getaddrinfo",
+            return_value=[(None, None, None, None, ("93.184.216.34", 0))],
+        ), mock.patch.object(
+            chat_service,
+            "get_local_interface_addresses",
+            return_value=frozenset({"127.0.0.1"}),
+        ):
+            result, error = chat_service.get_local_proxy_host("example.com")
+
+        self.assertEqual(result, "")
+        self.assertEqual(error, "Blocked: metrics proxy can only target this machine.")
+
+    def test_rejects_malformed_host(self):
+        with mock.patch.object(
+            chat_service.socket,
+            "getaddrinfo",
+            side_effect=OSError("bad host"),
+        ):
+            result, error = chat_service.get_local_proxy_host("not a host")
+
+        self.assertEqual(result, "")
+        self.assertIn("Invalid llama-server metrics host:", error)
+
+
 class BuildSearchQueriesTests(unittest.TestCase):
     def test_normal_text_returns_single_query(self):
         result = chat_service.build_search_queries("What is Python?")

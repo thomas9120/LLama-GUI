@@ -165,11 +165,21 @@
             const countText = visibleFlags.length === group.flags.length
                 ? String(group.flags.length)
                 : `${visibleFlags.length}/${group.flags.length}`;
-            header.innerHTML = `
-                <span class="arrow">&#x25B6;</span>
-                <h3>${group.name}</h3>
-                <span class="count">${countText}</span>
-            `;
+
+            const arrow = document.createElement("span");
+            arrow.className = "arrow";
+            arrow.textContent = "\u25B6";
+
+            const title = document.createElement("h3");
+            title.textContent = group.name;
+
+            const count = document.createElement("span");
+            count.className = "count";
+            count.textContent = countText;
+
+            header.appendChild(arrow);
+            header.appendChild(title);
+            header.appendChild(count);
 
             const body = document.createElement("div");
             body.className = "accordion-body";

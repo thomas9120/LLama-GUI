@@ -145,6 +145,42 @@ async function main() {
 
         assert.equal(await page.locator("#chat-slider-temp").getAttribute("step"), "0.01");
 
+        const toastSecurity = await page.evaluate(() => {
+            showToast('<img src=x onerror="window.__toastXss = true">', "info");
+            const toast = document.querySelector("#toast-container .toast:last-child");
+            return {
+                text: toast?.textContent || "",
+                parsedImageCount: toast?.querySelectorAll("img").length || 0,
+                xssFlag: Boolean(window.__toastXss),
+            };
+        });
+        assert.match(toastSecurity.text, /<img src=x/);
+        assert.equal(toastSecurity.parsedImageCount, 0);
+        assert.equal(toastSecurity.xssFlag, false);
+
+        const sourceSecurity = await page.evaluate(() => {
+            const wrap = document.createElement("div");
+            wrap.className = "chat-message-content";
+            const bubble = document.createElement("div");
+            bubble.className = "chat-bubble";
+            wrap.appendChild(bubble);
+            document.body.appendChild(wrap);
+            renderChatSources(bubble, [
+                { index: 1, title: "Unsafe", url: "javascript:alert(1)" },
+                { index: 2, title: "Safe", url: "https://example.com/path" },
+            ]);
+            const chips = Array.from(wrap.querySelectorAll(".chat-source-chip"));
+            return chips.map((chip) => ({
+                tag: chip.tagName,
+                href: chip.getAttribute("href"),
+                text: chip.textContent,
+            }));
+        });
+        assert.equal(sourceSecurity[0].tag, "SPAN");
+        assert.equal(sourceSecurity[0].href, null);
+        assert.equal(sourceSecurity[1].tag, "A");
+        assert.equal(sourceSecurity[1].href, "https://example.com/path");
+
         await page.selectOption("#quick-context-preset", "custom");
         await page.fill("#quick-context-custom", "12345");
         await page.dispatchEvent("#quick-context-custom", "input");

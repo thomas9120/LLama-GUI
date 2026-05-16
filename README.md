@@ -38,6 +38,7 @@ Llama GUI provides a browser UI to:
 - [Troubleshooting](#troubleshooting)
 - [Security Notes](#security-notes)
 - [Cross-Platform Notes](#cross-platform-notes)
+- [Running Tests](#running-tests)
 
 ## Requirements
 
@@ -50,14 +51,6 @@ Supported prebuilt backends vary by platform:
 - Windows: CPU, CUDA, Vulkan, SYCL, HIP
 - macOS: Apple Silicon (`Metal`, optional `KleidiAI`) and Intel CPU builds
 - Linux: CPU, Vulkan, ROCm, OpenVINO (depends on architecture)
-
-## Running Tests
-
-```bash
-python -m unittest discover tests -v
-```
-
-Tests run automatically on every push and pull request via GitHub Actions (Ubuntu, Windows, macOS with Python 3.9 and 3.12).
 
 ## Quick Start
 
@@ -518,3 +511,11 @@ Fix:
 - The installer detects the current OS and CPU architecture, then only offers matching prebuilt `llama.cpp` backends.
 - Windows keeps the existing `.exe` flow.
 - macOS and Linux installs use upstream `.tar.gz` releases and launch native executables without Windows-only assumptions.
+
+## Running Tests
+
+```bash
+python -m unittest discover tests -v
+```
+
+Tests run automatically on every push and pull request via GitHub Actions (Ubuntu, Windows, macOS with Python 3.9 and 3.12).

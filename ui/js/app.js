@@ -2277,14 +2277,18 @@ function showToast(message, type) {
     if (!container) return;
     const toast = document.createElement("div");
     toast.className = "toast toast-" + (type || "info");
-    const iconNames = { success: "check-circle", error: "alert-circle", info: "info" };
-    const iconName = iconNames[type] || "info";
-    toast.innerHTML = '<span class="icon icon-sm toast-icon"><svg viewBox="0 0 24 24">' +
+    const icon = document.createElement("span");
+    icon.className = "icon icon-sm toast-icon";
+    icon.innerHTML = '<svg viewBox="0 0 24 24">' +
         (type === "success" ? '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>' +
             '<polyline points="22 4 12 14.01 9 11.01"/>' :
             type === "error" ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' :
                 '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>') +
-        '</svg></span><span>' + message + '</span>';
+        '</svg>';
+    const text = document.createElement("span");
+    text.textContent = String(message || "");
+    toast.appendChild(icon);
+    toast.appendChild(text);
     container.appendChild(toast);
     setTimeout(() => {
         toast.style.opacity = "0";
@@ -2301,7 +2305,8 @@ function escapeHtml(text) {
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
 }
 
 function processBlocks(text) {
@@ -2578,11 +2583,14 @@ function renderChatSources(bubble, sources) {
     sourceWrap.className = "chat-sources";
 
     for (const source of sources) {
-        const chip = document.createElement("a");
+        const safeUrl = getSafeExternalUrl(source.url);
+        const chip = document.createElement(safeUrl ? "a" : "span");
         chip.className = "chat-source-chip";
-        chip.href = source.url || "#";
-        chip.target = "_blank";
-        chip.rel = "noopener noreferrer";
+        if (safeUrl) {
+            chip.href = safeUrl;
+            chip.target = "_blank";
+            chip.rel = "noopener noreferrer";
+        }
         const title = source.title || source.url || "Source";
         chip.title = source.url || title;
         chip.textContent = `[${source.index || sourceWrap.children.length + 1}] ${title}`;
@@ -2590,6 +2598,15 @@ function renderChatSources(bubble, sources) {
     }
 
     wrap.appendChild(sourceWrap);
+}
+
+function getSafeExternalUrl(url) {
+    try {
+        const parsed = new URL(String(url || ""));
+        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+    } catch {
+        return "";
+    }
 }
 
 function renderChatTypingIndicator() {
