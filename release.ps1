@@ -56,6 +56,7 @@ $items = @(
     "LICENSE",
     "requirements.txt",
     "server.py",
+    "backend",
     "install.sh",
     "mac_linux_start.sh",
     "mac_linux_silent_start.sh",

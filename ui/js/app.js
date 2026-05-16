@@ -12,6 +12,7 @@ let lastOutputLen = 0;
 let statsTimer = null;
 let pollOutputActive = false;
 let pollStatsActive = false;
+let serverReadyNotified = false;
 let remoteTunnelTimer = null;
 let hfDownloadTimer = null;
 let selectedChatTemplatePresetValue = "";
@@ -221,81 +222,104 @@ const API_SNIPPETS = [
     {
         name: "cURL (Chat Completions)",
         language: "bash",
-        build: (baseUrl, modelName) => [
-            "curl -X POST \"" + baseUrl + "/v1/chat/completions\" \\",
-            "  -H \"Content-Type: application/json\" \\",
-            "  -H \"Authorization: Bearer YOUR_API_KEY\" \\",
-            "  -d '{",
-            "    \"model\": \"" + modelName + "\",",
-            "    \"messages\": [",
-            "      {\"role\": \"user\", \"content\": \"Write a short hello from llama.cpp\"}",
-            "    ]",
-            "  }'",
-        ].join("\n"),
+        build: (baseUrl, modelName, hasApiKey) => {
+            const lines = [
+                "curl -X POST \"" + baseUrl + "/v1/chat/completions\" \\",
+                "  -H \"Content-Type: application/json\" \\",
+            ];
+            if (hasApiKey) lines.push("  -H \"Authorization: Bearer YOUR_API_KEY\" \\");
+            lines.push("  -d '{");
+            lines.push("    \"model\": \"" + modelName + "\",");
+            lines.push("    \"messages\": [");
+            lines.push("      {\"role\": \"user\", \"content\": \"Write a short hello from llama.cpp\"}");
+            lines.push("    ]");
+            lines.push("  }'");
+            return lines.join("\n");
+        },
     },
     {
         name: "Python (OpenAI SDK)",
         language: "python",
-        build: (baseUrl, modelName) => [
-            "from openai import OpenAI",
-            "",
-            "client = OpenAI(",
-            "    base_url=\"" + baseUrl + "/v1\",",
-            "    api_key=\"YOUR_API_KEY\",",
-            ")",
-            "",
-            "resp = client.chat.completions.create(",
-            "    model=\"" + modelName + "\",",
-            "    messages=[",
-            "        {\"role\": \"user\", \"content\": \"Explain KV cache in one sentence.\"}",
-            "    ],",
-            ")",
-            "",
-            "print(resp.choices[0].message.content)",
-        ].join("\n"),
+        build: (baseUrl, modelName, hasApiKey) => {
+            const lines = [
+                "from openai import OpenAI",
+                "",
+                "client = OpenAI(",
+                "    base_url=\"" + baseUrl + "/v1\",",
+            ];
+            if (hasApiKey) {
+                lines.push("    api_key=\"YOUR_API_KEY\",");
+            } else {
+                lines.push("    api_key=\"no-key-needed\",");
+            }
+            lines.push(")");
+            lines.push("");
+            lines.push("resp = client.chat.completions.create(");
+            lines.push("    model=\"" + modelName + "\",");
+            lines.push("    messages=[");
+            lines.push("        {\"role\": \"user\", \"content\": \"Explain KV cache in one sentence.\"}");
+            lines.push("    ],");
+            lines.push(")");
+            lines.push("");
+            lines.push("print(resp.choices[0].message.content)");
+            return lines.join("\n");
+        },
     },
     {
         name: "JavaScript (fetch)",
         language: "javascript",
-        build: (baseUrl, modelName) => [
-            "const response = await fetch(\"" + baseUrl + "/v1/chat/completions\", {",
-            "  method: \"POST\",",
-            "  headers: {",
-            "    \"Content-Type\": \"application/json\",",
-            "    \"Authorization\": \"Bearer YOUR_API_KEY\"",
-            "  },",
-            "  body: JSON.stringify({",
-            "    model: \"" + modelName + "\",",
-            "    messages: [",
-            "      { role: \"user\", content: \"Give me 3 bullet points about GGUF.\" }",
-            "    ]",
-            "  })",
-            "});",
-            "",
-            "const data = await response.json();",
-            "console.log(data.choices?.[0]?.message?.content);",
-        ].join("\n"),
+        build: (baseUrl, modelName, hasApiKey) => {
+            const headers = [
+                "    \"Content-Type\": \"application/json\",",
+            ];
+            if (hasApiKey) headers.push("    \"Authorization\": \"Bearer YOUR_API_KEY\"");
+            const lines = [
+                "const response = await fetch(\"" + baseUrl + "/v1/chat/completions\", {",
+                "  method: \"POST\",",
+                "  headers: {",
+            ];
+            lines.push(...headers);
+            lines.push("  },");
+            lines.push("  body: JSON.stringify({");
+            lines.push("    model: \"" + modelName + "\",");
+            lines.push("    messages: [");
+            lines.push("      { role: \"user\", content: \"Give me 3 bullet points about GGUF.\" }");
+            lines.push("    ]");
+            lines.push("  })");
+            lines.push("});");
+            lines.push("");
+            lines.push("const data = await response.json();");
+            lines.push("console.log(data.choices?.[0]?.message?.content);");
+            return lines.join("\n");
+        },
     },
     {
         name: "JavaScript (OpenAI SDK)",
         language: "javascript",
-        build: (baseUrl, modelName) => [
-            "import OpenAI from \"openai\";",
-            "",
-            "const client = new OpenAI({",
-            "  baseURL: \"" + baseUrl + "/v1\",",
-            "  apiKey: \"YOUR_API_KEY\"",
-            "});",
-            "",
-            "const resp = await client.chat.completions.create({",
-            "  model: \"" + modelName + "\",",
-            "  messages: [",
-            "    { role: \"user\", content: \"Summarize llama.cpp in 2 lines.\" }",
-            "  ]",
-            "});",
-            "",
-            "console.log(resp.choices[0].message.content);",
-        ].join("\n"),
+        build: (baseUrl, modelName, hasApiKey) => {
+            const lines = [
+                "import OpenAI from \"openai\";",
+                "",
+                "const client = new OpenAI({",
+                "  baseURL: \"" + baseUrl + "/v1\",",
+            ];
+            if (hasApiKey) {
+                lines.push("  apiKey: \"YOUR_API_KEY\"");
+            } else {
+                lines.push("  apiKey: \"no-key-needed\"");
+            }
+            lines.push("});");
+            lines.push("");
+            lines.push("const resp = await client.chat.completions.create({");
+            lines.push("  model: \"" + modelName + "\",");
+            lines.push("  messages: [");
+            lines.push("    { role: \"user\", content: \"Summarize llama.cpp in 2 lines.\" }");
+            lines.push("  ]");
+            lines.push("});");
+            lines.push("");
+            lines.push("console.log(resp.choices[0].message.content);");
+            return lines.join("\n");
+        },
     },
 ];
 
@@ -1890,7 +1914,7 @@ function updateApiEndpoints() {
         copyBtn.textContent = "Copy";
 
         const code = document.createElement("code");
-        code.textContent = snippet.build(baseUrl, modelName);
+        code.textContent = snippet.build(baseUrl, modelName, hasApiKey);
 
         copyBtn.addEventListener("click", () => copyText(code.textContent || ""));
 
@@ -2064,6 +2088,7 @@ async function stopLlama() {
 
 function startOutputPolling() {
     lastOutputLen = 0;
+    serverReadyNotified = false;
     if (outputTimer) clearInterval(outputTimer);
     outputTimer = setInterval(pollOutput, 300);
 }
@@ -2162,6 +2187,10 @@ async function pollOutput() {
             const newLines = data.output.slice(lastOutputLen);
             for (const line of newLines) {
                 appendOutput(line);
+                if (!serverReadyNotified && /HTTP server listening/i.test(line)) {
+                    serverReadyNotified = true;
+                    showToast("Server is ready!", "success");
+                }
             }
             lastOutputLen = data.output.length;
         }
@@ -2275,6 +2304,131 @@ function escapeHtml(text) {
         .replace(/"/g, "&quot;");
 }
 
+function processBlocks(text) {
+    const lines = text.split("\n");
+    const blocks = [];
+    let i = 0;
+
+    function applyInline(s) {
+        s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+        s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
+        s = s.replace(/(?<!\w)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\w)/g, "<em>$1</em>");
+        s = s.replace(/(?<!\w)_([^\s_](?:[^_]*?[^\s_])?)_(?!\w)/g, "<em>$1</em>");
+        s = s.replace(/~~(.+?)~~/g, "<del>$1</del>");
+        s = s.replace(/`([^`\n]+?)`/g, "<code>$1</code>");
+        return s;
+    }
+
+    while (i < lines.length) {
+        const line = lines[i];
+
+        // Horizontal rule
+        if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+            blocks.push("<hr>");
+            i++;
+            continue;
+        }
+
+        // Headings
+        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
+        if (headingMatch) {
+            const level = headingMatch[1].length;
+            blocks.push(`<h${level}>${applyInline(headingMatch[2])}</h${level}>`);
+            i++;
+            continue;
+        }
+
+        // Blockquote
+        if (/^&gt;\s?/.test(line)) {
+            const quoteLines = [];
+            while (i < lines.length && /^&gt;\s?/.test(lines[i])) {
+                quoteLines.push(lines[i].replace(/^&gt;\s?/, ""));
+                i++;
+            }
+            const inner = applyInline(quoteLines.join("\n"));
+            blocks.push(`<blockquote><p>${inner.replace(/\n/g, "<br>")}</p></blockquote>`);
+            continue;
+        }
+
+        // Table
+        if (line.includes("|") && i + 1 < lines.length && /^\|?\s*:?-{3,}/.test(lines[i + 1])) {
+            const tableLines = [];
+            while (i < lines.length && lines[i].includes("|")) {
+                tableLines.push(lines[i]);
+                i++;
+            }
+            if (tableLines.length >= 2) {
+                const parseRow = (row) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+                const headers = parseRow(tableLines[0]);
+                let tbl = "<table><thead><tr>";
+                for (const h of headers) tbl += `<th>${applyInline(h)}</th>`;
+                tbl += "</tr></thead><tbody>";
+                for (let r = 2; r < tableLines.length; r++) {
+                    const cells = parseRow(tableLines[r]);
+                    tbl += "<tr>";
+                    for (const c of cells) tbl += `<td>${applyInline(c)}</td>`;
+                    tbl += "</tr>";
+                }
+                tbl += "</tbody></table>";
+                blocks.push(tbl);
+            }
+            continue;
+        }
+
+        // Unordered list
+        if (/^[\s]*[-*+]\s+/.test(line)) {
+            const listItems = [];
+            while (i < lines.length && /^[\s]*[-*+]\s+/.test(lines[i])) {
+                listItems.push(lines[i].replace(/^[\s]*[-*+]\s+/, ""));
+                i++;
+            }
+            let ul = "<ul>";
+            for (const item of listItems) ul += `<li>${applyInline(item)}</li>`;
+            ul += "</ul>";
+            blocks.push(ul);
+            continue;
+        }
+
+        // Ordered list
+        if (/^[\s]*\d+\.\s+/.test(line)) {
+            const listItems = [];
+            while (i < lines.length && /^[\s]*\d+\.\s+/.test(lines[i])) {
+                listItems.push(lines[i].replace(/^[\s]*\d+\.\s+/, ""));
+                i++;
+            }
+            let ol = "<ol>";
+            for (const item of listItems) ol += `<li>${applyInline(item)}</li>`;
+            ol += "</ol>";
+            blocks.push(ol);
+            continue;
+        }
+
+        // Code block placeholder (already extracted)
+        if (/^\u0000CODE_BLOCK_\d+\u0000$/.test(line)) {
+            blocks.push(line);
+            i++;
+            continue;
+        }
+
+        // Regular text — collect contiguous lines into a paragraph
+        const paraLines = [];
+        while (i < lines.length &&
+            !/^(#{1,6}\s|[\s]*[-*+]\s|[\s]*\d+\.\s|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i]) &&
+            !/^&gt;\s?/.test(lines[i]) &&
+            !(lines[i].includes("|") && i + 1 < lines.length && /^\|?\s*:?-{3,}/.test(lines[i + 1])) &&
+            !/^\u0000CODE_BLOCK_\d+\u0000$/.test(lines[i])) {
+            paraLines.push(lines[i]);
+            i++;
+        }
+        if (paraLines.length > 0) {
+            const content = paraLines.join("<br>");
+            if (content.trim()) blocks.push(`<p>${applyInline(content)}</p>`);
+        }
+    }
+
+    return blocks.join("\n");
+}
+
 function renderMarkdown(text) {
     let html = escapeHtml(text);
     const codeBlocks = [];
@@ -2287,31 +2441,10 @@ function renderMarkdown(text) {
         return `\u0000CODE_BLOCK_${index}\u0000`;
     });
 
-    // Inline code `...`
-    html = html.replace(/`([^`\n]+?)`/g, "<code>$1</code>");
+    // Block-level and inline processing
+    html = processBlocks(html);
 
-    // Bold **...** or __...__
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    html = html.replace(/__(.+?)__/g, "<strong>$1</strong>");
-
-    // Italic *...* or _..._ (but not inside words like some_code)
-    html = html.replace(/(?<!\w)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\w)/g, "<em>$1</em>");
-    html = html.replace(/(?<!\w)_([^\s_](?:[^_]*?[^\s_])?)_(?!\w)/g, "<em>$1</em>");
-
-    // Strikethrough ~~...~~
-    html = html.replace(/~~(.+?)~~/g, "<del>$1</del>");
-
-    // Paragraphs: split on double newlines
-    const blocks = html.split(/\n{2,}/);
-    html = blocks.map(block => {
-        block = block.trim();
-        if (!block) return "";
-        if (/^\u0000CODE_BLOCK_\d+\u0000$/.test(block)) return block;
-        // Convert single newlines to <br>
-        block = block.replace(/\n/g, "<br>");
-        return `<p>${block}</p>`;
-    }).join("");
-
+    // Restore code blocks
     html = html.replace(/\u0000CODE_BLOCK_(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)] || "");
 
     return html;
@@ -2332,10 +2465,13 @@ function refreshChatSidebarUI() {
     const maxTokensSlider = document.getElementById("chat-slider-max-tokens");
     const maxTokensDisplay = document.getElementById("chat-val-max-tokens");
     if (maxTokensSlider && maxTokensDisplay) {
+        const ctxSize = parseInt(values.ctx_size, 10);
+        const sliderMax = (Number.isFinite(ctxSize) && ctxSize > 0) ? Math.min(ctxSize, 131072) : 32768;
+        maxTokensSlider.max = sliderMax;
         const nPredict = values.n_predict;
         if (nPredict !== undefined && nPredict !== null && nPredict !== "" && nPredict !== -1) {
-            maxTokensSlider.value = nPredict;
-            maxTokensDisplay.textContent = parseInt(nPredict, 10);
+            maxTokensSlider.value = Math.min(nPredict, sliderMax);
+            maxTokensDisplay.textContent = parseInt(Math.min(nPredict, sliderMax), 10);
         } else {
             maxTokensSlider.value = 512;
             maxTokensDisplay.textContent = "512";
@@ -3009,9 +3145,10 @@ function initChatTab() {
     // Delete All History button
     const deleteAllBtn = document.getElementById("btn-delete-all-history");
     if (deleteAllBtn) {
-        deleteAllBtn.addEventListener("click", () => {
+        deleteAllBtn.addEventListener("click", async () => {
             if (getStoredConversations().length === 0) return;
-            if (confirm("Delete all conversations? This cannot be undone.")) {
+            const confirmed = await confirmAction("Delete All Conversations", "Delete all conversations? This cannot be undone.", "Delete All");
+            if (confirmed) {
                 deleteAllConversations();
                 clearChat();
             }

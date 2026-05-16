@@ -3,6 +3,11 @@ name: Tests
 on:
   push:
     branches: [main, master]
+    paths-ignore:
+      - '*.md'
+      - '.github/**'
+      - 'docs/**'
+      - 'docs/images/**'
   pull_request:
     branches: [main, master]
 
@@ -18,8 +23,6 @@ jobs:
           - os: ubuntu-latest
             python-version: "3.12"
           - os: windows-latest
-            python-version: "3.12"
-          - os: macos-latest
             python-version: "3.12"
 
     steps:

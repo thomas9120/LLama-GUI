@@ -25,7 +25,6 @@ Llama GUI provides a browser UI to:
 - [Install With Pinokio](#install-with-pinokio)
 - [Screenshots](#screenshots)
 - [Getting Models](#getting-models)
-- [Download the Current Release Zip](#download-the-current-release-zip)
 - [Install By Platform](#install-by-platform)
 - [First-Run Checklist (60 Seconds)](#first-run-checklist-60-seconds)
 - [What Each Tab Does](#what-each-tab-does)
@@ -35,7 +34,6 @@ Llama GUI provides a browser UI to:
 - [MCP and Built-in Tools Notes](#mcp-and-built-in-tools-notes)
 - [Maintenance Behavior](#maintenance-behavior)
 - [Project Layout](#project-layout)
-- [Creating a GitHub Release Asset](#creating-a-github-release-asset)
 - [Data Locations](#data-locations)
 - [Troubleshooting](#troubleshooting)
 - [Security Notes](#security-notes)
@@ -63,7 +61,14 @@ Tests run automatically on every push and pull request via GitHub Actions (Ubunt
 
 ## Quick Start
 
-1. Install Python dependencies into the local virtual environment:
+1. Clone this repository:
+
+```bash
+git clone https://github.com/thomas9120/LLama-GUI.git
+cd LLama-GUI
+```
+
+2. Install Python dependencies into the local virtual environment:
 
 ```bash
 ./install.sh
@@ -79,7 +84,7 @@ script, restore the executable bit and rerun the command:
 chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 ```
 
-2. Start the app:
+3. Start the app:
 
 ```bash
 ./mac_linux_start.sh
@@ -89,12 +94,12 @@ Platform launch helpers:
 - Windows: `windows_start.bat` or `windows_startsilent.bat`
 - macOS/Linux: `./mac_linux_start.sh` or `./mac_linux_silent_start.sh`
 
-3. Open `http://127.0.0.1:5240` in your browser.
-4. In **Install**, choose a version + backend, then click **Install**.
-5. Put `.gguf` files in `models/` (or click **Open Models**), or use the Hugging Face downloader in **Quick Launch**.
-6. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
-7. Open **Chat** to talk to the running server. Enable **Web Search** when you want the model to search the web before answering.
-8. Use **Configure** when you want full flag-by-flag control.
+4. Open `http://127.0.0.1:5240` in your browser.
+5. In **Install**, choose a version + backend, then click **Install**.
+6. Put `.gguf` files in `models/` (or click **Open Models**), or use the Hugging Face downloader in **Quick Launch**.
+7. In **Quick Launch**, select a model, keep the beginner defaults or choose a profile, and click **Launch**.
+8. Open **Chat** to talk to the running server. Enable **Web Search** when you want the model to search the web before answering.
+9. Use **Configure** when you want full flag-by-flag control.
 
 ## Install With Pinokio
 
@@ -130,53 +135,18 @@ You can also download models from inside the app:
 
 For vision/multimodal models, download the matching `mmproj` companion file when the repo provides one. Llama GUI stores downloaded projector files under `models/mmproj/` and applies the `Multimodal Projector` launch setting automatically.
 
-## Download the Current Release Zip
-
-If you do not want to clone the repository, you can download the latest packaged release from the GitHub **Releases** page.
-
-### Windows
-
-1. Open the latest release on GitHub.
-2. Download the packaged zip asset such as `Llama-GUI-v0.1.0.zip`.
-3. Right-click the zip and choose **Extract All...**
-4. Open the extracted folder.
-5. Run `windows_install.bat`.
-6. Start the app with:
-   - `windows_start.bat`
-   - or `windows_startsilent.bat`
-7. Open `http://127.0.0.1:5240` in your browser.
-
-### macOS / Linux
-
-1. Open the latest release on GitHub.
-2. Download the packaged zip asset such as `Llama-GUI-v0.1.0.zip`.
-3. Extract it with your file manager or a command like:
-
-```bash
-unzip Llama-GUI-v0.1.0.zip
-cd Llama-GUI-v0.1.0
-```
-
-4. Make the helper scripts executable if needed:
-
-```bash
-chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
-```
-
-5. Run `./install.sh`.
-6. Start the app with:
-- `./mac_linux_start.sh`
-- or `./mac_linux_silent_start.sh`
-7. Open `http://127.0.0.1:5240` in your browser.
-
-Note: the packaged release zip does not include downloaded `llama.cpp` binaries or local models. After starting the app, use the **Install** tab to download a backend and then place your `.gguf` files in `models/`.
-
 ## Install By Platform
 
 ### Windows
 
 1. Install Python 3.9+ from [python.org](https://www.python.org/downloads/) and make sure it is available in `PATH`.
-2. Clone or download this repository.
+2. Clone this repository:
+
+```bat
+git clone https://github.com/thomas9120/LLama-GUI.git
+cd LLama-GUI
+```
+
 3. Run `windows_install.bat`.
 4. Start the app with one of:
    - `windows_start.bat`
@@ -437,44 +407,6 @@ It does not remove:
 - `presets/` - saved full launcher presets
 - `config.json` - local installation metadata
 
-## Creating a GitHub Release Asset
-
-If you want a clean zip to upload to **GitHub Releases**, use the Windows packaging helper:
-
-```bat
-release.bat v0.1.0
-```
-
-This creates a zip in `releases/` named like:
-
-```text
-Llama-GUI-v0.1.0.zip
-```
-
-The generated zip includes the app itself:
-- `requirements.txt`
-- `server.py`
-- `install.sh`
-- `ui/`
-- `mac_linux_start.sh`
-- `mac_linux_silent_start.sh`
-- `windows_install.bat`
-- `windows_start.bat`
-- `windows_startsilent.bat`
-- `README.md`
-- `LICENSE`
-- empty starter folders for `llama/`, `models/`, and `presets/`
-
-It does not include local-only data such as:
-- `.git/`
-- installed `llama.cpp` binaries
-- local models
-- saved presets
-- `config.json`
-- Python cache folders
-
-GitHub will already provide automatic source-code archives for your tag, so this zip is best used as the cleaner end-user download asset.
-
 ## Data Locations
 
 - `config.json` - installed release/backend metadata
@@ -533,7 +465,7 @@ Symptoms:
 
 Fix:
 - verify `git` is installed and available in PATH
-- ensure the repo folder has normal Git metadata (not a broken or partial clone)
+- ensure the repo was cloned with `git clone` (not downloaded as a zip)
 - retry from Install tab and review app update status text
 
 ### Chat Web Search Does Not Return Results
