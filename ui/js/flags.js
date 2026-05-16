@@ -389,11 +389,36 @@ const FLAGS = [
     { id: "gpu_layers_draft", flag: "-ngld", category: "speculative", type: "text", label: "Draft GPU Layers",
       desc: "Max draft model layers in VRAM", tool: "both", placeholder: "auto" },
     { id: "spec_type", flag: "--spec-type", category: "speculative", type: "enum", label: "Speculative Type",
-      desc: "Type of speculative decoding (no draft model)", tool: "server", default: "none",
+      desc: "Type of speculative decoding", tool: "server", default: "none",
       options: [
-        { value: "none", label: "None (default)" }, { value: "ngram-cache", label: "Ngram Cache" },
-        { value: "ngram-simple", label: "Ngram Simple" }, { value: "ngram-map-k", label: "Ngram Map K" },
-        { value: "ngram-map-k4v", label: "Ngram Map K4V" }, { value: "ngram-mod", label: "Ngram Mod" },
+        { value: "none", label: "None (default)" },
+        { value: "draft-simple", label: "Draft Simple" },
+        { value: "draft-mtp", label: "Draft MTP (Multi-Token Prediction)" },
+        { value: "ngram-cache", label: "Ngram Cache" },
+        { value: "ngram-simple", label: "Ngram Simple" },
+        { value: "ngram-map-k", label: "Ngram Map K" },
+        { value: "ngram-map-k4v", label: "Ngram Map K4V" },
+        { value: "ngram-mod", label: "Ngram Mod" },
+      ] },
+    { id: "draft_p_split", flag: "--spec-draft-p-split", category: "speculative", type: "float", label: "Draft Split Probability",
+      desc: "Speculative decoding split probability", tool: "both", min: 0, max: 1, step: 0.01, placeholder: "llama.cpp default" },
+    { id: "draft_device", flag: "-devd", category: "speculative", type: "text", label: "Draft Device",
+      desc: "Comma-separated devices for offloading draft model (none = don't offload)", tool: "both", placeholder: "auto" },
+    { id: "draft_cache_type_k", flag: "-ctkd", category: "speculative", type: "enum", label: "Draft KV Cache Type K",
+      desc: "KV cache data type for K for draft model", tool: "both",
+      options: [
+        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
+        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
+        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
+        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
+      ] },
+    { id: "draft_cache_type_v", flag: "-ctvd", category: "speculative", type: "enum", label: "Draft KV Cache Type V",
+      desc: "KV cache data type for V for draft model", tool: "both",
+      options: [
+        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
+        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
+        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
+        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
       ] },
 
     // ── Server and MCP Settings ──
@@ -518,7 +543,9 @@ function isSpeculativeDecodingEnabled(values) {
 
 function hasDraftModelSpeculation(values) {
     const cfg = values || {};
-    return Boolean(cfg.model_draft || cfg.hf_repo_draft);
+    if (cfg.model_draft || cfg.hf_repo_draft) return true;
+    const specType = String(cfg.spec_type || "none").trim();
+    return specType === "draft-simple" || specType === "draft-mtp";
 }
 
 function shouldOmitSpeculativeFlag(f, values) {
@@ -534,8 +561,12 @@ function shouldOmitSpeculativeFlag(f, values) {
         "draft_max",
         "draft_min",
         "draft_p_min",
+        "draft_p_split",
         "ctx_size_draft",
         "gpu_layers_draft",
+        "draft_device",
+        "draft_cache_type_k",
+        "draft_cache_type_v",
     ]);
     return draftModelOnlyFlags.has(f.id) && !hasDraftModelSpeculation(values);
 }
