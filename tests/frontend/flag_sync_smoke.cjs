@@ -80,10 +80,25 @@ async function main() {
 
     try {
         const page = await browser.newPage();
+        const chatCompletionBodies = [];
 
         await page.route("**/api/**", async (route) => {
             const url = new URL(route.request().url());
             const pathName = url.pathname;
+            if (pathName === "/api/chat/completions") {
+                chatCompletionBodies.push(JSON.parse(route.request().postData() || "{}"));
+                await route.fulfill({
+                    status: 200,
+                    contentType: "text/event-stream",
+                    body: [
+                        'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                        "",
+                        "data: [DONE]",
+                        "",
+                    ].join("\n"),
+                });
+                return;
+            }
             if (pathName === "/api/models") {
                 await route.fulfill({
                     status: 200,
@@ -221,6 +236,21 @@ async function main() {
         });
         await page.waitForFunction(() => document.querySelector("#chat-slider-temp")?.value === "0.31");
         assert.equal(await page.textContent("#chat-val-temp"), "0.31");
+
+        assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("min"), "1");
+        assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("max"), "10");
+        await page.check("#chat-web-search-toggle");
+        await page.fill("#chat-web-search-max-results", "7");
+        await page.dispatchEvent("#chat-web-search-max-results", "input");
+        await page.fill("#chat-input", "Search configurable depth");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("ok"));
+        assert.equal(
+            await page.evaluate(() => localStorage.getItem("llama_gui_chat_web_search_max_results")),
+            "7"
+        );
+        assert.equal(chatCompletionBodies.at(-1).web_search, true);
+        assert.equal(chatCompletionBodies.at(-1).web_search_max_results, 7);
 
         await selectSection(page, "quick-launch");
         await page.fill("#quick-temperature", "0.42");

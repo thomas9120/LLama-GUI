@@ -11,6 +11,17 @@ from backend.services import chat as chat_service
 from backend.services import web_search
 
 
+def get_web_search_result_count(body):
+    try:
+        raw_value = body.get("web_search_max_results", config.WEB_SEARCH_MAX_RESULTS)
+        if raw_value in {None, ""}:
+            raw_value = config.WEB_SEARCH_MAX_RESULTS
+        max_results = int(raw_value)
+    except (TypeError, ValueError):
+        max_results = config.WEB_SEARCH_MAX_RESULTS
+    return max(1, min(max_results, 10))
+
+
 def completions(request, response, ctx):
     body = request.body or {}
     response.sse_headers()
@@ -20,6 +31,7 @@ def completions(request, response, ctx):
         proxied_messages = messages
 
         if body.get("web_search"):
+            max_results = get_web_search_result_count(body)
             latest_user = chat_service.get_latest_user_message(messages)
             queries = chat_service.build_search_queries(latest_user)
             all_results = []
@@ -27,7 +39,7 @@ def completions(request, response, ctx):
 
             for query in queries:
                 writer.write({"type": "web_status", "content": f"Searching: {query}"})
-                search_response = web_search.web_search(query)
+                search_response = web_search.web_search(query, max_results=max_results)
                 if not search_response.get("ok"):
                     writer.write({"error": {"message": search_response.get("error", "Search unavailable")}})
                     writer.write("[DONE]")
@@ -35,10 +47,10 @@ def completions(request, response, ctx):
                 for result in search_response.get("results", []):
                     if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
                         all_results.append(result)
-                    if len(all_results) >= config.WEB_SEARCH_MAX_RESULTS:
+                    if len(all_results) >= max_results:
                         break
 
-            for result in all_results[: config.WEB_SEARCH_FETCH_RESULTS]:
+            for result in all_results[:max_results]:
                 url = result.get("url", "")
                 host = urllib.parse.urlparse(url).hostname or url
                 if host.startswith("www."):
@@ -83,6 +95,7 @@ def completions(request, response, ctx):
         proxy_body.pop("api_url", None)
         proxy_body.pop("host", None)
         proxy_body.pop("port", None)
+        proxy_body.pop("web_search_max_results", None)
 
         api_url = chat_service.get_local_chat_api_url(body)
         req = urllib.request.Request(

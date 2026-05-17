@@ -25,6 +25,10 @@ let chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
 let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
 const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
 const CHAT_WEB_SEARCH_STORAGE_KEY = "llama_gui_chat_web_search_enabled";
+const CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY = "llama_gui_chat_web_search_max_results";
+const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
+const CHAT_WEB_SEARCH_MIN_RESULTS = 1;
+const CHAT_WEB_SEARCH_MAX_RESULTS = 10;
 const CHAT_SAMPLER_SLIDER_MAP = {
     "chat-slider-temp": { flag: "temperature", decimals: 2 },
     "chat-slider-top-p": { flag: "top_p", decimals: 2 },
@@ -2511,6 +2515,17 @@ function isChatWebSearchEnabled() {
     return Boolean(toggle && toggle.checked);
 }
 
+function clampChatWebSearchMaxResults(value) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS;
+    return Math.max(CHAT_WEB_SEARCH_MIN_RESULTS, Math.min(parsed, CHAT_WEB_SEARCH_MAX_RESULTS));
+}
+
+function getChatWebSearchMaxResults() {
+    const input = document.getElementById("chat-web-search-max-results");
+    return clampChatWebSearchMaxResults(input ? input.value : localStorage.getItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY));
+}
+
 function getChatRequestMessages(messages) {
     return messages.map((msg) => ({
         role: msg.role,
@@ -2714,6 +2729,7 @@ async function sendChatMessage(userText) {
     const webSearchEnabled = isChatWebSearchEnabled();
     if (webSearchEnabled) {
         body.web_search = true;
+        body.web_search_max_results = getChatWebSearchMaxResults();
     }
 
     chatAbortController = new AbortController();
@@ -3093,6 +3109,7 @@ function initChatTab() {
     const btnCollapse = document.getElementById("btn-collapse-sidebar");
     const btnOpen = document.getElementById("btn-open-sidebar");
     const webSearchToggle = document.getElementById("chat-web-search-toggle");
+    const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
 
     updateChatStatusBadge();
 
@@ -3100,6 +3117,21 @@ function initChatTab() {
         webSearchToggle.checked = localStorage.getItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
         webSearchToggle.addEventListener("change", () => {
             localStorage.setItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+        });
+    }
+
+    if (webSearchMaxResults) {
+        webSearchMaxResults.value = String(clampChatWebSearchMaxResults(
+            localStorage.getItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY)
+        ));
+        webSearchMaxResults.addEventListener("change", () => {
+            const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
+            webSearchMaxResults.value = String(value);
+            localStorage.setItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+        });
+        webSearchMaxResults.addEventListener("input", () => {
+            const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
+            localStorage.setItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
         });
     }
 

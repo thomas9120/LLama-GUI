@@ -703,6 +703,101 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("Original system.", system_message["content"])
             self.assertIn("Fresh page text", system_message["content"])
             self.assertNotIn("web_search", captured["body"])
+            self.assertNotIn("web_search_max_results", captured["body"])
+
+    def test_chat_route_uses_configured_web_search_result_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummySseResponse()
+            captured = {}
+            results = [
+                {"title": f"Result {idx}", "url": f"https://example.com/{idx}", "snippet": f"Snippet {idx}"}
+                for idx in range(1, 7)
+            ]
+
+            def fake_urlopen(req, timeout):
+                captured["body"] = json.loads(req.data.decode("utf-8"))
+                return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+            with mock.patch.object(
+                chat.web_search,
+                "web_search",
+                return_value={"ok": True, "results": results},
+            ) as search_mock, mock.patch.object(
+                chat.web_search,
+                "fetch_page_text",
+                return_value={"ok": True, "text": "Fresh page text"},
+            ) as fetch_mock, mock.patch.object(
+                chat.chat_service,
+                "get_local_chat_api_url",
+                return_value="http://127.0.0.1:8080/v1/chat/completions",
+            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "web_search": True,
+                            "web_search_max_results": 4,
+                            "messages": [{"role": "user", "content": "What changed?"}],
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            search_mock.assert_called_once_with("What changed?", max_results=4)
+            self.assertEqual(fetch_mock.call_count, 4)
+            fetched_urls = [call.args[0] for call in fetch_mock.call_args_list]
+            self.assertEqual(fetched_urls, [f"https://example.com/{idx}" for idx in range(1, 5)])
+            self.assertNotIn("web_search", captured["body"])
+            self.assertNotIn("web_search_max_results", captured["body"])
+
+    def test_chat_route_clamps_web_search_result_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            results = [
+                {"title": f"Result {idx}", "url": f"https://example.com/{idx}", "snippet": f"Snippet {idx}"}
+                for idx in range(1, 12)
+            ]
+
+            def run_with_count(value):
+                response = DummySseResponse()
+                with mock.patch.object(
+                    chat.web_search,
+                    "web_search",
+                    return_value={"ok": True, "results": results},
+                ) as search_mock, mock.patch.object(
+                    chat.web_search,
+                    "fetch_page_text",
+                    return_value={"ok": True, "text": "Fresh page text"},
+                ) as fetch_mock, mock.patch.object(
+                    chat.chat_service,
+                    "get_local_chat_api_url",
+                    return_value="http://127.0.0.1:8080/v1/chat/completions",
+                ), mock.patch.object(chat.urllib.request, "urlopen", return_value=FakeSseUpstream([b"data: [DONE]\n\n"])):
+                    chat.completions(
+                        Request(
+                            "POST",
+                            "/api/chat/completions",
+                            "",
+                            {},
+                            body={
+                                "web_search": True,
+                                "web_search_max_results": value,
+                                "messages": [{"role": "user", "content": "What changed?"}],
+                            },
+                        ),
+                        response,
+                        ctx,
+                    )
+                return search_mock.call_args.kwargs["max_results"], fetch_mock.call_count
+
+            self.assertEqual(run_with_count(0), (1, 1))
+            self.assertEqual(run_with_count(99), (10, 10))
+            self.assertEqual(run_with_count("invalid"), (5, 5))
 
     def test_file_picker_route_uses_model_filters_for_model_purpose(self):
         with tempfile.TemporaryDirectory() as tmp:
