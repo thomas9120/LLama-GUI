@@ -1623,6 +1623,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (btnSavePreset) btnSavePreset.addEventListener("click", savePreset);
     const btnImportPreset = document.getElementById("btn-import-preset");
     if (btnImportPreset) btnImportPreset.addEventListener("click", () => document.getElementById("preset-import").click());
+    const btnExportAllPresets = document.getElementById("btn-export-all-presets");
+    if (btnExportAllPresets) btnExportAllPresets.addEventListener("click", exportAllPresets);
 
     showToast("Llama GUI ready", "info");
 

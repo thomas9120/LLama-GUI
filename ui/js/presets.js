@@ -482,29 +482,70 @@ function exportPreset(name) {
         });
 }
 
-function handlePresetImport(file) {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        try {
-            const data = JSON.parse(e.target.result);
-            const normalized = normalizePresetData(data);
-            const importData = { tool: normalized.tool, model: normalized.model, flags: normalized.flags };
-            if (!normalized.model && Object.keys(normalized.flags).length === 0) {
-                showPresetStatus("Preset file contains no usable data.", "error", 3200);
+function exportAllPresets() {
+    fetchJson("/api/presets")
+        .then((presets) => {
+            if (!presets || presets.length === 0) {
+                showPresetStatus("No presets to export", "error", 3200);
                 return;
             }
-            const name = file.name.replace(/\.json$/i, "");
-            await fetchJson("/api/presets", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name, data: importData }),
-            });
+            const exportData = { presets: presets.map(p => ({
+                name: p.name,
+                data: normalizePresetData(p.data)
+            })) };
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "llama-gui-presets.json";
+            a.click();
+            URL.revokeObjectURL(url);
+            showPresetStatus(`Exported ${presets.length} preset(s)`, "success");
+        })
+        .catch((e) => {
+            alert("Failed to export presets: " + e.message);
+        });
+}
+
+async function handlePresetImport(file) {
+    try {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+
+        if (parsed && typeof parsed === "object" && Array.isArray(parsed.presets) && parsed.presets.length > 0) {
+            let imported = 0;
+            let unnamedIdx = 0;
+            for (const entry of parsed.presets) {
+                const name = entry.name || "Imported-" + (++unnamedIdx);
+                const normalized = normalizePresetData(entry.data || {});
+                if (!normalized.model && Object.keys(normalized.flags).length === 0) continue;
+                await fetchJson("/api/presets", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+                });
+                imported++;
+            }
             loadPresets();
-            showPresetStatus(`Imported preset \"${name}\"`, "success");
-        } catch (err) {
-            showPresetStatus("Failed to import preset", "error", 3200);
-            alert("Failed to import preset: " + err.message);
+            showPresetStatus(`Imported ${imported} preset(s)`, "success");
+            return;
         }
-    };
-    reader.readAsText(file);
+
+        const normalized = normalizePresetData(parsed);
+        if (!normalized.model && Object.keys(normalized.flags).length === 0) {
+            showPresetStatus("Preset file contains no usable data.", "error", 3200);
+            return;
+        }
+        const name = file.name.replace(/\.json$/i, "");
+        await fetchJson("/api/presets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+        });
+        loadPresets();
+        showPresetStatus(`Imported preset \"${name}\"`, "success");
+    } catch (err) {
+        showPresetStatus("Failed to import preset", "error", 3200);
+        alert("Failed to import preset: " + err.message);
+    }
 }
