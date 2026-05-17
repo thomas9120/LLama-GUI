@@ -1,7 +1,21 @@
 @echo off
-setlocal
+setlocal EnableExtensions EnableDelayedExpansion
 cd /d "%~dp0"
-set "APP_URL=http://127.0.0.1:5240"
+set "APP_HOST=%LLAMA_GUI_HOST%"
+if not defined APP_HOST set "APP_HOST=127.0.0.1"
+set "APP_PORT=%LLAMA_GUI_PORT%"
+if not defined APP_PORT set "APP_PORT=5240"
+
+set "APP_BROWSER_HOST=%APP_HOST%"
+if "%APP_BROWSER_HOST%"=="0.0.0.0" set "APP_BROWSER_HOST=127.0.0.1"
+if "%APP_BROWSER_HOST%"=="::" set "APP_BROWSER_HOST=127.0.0.1"
+if "%APP_BROWSER_HOST%"=="*" set "APP_BROWSER_HOST=127.0.0.1"
+if "%APP_BROWSER_HOST:~0,1%"=="[" if "%APP_BROWSER_HOST:~-1%"=="]" (
+    set "APP_BROWSER_HOST=%APP_BROWSER_HOST:~1,-1%"
+)
+set "APP_URL_HOST=%APP_BROWSER_HOST%"
+if not "!APP_URL_HOST::=!"=="!APP_URL_HOST!" set "APP_URL_HOST=[!APP_URL_HOST!]"
+set "APP_URL=http://!APP_URL_HOST!:%APP_PORT%"
 
 set "PY_CMD="
 if exist ".venv\Scripts\python.exe" (

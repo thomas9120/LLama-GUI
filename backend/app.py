@@ -1,6 +1,7 @@
 import http.server
 import json
 import platform
+import re
 import socket
 import ssl
 import sys
@@ -494,6 +495,39 @@ def write_sse(wfile, data):
     SseWriter(wfile).write(data)
 
 
+def get_ui_asset_version():
+    latest_mtime = 0
+    for path in (
+        UI_DIR / "index.html",
+        UI_DIR / "css" / "tokens.css",
+        UI_DIR / "css" / "style.css",
+        UI_DIR / "js" / "flags.js",
+        UI_DIR / "js" / "flag-validation.js",
+        UI_DIR / "js" / "flag-core.js",
+        UI_DIR / "js" / "config-flags-ui.js",
+        UI_DIR / "js" / "manager.js",
+        UI_DIR / "js" / "presets.js",
+        UI_DIR / "js" / "app.js",
+        APP_LOGO_FILE,
+    ):
+        try:
+            latest_mtime = max(latest_mtime, int(path.stat().st_mtime))
+        except OSError:
+            pass
+    return str(latest_mtime)
+
+
+def version_ui_asset_urls(html):
+    version = get_ui_asset_version()
+
+    def replace_asset_url(match):
+        attr = match.group(1)
+        asset_path = match.group(2).split("?", 1)[0]
+        return f'{attr}="{asset_path}?v={version}"'
+
+    return re.sub(r'(href|src)="(/(?:css|js|assets)/[^"?#]+(?:\?[^"#]*)?)"', replace_asset_url, html)
+
+
 class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(UI_DIR), **kw)
@@ -529,6 +563,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def send_sse_headers(self, status=200):
         Response(self).sse_headers(status)
+
+    def send_versioned_index(self):
+        index_path = UI_DIR / "index.html"
+        try:
+            html = index_path.read_text(encoding="utf-8")
+        except OSError:
+            self.send_error(404, "index.html not found")
+            return
+        body = version_ui_asset_urls(html).encode("utf-8")
+        Response(self).bytes(body, content_type="text/html; charset=utf-8")
 
     def read_body(self):
         length = int(self.headers.get("Content-Length", 0))
@@ -693,7 +737,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
 
         if path == "/" or path == "/index.html":
-            super().do_GET()
+            self.send_versioned_index()
             return
 
         if path.startswith("/api/") and not self.is_safe_request_origin():

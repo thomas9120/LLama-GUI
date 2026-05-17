@@ -39,7 +39,7 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 - Frontend-only internal refactors, such as changes inside `ui/js/flag-core.js` or `ui/js/config-flags-ui.js`, are usually compatible as long as `ui/index.html` script loading and the `python server.py` entrypoint still work.
 
 ### Architecture
-- A static web UI served by a Python `http.server` backend on port 5240.
+- A static web UI served by a Python `http.server` backend on `127.0.0.1:5240` by default; `LLAMA_GUI_HOST` and `LLAMA_GUI_PORT` can override the bind address for headless/LAN access.
 - The backend handles `llama.cpp` installation, process management, API proxying, model downloading, remote tunnels, and web search.
 - `llama-server` runs separately (default port 8080) as a subprocess.
 - `config.json` persists application state (installed version, active backend, tag).
@@ -56,7 +56,7 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 - Cloudflare tunnel management (auto-downloads `cloudflared`, starts/stops tunnel, returns public URL).
 - Git-based app auto-updating (checks status, pulls, reinstalls dependencies, restarts server).
 - Native file picker (tkinter) for selecting model files and paths.
-- CORS origin validation restricts API access to `127.0.0.1:5240`, `localhost:5240`, and active tunnel URL.
+- CORS origin validation restricts API access to loopback origins for the configured GUI port, trusted `LLAMA_GUI_ALLOWED_HOSTS` entries when wildcard-bound, and the active tunnel URL.
 - Graceful shutdown/restart with port availability polling.
 
 ### Frontend
@@ -403,7 +403,7 @@ The API tab includes Cloudflare tunnel integration for exposing `llama-server` t
 
 - `cloudflared` binary is auto-downloaded on first use to `tools/cloudflared/`.
 - Platform-specific assets: Windows `.exe`, macOS `.tgz`, Linux binary.
-- Tunnel process runs `cloudflared tunnel --url http://127.0.0.1:5240`.
+- Tunnel process runs `cloudflared tunnel --url` against the configured GUI port, using loopback when the GUI is wildcard-bound.
 - Status polling detects the `trycloudflare.com` URL from stderr.
 - Thread-safe state management with start/stop lifecycle.
 - CORS origin is updated to include the active tunnel URL.

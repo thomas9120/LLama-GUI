@@ -217,6 +217,8 @@ LLAMA_GUI_HOST=0.0.0.0 LLAMA_GUI_PORT=5240 python server.py
 
 Then open `http://<server-ip>:5240` from another machine. `LLAMA_GUI_PORT` is optional and defaults to `5240`.
 
+The bundled start scripts also honor these variables. If `LLAMA_GUI_HOST` is a wildcard bind address such as `0.0.0.0`, `::`, or `*`, the script still starts the server with that bind address but opens the local browser at `127.0.0.1:<port>`.
+
 Access by IP address works by default. If you want to open the UI through a LAN hostname, mDNS name, or reverse-proxy hostname, explicitly trust that browser hostname too:
 
 ```bash

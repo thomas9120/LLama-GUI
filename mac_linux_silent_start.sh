@@ -3,7 +3,22 @@ set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
-APP_URL="http://127.0.0.1:5240"
+APP_HOST="${LLAMA_GUI_HOST:-127.0.0.1}"
+APP_PORT="${LLAMA_GUI_PORT:-5240}"
+APP_BROWSER_HOST="$APP_HOST"
+case "$APP_BROWSER_HOST" in
+    "0.0.0.0"|"::"|"*")
+        APP_BROWSER_HOST="127.0.0.1"
+        ;;
+    "["*"]")
+        APP_BROWSER_HOST=${APP_BROWSER_HOST#\[}
+        APP_BROWSER_HOST=${APP_BROWSER_HOST%\]}
+        ;;
+esac
+case "$APP_BROWSER_HOST" in
+    *:*) APP_URL="http://[$APP_BROWSER_HOST]:$APP_PORT" ;;
+    *) APP_URL="http://$APP_BROWSER_HOST:$APP_PORT" ;;
+esac
 
 PY_CMD=""
 if [ -x "$SCRIPT_DIR/.venv/bin/python" ]; then

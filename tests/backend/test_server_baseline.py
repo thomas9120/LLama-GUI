@@ -176,6 +176,22 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
             {"error": "upstream failed", "status": 502},
         )
 
+    def test_version_ui_asset_urls_rewrites_local_assets(self):
+        html = (
+            '<link rel="stylesheet" href="/css/style.css?v=revamp-1">'
+            '<script src="/js/app.js?v=revamp-1"></script>'
+            '<img src="/assets/app-logo.png" alt="logo">'
+            '<link rel="preconnect" href="https://fonts.googleapis.com">'
+        )
+
+        versioned = server.version_ui_asset_urls(html)
+
+        self.assertNotIn("revamp-1", versioned)
+        self.assertRegex(versioned, r'href="/css/style\.css\?v=\d+"')
+        self.assertRegex(versioned, r'src="/js/app\.js\?v=\d+"')
+        self.assertRegex(versioned, r'src="/assets/app-logo\.png\?v=\d+"')
+        self.assertIn('href="https://fonts.googleapis.com"', versioned)
+
     def test_api_router_knows_existing_endpoint(self):
         match = server.API_ROUTER.match("GET", "/api/status")
 
