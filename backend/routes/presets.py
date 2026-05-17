@@ -10,6 +10,10 @@ def sanitize_preset_name(name):
     return safe_name.replace("..", "_").strip(". ")
 
 
+def is_preset_bundle(data):
+    return isinstance(data, dict) and isinstance(data.get("presets"), list)
+
+
 def list_presets(request, response, ctx):
     presets = []
     presets_dir = ctx.paths.presets
@@ -17,7 +21,10 @@ def list_presets(request, response, ctx):
         for path in sorted(presets_dir.glob("*.json")):
             try:
                 with open(path, "r") as preset_file:
-                    presets.append({"name": path.stem, "data": json.load(preset_file)})
+                    data = json.load(preset_file)
+                if is_preset_bundle(data):
+                    continue
+                presets.append({"name": path.stem, "data": data})
             except (json.JSONDecodeError, OSError):
                 pass
     response.json(presets)

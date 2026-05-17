@@ -160,6 +160,29 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(delete_response.payload, {"deleted": True})
             self.assertFalse((ctx.paths.presets / "__Odd Name.json").exists())
 
+    def test_presets_route_skips_bulk_export_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.presets.mkdir(parents=True)
+            (ctx.paths.presets / "single.json").write_text(
+                json.dumps({"model": "model.gguf", "flags": {"ctx_size": 4096}})
+            )
+            (ctx.paths.presets / "llama-gui-presets.json").write_text(
+                json.dumps({
+                    "presets": [
+                        {"name": "single", "data": {"model": "model.gguf", "flags": {}}}
+                    ]
+                })
+            )
+
+            response = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), response, ctx)
+
+            self.assertEqual(
+                response.payload,
+                [{"name": "single", "data": {"model": "model.gguf", "flags": {"ctx_size": 4096}}}],
+            )
+
     def test_metrics_route_uses_context_service(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
