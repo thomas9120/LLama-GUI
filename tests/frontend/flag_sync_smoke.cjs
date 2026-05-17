@@ -81,6 +81,7 @@ async function main() {
     try {
         const page = await browser.newPage();
         const chatCompletionBodies = [];
+        const launchBodies = [];
 
         await page.route("**/api/**", async (route) => {
             const url = new URL(route.request().url());
@@ -96,6 +97,15 @@ async function main() {
                         "data: [DONE]",
                         "",
                     ].join("\n"),
+                });
+                return;
+            }
+            if (pathName === "/api/launch") {
+                launchBodies.push(JSON.parse(route.request().postData() || "{}"));
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({ pid: 123, command: "smoke launch" }),
                 });
                 return;
             }
@@ -266,6 +276,38 @@ async function main() {
         const launchArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
         assert.ok(launchArgs.includes("-c") && launchArgs.includes("12345"));
         assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
+
+        await page.fill("#custom-launch-args", "--threads 8\n--chat-template-kwargs '{\"preserve_thinking\":true}'");
+        await page.dispatchEvent("#custom-launch-args", "input");
+        await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("--threads 8"));
+        const customState = await page.evaluate(() => ({
+            raw: window.LlamaGui.flagCore.collectFlagValues().custom_args,
+            args: window.LlamaGui.flagCore.getLaunchArgs().args.flat(),
+        }));
+        assert.equal(customState.raw, "--threads 8\n--chat-template-kwargs '{\"preserve_thinking\":true}'");
+        assert.ok(customState.args.includes("--threads") && customState.args.includes("8"));
+        assert.ok(customState.args.includes("--chat-template-kwargs"));
+        assert.ok(customState.args.includes('{"preserve_thinking":true}'));
+
+        await page.evaluate(() => window.LlamaGui.flagCore.applyFlagValues({ custom_args: "--parallel 4" }));
+        await page.waitForFunction(() => document.querySelector("#custom-launch-args")?.value === "--parallel 4");
+        assert.match(await page.textContent("#command-preview-text"), /--parallel 4/);
+
+        await page.fill("#custom-launch-args", "--threads 'unterminated");
+        await page.dispatchEvent("#custom-launch-args", "input");
+        await page.waitForFunction(() => document.querySelector("#custom-launch-args-status")?.textContent.includes("unmatched single quote"));
+        assert.match(await page.textContent("#command-preview-text"), /Cannot launch:/);
+        await page.selectOption("#model-select", "smoke-model.gguf");
+        await page.dispatchEvent("#model-select", "change");
+        const launchCountBefore = launchBodies.length;
+        let launchDialogMessage = "";
+        page.once("dialog", async (dialog) => {
+            launchDialogMessage = dialog.message();
+            await dialog.accept();
+        });
+        await page.click("#btn-launch");
+        assert.match(launchDialogMessage, /unmatched single quote/);
+        assert.equal(launchBodies.length, launchCountBefore);
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
     } finally {

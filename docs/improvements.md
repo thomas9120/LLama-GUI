@@ -27,7 +27,7 @@ The client code snippets always show `YOUR_API_KEY` as a placeholder even when n
 
 ## High Impact / Medium Effort
 
-### 6. Custom Launch Args textarea
+### 6. Custom Launch Args textarea [DONE]
 Already planned in `docs/todo.md`. A raw textarea that appends arbitrary flags to the generated command would cover all the flags not yet exposed in the UI — especially useful for newly added upstream features.
 
 ### 7. Improved Markdown rendering in Chat [DONE]
@@ -68,7 +68,7 @@ Dropping a `.gguf` file onto the page is a natural shortcut, especially for user
 ### 16. "Last used settings" persistence
 There is no record of what launch arguments were used in previous sessions (only presets, which require deliberate saving). Automatically restoring the last-used configuration on startup would reduce friction.
 
-### 17. Web search configuration
+### 17. Web search configuration [DONE]
 The max results (5) and page fetch limit (3) are hardcoded constants. A setting for result count would allow tuning for speed vs. context depth.
 
 ---

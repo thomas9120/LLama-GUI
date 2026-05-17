@@ -651,8 +651,47 @@ function syncUiAfterToolChange(nextTool) {
 
 function syncUiAfterSharedStateChange() {
     configFlagsUi.restoreFlagInputs();
+    restoreCustomLaunchArgsInput();
     flagCore.updateCommandPreview();
     refreshChatSidebarUI();
+}
+
+function setCustomLaunchArgsMessages(result = {}) {
+    const status = document.getElementById("custom-launch-args-status");
+    if (!status) return;
+
+    status.textContent = "";
+    status.className = "custom-args-status";
+
+    if (result.error) {
+        status.textContent = result.error;
+        status.classList.add("error");
+        return;
+    }
+
+    if (Array.isArray(result.warnings) && result.warnings.length > 0) {
+        status.textContent = result.warnings.join(" ");
+        status.classList.add("warning");
+    }
+}
+
+function restoreCustomLaunchArgsInput() {
+    const textarea = document.getElementById("custom-launch-args");
+    if (!textarea) return;
+    const value = flagCore.getFlagValues().custom_args;
+    const nextValue = value !== undefined && value !== null ? String(value) : "";
+    if (textarea.value !== nextValue) {
+        textarea.value = nextValue;
+    }
+}
+
+function initCustomLaunchArgsControls() {
+    const textarea = document.getElementById("custom-launch-args");
+    if (!textarea) return;
+    textarea.addEventListener("input", () => {
+        flagCore.setFlagValue("custom_args", textarea.value.trim() ? textarea.value : undefined);
+    });
+    restoreCustomLaunchArgsInput();
 }
 
 configFlagsUi.configure({
@@ -679,8 +718,11 @@ flagCore.configure({
         typeof isSupportedChatTemplateValue === "function" ? isSupportedChatTemplateValue(value) : true
     ),
     getToolBinaryName,
-    renderCommandPreview(command) {
-        document.getElementById("command-preview-text").textContent = command;
+    renderCommandPreview(command, result) {
+        const preview = document.getElementById("command-preview-text");
+        preview.textContent = result && result.error ? `Cannot launch: ${result.error}` : command;
+        preview.classList.toggle("command-preview-error", Boolean(result && result.error));
+        setCustomLaunchArgsMessages(result || {});
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
@@ -1353,6 +1395,7 @@ function refreshQuickLaunchUI() {
     if (quickMetricsToggle) quickMetricsToggle.checked = values.metrics === true;
 
     quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
+    quickCommand.classList.toggle("command-preview-error", document.getElementById("command-preview-text").classList.contains("command-preview-error"));
     updateQuickServerAddressPreview();
     updateQuickLaunchActionButtons();
 }
@@ -1547,6 +1590,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initTabs();
     initToolSelect();
     initConfigControls();
+    initCustomLaunchArgsControls();
     initInstallButtons();
     initApiTab();
     initPresetImport();
@@ -2019,7 +2063,10 @@ async function launchLlama() {
     const args = result.args;
     const tool = flagCore.getCurrentTool();
     const values = flagCore.getFlagValues();
-    const hasModel = args.some(a => a[0] === "-m" || a[0] === "-hf");
+    const hasModel = args.some(a => {
+        const entryValues = Array.isArray(a) ? a : [a];
+        return entryValues.includes("-m") || entryValues.includes("-hf");
+    });
     if (!hasModel) {
         alert("Select a model or provide an HF repo before launching.");
         return;

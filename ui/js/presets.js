@@ -62,6 +62,10 @@ function getPresetWarnings(presetData) {
         warnings.push(`Uses outdated or unsupported chat template "${chatTemplate}". It will be ignored and Auto from model is safer.`);
     }
 
+    if (typeof flags.custom_args === "string" && flags.custom_args.trim()) {
+        warnings.push("Includes custom launch args. Review them before launching because they may override UI controls.");
+    }
+
     return warnings;
 }
 

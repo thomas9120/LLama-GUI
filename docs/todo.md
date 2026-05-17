@@ -97,20 +97,20 @@ This backlog is ordered by implementation value. Prefer finishing the early safe
   - Do this opportunistically, not as a standalone churn task.
   - Group by route family or service boundary so failures are easier to navigate.
 
-## Phase 4 - Custom Launch Args
+## Phase 4 - Custom Launch Args [DONE]
 
 Goal: add an advanced Configure-tab textarea for raw `llama.cpp` flags that are not yet represented in `ui/js/flags.js`. This lets Llama GUI temporarily support new or renamed upstream flags without waiting for a full typed UI update.
 
 ### Behavior
 
-- [ ] Add a `Custom Launch Args` textarea near the Configure command preview.
-- [ ] Treat the value as shared launch state in `flagCore`, not as a per-tab scratch field.
-- [ ] Store the raw value in preset `flags` under reserved key `custom_args`.
-- [ ] Preserve `custom_args` through preset save, update, load, import, and export without a schema version bump.
-- [ ] Update command preview immediately as the textarea changes.
-- [ ] Parse shell-like tokens, including quoted values such as `--chat-template-kwargs '{"preserve_thinking":true}'`.
-- [ ] Show an advanced-use warning that custom args may conflict with UI controls and may enable risky `llama.cpp` features.
-- [ ] If parsing fails, show the parser error near the textarea and block launch with a clear command-preview status.
+- [x] Add a `Custom Launch Args` textarea near the Configure command preview.
+- [x] Treat the value as shared launch state in `flagCore`, not as a per-tab scratch field.
+- [x] Store the raw value in preset `flags` under reserved key `custom_args`.
+- [x] Preserve `custom_args` through preset save, update, load, import, and export without a schema version bump.
+- [x] Update command preview immediately as the textarea changes.
+- [x] Parse shell-like tokens, including quoted values such as `--chat-template-kwargs '{"preserve_thinking":true}'`.
+- [x] Show an advanced-use warning that custom args may conflict with UI controls and may enable risky `llama.cpp` features.
+- [x] If parsing fails, show the parser error near the textarea and block launch with a clear command-preview status.
 
 ### Implementation
 

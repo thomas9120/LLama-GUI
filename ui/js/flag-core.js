@@ -159,8 +159,94 @@
         return String(value) === String(expected);
     }
 
+    function parseCustomLaunchArgs(raw) {
+        const input = String(raw || "");
+        const tokens = [];
+        let token = "";
+        let tokenStarted = false;
+        let quote = null;
+        let escaping = false;
+
+        for (let i = 0; i < input.length; i += 1) {
+            const ch = input[i];
+
+            if (escaping) {
+                token += ch;
+                tokenStarted = true;
+                escaping = false;
+                continue;
+            }
+
+            if (quote === "\"") {
+                if (ch === "\\") {
+                    escaping = true;
+                    continue;
+                }
+                if (ch === "\"") {
+                    quote = null;
+                    continue;
+                }
+                token += ch;
+                tokenStarted = true;
+                continue;
+            }
+
+            if (quote === "'") {
+                if (ch === "'") {
+                    quote = null;
+                    continue;
+                }
+                token += ch;
+                tokenStarted = true;
+                continue;
+            }
+
+            if (/\s/.test(ch)) {
+                if (tokenStarted) {
+                    tokens.push(token);
+                    token = "";
+                    tokenStarted = false;
+                }
+                continue;
+            }
+
+            if (ch === "'" || ch === "\"") {
+                quote = ch;
+                tokenStarted = true;
+                continue;
+            }
+
+            if (ch === "\\") {
+                escaping = true;
+                continue;
+            }
+
+            token += ch;
+            tokenStarted = true;
+        }
+
+        if (escaping) {
+            return { error: "Custom launch args end with an unfinished escape." };
+        }
+        if (quote) {
+            return { error: `Custom launch args contain an unmatched ${quote === "'" ? "single" : "double"} quote.` };
+        }
+        if (tokenStarted) tokens.push(token);
+        return { tokens };
+    }
+
+    function getKnownCliFlags() {
+        const names = new Set();
+        for (const f of getFlags()) {
+            if (f.flag) names.add(String(f.flag));
+            if (f.false_flag) names.add(String(f.false_flag));
+        }
+        return names;
+    }
+
     function getLaunchArgs() {
         const args = [];
+        const warnings = [];
         const toolBase = currentTool.replace("llama-", "");
 
         for (const f of getFlags()) {
@@ -204,15 +290,30 @@
             }
         }
 
+        const customRaw = flagValues.custom_args;
+        if (customRaw !== undefined && customRaw !== null && String(customRaw).trim()) {
+            const parsedCustom = parseCustomLaunchArgs(customRaw);
+            if (parsedCustom.error) {
+                return { args, error: parsedCustom.error, warnings };
+            }
+
+            const knownCliFlags = getKnownCliFlags();
+            const duplicates = Array.from(new Set(parsedCustom.tokens.filter(token => knownCliFlags.has(token))));
+            if (duplicates.length > 0) {
+                warnings.push(`Custom launch args duplicate UI-managed flags: ${duplicates.join(", ")}`);
+            }
+            args.push(...parsedCustom.tokens);
+        }
+
         const modelName = selectedModel;
         if (modelName) {
             if (modelName.includes("..") || modelName.includes("/") || modelName.includes("\\")) {
-                return { args, error: "Invalid model filename." };
+                return { args, error: "Invalid model filename.", warnings };
             }
             args.push(["-m", "models/" + modelName]);
         }
 
-        return { args, error: null };
+        return { args, error: null, warnings };
     }
 
     function updateCommandPreview() {
@@ -255,6 +356,7 @@
         shouldOmitFlagValue,
         isValidGpuLayersValue,
         normalizeGpuLayersValue,
+        parseCustomLaunchArgs,
         getLaunchArgs,
         updateCommandPreview,
         registerApi,

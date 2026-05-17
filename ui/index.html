@@ -462,6 +462,23 @@
 
             <div id="flags-container"></div>
 
+            <div class="custom-launch-args-panel">
+                <div class="custom-args-header">
+                    <div>
+                        <label class="form-label" for="custom-launch-args">Custom Launch Args</label>
+                        <p class="help-text">
+                            Enter extra llama.cpp arguments like a shell command. Multiple args can be on one line or separate lines; quote values that contain spaces or JSON, such as <code>--chat-template-kwargs '{"preserve_thinking":true}'</code>.
+                        </p>
+                    </div>
+                    <span class="badge badge-neutral">Advanced</span>
+                </div>
+                <textarea id="custom-launch-args" rows="4" spellcheck="false" placeholder="--threads 8&#10;--flash-attn&#10;--chat-template-kwargs '{&quot;preserve_thinking&quot;:true}'"></textarea>
+                <p class="custom-args-warning">
+                    Custom args are appended after UI-managed flags and may conflict with visible controls or enable risky llama.cpp features.
+                </p>
+                <div id="custom-launch-args-status" class="custom-args-status" aria-live="polite"></div>
+            </div>
+
             <div id="server-address" class="server-address hidden">
                 <span class="server-label">Server Address:</span>
                 <a id="server-url" href="#" target="_blank" class="server-link"></a>

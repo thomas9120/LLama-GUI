@@ -914,6 +914,51 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
     font-size: 13px;
 }
 
+.custom-launch-args-panel {
+    margin-top: var(--space-4);
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+}
+
+.custom-args-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+#custom-launch-args {
+    width: 100%;
+    min-height: 96px;
+    resize: vertical;
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.custom-args-warning,
+.custom-args-status {
+    margin: var(--space-2) 0 0;
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.custom-args-warning {
+    color: var(--yellow);
+}
+
+.custom-args-status.warning {
+    color: var(--yellow);
+}
+
+.custom-args-status.error,
+#command-preview-text.command-preview-error,
+#quick-command-preview.command-preview-error {
+    color: var(--red);
+}
+
 /* Launch bar */
 .launch-bar {
     display: flex;
