@@ -339,7 +339,8 @@ The backend proxies `/api/chat/completions` to `llama-server`'s `/v1/chat/comple
 
 When the web search toggle is enabled:
 - The backend extracts the latest user message and queries DuckDuckGo.
-- Up to 5 search results are fetched, and up to 3 pages are read for full text.
+- The Chat sidebar's "Result Count" setting controls both how many search results are requested and how many result pages are read for full text.
+- Result Count defaults to 5, is persisted in `localStorage` under `llama_gui_chat_web_search_max_results`, and is clamped to 1-10 by both frontend UI constraints and the backend chat route.
 - Search context is injected into the system prompt with source citations.
 - Sources are rendered as clickable chips below the assistant's response.
 - Web search status messages (e.g., "Searching: ...", "Reading: ...") are streamed during processing.
@@ -536,6 +537,11 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Quick Launch sampler edits sync to Chat, Configure, shared flag state, and launch args.
 
 When running local browser smoke checks manually, serve `ui/` as the web root. Serving from the repo root will break root-relative assets such as `/js/app.js`.
+
+Playwright is a dev/CI-only Node dependency:
+- Use `npm ci`, `npx playwright install chromium`, and `npm run test:frontend` for frontend smoke checks.
+- Do not add Playwright to `requirements.txt`, launch scripts, Pinokio setup, or app update dependency installation.
+- Normal runtime installs should remain Python-only through `pip install -r requirements.txt`.
 
 ## Local Search Notes
 
