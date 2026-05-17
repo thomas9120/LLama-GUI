@@ -12,9 +12,15 @@ let lastOutputLen = 0;
 let statsTimer = null;
 let pollOutputActive = false;
 let pollStatsActive = false;
+let pollOutputFailCount = 0;
 let serverReadyNotified = false;
 let remoteTunnelTimer = null;
 let hfDownloadTimer = null;
+let hfDownloadFailCount = 0;
+let hfDownloadStartTime = null;
+
+const HF_DOWNLOAD_POLL_MAX_FAILS = 5;
+const HF_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
 let selectedChatTemplatePresetValue = "";
 
 let chatMessages = [];
@@ -1073,9 +1079,19 @@ async function refreshHfDownloadStatus() {
 
 function pollHfDownloadProgress() {
     if (hfDownloadTimer) clearInterval(hfDownloadTimer);
+    hfDownloadFailCount = 0;
+    hfDownloadStartTime = Date.now();
     hfDownloadTimer = setInterval(async () => {
+        if (Date.now() - hfDownloadStartTime > HF_DOWNLOAD_TIMEOUT_MS) {
+            clearInterval(hfDownloadTimer);
+            hfDownloadTimer = null;
+            setHfDownloadBusy(false);
+            showHfDownloadStatus("error", "Download timed out. The server may have stopped responding.");
+            return;
+        }
         try {
             const prog = await fetchJson("/api/hf/download-status");
+            hfDownloadFailCount = 0;
             updateHfProgress(prog);
             if (prog.status === "done") {
                 clearInterval(hfDownloadTimer);
@@ -1088,7 +1104,13 @@ function pollHfDownloadProgress() {
                 showHfDownloadStatus(prog.status === "cancelled" ? "warning" : "error", prog.message || "Download stopped.");
             }
         } catch (e) {
-            // Ignore transient poll errors while the server is busy with a large download.
+            hfDownloadFailCount++;
+            if (hfDownloadFailCount >= HF_DOWNLOAD_POLL_MAX_FAILS) {
+                clearInterval(hfDownloadTimer);
+                hfDownloadTimer = null;
+                setHfDownloadBusy(false);
+                showHfDownloadStatus("error", "Lost contact with the server during download. The download may still be in progress \u2014 try restarting Llama GUI.");
+            }
         }
     }, 500);
 }
@@ -2147,6 +2169,7 @@ async function stopLlama() {
 function startOutputPolling() {
     lastOutputLen = 0;
     serverReadyNotified = false;
+    pollOutputFailCount = 0;
     if (outputTimer) clearInterval(outputTimer);
     outputTimer = setInterval(pollOutput, 300);
 }
@@ -2265,17 +2288,23 @@ async function pollOutput() {
             updateChatStatusBadge();
             setTimeout(() => checkStatus(), 500);
         }
+        pollOutputFailCount = 0;
     } catch (e) {
-        appendOutput("Connection to server lost: " + e.message);
-        stopOutputPolling();
-        stopStatsPolling();
-        document.getElementById("btn-launch").classList.remove("hidden");
-        document.getElementById("btn-stop").classList.add("hidden");
-        document.getElementById("input-row").classList.add("hidden");
-        document.getElementById("server-address").classList.add("hidden");
-        updateQuickLaunchActionButtons();
-        updateApiEndpoints();
-        updateChatStatusBadge();
+        pollOutputFailCount++;
+        if (pollOutputFailCount < 5) {
+            appendOutput("Output polling error (retry " + pollOutputFailCount + "/5): " + e.message);
+        } else {
+            appendOutput("Connection to server lost: " + e.message);
+            stopOutputPolling();
+            stopStatsPolling();
+            document.getElementById("btn-launch").classList.remove("hidden");
+            document.getElementById("btn-stop").classList.add("hidden");
+            document.getElementById("input-row").classList.add("hidden");
+            document.getElementById("server-address").classList.add("hidden");
+            updateQuickLaunchActionButtons();
+            updateApiEndpoints();
+            updateChatStatusBadge();
+        }
     } finally {
         pollOutputActive = false;
     }

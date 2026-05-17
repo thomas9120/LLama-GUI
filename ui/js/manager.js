@@ -1,10 +1,12 @@
 let cachedReleases = null;
 let installPollTimer = null;
 let installPollStartTime = null;
+let installPollFailCount = 0;
 let latestStatus = null;
 let latestAppUpdateStatus = null;
 
 const INSTALL_POLL_TIMEOUT_MS = 10 * 60 * 1000;
+const INSTALL_POLL_MAX_FAILS = 5;
 
 function renderBackendOptions(status) {
     const backendSelect = document.getElementById("backend-select");
@@ -432,6 +434,7 @@ async function checkForUpdates() {
 function pollInstallProgress() {
     if (installPollTimer) clearInterval(installPollTimer);
     installPollStartTime = Date.now();
+    installPollFailCount = 0;
     installPollTimer = setInterval(async () => {
         if (Date.now() - installPollStartTime > INSTALL_POLL_TIMEOUT_MS) {
             clearInterval(installPollTimer);
@@ -443,6 +446,7 @@ function pollInstallProgress() {
         }
         try {
             const prog = await fetchJson("/api/download-progress");
+            installPollFailCount = 0;
             updateProgressBar(prog);
             if (prog.status === "done") {
                 clearInterval(installPollTimer);
@@ -459,7 +463,14 @@ function pollInstallProgress() {
                 setInstallButtonsDisabled(false);
             }
         } catch (e) {
-            // ignore transient poll errors
+            installPollFailCount++;
+            if (installPollFailCount >= INSTALL_POLL_MAX_FAILS) {
+                clearInterval(installPollTimer);
+                installPollTimer = null;
+                showStatus("error", "Lost contact with the server during installation. The install may still be in progress \u2014 try restarting Llama GUI.");
+                showProgress(false);
+                setInstallButtonsDisabled(false);
+            }
         }
     }, 500);
 }

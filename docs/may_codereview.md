@@ -78,11 +78,13 @@ These work today but are fragile if files are ever wrapped in IIFEs.
 ### Host/port extraction repeated 6-7 times (LOW)
 `app.js` contains repeated inline host+port extraction from flag values (in `updateServerAddressPreview`, `getServerBaseUrl`, post-launch banner, `pollStats`, `getChatApiUrl`, `sendChatMessage`, `startRemoteTunnel`). A shared helper `getServerBaseUrl()` was partially added but is not reused by most call sites. Use a shared helper consistently.
 
-### `pollOutput` stops on single transient error (MEDIUM)
-`app.js:2239-2280` - A single network blip permanently kills output polling. Retry 2-3 times before giving up.
+### ~~`pollOutput` stops on single transient error (MEDIUM)~~ FIXED
+~~`app.js:2239-2280` - A single network blip permanently kills output polling. Retry 2-3 times before giving up.~~
+`pollOutput` now retries up to 5 times (~1.5s) before giving up. Transient errors show a retry message in the terminal; only sustained failures trigger the full "connection lost" shutdown.
 
-### `pollInstallProgress` / `pollHfDownloadProgress` swallow errors (MEDIUM)
-`manager.js:432-467`, `app.js:1074-1095` - Server crashes during install/download leave the user waiting with little feedback until timeout. Count consecutive failures and show a visible warning/error after a threshold.
+### ~~`pollInstallProgress` / `pollHfDownloadProgress` swallow errors (MEDIUM)~~ FIXED
+~~`manager.js:432-467`, `app.js:1074-1095` - Server crashes during install/download leave the user waiting with little feedback until timeout. Count consecutive failures and show a visible warning/error after a threshold.~~
+Both pollers now count consecutive fetch failures and stop with a visible error after 5 consecutive misses (~2.5s). `pollHfDownloadProgress` also gained a 30-minute timeout safety net.
 
 ### XSS: Safe (NONE)
 The `renderMarkdown` function uses an escape-first approach (`escapeHtml()` runs on all input before any processing). All observed `innerHTML` usage operates on escaped or hardcoded content. No XSS vulnerabilities found in the reviewed paths.
@@ -180,7 +182,7 @@ No `pyproject.toml`, `setup.py`, or `setup.cfg`. The `.gitignore` references `.r
 1. ~~**Add Content-Length cap** in `read_body()` - simple fix, prevents memory exhaustion~~ **FIXED**
 2. ~~**Validate `tool` parameter** against `LLAMA_TOOLS` allowlist in process launch~~ **FIXED**
 3. ~~**Pin dependencies** in `requirements.txt` with minimum versions~~ **FIXED**
-4. **Add retry/error feedback to polling** for `pollOutput`, install progress, and HF download progress
+4. ~~**Add retry/error feedback to polling** for `pollOutput`, install progress, and HF download progress~~ **FIXED**
 5. **Fix accessibility basics**: icon button `aria-label`s, chat slider labels, keyboard-accessible toggles, suggestion chips, and modal focus management
 6. **Consolidate host validation** into a single shared function
 7. ~~**Sanitize exception responses** so client-facing messages do not expose local internals~~ **FIXED**
