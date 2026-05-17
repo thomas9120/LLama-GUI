@@ -63,7 +63,7 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 - **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
 - **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat (streaming, web search, conversation history), Quick Launch profiles/HF download/sampler presets, remote tunnel, toasts, and cache-busting reload.
 - **`ui/js/flags.js`**: Single source of truth for exposed `llama.cpp` flags, flag categories, data types, built-in chat templates, chat template presets, sampler presets, and quick launch profiles.
-- **`ui/js/flag-core.js`**: Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation.
+- **`ui/js/flag-core.js`**: Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation.
 - **`ui/js/config-flags-ui.js`**: Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings.
 - **`ui/js/flag-validation.js`**: Non-blocking startup validation for `flags.js` definitions (duplicate ids, invalid categories/tools/types, enum options, default value shape, duplicate CLI flags).
 - **`ui/js/manager.js`**: Handles GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), and the shared `fetchJson()` utility.
@@ -74,7 +74,7 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 ### Tabs
 1. **Install**: Download and install `llama.cpp` releases, select backend, update app from git.
 2. **Quick Launch**: One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
-3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips.
+3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
 4. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
 5. **API**: View and interact with the `llama.cpp` API endpoints, start/stop Cloudflare tunnel.
 6. **Presets**: Save, load, import, export, and manage preset configurations grouped by model.
@@ -83,7 +83,9 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 - Launch-relevant UI changes route through `window.LlamaGui.flagCore` shared setters (`setFlagValue`/`setMultipleFlagValues`) to update state.
 - All mirrored controls read from the same underlying `flagCore` state object (`flagValues`, selected model, and current tool).
 - Configure flag rendering lives in `window.LlamaGui.configFlagsUi`, but rendered controls still read from `flagCore` and write through the shared setter path.
+- Configure's Custom Launch Args textarea stores its raw value in shared `flagCore.flagValues.custom_args` through `setFlagValue("custom_args", ...)`.
 - Command preview and launch args are generated from shared state (`flagCore.getLaunchArgs()`), never per-tab copies.
+- Custom launch args are parsed and appended only by `flagCore.getLaunchArgs()`, after UI-managed flags and before the selected model arg.
 - Server output is polled via HTTP endpoint and streamed to the terminal panel.
 - Chat completions are streamed via SSE from `/api/chat/completions` (backend proxies to `llama-server`).
 - Stats are polled from `llama-server`'s Prometheus `/metrics` endpoint.
@@ -509,6 +511,22 @@ Flags for reasoning/thinking models:
 
 If `preserve_thinking` is true and the flag passes the inert-default filter, the launch arg is `--chat-template-kwargs {"preserve_thinking":true}`.
 
+## Custom Launch Args
+
+The Configure tab includes an advanced `Custom Launch Args` textarea near the command preview.
+
+Behavior:
+- The raw value is stored in shared launch state as `custom_args`; do not keep a separate per-tab copy.
+- `flagCore.parseCustomLaunchArgs()` tokenizes shell-like input with whitespace splitting, single/double quotes, escaped whitespace, escaped quotes, and escaped backslashes.
+- Ordinary backslashes before non-special characters are preserved so Windows paths such as `C:\temp\llama.log` remain intact.
+- Parsed custom tokens are appended after UI-managed flags. If a custom token duplicates a known UI-managed flag, show a warning but still allow launch.
+- Parser errors, such as unmatched quotes or unfinished double-quoted escapes, must show near the textarea, mark the command preview as blocked, and prevent `/api/launch`.
+- Presets store the raw textarea value under `flags.custom_args` and should preserve it through save, update, load, import, and export.
+
+Validation:
+- Run `node tests/frontend/custom_launch_args_unit.cjs` after parser changes.
+- Run `npm run test:frontend` after mirrored-control, custom-args, flag-state, or command-preview changes when Playwright is available.
+
 ## Configuration Search
 
 The Configure tab has a search input that filters visible flags in real-time.
@@ -535,6 +553,7 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Configure GPU and metrics controls sync back to Quick Launch.
 - Chat temperature accepts two-decimal values such as `0.31`.
 - Quick Launch sampler edits sync to Chat, Configure, shared flag state, and launch args.
+- Custom Launch Args update shared state, command preview, launch args, and launch blocking on parser errors.
 
 When running local browser smoke checks manually, serve `ui/` as the web root. Serving from the repo root will break root-relative assets such as `/js/app.js`.
 
