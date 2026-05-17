@@ -654,6 +654,7 @@ function syncUiAfterSharedStateChange() {
 configFlagsUi.configure({
     debounce,
     getFlagsByCategory,
+    getFlags: () => FLAGS,
     switchTab,
     createSamplerPresetControls,
     refreshQuickLaunchUI,
@@ -1205,7 +1206,7 @@ function setQuickLaunchGpuLayers(value) {
     if (value === "custom") {
         const customInput = document.getElementById("quick-gpu-custom");
         const customValue = String(customInput && customInput.value ? customInput.value : "").trim();
-        if (customValue) {
+        if (customValue && flagCore.isValidGpuLayersValue(customValue)) {
             flagCore.setFlagValue("gpu_layers", customValue, { quickLaunchGpuCustomSelected: true });
         } else {
             quickLaunchGpuCustomSelected = true;

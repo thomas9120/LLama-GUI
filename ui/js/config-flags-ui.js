@@ -547,8 +547,12 @@
         if (f.max !== undefined) numField.max = f.max;
         if (f.step !== undefined) numField.step = f.step;
         numField.addEventListener("input", () => {
-            const v = numField.value === "" ? undefined : parseInt(numField.value, 10);
-            getFlagCore().setFlagValue(f.id, v);
+            if (numField.value === "") {
+                getFlagCore().setFlagValue(f.id, undefined);
+            } else {
+                const v = parseInt(numField.value, 10);
+                getFlagCore().setFlagValue(f.id, Number.isNaN(v) ? undefined : v);
+            }
         });
         return numField;
     }
@@ -565,8 +569,12 @@
         if (f.min !== undefined) numField.min = f.min;
         if (f.max !== undefined) numField.max = f.max;
         numField.addEventListener("input", () => {
-            const v = numField.value === "" ? undefined : parseFloat(numField.value);
-            getFlagCore().setFlagValue(f.id, v);
+            if (numField.value === "") {
+                getFlagCore().setFlagValue(f.id, undefined);
+            } else {
+                const v = parseFloat(numField.value);
+                getFlagCore().setFlagValue(f.id, Number.isNaN(v) ? undefined : v);
+            }
         });
         return numField;
     }
@@ -580,14 +588,17 @@
         textField.placeholder = f.placeholder || "";
         textField.value = getFlagValues()[f.id] || "";
         textField.addEventListener("input", () => {
-            getFlagCore().setFlagValue(f.id, textField.value || undefined);
+            const raw = textField.value || undefined;
+            if (f.id === "gpu_layers" && raw && !getFlagCore().isValidGpuLayersValue(raw)) return;
+            getFlagCore().setFlagValue(f.id, raw);
         });
         return textField;
     }
 
     function restoreFlagInputs() {
         const values = getFlagValues();
-        for (const f of FLAGS) {
+        const getFlags = dependencies.getFlags || (() => window.FLAGS || FLAGS);
+        for (const f of getFlags()) {
             const el = document.getElementById("flag-" + f.id);
             const val = values[f.id];
             if (f.type === "multi_enum") {

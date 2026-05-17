@@ -1,3 +1,7 @@
+// NOTE: "conversation", "lora", and "grammar" are used as both category ids and flag ids.
+// This is intentional and harmless — categories and flags occupy separate data domains
+// (FLAG_CATEGORIES vs FLAGS). flag-validation.js warns about these collisions at startup.
+// Do NOT rename without checking the audit notes in docs/todo.md (Phase 2, Item 6).
 const FLAG_CATEGORIES = [
     { id: "model", name: "Model", icon: "📦" },
     { id: "context", name: "Context & Memory", icon: "🧠" },
@@ -13,6 +17,13 @@ const FLAG_CATEGORIES = [
     { id: "grammar", name: "Grammar & Constraints", icon: "📝" },
     { id: "logging", name: "Logging", icon: "📋" },
     { id: "advanced", name: "Advanced", icon: "🔧" },
+];
+
+const CACHE_TYPE_OPTIONS = [
+    { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
+    { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
+    { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
+    { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
 ];
 
 const BUILTIN_CHAT_TEMPLATES = [
@@ -360,20 +371,10 @@ const FLAGS = [
     // ── KV Cache ──
     { id: "cache_type_k", flag: "-ctk", category: "kv", type: "enum", label: "KV Cache Type K",
       desc: "KV cache data type for K", tool: "both",
-      options: [
-        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
-        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
-        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
-        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
-      ] },
+      options: CACHE_TYPE_OPTIONS },
     { id: "cache_type_v", flag: "-ctv", category: "kv", type: "enum", label: "KV Cache Type V",
       desc: "KV cache data type for V", tool: "both",
-      options: [
-        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
-        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
-        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
-        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
-      ] },
+      options: CACHE_TYPE_OPTIONS },
     { id: "context_shift", flag: "--context-shift", category: "kv", type: "bool", label: "Context Shift",
       desc: "Use context shift on infinite text generation", tool: "both", default: false },
 
@@ -406,20 +407,10 @@ const FLAGS = [
       desc: "Comma-separated devices for offloading draft model (none = don't offload)", tool: "both", placeholder: "auto" },
     { id: "draft_cache_type_k", flag: "-ctkd", category: "speculative", type: "enum", label: "Draft KV Cache Type K",
       desc: "KV cache data type for K for draft model", tool: "both",
-      options: [
-        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
-        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
-        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
-        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
-      ] },
+      options: CACHE_TYPE_OPTIONS },
     { id: "draft_cache_type_v", flag: "-ctvd", category: "speculative", type: "enum", label: "Draft KV Cache Type V",
       desc: "KV cache data type for V for draft model", tool: "both",
-      options: [
-        { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
-        { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
-        { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
-        { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
-      ] },
+      options: CACHE_TYPE_OPTIONS },
 
     // ── Server and MCP Settings ──
     { id: "host", flag: "--host", category: "server", type: "text", label: "Host",
@@ -520,6 +511,9 @@ const FLAGS = [
 
 function getFlagsForTool(tool) {
     const toolBase = String(tool).replace("llama-", "");
+    if (toolBase !== "server" && toolBase !== "cli" && toolBase !== "both") {
+        console.warn("[flags] getFlagsForTool() called with unexpected tool:", tool);
+    }
     return FLAGS.filter(f => f.tool === "both" || f.tool === toolBase);
 }
 

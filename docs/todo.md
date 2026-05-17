@@ -31,33 +31,33 @@ This backlog is ordered by implementation value. Prefer finishing the early safe
 
 ## Phase 2 - Shared State and Flag Correctness
 
-- [ ] **Remove direct global `FLAGS` usage from `config-flags-ui.js`**
+- [x] **Remove direct global `FLAGS` usage from `config-flags-ui.js`**
   - Route `restoreFlagInputs()` through the existing dependency/configuration pattern instead of referencing `FLAGS` directly.
   - Reuse the same `getFlags()` source used by rendering and filtering.
   - Verify Configure controls still restore correctly after preset load, Quick Launch edits, and tool switches.
 
-- [ ] **Guard numeric flag parsing against `NaN`**
+- [x] **Guard numeric flag parsing against `NaN`**
   - In numeric input handlers, check `Number.isNaN()` after `parseInt()` / `parseFloat()`.
   - Empty input should clear the flag with `undefined`.
   - Invalid non-empty input should not write `NaN` into `flagCore`; show the browser's normal invalid state or a small inline validation state.
   - Confirm command preview never receives `NaN`.
 
-- [ ] **Validate custom `gpu_layers` values**
+- [x] **Validate custom `gpu_layers` values**
   - Keep `gpu_layers` text-compatible because Quick Launch supports `auto`, `all`, and custom values.
   - Accept `auto`, `all`, `0`, and integer strings.
   - Reject or block launch-preview update for values like `abc`, `1.5`, whitespace-only strings, and negative values unless upstream explicitly supports them.
   - Route Quick Launch and Configure edits through the same validation path so mirrored controls cannot disagree.
 
-- [ ] **Share KV cache enum options in `flags.js`**
+- [x] **Share KV cache enum options in `flags.js`**
   - Define one constant for the cache type options.
   - Reuse it for `cache_type_k`, `cache_type_v`, `draft_cache_type_k`, and `draft_cache_type_v`.
   - Confirm option labels/values remain unchanged in the UI.
 
-- [ ] **Warn on invalid tool values in `getFlagsForTool()`**
+- [x] **Warn on invalid tool values in `getFlagsForTool()`**
   - Keep the current safe behavior of returning `[]`.
   - Add a `console.warn()` for unexpected tool values, including `undefined`, to make integration mistakes visible during development.
 
-- [ ] **Resolve category/flag ID collisions deliberately**
+- [x] **Resolve category/flag ID collisions deliberately**
   - Audit the collisions for `conversation`, `lora`, and `grammar`.
   - Prefer renaming category IDs only if they are not persisted or externally referenced.
   - If renaming would break saved state or tests, leave the IDs and add validation warnings/documentation instead of forcing churn.

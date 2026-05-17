@@ -141,6 +141,12 @@
             validateDefaultValue(flag, addWarning);
         }
 
+        for (const catId of categoryIds) {
+            if (flagIds.has(catId)) {
+                addWarning(`Category id "${catId}" collides with flag id "${catId}".`);
+            }
+        }
+
         return { errors, warnings };
     }
 
