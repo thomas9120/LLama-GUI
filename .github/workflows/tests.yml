@@ -10,6 +10,8 @@ on:
       - 'docs/images/**'
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - 'README.md'
 
 jobs:
   test:

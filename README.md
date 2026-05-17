@@ -293,6 +293,8 @@ If something fails during first run, use **Install -> Repair Install** and then 
 - `Expand All`, `Collapse All`, and `Clear` controls
 - Beginner-oriented descriptions, `More info`, and `Beginner tip`
 - Command preview before launch
+- **Custom Launch Args** textarea for advanced raw `llama.cpp` flags not yet exposed as UI controls
+- Custom args support shell-like quoting, warn when they duplicate UI-managed flags, and block launch if the input cannot be parsed
 - Server URL preview when using `llama-server`
 - Live server stats bar when running `llama-server`
 
