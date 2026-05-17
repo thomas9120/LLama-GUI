@@ -122,6 +122,7 @@ Flags in Configure tab > Conversation category:
 Configure tab search bar:
 - Matches flag name, label, description, options
 - Auto-expands categories, partial match highlighting, clear button + Escape to reset
+- The Configure tab includes an advanced Custom Launch Args textarea near the command preview.
 
 ## AGENTS.md Rule
 
