@@ -1,0 +1,10 @@
+{
+  "name": "llama-gui",
+  "private": true,
+  "scripts": {
+    "test:frontend": "node tests/frontend/flag_sync_smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.60.0"
+  }
+}

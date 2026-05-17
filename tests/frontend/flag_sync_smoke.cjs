@@ -9,10 +9,10 @@ const START_PORT = Number(process.env.LLAMA_GUI_SMOKE_PORT || 5240);
 
 function loadPlaywright() {
     try {
-        return require("playwright-core");
+        return require("playwright");
     } catch (error) {
         throw new Error(
-            "Playwright smoke tests require playwright-core. Install it or run with NODE_PATH pointing to an existing playwright-core install."
+            "Playwright smoke tests require the dev-only playwright package. Run npm ci before npm run test:frontend."
         );
     }
 }
@@ -235,7 +235,7 @@ async function main() {
 
         const launchArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
         assert.ok(launchArgs.includes("-c") && launchArgs.includes("12345"));
-        assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("7"));
+        assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
     } finally {

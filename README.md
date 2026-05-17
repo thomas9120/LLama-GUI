@@ -514,8 +514,18 @@ Fix:
 
 ## Running Tests
 
+Backend/runtime tests use the Python dependencies from `requirements.txt`:
+
 ```bash
 python -m unittest discover tests -v
 ```
 
-Tests run automatically on every push and pull request via GitHub Actions (Ubuntu, Windows, macOS with Python 3.9 and 3.12).
+Frontend browser smoke tests use dev-only Node dependencies. They are for contributors and CI only; normal app installs, Pinokio launches, and app updates still install only `requirements.txt`.
+
+```bash
+npm ci
+npx playwright install chromium
+npm run test:frontend
+```
+
+Tests run automatically on every push and pull request via GitHub Actions. Python tests run across the matrix, and the Playwright smoke test runs once on Ubuntu with Python 3.12.
