@@ -1,14 +1,58 @@
 import hashlib
+import io
 import pathlib
+import tarfile
 import tempfile
 import unittest
+import zipfile
 from types import SimpleNamespace
 from unittest import mock
 
+from backend.context import AppContext, AppPaths, ServerConfig
 from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_service
 from backend.services import llama_manager
+from backend.services import web_search as web_search_service
+
+
+class FakeDownloadResponse:
+    def __init__(self, chunks, content_length=None):
+        self._chunks = list(chunks)
+        self.headers = {}
+        if content_length is not None:
+            self.headers["Content-Length"] = str(content_length)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def read(self, size=-1):
+        if not self._chunks:
+            return b""
+        return self._chunks.pop(0)
+
+
+def make_service_context(root):
+    root = pathlib.Path(root)
+    return AppContext(
+        paths=AppPaths(
+            root=root,
+            llama=root / "llama",
+            llama_bin=root / "llama" / "bin",
+            llama_grammars=root / "llama" / "grammars",
+            models=root / "models",
+            presets=root / "presets",
+            config_file=root / "config.json",
+            ui=root / "ui",
+            app_logo=root / "ui" / "assets" / "app-logo.png",
+            tools=root / "tools",
+            cloudflared=root / "tools" / "cloudflared",
+        ),
+        config=ServerConfig(llama_host="127.0.0.1", llama_port=8080),
+    )
 
 
 class BuildBackendSpecsTests(unittest.TestCase):
@@ -281,6 +325,157 @@ class RuntimeDependencyValidationTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(result["checked"])
         self.assertEqual(result["unchecked_tools"], ["llama-server"])
+
+
+class LlamaManagerDownloadTests(unittest.TestCase):
+    def test_download_file_writes_chunks_and_reports_progress(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            chunks = [b"abc", b"defg", b"h"]
+            progress = []
+            ctx.services.urlopen_with_ssl = mock.Mock(
+                return_value=FakeDownloadResponse(chunks, content_length=8)
+            )
+            dest = pathlib.Path(tmp) / "download.bin"
+
+            downloaded = llama_manager.download_file(
+                ctx,
+                "https://example.test/file.bin",
+                dest,
+                lambda current, total: progress.append((current, total)),
+            )
+
+            self.assertEqual(downloaded, 8)
+            self.assertEqual(dest.read_bytes(), b"abcdefgh")
+            self.assertEqual(progress, [(3, 8), (7, 8), (8, 8)])
+            request = ctx.services.urlopen_with_ssl.call_args.args[0]
+            self.assertEqual(request.full_url, "https://example.test/file.bin")
+
+    def test_extract_archive_flat_routes_grammar_files_and_blocks_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.zip"
+            bin_dir = root / "bin"
+            grammar_dir = root / "grammars"
+            bin_dir.mkdir()
+            grammar_dir.mkdir()
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("build/bin/llama-server", "server")
+                zf.writestr("build/grammars/json.gbnf", "grammar")
+                zf.writestr("../outside.exe", "flat only")
+
+            llama_manager.extract_archive_flat(archive, bin_dir, grammar_dir)
+
+            self.assertEqual((bin_dir / "llama-server").read_text(), "server")
+            self.assertEqual((grammar_dir / "json.gbnf").read_text(), "grammar")
+            self.assertEqual((bin_dir / "outside.exe").read_text(), "flat only")
+            self.assertFalse((root / "outside.exe").exists())
+
+    def test_extract_tar_archive_flat_copies_regular_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.tar.gz"
+            bin_dir = root / "bin"
+            grammar_dir = root / "grammars"
+            bin_dir.mkdir()
+            grammar_dir.mkdir()
+
+            with tarfile.open(archive, "w:gz") as tf:
+                binary = b"server"
+                binary_info = tarfile.TarInfo("pkg/bin/llama-server")
+                binary_info.size = len(binary)
+                tf.addfile(binary_info, io.BytesIO(binary))
+
+                grammar = b"root ::= object"
+                grammar_info = tarfile.TarInfo("pkg/grammars/json.gbnf")
+                grammar_info.size = len(grammar)
+                tf.addfile(grammar_info, io.BytesIO(grammar))
+
+            llama_manager.extract_archive_flat(archive, bin_dir, grammar_dir)
+
+            self.assertEqual((bin_dir / "llama-server").read_bytes(), b"server")
+            self.assertEqual((grammar_dir / "json.gbnf").read_bytes(), b"root ::= object")
+
+    def test_install_release_downloads_extracts_saves_config_and_cleans_tmpdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            saved_configs = []
+            ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
+            release = {
+                "tag_name": "b1234",
+                "name": "Build 1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+            tmpdirs = []
+
+            def fake_mkdtemp(prefix):
+                path = pathlib.Path(tmp) / f"{prefix}abc"
+                path.mkdir()
+                tmpdirs.append(path)
+                return str(path)
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                with zipfile.ZipFile(dest, "w") as zf:
+                    zf.writestr("pkg/bin/llama-server", "server")
+                    zf.writestr("pkg/grammars/json.gbnf", "grammar")
+                if progress_cb:
+                    progress_cb(10, 10)
+                return 10
+
+            with mock.patch.object(llama_manager, "get_release_by_tag", return_value=release), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(llama_manager.tempfile, "mkdtemp", side_effect=fake_mkdtemp):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertTrue(ok)
+            self.assertEqual((ctx.paths.llama_bin / "llama-server").read_text(), "server")
+            self.assertEqual((ctx.paths.llama_grammars / "json.gbnf").read_text(), "grammar")
+            self.assertEqual(saved_configs, [{"version": "Build 1234", "backend": "cpu", "tag": "b1234"}])
+            self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
+            self.assertTrue(tmpdirs)
+            self.assertFalse(tmpdirs[0].exists())
+
+    def test_install_release_rejects_sha_mismatch_and_cleans_tmpdir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.save_config = mock.Mock()
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "sha256": "0" * 64,
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+            tmpdir = pathlib.Path(tmp) / "llama_install_abc"
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(b"not the expected bytes")
+                return dest.stat().st_size
+
+            def fake_mkdtemp(prefix):
+                tmpdir.mkdir()
+                return str(tmpdir)
+
+            with mock.patch.object(llama_manager, "get_release_by_tag", return_value=release), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(llama_manager.tempfile, "mkdtemp", side_effect=fake_mkdtemp):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            self.assertIn("SHA256 mismatch", ctx.state.download_progress.snapshot()["message"])
+            ctx.services.save_config.assert_not_called()
+            self.assertFalse(tmpdir.exists())
 
 
 class FilePickerServiceTests(unittest.TestCase):
@@ -687,6 +882,80 @@ class ValidateHfRevisionDirectTests(unittest.TestCase):
     def test_rejects_traversal(self):
         with self.assertRaises(ValueError):
             hf_service.validate_hf_revision("refs/../main")
+
+
+class WebSearchDirectTests(unittest.TestCase):
+    def test_web_search_rejects_empty_query_without_importing_ddgs(self):
+        result = web_search_service.web_search("   ")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["results"], [])
+        self.assertIn("No query", result["error"])
+
+    def test_web_search_reports_missing_ddgs_dependency(self):
+        real_import = __import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "ddgs":
+                raise ImportError("missing")
+            return real_import(name, *args, **kwargs)
+
+        with mock.patch("builtins.__import__", side_effect=fake_import):
+            result = web_search_service.web_search("llama gui")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["results"], [])
+        self.assertIn("ddgs", result["error"])
+
+    def test_web_search_normalizes_ddgs_rows(self):
+        class FakeDDGS:
+            def __init__(self, timeout):
+                self.timeout = timeout
+
+            def text(self, query, max_results):
+                self.query = query
+                self.max_results = max_results
+                return [
+                    {"title": "One", "href": "https://example.test/one", "body": "Body one"},
+                    {"url": "https://example.test/two", "snippet": "Snippet two"},
+                    {"title": "No URL"},
+                ]
+
+        fake_module = SimpleNamespace(DDGS=FakeDDGS)
+
+        with mock.patch.dict("sys.modules", {"ddgs": fake_module}):
+            result = web_search_service.web_search(" llama gui ", max_results=2)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["query"], "llama gui")
+        self.assertEqual(
+            result["results"],
+            [
+                {"title": "One", "url": "https://example.test/one", "snippet": "Body one"},
+                {
+                    "title": "https://example.test/two",
+                    "url": "https://example.test/two",
+                    "snippet": "Snippet two",
+                },
+            ],
+        )
+
+    def test_web_search_reports_ddgs_runtime_failure(self):
+        class FailingDDGS:
+            def __init__(self, timeout):
+                pass
+
+            def text(self, query, max_results):
+                raise RuntimeError("network down")
+
+        fake_module = SimpleNamespace(DDGS=FailingDDGS)
+
+        with mock.patch.dict("sys.modules", {"ddgs": fake_module}):
+            result = web_search_service.web_search("llama gui")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["results"], [])
+        self.assertIn("network down", result["error"])
 
 
 if __name__ == "__main__":
