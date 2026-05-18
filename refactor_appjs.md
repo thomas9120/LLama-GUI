@@ -192,7 +192,7 @@ Remote tunnel controls are a good next extraction because they own a distinct ti
 
 Quick Launch is high-value but riskier because it touches mirrored controls, shared flag state, sampler presets, profiles, templates, command preview, and launch buttons.
 
-Status: Completed. `ui/js/quick-launch-ui.js` now owns Quick Launch local UI state, profile/context/GPU/template/sampler controls, command preview mirroring, action button sync, and event wiring through `window.LlamaGui.quickLaunchUi`. `app.js` keeps small compatibility wrappers and shared sampler/template helpers for now.
+Status: Completed. `ui/js/quick-launch-ui.js` now owns Quick Launch local UI state, profile/context/GPU/template/sampler controls, command preview mirroring, action button sync, and event wiring through `window.LlamaGui.quickLaunchUi`. `app.js` keeps small compatibility wrappers and shared template helpers; sampler preset helpers now live in `ui/js/sampler-presets.js`.
 
 ### Implementation
 
@@ -285,9 +285,11 @@ Status: Completed. `ui/js/chat-ui.js` now owns chat state, streaming/abort flow,
 - Confirm chat rendering still goes through the extracted safe rendering helpers.
 - Confirm stats interactions did not become hidden cross-module coupling.
 
-## Phase 7: Shrink `app.js` To Bootstrap And Shared App Shell
+## Phase 7: Shrink `app.js` To Bootstrap And Shared App Shell - Done
 
 After feature modules are extracted, clean up `app.js` so it is mostly startup sequencing and shared shell behavior.
+
+Status: Completed. `ui/js/sampler-presets.js` now owns sampler preset storage, normalization, apply behavior, import/export, and Configure-tab sampler preset controls. `app.js` remains the shared app shell for startup sequencing, module configuration, tab switching, launch/stop flow, polling, command preview coordination, toasts, and cross-module callbacks.
 
 ### Implementation
 

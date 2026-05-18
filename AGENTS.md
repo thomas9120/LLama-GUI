@@ -194,7 +194,7 @@ with the primary file and only touch secondary files if the change requires it.
 | HF download UI | `ui/js/hf-download-ui.js` | `ui/js/quick-launch-ui.js` (init), `ui/js/app.js` (callbacks), `ui/js/manager.js` (fetchJson) |
 | Remote tunnel UI | `ui/js/remote-tunnel-ui.js` | `ui/js/app.js` (init), `ui/js/api-tab.js` (endpoint config), `ui/js/manager.js` (fetchJson) |
 | Chat template presets | `ui/js/flags.js` | `ui/js/app.js` (mapping helpers) |
-| Sampler presets | `ui/js/app.js` | `ui/js/flag-core.js` (apply) |
+| Sampler presets | `ui/js/sampler-presets.js` | `ui/js/app-data.js` (built-ins), `ui/js/flag-core.js` (apply), `ui/js/app.js` (callbacks) |
 | Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
 | Install/update UI | `ui/js/manager.js` | — |
 | Backend routes | `backend/routes/*.py` | `backend/services/*.py` |
@@ -215,13 +215,14 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 5. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
 6. `presets.js` — preset CRUD
 7. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
-8. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
-9. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
-10. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
-11. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
-12. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-13. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-14. `app.js` — main orchestration (wires everything together)
+8. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
+9. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
+10. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
+11. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
+12. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
+13. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
+14. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+15. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you
 add a new module, place it after its dependencies and before its consumers.
@@ -238,8 +239,8 @@ private closure variables.
 - Polling functions (`pollStats`, `pollOutput`) may fail silently when the
   server is not ready. This is expected. Do not add user-visible errors for
   polling failures during startup.
-- `saveSamplerPresetStore()` has no error handling. If you change it, add a
-  try/catch for `QuotaExceededError`.
+- `saveSamplerPresetStore()` in `ui/js/sampler-presets.js` logs storage
+  failures with `console.warn()`. Keep custom preset save failures visible.
 - localStorage `getItem` returns `null` for missing keys. Always check
   before parsing JSON.
 
@@ -283,7 +284,8 @@ private closure variables.
 
 ### Frontend
 - **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
-- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared sampler/template helpers, toasts, module initialization, and cache-busting reload.
+- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared template helpers, toasts, module initialization, and cache-busting reload.
+- **`ui/js/sampler-presets.js`**: Sampler preset storage, normalization, apply behavior, import/export, and Configure-tab controls exposed as `window.LlamaGui.samplerPresets`; writes sampler values through injected `flagCore`.
 - **`ui/js/chat-rendering.js`**: Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering`.
 - **`ui/js/chat-ui.js`**: Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, and status badge updates exposed as `window.LlamaGui.chatUi`; reads and writes launch-relevant sampler state through injected `flagCore`.
 - **`ui/js/api-tab.js`**: API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab`; reads shared state through injected `flagCore`.
@@ -678,7 +680,7 @@ Sampler presets allow saving and loading groups of sampling flags.
 
 ### Built-In Presets
 
-Defined in `BUILTIN_SAMPLER_PRESETS` in `app.js`:
+Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/js/sampler-presets.js`:
 - **Neutral**: KoboldCpp-style neutral baseline with temperature=1.0, top_k=200, top_p=1.0, min_p=0, repeat_penalty=1.0, repeat_last_n=360
 - **Balanced**: KoboldCpp `Simple Balanced` style with temperature=0.75, top_k=100, top_p=0.92, min_p=0, repeat_penalty=1.05, repeat_last_n=360
 - **Creative**: KoboldCpp `Simple Creative` style with temperature=1.0, top_k=100, top_p=0.98, min_p=0, repeat_penalty=1.1, repeat_last_n=360
@@ -696,7 +698,7 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `app.js`:
 - Configure tab: Sampler Preset controls appear at the top of the Sampling accordion.
 - Quick Launch tab: Sampler Preset controls in the sampler section.
 - Quick profiles reference preset names (e.g., `samplerPresetName: "Balanced"`).
-- Loading a preset calls `applySamplerPresetValues()` which writes through `window.LlamaGui.flagCore.setMultipleFlagValues()`.
+- Loading a preset calls `window.LlamaGui.samplerPresets.applySamplerPresetValues()` which writes through `window.LlamaGui.flagCore.setMultipleFlagValues()`.
 
 ## Server Stats & Metrics
 
