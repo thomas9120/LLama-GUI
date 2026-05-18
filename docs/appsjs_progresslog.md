@@ -4,7 +4,7 @@
 - [x] Record current counts for `FLAGS`, `FLAG_CATEGORIES`, `CHAT_TEMPLATE_PRESETS`, and `BUILTIN_CHAT_TEMPLATES`.
   - Baseline: 139 flags, 14 categories, 31 chat template presets, 51 built-in chat templates.
 - [x] Run baseline checks:
-  - `node --check ui/js/flags.js`
+  - `node --check` on the ordered flag modules
   - `node --check ui/js/app.js`
   - `node tests/frontend/custom_launch_args_unit.cjs`
   - `npm run test:frontend`
@@ -14,7 +14,7 @@
 ## Phase 1: Split `flags.js` Without Behavior Changes
 - [x] Create focused ordered modules for categories, shared options, chat templates, flag definitions, and helpers.
   - Added `ui/js/flags/categories.js`, `options.js`, `chat-templates.js`, `definitions.js`, and `helpers.js`.
-- [x] Preserve all existing global names used by current scripts and tests.
+- [x] Preserve all existing global names used by current scripts and tests through the ordered split modules.
 - [x] Update `ui/index.html` script loading order so dependencies load before consumers.
 - [x] Update docs that refer to parsing `ui/js/flags.js` as the single source file.
   - Updated `docs/agent-workflows.md` and `docs/directory.md`.

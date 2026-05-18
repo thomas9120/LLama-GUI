@@ -1,5 +1,5 @@
 const FLAGS = [
-    // â”€â”€ Model â”€â”€
+    // Model
     { id: "hf_repo", flag: "-hf", category: "model", type: "text", label: "HF Repo",
       short_desc: "Load a model directly from Hugging Face using repo/name.",
       desc: "Hugging Face repo: user/model[:quant], e.g. ggml-org/gemma-3-1b-it-GGUF:Q4_K_M", tool: "both" },
@@ -18,7 +18,7 @@ const FLAGS = [
     { id: "no_mmproj", flag: "--no-mmproj", category: "model", type: "bool", label: "Disable mmproj Auto",
       desc: "Disable automatic mmproj download when using -hf", tool: "both", default: false },
 
-    // â”€â”€ Context & Memory â”€â”€
+    // Context & Memory
     { id: "ctx_size", flag: "-c", category: "context", type: "int", label: "Total Context Window",
       short_desc: "How much text the model can keep in memory at once.",
       beginner_tip: "16000 is a strong default. Lower it if you run out of memory.",
@@ -52,7 +52,7 @@ const FLAGS = [
       short_desc: "Controls how often llama.cpp creates context checkpoints while reading a prompt.",
       desc: "Create a context checkpoint every N tokens during prompt processing. Lower values create more frequent snapshots and may improve reuse granularity, but can use more memory. -1 disables checkpoint creation.", tool: "server", default: 8192, min: -1, placeholder: "-1 disables" },
 
-    // â”€â”€ CPU & Threads â”€â”€
+    // CPU & Threads
     { id: "threads", flag: "-t", category: "cpu", type: "int", label: "CPU Threads",
       short_desc: "CPU workers used during generation (-1 picks automatically).",
       desc: "Number of CPU threads for generation (-1 = auto)", tool: "both", default: -1, min: -1, max: 256, placeholder: "-1 = auto" },
@@ -71,7 +71,7 @@ const FLAGS = [
     { id: "poll", flag: "--poll", category: "cpu", type: "int", label: "Poll Level",
       desc: "Polling level to wait for work (0 = no polling)", tool: "both", default: 50, min: 0, max: 100 },
 
-    // â”€â”€ GPU / Acceleration â”€â”€
+    // GPU / Acceleration
     { id: "gpu_layers", flag: "-ngl", category: "gpu", type: "text", label: "GPU Layers",
       short_desc: "How much of the model to offload to GPU.",
       beginner_tip: "Leave on auto unless you are tuning performance manually.",
@@ -116,7 +116,7 @@ const FLAGS = [
     { id: "mmproj_offload", flag: "--mmproj-offload", false_flag: "--no-mmproj-offload", category: "gpu", type: "bool", label: "mmproj GPU Offload",
       desc: "Enable GPU offloading for multimodal projector", tool: "both", default: true },
 
-    // â”€â”€ Sampling â”€â”€
+    // Sampling
     { id: "temperature", flag: "--temp", category: "sampling", type: "float", label: "Temperature",
       short_desc: "Controls creativity: lower is focused, higher is more random.",
       beginner_tip: "Try 0.7-0.9 for general chat. Lower for factual tasks.",
@@ -174,7 +174,7 @@ const FLAGS = [
     { id: "samplers", flag: "--samplers", category: "sampling", type: "text", label: "Sampler Sequence",
       desc: "Custom sampler order, semicolon separated", tool: "both", placeholder: "penalties;dry;top_k;top_p;temperature" },
 
-    // â”€â”€ RoPE Scaling â”€â”€
+    // RoPE Scaling
     { id: "rope_scaling", flag: "--rope-scaling", category: "rope", type: "enum", label: "RoPE Scaling",
       desc: "RoPE frequency scaling method", tool: "both",
       options: [{ value: "", label: "Default (from model)" }, { value: "none", label: "None" }, { value: "linear", label: "Linear" }, { value: "yarn", label: "YaRN" }] },
@@ -195,7 +195,7 @@ const FLAGS = [
     { id: "yarn_beta_fast", flag: "--yarn-beta-fast", category: "rope", type: "float", label: "YaRN Beta Fast",
       desc: "YaRN low correction dimension", tool: "both", default: -1, min: -1, step: 0.01 },
 
-    // â”€â”€ Conversation & Chat â”€â”€
+    // Conversation & Chat
     { id: "conversation", flag: "-cnv", category: "conversation", type: "bool", label: "Conversation Mode",
       desc: "Run in interactive conversation mode", tool: "cli", default: false },
     { id: "system_prompt", flag: "-sys", category: "conversation", type: "text", label: "System Prompt",
@@ -228,7 +228,7 @@ const FLAGS = [
     { id: "multiline", flag: "-mli", category: "conversation", type: "bool", label: "Multiline Input",
       desc: "Allow multiline input without escaping", tool: "cli", default: false },
 
-    // â”€â”€ LoRA & Control Vectors â”€â”€
+    // LoRA & Control Vectors
     { id: "lora", flag: "--lora", category: "lora", type: "text", label: "LoRA Adapter(s)",
       desc: "Path to LoRA adapter (comma-separated for multiple)", tool: "both" },
     { id: "lora_scaled", flag: "--lora-scaled", category: "lora", type: "text", label: "LoRA (Scaled)",
@@ -240,7 +240,7 @@ const FLAGS = [
     { id: "control_vector_range", flag: "--control-vector-layer-range", category: "lora", type: "text", label: "CV Layer Range",
       desc: "Layer range for control vectors: START END", tool: "both" },
 
-    // â”€â”€ KV Cache â”€â”€
+    // KV Cache
     { id: "cache_type_k", flag: "-ctk", category: "kv", type: "enum", label: "KV Cache Type K",
       desc: "KV cache data type for K", tool: "both",
       options: CACHE_TYPE_OPTIONS },
@@ -250,7 +250,7 @@ const FLAGS = [
     { id: "context_shift", flag: "--context-shift", category: "kv", type: "bool", label: "Context Shift",
       desc: "Use context shift on infinite text generation", tool: "both", default: false },
 
-    // â”€â”€ Speculative Decoding â”€â”€
+    // Speculative Decoding
     { id: "draft_max", flag: "--spec-draft-n-max", category: "speculative", type: "int", label: "Draft Tokens",
       desc: "Number of draft tokens for speculative decoding", tool: "both", min: 0, max: 128, placeholder: "llama.cpp default" },
     { id: "draft_min", flag: "--spec-draft-n-min", category: "speculative", type: "int", label: "Draft Min Tokens",
@@ -284,7 +284,7 @@ const FLAGS = [
       desc: "KV cache data type for V for draft model", tool: "both",
       options: CACHE_TYPE_OPTIONS },
 
-    // â”€â”€ Server and MCP Settings â”€â”€
+    // Server and MCP Settings
     { id: "host", flag: "--host", category: "server", type: "text", label: "Host",
       short_desc: "Network address the API server listens on.",
       desc: "IP address to listen on (default: 127.0.0.1)", tool: "server", default: "127.0.0.1" },
@@ -336,7 +336,7 @@ const FLAGS = [
     { id: "cache_reuse", flag: "--cache-reuse", category: "server", type: "int", label: "Cache Reuse Size",
       desc: "Min chunk size for cache reuse via KV shifting (0 = disabled)", tool: "server", default: 0, min: 0 },
 
-    // â”€â”€ Grammar & Constraints â”€â”€
+    // Grammar & Constraints
     { id: "grammar", flag: "--grammar", category: "grammar", type: "text", label: "Grammar",
       desc: "BNF-like grammar to constrain generation", tool: "both" },
     { id: "grammar_file", flag: "--grammar-file", category: "grammar", type: "path", label: "Grammar File",
@@ -348,7 +348,7 @@ const FLAGS = [
     { id: "backend_sampling", flag: "-bs", category: "grammar", type: "bool", label: "Backend Sampling",
       desc: "Enable backend sampling (experimental)", tool: "both", default: false },
 
-    // â”€â”€ Logging â”€â”€
+    // Logging
     { id: "verbose", flag: "-v", category: "logging", type: "bool", label: "Verbose",
       desc: "Set verbosity to maximum (log all messages)", tool: "both", default: false },
     { id: "verbosity", flag: "-lv", category: "logging", type: "int", label: "Verbosity Level",
@@ -366,7 +366,7 @@ const FLAGS = [
     { id: "show_timings", flag: "--show-timings", false_flag: "--no-show-timings", category: "logging", type: "bool", label: "Show Timings",
       desc: "Show timing information after each response", tool: "cli", default: true },
 
-    // â”€â”€ Advanced â”€â”€
+    // Advanced
     { id: "override_kv", flag: "--override-kv", category: "advanced", type: "text", label: "Override KV Metadata",
       desc: "Override model metadata, e.g. KEY=TYPE:VALUE,...", tool: "both" },
     { id: "override_tensor", flag: "-ot", category: "advanced", type: "text", label: "Override Tensor Buffer",

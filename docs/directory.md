@@ -27,7 +27,6 @@
 | `ui/js/app-data.js` | Shared Quick Launch profile, context preset, sampler preset, and chat sampler slider data consumed by `app.js` |
 | `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat (streaming, web search, history), Quick Launch/HF download/sampler preset behavior, remote tunnel, stats polling, toasts |
 | `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
-| `ui/js/flags.js` | Compatibility note pointing to the split flag modules |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/flag-validation.js` | Non-blocking startup validation for loaded flag definitions (duplicate ids, invalid categories/tools/types, enum options, default value shape, duplicate CLI flags) |

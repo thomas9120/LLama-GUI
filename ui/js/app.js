@@ -2264,7 +2264,7 @@ function showToast(message, type) {
     }, 4000);
 }
 
-// â”€â”€ Chat Tab â”€â”€
+// Chat Tab
 
 function escapeHtml(text) {
     return text
@@ -2381,7 +2381,7 @@ function processBlocks(text) {
             continue;
         }
 
-        // Regular text â€” collect contiguous lines into a paragraph
+                // Regular text: collect contiguous lines into a paragraph
         const paraLines = [];
         while (i < lines.length &&
             !/^(#{1,6}\s|[\s]*[-*+]\s|[\s]*\d+\.\s|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i]) &&
@@ -2834,7 +2834,7 @@ function regenerateChatResponse() {
     sendChatMessage(lastUserMsg.content);
 }
 
-// â”€â”€ Chat History (localStorage) â”€â”€
+// Chat History (localStorage)
 
 function getStoredConversations() {
     try {

@@ -505,7 +505,6 @@ def get_ui_asset_version():
         UI_DIR / "index.html",
         UI_DIR / "css" / "tokens.css",
         UI_DIR / "css" / "style.css",
-        UI_DIR / "js" / "flags.js",
         UI_DIR / "js" / "flags" / "categories.js",
         UI_DIR / "js" / "flags" / "options.js",
         UI_DIR / "js" / "flags" / "chat-templates.js",
