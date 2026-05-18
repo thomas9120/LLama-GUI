@@ -207,6 +207,8 @@ chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 
 Note: some Linux accelerator backends may also require vendor drivers or runtime packages outside of Llama GUI itself.
 
+For users who want to compile `llama.cpp` with CUDA on Linux, the standalone `Linux_compile_toolkit/` folder includes a helper script that fetches upstream `llama.cpp`, builds a CUDA-enabled release, and packages the binaries into a `.tar.gz`.
+
 ### Headless or LAN Access
 
 By default, Llama GUI only listens on `127.0.0.1:5240`. On a trusted LAN or VPN, you can opt in to remote browser access with environment variables:
