@@ -101,9 +101,11 @@ The API tab is another low-risk boundary because most of it is static endpoint/s
 - Confirm no launch argument or flag state generation moved into the API module.
 - Confirm script order is correct and there are no new globals outside `window.LlamaGui`.
 
-## Phase 3: Extract Hugging Face Download UI
+## Phase 3: Extract Hugging Face Download UI - Done
 
 The Hugging Face downloader has a clear boundary around its backend endpoints, progress timer, form controls, and status rendering.
+
+Status: Completed. `ui/js/hf-download-ui.js` now owns the Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow through `window.LlamaGui.hfDownloadUi`, with shared utilities injected from `app.js`.
 
 ### Implementation
 

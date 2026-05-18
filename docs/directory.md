@@ -27,7 +27,8 @@
 | `ui/js/app-data.js` | Shared Quick Launch profile, context preset, sampler preset, and chat sampler slider data consumed by `app.js` |
 | `ui/js/chat-rendering.js` | Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering` |
 | `ui/js/api-tab.js` | API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab` |
-| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat state/controller (streaming, web search, history), Quick Launch/HF download/sampler preset behavior, remote tunnel, stats polling, toasts |
+| `ui/js/hf-download-ui.js` | Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow exposed as `window.LlamaGui.hfDownloadUi` |
+| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat state/controller (streaming, web search, history), Quick Launch/sampler preset behavior, remote tunnel, stats polling, toasts |
 | `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
@@ -77,6 +78,7 @@ Frontend modules are still loaded as ordered global scripts rather than ES modul
 ## Hugging Face Download
 
 Integrated model downloader in the Quick Launch tab:
+- Frontend controls, status rendering, progress polling, cancel handling, and completion flow live in `ui/js/hf-download-ui.js`
 - Browse HF repos for GGUF files via `/api/hf/repo-files`
 - Download models + optional mmproj files with progress bar and cancel support
 - Path/filename validation prevents traversal attacks

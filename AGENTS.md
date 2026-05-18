@@ -190,10 +190,10 @@ with the primary file and only touch secondary files if the change requires it.
 | Chat sidebar samplers | `ui/js/app.js` | `ui/js/flag-core.js` (state) |
 | Chat markdown/rendering helpers | `ui/js/chat-rendering.js` | `ui/js/app.js` (chat state/controller) |
 | API tab docs/snippets | `ui/js/api-tab.js` | `ui/js/app.js` (status/init), `ui/js/flag-core.js` (state reads) |
+| HF download UI | `ui/js/hf-download-ui.js` | `ui/js/app.js` (callbacks), `ui/js/manager.js` (fetchJson) |
 | Chat template presets | `ui/js/flags.js` | `ui/js/app.js` (mapping helpers) |
 | Sampler presets | `ui/js/app.js` | `ui/js/flag-core.js` (apply) |
 | Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
-| HF download UI | `ui/js/app.js` | `ui/js/manager.js` (fetchJson) |
 | Install/update UI | `ui/js/manager.js` | — |
 | Backend routes | `backend/routes/*.py` | `backend/services/*.py` |
 | Backend state/locks | `backend/state.py` | `backend/context.py` |
@@ -215,7 +215,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 7. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
 8. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
 9. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
-10. `app.js` — main orchestration (wires everything together)
+10. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
+11. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you
 add a new module, place it after its dependencies and before its consumers.
@@ -277,9 +278,10 @@ private closure variables.
 
 ### Frontend
 - **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
-- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat state/controller (streaming, web search, conversation history), Quick Launch profiles/HF download/sampler presets, remote tunnel, toasts, and cache-busting reload.
+- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat state/controller (streaming, web search, conversation history), Quick Launch profiles/sampler presets, remote tunnel, toasts, and cache-busting reload.
 - **`ui/js/chat-rendering.js`**: Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering`.
 - **`ui/js/api-tab.js`**: API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab`; reads shared state through injected `flagCore`.
+- **`ui/js/hf-download-ui.js`**: Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow exposed as `window.LlamaGui.hfDownloadUi`; receives shared utilities and `flagCore` from `app.js`.
 - **`ui/js/flags.js`**: Single source of truth for exposed `llama.cpp` flags, flag categories, data types, built-in chat templates, chat template presets, sampler presets, and quick launch profiles.
 - **`ui/js/flag-core.js`**: Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation.
 - **`ui/js/config-flags-ui.js`**: Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings.
@@ -542,6 +544,8 @@ The Quick Launch tab includes a full HF model downloader section:
 - Model and mmproj file selectors
 - Download progress bar with cancel support
 - Auto-selects downloaded model on completion
+
+Frontend downloader controls, status rendering, progress polling, cancel handling, and completion flow live in `ui/js/hf-download-ui.js`. `app.js` injects `fetchJson`, confirmation/model callbacks, and `flagCore`; the module must not mutate `flagValues` directly.
 
 ## Chat Tab
 
