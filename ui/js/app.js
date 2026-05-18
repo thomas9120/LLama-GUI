@@ -35,150 +35,7 @@ const CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY = "llama_gui_chat_web_search_max_r
 const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
 const CHAT_WEB_SEARCH_MIN_RESULTS = 1;
 const CHAT_WEB_SEARCH_MAX_RESULTS = 10;
-const CHAT_SAMPLER_SLIDER_MAP = {
-    "chat-slider-temp": { flag: "temperature", decimals: 2 },
-    "chat-slider-top-p": { flag: "top_p", decimals: 2 },
-    "chat-slider-top-k": { flag: "top_k", decimals: 0 },
-    "chat-slider-min-p": { flag: "min_p", decimals: 2 },
-    "chat-slider-repeat": { flag: "repeat_penalty", decimals: 2 },
-    "chat-slider-max-tokens": { flag: "n_predict", decimals: 0 },
-};
-
-const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
-const BUILTIN_SAMPLER_PRESETS = {
-    Neutral: {
-        temperature: 1.0,
-        top_k: 200,
-        top_p: 1.0,
-        min_p: 0,
-        top_n_sigma: -1,
-        xtc_probability: 0,
-        xtc_threshold: 1.0,
-        typical_p: 1.0,
-        repeat_last_n: 360,
-        repeat_penalty: 1.0,
-        presence_penalty: 0,
-        frequency_penalty: 0,
-        dry_multiplier: 0,
-        dynatemp_range: 0,
-        mirostat: "0",
-    },
-    Balanced: {
-        temperature: 0.75,
-        top_k: 100,
-        top_p: 0.92,
-        min_p: 0,
-        repeat_penalty: 1.05,
-        repeat_last_n: 360,
-    },
-    Creative: {
-        temperature: 1.0,
-        top_k: 100,
-        top_p: 0.98,
-        min_p: 0,
-        repeat_penalty: 1.1,
-        repeat_last_n: 360,
-    },
-    Precise: {
-        temperature: 0.3,
-        top_k: 25,
-        top_p: 0.6,
-        min_p: 0,
-        repeat_penalty: 1.02,
-        repeat_last_n: 360,
-    },
-};
-
-const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
-const QUICK_PROFILES = {
-    "safe-defaults": {
-        label: "Safe Defaults",
-        summary: "Applies a full starter setup: 16000 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    balanced: {
-        label: "Balanced",
-        summary: "Applies a full general-purpose setup with 16000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "low-memory": {
-        label: "Low Memory",
-        summary: "Applies a lighter setup with lower context, smaller batch sizes, conservative fit settings, and a more precise sampler profile.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 8192,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1536",
-            fit_ctx: 8192,
-            batch_size: 1024,
-            ubatch_size: 256,
-            temperature: 0.7,
-            top_p: 0.92,
-            min_p: 0.06,
-            repeat_penalty: 1.08,
-        },
-        samplerPresetName: "Precise",
-    },
-    "long-context": {
-        label: "Long Context",
-        summary: "Applies a larger context window while keeping Auto Fit active and the rest of the launch settings beginner-friendly.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 32768,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 32768,
-            temperature: 0.75,
-            top_p: 0.95,
-            min_p: 0.04,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "creative-chat": {
-        label: "Creative Chat",
-        summary: "Applies the standard launch setup, then warms up the sampler for more creative and open-ended responses.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 1.05,
-            top_p: 0.97,
-            min_p: 0.03,
-            repeat_penalty: 1.02,
-        },
-        samplerPresetName: "Creative",
-    },
-};
+// Shared Quick Launch and sampler data is defined in app-data.js.
 
 let quickLaunchFitCtxLinked = true;
 let quickLaunchGpuCustomSelected = false;
@@ -1422,6 +1279,28 @@ function refreshQuickLaunchUI() {
     updateQuickLaunchActionButtons();
 }
 
+function populateQuickProfileOptions() {
+    const select = document.getElementById("quick-profile-select");
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a profile...";
+    select.appendChild(placeholder);
+
+    for (const [profileId, profile] of Object.entries(QUICK_PROFILES)) {
+        const opt = document.createElement("option");
+        opt.value = profileId;
+        opt.textContent = profile.label;
+        select.appendChild(opt);
+    }
+
+    select.value = Object.prototype.hasOwnProperty.call(QUICK_PROFILES, previous) ? previous : "";
+}
+
 function initQuickLaunch() {
     const on = (id, event, handler) => {
         const el = document.getElementById(id);
@@ -1429,6 +1308,7 @@ function initQuickLaunch() {
     };
 
     populateQuickTemplatePackOptions();
+    populateQuickProfileOptions();
     refreshQuickSamplerPresetSelect();
     syncQuickLaunchModelOptions();
     refreshHfDownloadStatus();
@@ -1813,13 +1693,13 @@ async function refreshRemoteTunnelStatus() {
 async function startRemoteTunnel() {
     renderRemoteTunnelStatus({ status: "starting", message: "Starting Cloudflare tunnel..." });
     try {
-        const values = flagCore.getFlagValues();
+        const endpoint = getServerEndpointConfig();
         const state = await fetchJson("/api/remote-tunnel/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                host: values.host || "127.0.0.1",
-                port: values.port || 8080,
+                host: endpoint.host,
+                port: endpoint.port,
             }),
         });
         renderRemoteTunnelStatus(state);
@@ -1860,10 +1740,7 @@ function updateServerAddressPreview() {
         el.classList.add("hidden");
         return;
     }
-    const values = flagCore.getFlagValues();
-    const host = values.host || "127.0.0.1";
-    const port = values.port || 8080;
-    const baseUrl = `http://${host}:${port}`;
+    const { baseUrl } = getServerEndpointConfig();
     document.getElementById("server-url").href = baseUrl;
     document.getElementById("server-url").textContent = baseUrl;
     document.getElementById("server-webui").href = baseUrl + "/";
@@ -1887,11 +1764,19 @@ function updateQuickServerAddressPreview() {
 }
 
 function getServerBaseUrl() {
+    return getServerEndpointConfig().baseUrl;
+}
+
+function getServerEndpointConfig() {
     const values = flagCore.getFlagValues();
     const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
     const parsedPort = Number(values.port);
     const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
-    return `http://${host}:${port}`;
+    return {
+        host,
+        port,
+        baseUrl: `http://${host}:${port}`,
+    };
 }
 
 function getPreferredApiModelName() {
@@ -2086,7 +1971,6 @@ async function launchLlama() {
     }
     const args = result.args;
     const tool = flagCore.getCurrentTool();
-    const values = flagCore.getFlagValues();
     const hasModel = args.some(a => {
         const entryValues = Array.isArray(a) ? a : [a];
         return entryValues.includes("-m") || entryValues.includes("-hf");
@@ -2128,9 +2012,7 @@ async function launchLlama() {
             updateServerAddressPreview();
 
             if (tool === "llama-server") {
-                const host = values.host || "127.0.0.1";
-                const port = values.port || 8080;
-                const baseUrl = `http://${host}:${port}`;
+                const { baseUrl } = getServerEndpointConfig();
                 appendOutput(`Server running at ${baseUrl}`);
                 appendOutput(`Web UI: ${baseUrl}/`);
                 startStatsPolling();
@@ -2211,10 +2093,7 @@ async function pollStats() {
     if (pollStatsActive) return;
     pollStatsActive = true;
     try {
-        const values = flagCore.getFlagValues();
-        const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
-        const parsedPort = Number(values.port);
-        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+        const { host, port } = getServerEndpointConfig();
         const params = new URLSearchParams({ host, port: String(port) });
         const resp = await fetch(`/api/llama/metrics?${params.toString()}`);
         if (!resp.ok) return;
@@ -2385,7 +2264,7 @@ function showToast(message, type) {
     }, 4000);
 }
 
-// ── Chat Tab ──
+// â”€â”€ Chat Tab â”€â”€
 
 function escapeHtml(text) {
     return text
@@ -2502,7 +2381,7 @@ function processBlocks(text) {
             continue;
         }
 
-        // Regular text — collect contiguous lines into a paragraph
+        // Regular text â€” collect contiguous lines into a paragraph
         const paraLines = [];
         while (i < lines.length &&
             !/^(#{1,6}\s|[\s]*[-*+]\s|[\s]*\d+\.\s|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i]) &&
@@ -2581,11 +2460,7 @@ function getChatModelName() {
 }
 
 function getChatApiUrl() {
-    const values = flagCore.getFlagValues();
-    const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
-    const parsedPort = Number(values.port);
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
-    return `http://${host}:${port}/v1/chat/completions`;
+    return `${getServerEndpointConfig().baseUrl}/v1/chat/completions`;
 }
 
 function isChatWebSearchEnabled() {
@@ -2794,14 +2669,13 @@ async function sendChatMessage(userText) {
     }
     messages.push(...getChatRequestMessages(chatMessages));
 
-    const values = flagCore.getFlagValues();
-    const parsedPort = Number(values.port);
+    const endpoint = getServerEndpointConfig();
     const body = {
         model: getChatModelName(),
         messages,
         stream: true,
-        host: String(values.host || "127.0.0.1").trim() || "127.0.0.1",
-        port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080,
+        host: endpoint.host,
+        port: endpoint.port,
         ...getChatSamplerParams(),
     };
     const webSearchEnabled = isChatWebSearchEnabled();
@@ -2960,7 +2834,7 @@ function regenerateChatResponse() {
     sendChatMessage(lastUserMsg.content);
 }
 
-// ── Chat History (localStorage) ──
+// â”€â”€ Chat History (localStorage) â”€â”€
 
 function getStoredConversations() {
     try {
