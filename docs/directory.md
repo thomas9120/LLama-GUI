@@ -24,11 +24,12 @@
 | `backend/routing.py` | Dispatch-table route matching for API routes |
 | `backend/routes/` | 14 route handler modules grouped by feature (status, models, presets, metrics, chat, search, hf_download, file_picker, process, install, tunnel, git_update, lifecycle) |
 | `backend/services/` | 10 service modules (llama_manager, process_manager, hf_download, web_search, tunnel, git_update, lifecycle, file_picker, chat) |
-| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat (streaming, web search, history), Quick Launch profiles/HF download/sampler presets, remote tunnel, stats polling, toasts |
-| `ui/js/flags.js` | Single source of truth for exposed llama.cpp flag definitions, flag types (`bool`/`int`/`float`/`text`/`path`/`enum`/`multi_enum`), chat template presets, sampler presets, and Quick Launch profiles |
+| `ui/js/app-data.js` | Shared Quick Launch profile, context preset, sampler preset, and chat sampler slider data consumed by `app.js` |
+| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat (streaming, web search, history), Quick Launch/HF download/sampler preset behavior, remote tunnel, stats polling, toasts |
+| `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
-| `ui/js/flag-validation.js` | Non-blocking startup validation for `flags.js` definitions (duplicate ids, invalid categories/tools/types, enum options, default value shape, duplicate CLI flags) |
+| `ui/js/flag-validation.js` | Non-blocking startup validation for loaded flag definitions (duplicate ids, invalid categories/tools/types, enum options, default value shape, duplicate CLI flags) |
 | `ui/js/manager.js` | Install flow, GitHub release fetch, backend selection, status polling, app auto-update (git), confirmation modal |
 | `ui/js/presets.js` | Launcher preset save/load/update/delete with group-by-model rendering, collapsible groups, search/filter, warnings, import/export |
 | `ui/index.html` | Tabbed UI: Install, Quick Launch, Configure, Chat, API, Presets |

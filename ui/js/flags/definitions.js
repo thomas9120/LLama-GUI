@@ -1,133 +1,5 @@
-// NOTE: "conversation", "lora", and "grammar" are used as both category ids and flag ids.
-// This is intentional and harmless — categories and flags occupy separate data domains
-// (FLAG_CATEGORIES vs FLAGS). flag-validation.js warns about these collisions at startup.
-// Do NOT rename without checking the audit notes in docs/todo.md (Phase 2, Item 6).
-const FLAG_CATEGORIES = [
-    { id: "model", name: "Model", icon: "📦" },
-    { id: "context", name: "Context & Memory", icon: "🧠" },
-    { id: "cpu", name: "CPU & Threads", icon: "⚙️" },
-    { id: "gpu", name: "GPU / Acceleration", icon: "🎮" },
-    { id: "sampling", name: "Sampling", icon: "🎲" },
-    { id: "rope", name: "RoPE Scaling", icon: "📏" },
-    { id: "conversation", name: "Conversation & Chat", icon: "💬" },
-    { id: "lora", name: "LoRA & Control Vectors", icon: "🔗" },
-    { id: "kv", name: "KV Cache", icon: "💾" },
-    { id: "speculative", name: "Speculative Decoding", icon: "⚡" },
-    { id: "server", name: "Server and MCP Settings", icon: "🌐" },
-    { id: "grammar", name: "Grammar & Constraints", icon: "📝" },
-    { id: "logging", name: "Logging", icon: "📋" },
-    { id: "advanced", name: "Advanced", icon: "🔧" },
-];
-
-const CACHE_TYPE_OPTIONS = [
-    { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
-    { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },
-    { value: "q4_0", label: "Q4_0" }, { value: "q4_1", label: "Q4_1" },
-    { value: "iq4_nl", label: "IQ4_NL" }, { value: "q5_0", label: "Q5_0" }, { value: "q5_1", label: "Q5_1" },
-];
-
-const BUILTIN_CHAT_TEMPLATES = [
-    "bailing",
-    "bailing-think",
-    "bailing2",
-    "chatglm3",
-    "chatglm4",
-    "chatml",
-    "command-r",
-    "deepseek",
-    "deepseek-ocr",
-    "deepseek2",
-    "deepseek3",
-    "exaone-moe",
-    "exaone3",
-    "exaone4",
-    "falcon3",
-    "gemma",
-    "gigachat",
-    "glmedge",
-    "gpt-oss",
-    "granite",
-    "grok-2",
-    "hunyuan-dense",
-    "hunyuan-moe",
-    "kimi-k2",
-    "llama2",
-    "llama2-sys",
-    "llama2-sys-bos",
-    "llama2-sys-strip",
-    "llama3",
-    "llama4",
-    "megrez",
-    "minicpm",
-    "mistral-v1",
-    "mistral-v3",
-    "mistral-v3-tekken",
-    "mistral-v7",
-    "mistral-v7-tekken",
-    "monarch",
-    "openchat",
-    "orion",
-    "pangu-embedded",
-    "phi3",
-    "phi4",
-    "rwkv-world",
-    "seed_oss",
-    "smolvlm",
-    "solar-open",
-    "vicuna",
-    "vicuna-orca",
-    "yandex",
-    "zephyr",
-];
-
-const BUILTIN_CHAT_TEMPLATE_SET = new Set(BUILTIN_CHAT_TEMPLATES);
-
-function isSupportedChatTemplateValue(value) {
-    if (value === undefined || value === null || value === "") return true;
-    return BUILTIN_CHAT_TEMPLATE_SET.has(String(value));
-}
-
-const CHAT_TEMPLATE_PRESETS = [
-    { value: "", label: "Auto (from model)", mode: "auto" },
-    { value: "__koboldcpp_automatic__", label: "KoboldCppAutomatic", mode: "auto_alias" },
-    { value: "__alpaca__", label: "Alpaca", mode: "bundled", path: "ui/templates/alpaca.jinja" },
-    { value: "chatml", label: "ChatML", mode: "builtin", builtin: "chatml" },
-    { value: "__chatml_nonthinking__", label: "ChatML Non-Thinking", mode: "bundled", path: "ui/templates/chatml-nonthinking.jinja" },
-    { value: "command-r", label: "CommandR", mode: "builtin", builtin: "command-r" },
-    { value: "deepseek3", label: "Deepseek v2.5 & v3", mode: "builtin", builtin: "deepseek3" },
-    { value: "__deepseek_v31_nonthinking__", label: "Deepseek v3.1 Non-Thinking", mode: "bundled", path: "ui/templates/deepseek-v31-nonthinking.jinja" },
-    { value: "gemma", label: "Gemma 2 & 3", mode: "builtin", builtin: "gemma" },
-    { value: "__gemma4_e2b_e4b__", label: "Gemma 4 E2B & E4B", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b.jinja" },
-    { value: "__gemma4_e2b_e4b_nothink__", label: "Gemma 4 E2B & E4B NoThink", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b-nothink.jinja" },
-    { value: "__gemma4_26b_31b__", label: "Gemma 4 26B & 31B", mode: "bundled", path: "ui/templates/gemma4-26b-31b.jinja" },
-    { value: "__gemma4_26b_31b_nothink__", label: "Gemma 4 26B & 31B NoThink", mode: "bundled", path: "ui/templates/gemma4-26b-31b-nothink.jinja" },
-    { value: "__gemma4_thinking__", label: "Gemma 4 Thinking", mode: "bundled", path: "ui/templates/gemma4.jinja" },
-    { value: "chatglm4", label: "GLM-4 & 4.5", mode: "builtin", builtin: "chatglm4" },
-    { value: "__glm45_nonthinking__", label: "GLM-4.5 Non-Thinking", mode: "bundled", path: "ui/templates/glm45-nonthinking.jinja" },
-    { value: "__glm47_nonthinking__", label: "GLM-4.7 Non-Thinking", mode: "bundled", path: "ui/templates/glm47-nonthinking.jinja" },
-    { value: "granite", label: "Granite 4", mode: "builtin", builtin: "granite" },
-    { value: "kimi-k2", label: "Kimi ChatML", mode: "builtin", builtin: "kimi-k2" },
-    { value: "llama2", label: "Llama 2 Chat", mode: "builtin", builtin: "llama2" },
-    { value: "llama3", label: "Llama 3 Chat", mode: "builtin", builtin: "llama3" },
-    { value: "llama4", label: "Llama 4 Chat", mode: "builtin", builtin: "llama4" },
-    { value: "__metharme__", label: "Metharme", mode: "bundled", path: "ui/templates/metharme.jinja" },
-    { value: "__mistral_non_tekken__", label: "Mistral Non-Tekken", mode: "bundled", path: "ui/templates/mistral-non-tekken.jinja" },
-    { value: "mistral-v3-tekken", label: "Mistral Tekken", mode: "builtin", builtin: "mistral-v3-tekken" },
-    { value: "phi3", label: "Phi-3 Mini", mode: "builtin", builtin: "phi3" },
-    { value: "seed_oss", label: "Seed OSS", mode: "builtin", builtin: "seed_oss" },
-    { value: "__seed_oss_nonthinking__", label: "Seed OSS Non-Thinking", mode: "bundled", path: "ui/templates/seed-oss-nonthinking.jinja" },
-    { value: "vicuna", label: "Vicuna", mode: "builtin", builtin: "vicuna" },
-    { value: "gpt-oss", label: "OpenAI Harmony", mode: "builtin", builtin: "gpt-oss" },
-    { value: "__openai_harmony_nonthinking__", label: "OpenAI Harmony Non-Thinking", mode: "bundled", path: "ui/templates/openai-harmony-nonthinking.jinja" },
-];
-
-const CHAT_TEMPLATE_PRESET_OPTIONS = CHAT_TEMPLATE_PRESETS.map((preset) => ({
-    value: preset.value,
-    label: preset.label,
-}));
-
 const FLAGS = [
-    // ── Model ──
+    // Model
     { id: "hf_repo", flag: "-hf", category: "model", type: "text", label: "HF Repo",
       short_desc: "Load a model directly from Hugging Face using repo/name.",
       desc: "Hugging Face repo: user/model[:quant], e.g. ggml-org/gemma-3-1b-it-GGUF:Q4_K_M", tool: "both" },
@@ -146,7 +18,7 @@ const FLAGS = [
     { id: "no_mmproj", flag: "--no-mmproj", category: "model", type: "bool", label: "Disable mmproj Auto",
       desc: "Disable automatic mmproj download when using -hf", tool: "both", default: false },
 
-    // ── Context & Memory ──
+    // Context & Memory
     { id: "ctx_size", flag: "-c", category: "context", type: "int", label: "Total Context Window",
       short_desc: "How much text the model can keep in memory at once.",
       beginner_tip: "16000 is a strong default. Lower it if you run out of memory.",
@@ -180,7 +52,7 @@ const FLAGS = [
       short_desc: "Controls how often llama.cpp creates context checkpoints while reading a prompt.",
       desc: "Create a context checkpoint every N tokens during prompt processing. Lower values create more frequent snapshots and may improve reuse granularity, but can use more memory. -1 disables checkpoint creation.", tool: "server", default: 8192, min: -1, placeholder: "-1 disables" },
 
-    // ── CPU & Threads ──
+    // CPU & Threads
     { id: "threads", flag: "-t", category: "cpu", type: "int", label: "CPU Threads",
       short_desc: "CPU workers used during generation (-1 picks automatically).",
       desc: "Number of CPU threads for generation (-1 = auto)", tool: "both", default: -1, min: -1, max: 256, placeholder: "-1 = auto" },
@@ -199,7 +71,7 @@ const FLAGS = [
     { id: "poll", flag: "--poll", category: "cpu", type: "int", label: "Poll Level",
       desc: "Polling level to wait for work (0 = no polling)", tool: "both", default: 50, min: 0, max: 100 },
 
-    // ── GPU / Acceleration ──
+    // GPU / Acceleration
     { id: "gpu_layers", flag: "-ngl", category: "gpu", type: "text", label: "GPU Layers",
       short_desc: "How much of the model to offload to GPU.",
       beginner_tip: "Leave on auto unless you are tuning performance manually.",
@@ -244,7 +116,7 @@ const FLAGS = [
     { id: "mmproj_offload", flag: "--mmproj-offload", false_flag: "--no-mmproj-offload", category: "gpu", type: "bool", label: "mmproj GPU Offload",
       desc: "Enable GPU offloading for multimodal projector", tool: "both", default: true },
 
-    // ── Sampling ──
+    // Sampling
     { id: "temperature", flag: "--temp", category: "sampling", type: "float", label: "Temperature",
       short_desc: "Controls creativity: lower is focused, higher is more random.",
       beginner_tip: "Try 0.7-0.9 for general chat. Lower for factual tasks.",
@@ -302,7 +174,7 @@ const FLAGS = [
     { id: "samplers", flag: "--samplers", category: "sampling", type: "text", label: "Sampler Sequence",
       desc: "Custom sampler order, semicolon separated", tool: "both", placeholder: "penalties;dry;top_k;top_p;temperature" },
 
-    // ── RoPE Scaling ──
+    // RoPE Scaling
     { id: "rope_scaling", flag: "--rope-scaling", category: "rope", type: "enum", label: "RoPE Scaling",
       desc: "RoPE frequency scaling method", tool: "both",
       options: [{ value: "", label: "Default (from model)" }, { value: "none", label: "None" }, { value: "linear", label: "Linear" }, { value: "yarn", label: "YaRN" }] },
@@ -323,7 +195,7 @@ const FLAGS = [
     { id: "yarn_beta_fast", flag: "--yarn-beta-fast", category: "rope", type: "float", label: "YaRN Beta Fast",
       desc: "YaRN low correction dimension", tool: "both", default: -1, min: -1, step: 0.01 },
 
-    // ── Conversation & Chat ──
+    // Conversation & Chat
     { id: "conversation", flag: "-cnv", category: "conversation", type: "bool", label: "Conversation Mode",
       desc: "Run in interactive conversation mode", tool: "cli", default: false },
     { id: "system_prompt", flag: "-sys", category: "conversation", type: "text", label: "System Prompt",
@@ -356,7 +228,7 @@ const FLAGS = [
     { id: "multiline", flag: "-mli", category: "conversation", type: "bool", label: "Multiline Input",
       desc: "Allow multiline input without escaping", tool: "cli", default: false },
 
-    // ── LoRA & Control Vectors ──
+    // LoRA & Control Vectors
     { id: "lora", flag: "--lora", category: "lora", type: "text", label: "LoRA Adapter(s)",
       desc: "Path to LoRA adapter (comma-separated for multiple)", tool: "both" },
     { id: "lora_scaled", flag: "--lora-scaled", category: "lora", type: "text", label: "LoRA (Scaled)",
@@ -368,7 +240,7 @@ const FLAGS = [
     { id: "control_vector_range", flag: "--control-vector-layer-range", category: "lora", type: "text", label: "CV Layer Range",
       desc: "Layer range for control vectors: START END", tool: "both" },
 
-    // ── KV Cache ──
+    // KV Cache
     { id: "cache_type_k", flag: "-ctk", category: "kv", type: "enum", label: "KV Cache Type K",
       desc: "KV cache data type for K", tool: "both",
       options: CACHE_TYPE_OPTIONS },
@@ -378,7 +250,7 @@ const FLAGS = [
     { id: "context_shift", flag: "--context-shift", category: "kv", type: "bool", label: "Context Shift",
       desc: "Use context shift on infinite text generation", tool: "both", default: false },
 
-    // ── Speculative Decoding ──
+    // Speculative Decoding
     { id: "draft_max", flag: "--spec-draft-n-max", category: "speculative", type: "int", label: "Draft Tokens",
       desc: "Number of draft tokens for speculative decoding", tool: "both", min: 0, max: 128, placeholder: "llama.cpp default" },
     { id: "draft_min", flag: "--spec-draft-n-min", category: "speculative", type: "int", label: "Draft Min Tokens",
@@ -412,7 +284,7 @@ const FLAGS = [
       desc: "KV cache data type for V for draft model", tool: "both",
       options: CACHE_TYPE_OPTIONS },
 
-    // ── Server and MCP Settings ──
+    // Server and MCP Settings
     { id: "host", flag: "--host", category: "server", type: "text", label: "Host",
       short_desc: "Network address the API server listens on.",
       desc: "IP address to listen on (default: 127.0.0.1)", tool: "server", default: "127.0.0.1" },
@@ -464,7 +336,7 @@ const FLAGS = [
     { id: "cache_reuse", flag: "--cache-reuse", category: "server", type: "int", label: "Cache Reuse Size",
       desc: "Min chunk size for cache reuse via KV shifting (0 = disabled)", tool: "server", default: 0, min: 0 },
 
-    // ── Grammar & Constraints ──
+    // Grammar & Constraints
     { id: "grammar", flag: "--grammar", category: "grammar", type: "text", label: "Grammar",
       desc: "BNF-like grammar to constrain generation", tool: "both" },
     { id: "grammar_file", flag: "--grammar-file", category: "grammar", type: "path", label: "Grammar File",
@@ -476,7 +348,7 @@ const FLAGS = [
     { id: "backend_sampling", flag: "-bs", category: "grammar", type: "bool", label: "Backend Sampling",
       desc: "Enable backend sampling (experimental)", tool: "both", default: false },
 
-    // ── Logging ──
+    // Logging
     { id: "verbose", flag: "-v", category: "logging", type: "bool", label: "Verbose",
       desc: "Set verbosity to maximum (log all messages)", tool: "both", default: false },
     { id: "verbosity", flag: "-lv", category: "logging", type: "int", label: "Verbosity Level",
@@ -494,7 +366,7 @@ const FLAGS = [
     { id: "show_timings", flag: "--show-timings", false_flag: "--no-show-timings", category: "logging", type: "bool", label: "Show Timings",
       desc: "Show timing information after each response", tool: "cli", default: true },
 
-    // ── Advanced ──
+    // Advanced
     { id: "override_kv", flag: "--override-kv", category: "advanced", type: "text", label: "Override KV Metadata",
       desc: "Override model metadata, e.g. KEY=TYPE:VALUE,...", tool: "both" },
     { id: "override_tensor", flag: "-ot", category: "advanced", type: "text", label: "Override Tensor Buffer",
@@ -508,69 +380,3 @@ const FLAGS = [
     { id: "offline", flag: "--offline", category: "advanced", type: "bool", label: "Offline Mode",
       desc: "Force cache use, prevent network access", tool: "both", default: false },
 ];
-
-function getFlagsForTool(tool) {
-    const toolBase = String(tool).replace("llama-", "");
-    if (toolBase !== "server" && toolBase !== "cli" && toolBase !== "both") {
-        console.warn("[flags] getFlagsForTool() called with unexpected tool:", tool);
-    }
-    return FLAGS.filter(f => f.tool === "both" || f.tool === toolBase);
-}
-
-function getFlagsByCategory(tool) {
-    const flags = getFlagsForTool(tool);
-    const groups = {};
-    for (const cat of FLAG_CATEGORIES) {
-        const catFlags = flags.filter(f => f.category === cat.id);
-        if (catFlags.length > 0) {
-            groups[cat.id] = { ...cat, flags: catFlags };
-        }
-    }
-    return groups;
-}
-
-function isSpeculativeDecodingEnabled(values) {
-    const cfg = values || {};
-    const specType = String(cfg.spec_type || "none").trim();
-    return Boolean(cfg.model_draft || cfg.hf_repo_draft || (specType && specType !== "none"));
-}
-
-function hasDraftModelSpeculation(values) {
-    const cfg = values || {};
-    if (cfg.model_draft || cfg.hf_repo_draft) return true;
-    const specType = String(cfg.spec_type || "none").trim();
-    return specType === "draft-simple" || specType === "draft-mtp";
-}
-
-function shouldOmitSpeculativeFlag(f, values) {
-    if (f.category !== "speculative") return false;
-    if (!isSpeculativeDecodingEnabled(values)) return true;
-
-    if (f.id === "spec_type") {
-        const specType = String((values || {}).spec_type || "none").trim();
-        return !specType || specType === "none";
-    }
-
-    const draftModelOnlyFlags = new Set([
-        "draft_max",
-        "draft_min",
-        "draft_p_min",
-        "draft_p_split",
-        "ctx_size_draft",
-        "gpu_layers_draft",
-        "draft_device",
-        "draft_cache_type_k",
-        "draft_cache_type_v",
-    ]);
-    return draftModelOnlyFlags.has(f.id) && !hasDraftModelSpeculation(values);
-}
-
-function getDefaultValues() {
-    const defaults = {};
-    for (const f of FLAGS) {
-        if (f.default !== undefined) {
-            defaults[f.id] = f.default;
-        }
-    }
-    return defaults;
-}

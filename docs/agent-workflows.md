@@ -1,12 +1,12 @@
 # Agent Workflows
 
-Consolidated reference for routine maintenance tasks: auditing `ui/js/flags.js` against upstream `llama.cpp` and updating bundled chat templates.
+Consolidated reference for routine maintenance tasks: auditing the split `ui/js/flags/` modules against upstream `llama.cpp` and updating bundled chat templates.
 
 ## Flag Audit Workflow
 
-Audit `ui/js/flags.js` against upstream `llama.cpp` and produce a structured markdown report of findings.
+Audit the loaded `ui/js/flags/` modules against upstream `llama.cpp` and produce a structured markdown report of findings.
 
-Do not modify `ui/js/flags.js` during the audit unless the user explicitly asks for implementation.
+Do not modify the flag modules during the audit unless the user explicitly asks for implementation.
 
 ### Files To Check
 
@@ -14,7 +14,8 @@ Do not modify `ui/js/flags.js` during the audit unless the user explicitly asks 
 
 | File | Role |
 |---|---|
-| `ui/js/flags.js` | Single source of truth for all CLI flags exposed in the UI |
+| `ui/js/flags/definitions.js` | Single source of truth for all CLI flags exposed in the UI |
+| `ui/js/flags/categories.js` / `options.js` / `chat-templates.js` / `helpers.js` | Supporting categories, shared option lists, chat template presets, and flag helpers |
 | `ui/js/flag-core.js` | Shared flag state, setters, selected model/tool state, command preview, and launch-arg generation that consumes `FLAGS` |
 | `ui/js/config-flags-ui.js` | Configure tab rendering for all flag input types, search/filtering, input restore, and high-risk multi-select warnings |
 | `ui/js/flag-validation.js` | Startup validation for flag definition shape, duplicate ids, duplicate CLI flags, enum options, and defaults |
@@ -42,7 +43,7 @@ Fetch the upstream master commit first and include the SHA in the report. This m
 
 #### 2. Parse local `FLAGS`
 
-Use a JavaScript runtime instead of regex-only parsing so shared constants like `CHAT_TEMPLATE_PRESET_OPTIONS` resolve correctly.
+Use a JavaScript runtime instead of regex-only parsing so shared constants like `CHAT_TEMPLATE_PRESET_OPTIONS` resolve correctly. Load the ordered flag modules exactly as `ui/index.html` does.
 
 Example shape:
 
@@ -50,7 +51,14 @@ Example shape:
 const fs = require("fs");
 const vm = require("vm");
 
-const src = fs.readFileSync("ui/js/flags.js", "utf8")
+const flagFiles = [
+  "ui/js/flags/categories.js",
+  "ui/js/flags/options.js",
+  "ui/js/flags/chat-templates.js",
+  "ui/js/flags/definitions.js",
+  "ui/js/flags/helpers.js",
+];
+const src = flagFiles.map((file) => fs.readFileSync(file, "utf8")).join("\n")
   + "\nthis.__out={FLAGS,BUILTIN_CHAT_TEMPLATES,CHAT_TEMPLATE_PRESETS,FLAG_CATEGORIES};";
 const ctx = {};
 vm.createContext(ctx);
@@ -109,7 +117,7 @@ Rules:
 
 #### 5. Compare and categorize
 
-##### A. New upstream flags not in `flags.js`
+##### A. New upstream flags not in `definitions.js`
 
 Report upstream server/common flags that have no local alias match.
 
@@ -191,7 +199,7 @@ When the user asks to implement flag audit findings:
 
 | Change type | Primary file |
 |---|---|
-| Add, remove, rename, or change a llama.cpp flag | `ui/js/flags.js` |
+| Add, remove, rename, or change a llama.cpp flag | `ui/js/flags/definitions.js` |
 | Change launch-argument emission or shared state behavior | `ui/js/flag-core.js` |
 | Change Configure tab rendering/search/input behavior | `ui/js/config-flags-ui.js` |
 | Change Quick Launch, Chat, API, or tab-specific summaries | `ui/js/app.js` |
@@ -263,7 +271,7 @@ These examples came up in a recent audit and are useful as calibration points:
 
 ## Chat Template Update Workflow
 
-Use this workflow when updating bundled chat templates under `ui/templates/`, especially model-family presets exposed through `ui/js/flags.js`.
+Use this workflow when updating bundled chat templates under `ui/templates/`, especially model-family presets exposed through `ui/js/flags/chat-templates.js`.
 
 ### Source Of Truth
 
@@ -276,7 +284,7 @@ Use this workflow when updating bundled chat templates under `ui/templates/`, es
 
 1. Find all current app references:
    - Template files: `ui/templates/*`
-   - Preset definitions: `CHAT_TEMPLATE_PRESETS` in `ui/js/flags.js`
+   - Preset definitions: `CHAT_TEMPLATE_PRESETS` in `ui/js/flags/chat-templates.js`
    - Shared state and launch helpers in `ui/js/flag-core.js` if new launch-state behavior is needed
    - Configure rendering behavior in `ui/js/config-flags-ui.js` if a new flag input type or rendering rule is needed
    - Tab-specific dropdown/summary helpers in `ui/js/app.js` if new template UI behavior is needed
