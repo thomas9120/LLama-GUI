@@ -491,8 +491,7 @@
         };
 
         for (const [elementId, flagId] of Object.entries(quickSamplerFieldMap)) {
-            on(elementId, "input", debounce((e) => {
-                const rawValue = e.target.value.trim();
+            const applyQuickSamplerValue = debounce((rawValue) => {
                 let nextValue;
                 if (rawValue === "") {
                     nextValue = undefined;
@@ -502,7 +501,10 @@
                     nextValue = parseFloat(rawValue);
                 }
                 flagCore.setFlagValue(flagId, nextValue);
-            }, 200));
+            }, 200);
+            on(elementId, "input", (e) => {
+                applyQuickSamplerValue(e.target.value.trim());
+            });
         }
 
         on("btn-copy-quick-server-url", "click", copyQuickServerUrl);

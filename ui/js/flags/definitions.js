@@ -120,7 +120,7 @@ const FLAGS = [
     { id: "temperature", flag: "--temp", category: "sampling", type: "float", label: "Temperature",
       short_desc: "Controls creativity: lower is focused, higher is more random.",
       beginner_tip: "Try 0.7-0.9 for general chat. Lower for factual tasks.",
-      desc: "Sampling temperature (higher = more random)", tool: "both", default: 0.8, min: 0, max: 5, step: 0.05 },
+      desc: "Sampling temperature (higher = more random)", tool: "both", default: 0.8, min: 0, max: 5, step: 0.01 },
     { id: "top_k", flag: "--top-k", category: "sampling", type: "int", label: "Top-K",
       short_desc: "Limits choices to the K most likely next tokens.",
       desc: "Limit selection to K most probable tokens (0 = disabled)", tool: "both", default: 40, min: 0, max: 1000 },
