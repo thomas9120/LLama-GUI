@@ -192,11 +192,6 @@
                         <label class="form-label" for="quick-profile-select">Beginner Profile</label>
                         <select id="quick-profile-select">
                             <option value="">Choose a profile...</option>
-                            <option value="safe-defaults">Safe Defaults</option>
-                            <option value="balanced">Balanced</option>
-                            <option value="low-memory">Low Memory</option>
-                            <option value="long-context">Long Context</option>
-                            <option value="creative-chat">Creative Chat</option>
                         </select>
                     </div>
                     <p id="quick-profile-summary" class="help-text">Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.</p>
@@ -812,12 +807,18 @@
     </div>
 </div>
 
-<script src="/js/flags.js?v=revamp-1"></script>
+<script src="/js/flags/categories.js?v=revamp-1"></script>
+<script src="/js/flags/options.js?v=revamp-1"></script>
+<script src="/js/flags/chat-templates.js?v=revamp-1"></script>
+<script src="/js/flags/definitions.js?v=revamp-1"></script>
+<script src="/js/flags/helpers.js?v=revamp-1"></script>
 <script src="/js/flag-validation.js?v=revamp-1"></script>
 <script src="/js/flag-core.js?v=revamp-1"></script>
 <script src="/js/config-flags-ui.js?v=revamp-1"></script>
 <script src="/js/manager.js?v=revamp-1"></script>
 <script src="/js/presets.js?v=revamp-1"></script>
+<script src="/js/app-data.js?v=revamp-1"></script>
+<script src="/js/chat-rendering.js?v=revamp-1"></script>
 <script src="/js/app.js?v=revamp-1"></script>
 </body>
 </html>

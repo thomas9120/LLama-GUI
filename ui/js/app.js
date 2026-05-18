@@ -35,150 +35,7 @@ const CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY = "llama_gui_chat_web_search_max_r
 const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
 const CHAT_WEB_SEARCH_MIN_RESULTS = 1;
 const CHAT_WEB_SEARCH_MAX_RESULTS = 10;
-const CHAT_SAMPLER_SLIDER_MAP = {
-    "chat-slider-temp": { flag: "temperature", decimals: 2 },
-    "chat-slider-top-p": { flag: "top_p", decimals: 2 },
-    "chat-slider-top-k": { flag: "top_k", decimals: 0 },
-    "chat-slider-min-p": { flag: "min_p", decimals: 2 },
-    "chat-slider-repeat": { flag: "repeat_penalty", decimals: 2 },
-    "chat-slider-max-tokens": { flag: "n_predict", decimals: 0 },
-};
-
-const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
-const BUILTIN_SAMPLER_PRESETS = {
-    Neutral: {
-        temperature: 1.0,
-        top_k: 200,
-        top_p: 1.0,
-        min_p: 0,
-        top_n_sigma: -1,
-        xtc_probability: 0,
-        xtc_threshold: 1.0,
-        typical_p: 1.0,
-        repeat_last_n: 360,
-        repeat_penalty: 1.0,
-        presence_penalty: 0,
-        frequency_penalty: 0,
-        dry_multiplier: 0,
-        dynatemp_range: 0,
-        mirostat: "0",
-    },
-    Balanced: {
-        temperature: 0.75,
-        top_k: 100,
-        top_p: 0.92,
-        min_p: 0,
-        repeat_penalty: 1.05,
-        repeat_last_n: 360,
-    },
-    Creative: {
-        temperature: 1.0,
-        top_k: 100,
-        top_p: 0.98,
-        min_p: 0,
-        repeat_penalty: 1.1,
-        repeat_last_n: 360,
-    },
-    Precise: {
-        temperature: 0.3,
-        top_k: 25,
-        top_p: 0.6,
-        min_p: 0,
-        repeat_penalty: 1.02,
-        repeat_last_n: 360,
-    },
-};
-
-const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
-const QUICK_PROFILES = {
-    "safe-defaults": {
-        label: "Safe Defaults",
-        summary: "Applies a full starter setup: 16000 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    balanced: {
-        label: "Balanced",
-        summary: "Applies a full general-purpose setup with 16000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "low-memory": {
-        label: "Low Memory",
-        summary: "Applies a lighter setup with lower context, smaller batch sizes, conservative fit settings, and a more precise sampler profile.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 8192,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1536",
-            fit_ctx: 8192,
-            batch_size: 1024,
-            ubatch_size: 256,
-            temperature: 0.7,
-            top_p: 0.92,
-            min_p: 0.06,
-            repeat_penalty: 1.08,
-        },
-        samplerPresetName: "Precise",
-    },
-    "long-context": {
-        label: "Long Context",
-        summary: "Applies a larger context window while keeping Auto Fit active and the rest of the launch settings beginner-friendly.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 32768,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 32768,
-            temperature: 0.75,
-            top_p: 0.95,
-            min_p: 0.04,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "creative-chat": {
-        label: "Creative Chat",
-        summary: "Applies the standard launch setup, then warms up the sampler for more creative and open-ended responses.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 16000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 16000,
-            temperature: 1.05,
-            top_p: 0.97,
-            min_p: 0.03,
-            repeat_penalty: 1.02,
-        },
-        samplerPresetName: "Creative",
-    },
-};
+// Shared Quick Launch and sampler data is defined in app-data.js.
 
 let quickLaunchFitCtxLinked = true;
 let quickLaunchGpuCustomSelected = false;
@@ -1422,6 +1279,28 @@ function refreshQuickLaunchUI() {
     updateQuickLaunchActionButtons();
 }
 
+function populateQuickProfileOptions() {
+    const select = document.getElementById("quick-profile-select");
+    if (!select) return;
+
+    const previous = select.value;
+    select.innerHTML = "";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Choose a profile...";
+    select.appendChild(placeholder);
+
+    for (const [profileId, profile] of Object.entries(QUICK_PROFILES)) {
+        const opt = document.createElement("option");
+        opt.value = profileId;
+        opt.textContent = profile.label;
+        select.appendChild(opt);
+    }
+
+    select.value = Object.prototype.hasOwnProperty.call(QUICK_PROFILES, previous) ? previous : "";
+}
+
 function initQuickLaunch() {
     const on = (id, event, handler) => {
         const el = document.getElementById(id);
@@ -1429,6 +1308,7 @@ function initQuickLaunch() {
     };
 
     populateQuickTemplatePackOptions();
+    populateQuickProfileOptions();
     refreshQuickSamplerPresetSelect();
     syncQuickLaunchModelOptions();
     refreshHfDownloadStatus();
@@ -1813,13 +1693,13 @@ async function refreshRemoteTunnelStatus() {
 async function startRemoteTunnel() {
     renderRemoteTunnelStatus({ status: "starting", message: "Starting Cloudflare tunnel..." });
     try {
-        const values = flagCore.getFlagValues();
+        const endpoint = getServerEndpointConfig();
         const state = await fetchJson("/api/remote-tunnel/start", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                host: values.host || "127.0.0.1",
-                port: values.port || 8080,
+                host: endpoint.host,
+                port: endpoint.port,
             }),
         });
         renderRemoteTunnelStatus(state);
@@ -1860,10 +1740,7 @@ function updateServerAddressPreview() {
         el.classList.add("hidden");
         return;
     }
-    const values = flagCore.getFlagValues();
-    const host = values.host || "127.0.0.1";
-    const port = values.port || 8080;
-    const baseUrl = `http://${host}:${port}`;
+    const { baseUrl } = getServerEndpointConfig();
     document.getElementById("server-url").href = baseUrl;
     document.getElementById("server-url").textContent = baseUrl;
     document.getElementById("server-webui").href = baseUrl + "/";
@@ -1887,11 +1764,19 @@ function updateQuickServerAddressPreview() {
 }
 
 function getServerBaseUrl() {
+    return getServerEndpointConfig().baseUrl;
+}
+
+function getServerEndpointConfig() {
     const values = flagCore.getFlagValues();
     const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
     const parsedPort = Number(values.port);
     const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
-    return `http://${host}:${port}`;
+    return {
+        host,
+        port,
+        baseUrl: `http://${host}:${port}`,
+    };
 }
 
 function getPreferredApiModelName() {
@@ -2086,7 +1971,6 @@ async function launchLlama() {
     }
     const args = result.args;
     const tool = flagCore.getCurrentTool();
-    const values = flagCore.getFlagValues();
     const hasModel = args.some(a => {
         const entryValues = Array.isArray(a) ? a : [a];
         return entryValues.includes("-m") || entryValues.includes("-hf");
@@ -2128,9 +2012,7 @@ async function launchLlama() {
             updateServerAddressPreview();
 
             if (tool === "llama-server") {
-                const host = values.host || "127.0.0.1";
-                const port = values.port || 8080;
-                const baseUrl = `http://${host}:${port}`;
+                const { baseUrl } = getServerEndpointConfig();
                 appendOutput(`Server running at ${baseUrl}`);
                 appendOutput(`Web UI: ${baseUrl}/`);
                 startStatsPolling();
@@ -2211,10 +2093,7 @@ async function pollStats() {
     if (pollStatsActive) return;
     pollStatsActive = true;
     try {
-        const values = flagCore.getFlagValues();
-        const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
-        const parsedPort = Number(values.port);
-        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+        const { host, port } = getServerEndpointConfig();
         const params = new URLSearchParams({ host, port: String(port) });
         const resp = await fetch(`/api/llama/metrics?${params.toString()}`);
         if (!resp.ok) return;
@@ -2385,162 +2264,17 @@ function showToast(message, type) {
     }, 4000);
 }
 
-// ── Chat Tab ──
+// Chat Tab
 
-function escapeHtml(text) {
-    return text
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#39;");
-}
-
-function processBlocks(text) {
-    const lines = text.split("\n");
-    const blocks = [];
-    let i = 0;
-
-    function applyInline(s) {
-        s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-        s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
-        s = s.replace(/(?<!\w)\*([^\s*](?:[^*]*?[^\s*])?)\*(?!\w)/g, "<em>$1</em>");
-        s = s.replace(/(?<!\w)_([^\s_](?:[^_]*?[^\s_])?)_(?!\w)/g, "<em>$1</em>");
-        s = s.replace(/~~(.+?)~~/g, "<del>$1</del>");
-        s = s.replace(/`([^`\n]+?)`/g, "<code>$1</code>");
-        return s;
-    }
-
-    while (i < lines.length) {
-        const line = lines[i];
-
-        // Horizontal rule
-        if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
-            blocks.push("<hr>");
-            i++;
-            continue;
-        }
-
-        // Headings
-        const headingMatch = line.match(/^(#{1,6})\s+(.+)$/);
-        if (headingMatch) {
-            const level = headingMatch[1].length;
-            blocks.push(`<h${level}>${applyInline(headingMatch[2])}</h${level}>`);
-            i++;
-            continue;
-        }
-
-        // Blockquote
-        if (/^&gt;\s?/.test(line)) {
-            const quoteLines = [];
-            while (i < lines.length && /^&gt;\s?/.test(lines[i])) {
-                quoteLines.push(lines[i].replace(/^&gt;\s?/, ""));
-                i++;
-            }
-            const inner = applyInline(quoteLines.join("\n"));
-            blocks.push(`<blockquote><p>${inner.replace(/\n/g, "<br>")}</p></blockquote>`);
-            continue;
-        }
-
-        // Table
-        if (line.includes("|") && i + 1 < lines.length && /^\|?\s*:?-{3,}/.test(lines[i + 1])) {
-            const tableLines = [];
-            while (i < lines.length && lines[i].includes("|")) {
-                tableLines.push(lines[i]);
-                i++;
-            }
-            if (tableLines.length >= 2) {
-                const parseRow = (row) => row.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
-                const headers = parseRow(tableLines[0]);
-                let tbl = "<table><thead><tr>";
-                for (const h of headers) tbl += `<th>${applyInline(h)}</th>`;
-                tbl += "</tr></thead><tbody>";
-                for (let r = 2; r < tableLines.length; r++) {
-                    const cells = parseRow(tableLines[r]);
-                    tbl += "<tr>";
-                    for (const c of cells) tbl += `<td>${applyInline(c)}</td>`;
-                    tbl += "</tr>";
-                }
-                tbl += "</tbody></table>";
-                blocks.push(tbl);
-            }
-            continue;
-        }
-
-        // Unordered list
-        if (/^[\s]*[-*+]\s+/.test(line)) {
-            const listItems = [];
-            while (i < lines.length && /^[\s]*[-*+]\s+/.test(lines[i])) {
-                listItems.push(lines[i].replace(/^[\s]*[-*+]\s+/, ""));
-                i++;
-            }
-            let ul = "<ul>";
-            for (const item of listItems) ul += `<li>${applyInline(item)}</li>`;
-            ul += "</ul>";
-            blocks.push(ul);
-            continue;
-        }
-
-        // Ordered list
-        if (/^[\s]*\d+\.\s+/.test(line)) {
-            const listItems = [];
-            while (i < lines.length && /^[\s]*\d+\.\s+/.test(lines[i])) {
-                listItems.push(lines[i].replace(/^[\s]*\d+\.\s+/, ""));
-                i++;
-            }
-            let ol = "<ol>";
-            for (const item of listItems) ol += `<li>${applyInline(item)}</li>`;
-            ol += "</ol>";
-            blocks.push(ol);
-            continue;
-        }
-
-        // Code block placeholder (already extracted)
-        if (/^\u0000CODE_BLOCK_\d+\u0000$/.test(line)) {
-            blocks.push(line);
-            i++;
-            continue;
-        }
-
-        // Regular text — collect contiguous lines into a paragraph
-        const paraLines = [];
-        while (i < lines.length &&
-            !/^(#{1,6}\s|[\s]*[-*+]\s|[\s]*\d+\.\s|(-{3,}|\*{3,}|_{3,})\s*$)/.test(lines[i]) &&
-            !/^&gt;\s?/.test(lines[i]) &&
-            !(lines[i].includes("|") && i + 1 < lines.length && /^\|?\s*:?-{3,}/.test(lines[i + 1])) &&
-            !/^\u0000CODE_BLOCK_\d+\u0000$/.test(lines[i])) {
-            paraLines.push(lines[i]);
-            i++;
-        }
-        if (paraLines.length > 0) {
-            const content = paraLines.join("<br>");
-            if (content.trim()) blocks.push(`<p>${applyInline(content)}</p>`);
-        }
-    }
-
-    return blocks.join("\n");
-}
-
-function renderMarkdown(text) {
-    let html = escapeHtml(text);
-    const codeBlocks = [];
-
-    // Fenced code blocks ``` ... ```
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        const langAttr = lang ? ` data-lang="${lang}"` : "";
-        const index = codeBlocks.length;
-        codeBlocks.push(`<pre${langAttr}><code>${code.replace(/\n$/, "")}</code></pre>`);
-        return `\u0000CODE_BLOCK_${index}\u0000`;
-    });
-
-    // Block-level and inline processing
-    html = processBlocks(html);
-
-    // Restore code blocks
-    html = html.replace(/\u0000CODE_BLOCK_(\d+)\u0000/g, (_, index) => codeBlocks[Number(index)] || "");
-
-    return html;
-}
+const chatRendering = window.LlamaGui.chatRendering;
+const {
+    renderChatMessage,
+    setChatWebStatus,
+    renderChatSources,
+    renderChatTypingIndicator,
+    removeChatTypingIndicator,
+    appendChatStreamToken,
+} = chatRendering;
 
 function refreshChatSidebarUI() {
     const values = flagCore.getFlagValues();
@@ -2581,11 +2315,7 @@ function getChatModelName() {
 }
 
 function getChatApiUrl() {
-    const values = flagCore.getFlagValues();
-    const host = String(values.host || "127.0.0.1").trim() || "127.0.0.1";
-    const parsedPort = Number(values.port);
-    const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
-    return `http://${host}:${port}/v1/chat/completions`;
+    return `${getServerEndpointConfig().baseUrl}/v1/chat/completions`;
 }
 
 function isChatWebSearchEnabled() {
@@ -2619,129 +2349,6 @@ function updateChatStatusBadge() {
     const isRunning = !!(latestStatus && latestStatus.running);
     runningBadge.style.display = isRunning ? "" : "none";
     noServerBadge.style.display = isRunning ? "none" : "";
-}
-
-function renderChatMessage(role, content) {
-    const container = document.getElementById("chat-messages");
-    const empty = document.getElementById("chat-empty");
-    if (empty) empty.style.display = "none";
-
-    const msg = document.createElement("div");
-    msg.className = `chat-message ${role}`;
-
-    const avatar = document.createElement("div");
-    avatar.className = "chat-avatar";
-    avatar.textContent = role === "user" ? "U" : "A";
-
-    const bubble = document.createElement("div");
-    bubble.className = "chat-bubble";
-    if (role === "assistant") {
-        bubble.innerHTML = renderMarkdown(content);
-        bubble.dataset.rawText = content;
-    } else {
-        bubble.textContent = content;
-    }
-
-    msg.appendChild(avatar);
-    const contentWrap = document.createElement("div");
-    contentWrap.className = "chat-message-content";
-    contentWrap.appendChild(bubble);
-    msg.appendChild(contentWrap);
-    container.appendChild(msg);
-    container.scrollTop = container.scrollHeight;
-    return bubble;
-}
-
-function getChatMessageContentWrap(bubble) {
-    return bubble ? bubble.closest(".chat-message-content") : null;
-}
-
-function setChatWebStatus(bubble, text) {
-    const wrap = getChatMessageContentWrap(bubble);
-    if (!wrap) return;
-    let status = wrap.querySelector(".chat-web-status");
-    if (!text) {
-        if (status) status.remove();
-        return;
-    }
-    if (!status) {
-        status = document.createElement("div");
-        status.className = "chat-web-status";
-        wrap.appendChild(status);
-    }
-    status.textContent = text;
-}
-
-function renderChatSources(bubble, sources) {
-    const wrap = getChatMessageContentWrap(bubble);
-    if (!wrap || !Array.isArray(sources) || sources.length === 0) return;
-    const existing = wrap.querySelector(".chat-sources");
-    if (existing) existing.remove();
-    const sourceWrap = document.createElement("div");
-    sourceWrap.className = "chat-sources";
-
-    for (const source of sources) {
-        const safeUrl = getSafeExternalUrl(source.url);
-        const chip = document.createElement(safeUrl ? "a" : "span");
-        chip.className = "chat-source-chip";
-        if (safeUrl) {
-            chip.href = safeUrl;
-            chip.target = "_blank";
-            chip.rel = "noopener noreferrer";
-        }
-        const title = source.title || source.url || "Source";
-        chip.title = source.url || title;
-        chip.textContent = `[${source.index || sourceWrap.children.length + 1}] ${title}`;
-        sourceWrap.appendChild(chip);
-    }
-
-    wrap.appendChild(sourceWrap);
-}
-
-function getSafeExternalUrl(url) {
-    try {
-        const parsed = new URL(String(url || ""));
-        return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
-    } catch {
-        return "";
-    }
-}
-
-function renderChatTypingIndicator() {
-    const container = document.getElementById("chat-messages");
-    const msg = document.createElement("div");
-    msg.className = "chat-message assistant";
-    msg.id = "chat-typing-msg";
-
-    const avatar = document.createElement("div");
-    avatar.className = "chat-avatar";
-    avatar.textContent = "A";
-
-    const typing = document.createElement("div");
-    typing.className = "chat-typing";
-    typing.id = "chat-typing";
-    for (let i = 0; i < 3; i++) {
-        const dot = document.createElement("span");
-        dot.className = "chat-typing-dot";
-        typing.appendChild(dot);
-    }
-
-    msg.appendChild(avatar);
-    msg.appendChild(typing);
-    container.appendChild(msg);
-    container.scrollTop = container.scrollHeight;
-}
-
-function removeChatTypingIndicator() {
-    const typing = document.getElementById("chat-typing-msg");
-    if (typing) typing.remove();
-}
-
-function appendChatStreamToken(bubble, token) {
-    bubble.dataset.rawText = (bubble.dataset.rawText || "") + token;
-    bubble.innerHTML = renderMarkdown(bubble.dataset.rawText);
-    const container = document.getElementById("chat-messages");
-    container.scrollTop = container.scrollHeight;
 }
 
 function showChatSendButton(show) {
@@ -2794,14 +2401,13 @@ async function sendChatMessage(userText) {
     }
     messages.push(...getChatRequestMessages(chatMessages));
 
-    const values = flagCore.getFlagValues();
-    const parsedPort = Number(values.port);
+    const endpoint = getServerEndpointConfig();
     const body = {
         model: getChatModelName(),
         messages,
         stream: true,
-        host: String(values.host || "127.0.0.1").trim() || "127.0.0.1",
-        port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080,
+        host: endpoint.host,
+        port: endpoint.port,
         ...getChatSamplerParams(),
     };
     const webSearchEnabled = isChatWebSearchEnabled();
@@ -2960,7 +2566,7 @@ function regenerateChatResponse() {
     sendChatMessage(lastUserMsg.content);
 }
 
-// ── Chat History (localStorage) ──
+// Chat History (localStorage)
 
 function getStoredConversations() {
     try {

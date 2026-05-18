@@ -5,7 +5,6 @@ on:
     branches: [main, master]
     paths-ignore:
       - '*.md'
-      - '.github/**'
       - 'docs/**'
       - 'docs/images/**'
   pull_request:
@@ -48,20 +47,20 @@ jobs:
         run: python -m unittest discover tests -v
 
       - name: Set up Node for frontend smoke test
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
 
       - name: Install frontend test dependencies
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: npm ci
 
       - name: Install Playwright Chromium
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: npx playwright install chromium
 
       - name: Run frontend smoke test
-        if: matrix.python-version == '3.13'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: npm test

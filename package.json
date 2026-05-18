@@ -2,7 +2,7 @@
   "name": "llama-gui",
   "private": true,
   "scripts": {
-    "test": "npm run test:frontend",
+    "test": "node tests/frontend/custom_launch_args_unit.cjs && npm run test:frontend",
     "test:frontend": "node tests/frontend/flag_sync_smoke.cjs"
   },
   "devDependencies": {
