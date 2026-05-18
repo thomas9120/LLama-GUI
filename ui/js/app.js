@@ -33,7 +33,6 @@ const {
 const initApiTab = apiTab.init;
 const updateApiEndpoints = apiTab.updateEndpoints;
 const chatUi = window.LlamaGui.chatUi;
-const { renderChatSources } = window.LlamaGui.chatRendering;
 const samplerPresets = window.LlamaGui.samplerPresets;
 const quickLaunchUi = window.LlamaGui.quickLaunchUi;
 samplerPresets.configure({

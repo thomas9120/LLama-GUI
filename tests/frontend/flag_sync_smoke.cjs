@@ -190,7 +190,7 @@ async function main() {
             bubble.className = "chat-bubble";
             wrap.appendChild(bubble);
             document.body.appendChild(wrap);
-            renderChatSources(bubble, [
+            window.LlamaGui.chatRendering.renderChatSources(bubble, [
                 { index: 1, title: "Unsafe", url: "javascript:alert(1)" },
                 { index: 2, title: "Safe", url: "https://example.com/path" },
             ]);
