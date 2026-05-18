@@ -54,6 +54,24 @@ Supported prebuilt backends vary by platform:
 
 ## Quick Start
 
+### One-command install
+
+macOS/Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/thomas9120/LLama-GUI/main/online_installers/install-online.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/thomas9120/LLama-GUI/main/online_installers/install-online.ps1 | iex
+```
+
+The online installer clones Llama GUI into `~/LLama-GUI` on macOS/Linux or `%USERPROFILE%\LLama-GUI` on Windows, installs the Python dependencies, and starts the app. To install somewhere else, set `LLAMA_GUI_INSTALL_DIR` before running the command. To install without starting the app, set `LLAMA_GUI_NO_START=1`.
+
+### Manual install
+
 1. Clone this repository:
 
 ```bash
