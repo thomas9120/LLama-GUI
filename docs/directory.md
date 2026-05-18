@@ -25,13 +25,14 @@
 | `backend/routes/` | 14 route handler modules grouped by feature (status, models, presets, metrics, chat, search, hf_download, file_picker, process, install, tunnel, git_update, lifecycle) |
 | `backend/services/` | 10 service modules (llama_manager, process_manager, hf_download, web_search, tunnel, git_update, lifecycle, file_picker, chat) |
 | `ui/js/app-data.js` | Shared Quick Launch profile, context preset, sampler preset, and chat sampler slider data |
+| `ui/js/sampler-presets.js` | Sampler preset storage, normalization, apply behavior, import/export, and Configure-tab controls exposed as `window.LlamaGui.samplerPresets` |
 | `ui/js/chat-rendering.js` | Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering` |
 | `ui/js/chat-ui.js` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, and status badge updates exposed as `window.LlamaGui.chatUi` |
 | `ui/js/api-tab.js` | API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab` |
 | `ui/js/hf-download-ui.js` | Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow exposed as `window.LlamaGui.hfDownloadUi` |
 | `ui/js/remote-tunnel-ui.js` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling exposed as `window.LlamaGui.remoteTunnelUi` |
 | `ui/js/quick-launch-ui.js` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring exposed as `window.LlamaGui.quickLaunchUi` |
-| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, module initialization, shared sampler/template helpers, stats polling, toasts |
+| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, module initialization, shared template helpers, stats polling, toasts |
 | `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
@@ -110,6 +111,7 @@ Built-in (Neutral/Balanced/Creative/Precise) + custom presets:
 - Stored in `localStorage` under `llama_gui_sampler_presets_v1`
 - Save/load/delete/export/import with deduplication
 - Shared across Configure and Quick Launch tabs
+- Preset storage, validation, and Configure controls live in `ui/js/sampler-presets.js`
 - Built-ins are tuned as KoboldCpp-style simple equivalents while preserving the existing preset names
 
 ## Server Metrics

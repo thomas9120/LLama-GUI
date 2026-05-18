@@ -369,6 +369,8 @@ Storage behavior:
 - export creates portable `.json` files
 - import accepts single-preset or multi-preset JSON
 
+Quick Launch, Configure, and Chat sampler controls all use the same shared sampler state, so decimal values and preset changes stay synchronized across tabs.
+
 Note: loading a full app preset can overwrite sampler values because samplers are part of the full flag set.
 
 ## Server Stats Bar
@@ -416,6 +418,11 @@ It does not remove:
 - `backend/` - local HTTP API, route handlers, service modules, installer/update logic, process manager, HF downloads, web search, remote tunnel, and lifecycle helpers
 - `requirements.txt` - Python dependencies, including optional Chat web search support
 - `ui/` - static frontend (HTML/CSS/JS)
+  - `ui/js/app.js` - app bootstrap, tab switching, launch/stop flow, polling, toasts, and shared orchestration
+  - `ui/js/quick-launch-ui.js` - Quick Launch profiles, simplified launch controls, sampler fields, and command preview mirror
+  - `ui/js/chat-ui.js` and `ui/js/chat-rendering.js` - Chat state, streaming, conversation history, web search controls, markdown, and message rendering
+  - `ui/js/api-tab.js`, `ui/js/hf-download-ui.js`, and `ui/js/remote-tunnel-ui.js` - API snippets, Hugging Face downloads, and Cloudflare tunnel controls
+  - `ui/js/sampler-presets.js` - sampler preset storage, import/export, and Configure sampler preset controls
 - `llama/bin/` - installed `llama.cpp` executables/runtime files
 - `llama/grammars/` - grammar/schema files from release assets
 - `models/` - local model files
@@ -426,7 +433,7 @@ It does not remove:
 
 - `config.json` - installed release/backend metadata
 - `presets/` - full app presets (tool/model/flags)
-- browser `localStorage` - custom sampler presets and the Chat Web Search toggle state
+- browser `localStorage` - custom sampler presets, chat conversations, and Chat Web Search settings
 
 ## Troubleshooting
 

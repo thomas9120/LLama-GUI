@@ -268,14 +268,27 @@ async function main() {
         await page.waitForTimeout(250);
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.42);
         await page.waitForFunction(() => document.querySelector("#chat-slider-temp")?.value === "0.42");
+        await page.fill("#quick-temperature", ".96");
+        await page.dispatchEvent("#quick-temperature", "input");
+        await page.fill("#quick-repeat-penalty", "1.02");
+        await page.dispatchEvent("#quick-repeat-penalty", "input");
+        await page.waitForTimeout(250);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.96);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().repeat_penalty === 1.02);
+        assert.equal(await page.locator("#quick-temperature").evaluate((el) => el.validity.valid), true);
+        assert.equal(await page.locator("#quick-repeat-penalty").evaluate((el) => el.validity.valid), true);
         await selectSection(page, "configure");
         await page.fill("#config-search", "temperature");
         await page.waitForSelector("#flag-temperature", { state: "visible" });
-        await page.waitForFunction(() => document.querySelector("#flag-temperature")?.value === "0.42");
+        await page.waitForFunction(() => document.querySelector("#flag-temperature")?.value === "0.96");
+        assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.step), "0.01");
+        assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.validity.valid), true);
 
         const launchArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
         assert.ok(launchArgs.includes("-c") && launchArgs.includes("12345"));
         assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
+        assert.ok(launchArgs.includes("--temp") && launchArgs.includes("0.96"));
+        assert.ok(launchArgs.includes("--repeat-penalty") && launchArgs.includes("1.02"));
 
         await page.fill("#custom-launch-args", "--threads 8\n--chat-template-kwargs '{\"preserve_thinking\":true}'");
         await page.dispatchEvent("#custom-launch-args", "input");
