@@ -17,7 +17,9 @@ This should be done a little at a time. `app.js` is large enough that a single s
 - Keep each phase behavior-preserving unless a bug is discovered and intentionally fixed.
 - After every phase, run syntax checks for touched JS files and the relevant frontend smoke tests.
 
-## Phase 1: Extract Markdown And Chat Rendering Helpers
+## Phase 1: Extract Markdown And Chat Rendering Helpers - Done
+
+Status: Completed. `ui/js/chat-rendering.js` now exposes the moved helpers through `window.LlamaGui.chatRendering`, and `ui/index.html` loads it before `app.js`.
 
 This is the easiest first win because the markdown and rendering helpers are mostly self-contained and do not own launch state.
 
@@ -61,7 +63,9 @@ This is the easiest first win because the markdown and rendering helpers are mos
 - Confirm `app.js` no longer defines duplicate copies of the moved helpers.
 - Confirm script order is correct and the app still loads cleanly.
 
-## Phase 2: Extract API Tab Data And Rendering
+## Phase 2: Extract API Tab Data And Rendering - Done
+
+Status: Completed. `ui/js/api-tab.js` now owns API endpoint/snippet data and API tab rendering through `window.LlamaGui.apiTab`, with dependencies injected from `app.js`.
 
 The API tab is another low-risk boundary because most of it is static endpoint/snippet data plus rendering and copy controls.
 
@@ -314,4 +318,3 @@ After feature modules are extracted, clean up `app.js` so it is mostly startup s
 - Keep each commit reviewable and behavior-preserving.
 - If a phase reveals an actual bug, either fix it in a separate commit or call it out clearly in that phase's commit message.
 - Prefer stopping after each phase if tests or manual verification reveal unclear behavior.
-

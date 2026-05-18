@@ -25,7 +25,9 @@
 | `backend/routes/` | 14 route handler modules grouped by feature (status, models, presets, metrics, chat, search, hf_download, file_picker, process, install, tunnel, git_update, lifecycle) |
 | `backend/services/` | 10 service modules (llama_manager, process_manager, hf_download, web_search, tunnel, git_update, lifecycle, file_picker, chat) |
 | `ui/js/app-data.js` | Shared Quick Launch profile, context preset, sampler preset, and chat sampler slider data consumed by `app.js` |
-| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat (streaming, web search, history), Quick Launch/HF download/sampler preset behavior, remote tunnel, stats polling, toasts |
+| `ui/js/chat-rendering.js` | Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering` |
+| `ui/js/api-tab.js` | API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab` |
+| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat state/controller (streaming, web search, history), Quick Launch/HF download/sampler preset behavior, remote tunnel, stats polling, toasts |
 | `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
@@ -56,12 +58,21 @@ All launch-relevant settings flow through the shared flag core in `ui/js/flag-co
 
 Configure flag rendering lives in `ui/js/config-flags-ui.js`, but rendered controls still read from `flagCore` and write through the shared setter path. Command preview and launch args are generated from `flagCore.getLaunchArgs()`, never from per-tab copies.
 
+Frontend modules are still loaded as ordered global scripts rather than ES modules. New focused modules should attach their public API under `window.LlamaGui`, load after their dependencies, and load before `ui/js/app.js` if `app.js` consumes them.
+
 ## Chat
 
 - Backend proxies `/v1/chat/completions` to `llama-server` with SSE streaming
+- Chat markdown and low-level message rendering live in `ui/js/chat-rendering.js`
 - Optional DuckDuckGo web search injects source citations into the system prompt
 - Conversations stored in `localStorage` with title, messages, system prompt, timestamp
 - Sampler sliders in the sidebar write through `setFlagValue()` and sync with Configure/Quick Launch
+
+## API Tab
+
+- API endpoint cards and copy-ready snippets live in `ui/js/api-tab.js`
+- The module reads host, port, alias, selected model, API key, and current tool from shared `flagCore` state
+- `app.js` injects shared utilities/status access and still initializes remote tunnel controls until that later refactor phase
 
 ## Hugging Face Download
 

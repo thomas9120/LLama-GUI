@@ -188,6 +188,8 @@ with the primary file and only touch secondary files if the change requires it.
 | Configure tab rendering | `ui/js/config-flags-ui.js` | `ui/js/flag-core.js` (state) |
 | Quick Launch controls | `ui/js/app.js` | `ui/js/flag-core.js` (state) |
 | Chat sidebar samplers | `ui/js/app.js` | `ui/js/flag-core.js` (state) |
+| Chat markdown/rendering helpers | `ui/js/chat-rendering.js` | `ui/js/app.js` (chat state/controller) |
+| API tab docs/snippets | `ui/js/api-tab.js` | `ui/js/app.js` (status/init), `ui/js/flag-core.js` (state reads) |
 | Chat template presets | `ui/js/flags.js` | `ui/js/app.js` (mapping helpers) |
 | Sampler presets | `ui/js/app.js` | `ui/js/flag-core.js` (apply) |
 | Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
@@ -204,13 +206,16 @@ with the primary file and only touch secondary files if the change requires it.
 
 The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
-1. `flags.js` — pure data, no state, no DOM
+1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
 2. `flag-validation.js` — read-only validation of flag definitions
 3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
 4. `config-flags-ui.js` — Configure tab rendering
-5. `manager.js` — GitHub releases, install, update
+5. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
 6. `presets.js` — preset CRUD
-7. `app.js` — main orchestration (wires everything together)
+7. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
+8. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
+9. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
+10. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you
 add a new module, place it after its dependencies and before its consumers.
@@ -272,7 +277,9 @@ private closure variables.
 
 ### Frontend
 - **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
-- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat (streaming, web search, conversation history), Quick Launch profiles/HF download/sampler presets, remote tunnel, toasts, and cache-busting reload.
+- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat state/controller (streaming, web search, conversation history), Quick Launch profiles/HF download/sampler presets, remote tunnel, toasts, and cache-busting reload.
+- **`ui/js/chat-rendering.js`**: Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering`.
+- **`ui/js/api-tab.js`**: API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab`; reads shared state through injected `flagCore`.
 - **`ui/js/flags.js`**: Single source of truth for exposed `llama.cpp` flags, flag categories, data types, built-in chat templates, chat template presets, sampler presets, and quick launch profiles.
 - **`ui/js/flag-core.js`**: Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation.
 - **`ui/js/config-flags-ui.js`**: Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings.
@@ -567,7 +574,7 @@ When the web search toggle is enabled:
 
 ### Markdown Rendering
 
-`renderMarkdown()` in `app.js` converts chat output to HTML:
+`renderMarkdown()` in `ui/js/chat-rendering.js` converts chat output to HTML:
 - Fenced code blocks (``` ... ```) with optional language attribute
 - Inline code (`...`)
 - Bold (**...**, __...__)
