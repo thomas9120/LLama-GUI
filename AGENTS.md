@@ -191,6 +191,7 @@ with the primary file and only touch secondary files if the change requires it.
 | Chat markdown/rendering helpers | `ui/js/chat-rendering.js` | `ui/js/app.js` (chat state/controller) |
 | API tab docs/snippets | `ui/js/api-tab.js` | `ui/js/app.js` (status/init), `ui/js/flag-core.js` (state reads) |
 | HF download UI | `ui/js/hf-download-ui.js` | `ui/js/app.js` (callbacks), `ui/js/manager.js` (fetchJson) |
+| Remote tunnel UI | `ui/js/remote-tunnel-ui.js` | `ui/js/app.js` (init), `ui/js/api-tab.js` (endpoint config), `ui/js/manager.js` (fetchJson) |
 | Chat template presets | `ui/js/flags.js` | `ui/js/app.js` (mapping helpers) |
 | Sampler presets | `ui/js/app.js` | `ui/js/flag-core.js` (apply) |
 | Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
@@ -216,7 +217,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 8. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
 9. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
 10. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
-11. `app.js` — main orchestration (wires everything together)
+11. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
+12. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you
 add a new module, place it after its dependencies and before its consumers.
@@ -278,10 +280,11 @@ private closure variables.
 
 ### Frontend
 - **`ui/index.html`**: HTML template defining the tabbed layout and UI structure.
-- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat state/controller (streaming, web search, conversation history), Quick Launch profiles/sampler presets, remote tunnel, toasts, and cache-busting reload.
+- **`ui/js/app.js`**: Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, chat state/controller (streaming, web search, conversation history), Quick Launch profiles/sampler presets, toasts, and cache-busting reload.
 - **`ui/js/chat-rendering.js`**: Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering`.
 - **`ui/js/api-tab.js`**: API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab`; reads shared state through injected `flagCore`.
 - **`ui/js/hf-download-ui.js`**: Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow exposed as `window.LlamaGui.hfDownloadUi`; receives shared utilities and `flagCore` from `app.js`.
+- **`ui/js/remote-tunnel-ui.js`**: API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling exposed as `window.LlamaGui.remoteTunnelUi`; receives shared utilities and endpoint helpers from `app.js`.
 - **`ui/js/flags.js`**: Single source of truth for exposed `llama.cpp` flags, flag categories, data types, built-in chat templates, chat template presets, sampler presets, and quick launch profiles.
 - **`ui/js/flag-core.js`**: Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation.
 - **`ui/js/config-flags-ui.js`**: Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings.
@@ -631,6 +634,8 @@ The API tab includes Cloudflare tunnel integration for exposing `llama-server` t
 - CORS origin is updated to include the active tunnel URL.
 
 ### Frontend
+
+Frontend tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling live in `ui/js/remote-tunnel-ui.js`. `app.js` injects `fetchJson`, `copyText`, and `getServerEndpointConfig`.
 
 - Start/stop buttons with disabled states during transitions.
 - Polls tunnel status every 2 seconds while running/starting.

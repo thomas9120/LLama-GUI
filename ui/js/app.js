@@ -14,7 +14,6 @@ let pollOutputActive = false;
 let pollStatsActive = false;
 let pollOutputFailCount = 0;
 let serverReadyNotified = false;
-let remoteTunnelTimer = null;
 
 let selectedChatTemplatePresetValue = "";
 
@@ -46,6 +45,12 @@ const {
 } = apiTab;
 const initApiTab = apiTab.init;
 const updateApiEndpoints = apiTab.updateEndpoints;
+const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
+remoteTunnelUi.configure({
+    fetchJson,
+    copyText,
+    getServerEndpointConfig,
+});
 const hfDownloadUi = window.LlamaGui.hfDownloadUi;
 hfDownloadUi.configure({
     flagCore,
@@ -1118,7 +1123,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initCustomLaunchArgsControls();
     initInstallButtons();
     initApiTab();
-    initRemoteTunnelControls();
+    remoteTunnelUi.init();
     initPresetImport();
     initPresetLibraryControls();
     initQuickLaunch();
@@ -1186,7 +1191,7 @@ function switchTab(tabId) {
     if (tabId === "api") {
         Promise.resolve(checkStatus()).finally(() => {
             updateApiEndpoints();
-            refreshRemoteTunnelStatus();
+            remoteTunnelUi.refreshStatus();
         });
     }
 }
@@ -1197,143 +1202,6 @@ function initToolSelect() {
     toolSel.addEventListener("change", () => {
         flagCore.setCurrentTool(toolSel.value);
     });
-}
-
-function initRemoteTunnelControls() {
-    const startBtn = document.getElementById("btn-start-remote-tunnel");
-    const stopBtn = document.getElementById("btn-stop-remote-tunnel");
-    const copyBtn = document.getElementById("btn-copy-remote-tunnel");
-    const copyOpenAiBtn = document.getElementById("btn-copy-remote-openai");
-    if (!startBtn || !stopBtn) return;
-
-    startBtn.addEventListener("click", startRemoteTunnel);
-    stopBtn.addEventListener("click", stopRemoteTunnel);
-    if (copyBtn) {
-        copyBtn.addEventListener("click", () => {
-            const link = document.getElementById("remote-tunnel-url");
-            copyText(link ? link.href : "");
-        });
-    }
-    if (copyOpenAiBtn) {
-        copyOpenAiBtn.addEventListener("click", () => {
-            const link = document.getElementById("remote-openai-url");
-            copyText(link ? link.href : "");
-        });
-    }
-    refreshRemoteTunnelStatus();
-}
-
-function setRemoteTunnelPolling(enabled) {
-    if (enabled && !remoteTunnelTimer) {
-        remoteTunnelTimer = setInterval(refreshRemoteTunnelStatus, 2000);
-    } else if (!enabled && remoteTunnelTimer) {
-        clearInterval(remoteTunnelTimer);
-        remoteTunnelTimer = null;
-    }
-}
-
-function renderRemoteTunnelStatus(state) {
-    const status = state && state.status ? state.status : "idle";
-    const url = state && state.url ? state.url : "";
-    const message = state && state.message ? state.message : "Remote tunnel is not running.";
-    const startBtn = document.getElementById("btn-start-remote-tunnel");
-    const stopBtn = document.getElementById("btn-stop-remote-tunnel");
-    const badge = document.getElementById("remote-tunnel-badge");
-    const statusEl = document.getElementById("remote-tunnel-status");
-    const urlRow = document.getElementById("remote-tunnel-url-row");
-    const urlLink = document.getElementById("remote-tunnel-url");
-    const openAiRow = document.getElementById("remote-openai-url-row");
-    const openAiLink = document.getElementById("remote-openai-url");
-
-    const isWorking = status === "preparing" || status === "downloading" || status === "starting";
-    const isRunning = status === "running";
-    const isError = status === "error";
-
-    if (badge) {
-        badge.textContent = status.replace(/-/g, " ");
-        badge.classList.toggle("running", isRunning);
-        badge.classList.toggle("working", isWorking);
-        badge.classList.toggle("error", isError);
-    }
-    if (statusEl) {
-        statusEl.textContent = message;
-    }
-    if (urlRow && urlLink) {
-        if (url) {
-            urlLink.href = url;
-            urlLink.textContent = url;
-            urlRow.classList.remove("hidden");
-        } else {
-            urlLink.href = "#";
-            urlLink.textContent = "";
-            urlRow.classList.add("hidden");
-        }
-    }
-    if (openAiRow && openAiLink) {
-        if (url) {
-            const apiUrl = url.replace(/\/+$/, "") + "/v1";
-            openAiLink.href = apiUrl;
-            openAiLink.textContent = apiUrl;
-            openAiRow.classList.remove("hidden");
-        } else {
-            openAiLink.href = "#";
-            openAiLink.textContent = "";
-            openAiRow.classList.add("hidden");
-        }
-    }
-    if (startBtn) {
-        startBtn.disabled = isWorking || isRunning;
-        startBtn.textContent = isWorking ? "Starting..." : "Start Tunnel";
-    }
-    if (stopBtn) {
-        stopBtn.classList.toggle("hidden", !(isWorking || isRunning));
-        stopBtn.disabled = false;
-    }
-
-    setRemoteTunnelPolling(isWorking || isRunning);
-}
-
-async function refreshRemoteTunnelStatus() {
-    try {
-        const state = await fetchJson("/api/remote-tunnel/status");
-        renderRemoteTunnelStatus(state);
-        return state;
-    } catch (e) {
-        renderRemoteTunnelStatus({ status: "error", message: "Failed to read remote tunnel status: " + e.message });
-        return null;
-    }
-}
-
-async function startRemoteTunnel() {
-    renderRemoteTunnelStatus({ status: "starting", message: "Starting Cloudflare tunnel..." });
-    try {
-        const endpoint = getServerEndpointConfig();
-        const state = await fetchJson("/api/remote-tunnel/start", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                host: endpoint.host,
-                port: endpoint.port,
-            }),
-        });
-        renderRemoteTunnelStatus(state);
-        setRemoteTunnelPolling(true);
-    } catch (e) {
-        renderRemoteTunnelStatus({ status: "error", message: "Failed to start remote tunnel: " + e.message });
-    }
-}
-
-async function stopRemoteTunnel() {
-    try {
-        const state = await fetchJson("/api/remote-tunnel/stop", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-        });
-        renderRemoteTunnelStatus(state);
-    } catch (e) {
-        renderRemoteTunnelStatus({ status: "error", message: "Failed to stop remote tunnel: " + e.message });
-    }
 }
 
 function initConfigControls() {

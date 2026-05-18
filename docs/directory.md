@@ -28,7 +28,8 @@
 | `ui/js/chat-rendering.js` | Markdown and low-level chat DOM rendering helpers exposed as `window.LlamaGui.chatRendering` |
 | `ui/js/api-tab.js` | API tab endpoint/snippet data, base URL helpers, and rendering exposed as `window.LlamaGui.apiTab` |
 | `ui/js/hf-download-ui.js` | Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow exposed as `window.LlamaGui.hfDownloadUi` |
-| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat state/controller (streaming, web search, history), Quick Launch/sampler preset behavior, remote tunnel, stats polling, toasts |
+| `ui/js/remote-tunnel-ui.js` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling exposed as `window.LlamaGui.remoteTunnelUi` |
+| `ui/js/app.js` | Main UI orchestration: tab switching, launch/stop flow, chat state/controller (streaming, web search, history), Quick Launch/sampler preset behavior, stats polling, toasts |
 | `ui/js/flags/` | Ordered flag modules for exposed llama.cpp flag categories, option lists, chat template presets, flag definitions, and flag helpers |
 | `ui/js/flag-core.js` | Shared frontend flag state and launch-argument core (`currentTool`, selected model, `flagValues`, setters, preset apply/collect helpers, command preview generation) |
 | `ui/js/config-flags-ui.js` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
@@ -73,7 +74,7 @@ Frontend modules are still loaded as ordered global scripts rather than ES modul
 
 - API endpoint cards and copy-ready snippets live in `ui/js/api-tab.js`
 - The module reads host, port, alias, selected model, API key, and current tool from shared `flagCore` state
-- `app.js` injects shared utilities/status access and still initializes remote tunnel controls until that later refactor phase
+- `app.js` injects shared utilities/status access and initializes the remote tunnel module
 
 ## Hugging Face Download
 
@@ -87,6 +88,7 @@ Integrated model downloader in the Quick Launch tab:
 ## Cloudflare Tunnel
 
 Remote tunnel in the API tab:
+- Frontend controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling live in `ui/js/remote-tunnel-ui.js`
 - Auto-downloads `cloudflared` binary on first use
 - Tunnel URL is added to allowed CORS origins
 - Status polling every 2 seconds while running/starting

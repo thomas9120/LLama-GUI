@@ -152,7 +152,9 @@ Status: Completed. `ui/js/hf-download-ui.js` now owns the Hugging Face downloade
 - Confirm error/status messages are unchanged or clearer.
 - Confirm the module does not directly mutate `flagValues`.
 
-## Phase 4: Extract Remote Tunnel UI
+## Phase 4: Extract Remote Tunnel UI - Done
+
+Status: Completed. `ui/js/remote-tunnel-ui.js` now owns remote tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling through `window.LlamaGui.remoteTunnelUi`, with shared utilities injected from `app.js`.
 
 Remote tunnel controls are a good next extraction because they own a distinct timer, status renderer, and backend route set.
 
