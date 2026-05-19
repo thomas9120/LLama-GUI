@@ -47,7 +47,16 @@ if (Test-Path $installDir) {
     }
 
     Write-Host "Updating existing Llama GUI checkout at $installDir..."
-    Invoke-Native "git" @("-C", $installDir, "pull", "--ff-only")
+    Invoke-Native "git" @("-C", $installDir, "remote", "set-url", "origin", $repoUrl)
+    Invoke-Native "git" @("-C", $installDir, "fetch", "origin", $repoBranch)
+    & git -C $installDir show-ref --verify --quiet "refs/heads/$repoBranch"
+    $branchExists = $LASTEXITCODE -eq 0
+    if ($branchExists) {
+        Invoke-Native "git" @("-C", $installDir, "checkout", $repoBranch)
+        Invoke-Native "git" @("-C", $installDir, "merge", "--ff-only", "origin/$repoBranch")
+    } else {
+        Invoke-Native "git" @("-C", $installDir, "checkout", "-b", $repoBranch, "origin/$repoBranch")
+    }
 } else {
     Write-Host "Cloning Llama GUI into $installDir..."
     Invoke-Native "git" @("clone", "--branch", $repoBranch, $repoUrl, $installDir)

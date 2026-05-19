@@ -39,7 +39,14 @@ if [ -e "$INSTALL_DIR" ]; then
         exit 1
     fi
     echo "Updating existing Llama GUI checkout at $INSTALL_DIR..."
-    git -C "$INSTALL_DIR" pull --ff-only
+    git -C "$INSTALL_DIR" remote set-url origin "$REPO_URL"
+    git -C "$INSTALL_DIR" fetch origin "$REPO_BRANCH"
+    if git -C "$INSTALL_DIR" show-ref --verify --quiet "refs/heads/$REPO_BRANCH"; then
+        git -C "$INSTALL_DIR" checkout "$REPO_BRANCH"
+        git -C "$INSTALL_DIR" merge --ff-only "origin/$REPO_BRANCH"
+    else
+        git -C "$INSTALL_DIR" checkout -b "$REPO_BRANCH" "origin/$REPO_BRANCH"
+    fi
 else
     echo "Cloning Llama GUI into $INSTALL_DIR..."
     git clone --branch "$REPO_BRANCH" "$REPO_URL" "$INSTALL_DIR"
