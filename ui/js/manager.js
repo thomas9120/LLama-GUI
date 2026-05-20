@@ -755,4 +755,6 @@ async function refreshModels() {
     }
 }
 
-window.addEventListener("beforeunload", stopInstallProgressPolling);
+if (window.addEventListener) {
+    window.addEventListener("beforeunload", stopInstallProgressPolling);
+}
