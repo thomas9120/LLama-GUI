@@ -421,7 +421,10 @@ function switchTab(tabId) {
     if (sidebar) sidebar.classList.remove("open");
     if (tabId === "presets") loadPresets();
     if (tabId === "quick-launch") refreshQuickLaunchUI();
-    if (tabId === "chat") { refreshChatSidebarUI(); updateChatStatusBadge(); }
+    if (tabId === "chat") {
+        refreshChatSidebarUI();
+        refreshRuntimeStatusPanels();
+    }
     if (tabId === "configure") flagCore.updateCommandPreview();
     if (tabId === "api") {
         Promise.resolve(checkStatus()).finally(() => {
@@ -601,8 +604,7 @@ async function launchLlama() {
                 appendOutput(`Web UI: ${baseUrl}/`);
                 startStatsPolling();
             }
-            updateApiEndpoints();
-            updateChatStatusBadge();
+            await refreshRuntimeStatusPanels();
         }
     } catch (e) {
         appendOutput("ERROR: " + e.message);
@@ -627,9 +629,7 @@ async function stopLlama() {
     document.getElementById("input-row").classList.add("hidden");
     document.getElementById("server-address").classList.add("hidden");
     updateQuickLaunchActionButtons();
-    updateApiEndpoints();
-    updateChatStatusBadge();
-    setTimeout(() => checkStatus(), 500);
+    await refreshRuntimeStatusPanels();
 }
 
 function startOutputPolling() {
@@ -725,6 +725,13 @@ async function pollStats() {
     }
 }
 
+async function refreshRuntimeStatusPanels() {
+    const status = await checkStatus();
+    updateChatStatusBadge();
+    updateApiEndpoints();
+    return status;
+}
+
 async function fetchSlotKvUsage(host, port) {
     try {
         const params = new URLSearchParams({ host, port: String(port) });
@@ -778,9 +785,7 @@ async function pollOutput() {
             document.getElementById("input-row").classList.add("hidden");
             document.getElementById("server-address").classList.add("hidden");
             updateQuickLaunchActionButtons();
-            updateApiEndpoints();
-            updateChatStatusBadge();
-            setTimeout(() => checkStatus(), 500);
+            setTimeout(() => refreshRuntimeStatusPanels(), 500);
         }
         pollOutputFailCount = 0;
     } catch (e) {
@@ -796,8 +801,7 @@ async function pollOutput() {
             document.getElementById("input-row").classList.add("hidden");
             document.getElementById("server-address").classList.add("hidden");
             updateQuickLaunchActionButtons();
-            updateApiEndpoints();
-            updateChatStatusBadge();
+            refreshRuntimeStatusPanels();
         }
     } finally {
         pollOutputActive = false;
