@@ -986,6 +986,25 @@ class InstallRouteTests(unittest.TestCase):
         self.assertEqual(len(response.payload), 1)
         self.assertEqual(response.payload[0]["tag"], "b1")
 
+    def test_install_get_releases_caps_response_at_thirty(self):
+        fake_releases = [
+            {
+                "tag_name": f"b{i}",
+                "name": f"release {i}",
+                "published_at": "2024-01-01T00:00:00Z",
+                "assets": [],
+            }
+            for i in range(35)
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=fake_releases):
+            install.get_releases(
+                Request("GET", "/api/releases", "", {}), response, self.ctx
+            )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(len(response.payload), 30)
+        self.assertEqual(response.payload[-1]["tag"], "b29")
+
     def test_install_get_releases_error_returns_500(self):
         response = DummyResponse()
         with mock.patch.object(

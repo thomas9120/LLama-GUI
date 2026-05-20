@@ -445,9 +445,12 @@ class LlamaManagerDownloadTests(unittest.TestCase):
                     progress_cb(10, 10)
                 return 10
 
+            stderr = io.StringIO()
             with mock.patch.object(llama_manager, "get_release_by_tag", return_value=release), mock.patch.object(
                 llama_manager, "download_file", side_effect=fake_download
-            ), mock.patch.object(llama_manager.tempfile, "mkdtemp", side_effect=fake_mkdtemp):
+            ), mock.patch.object(llama_manager.tempfile, "mkdtemp", side_effect=fake_mkdtemp), mock.patch(
+                "sys.stderr", stderr
+            ):
                 ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
 
             self.assertTrue(ok)
@@ -457,6 +460,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
             self.assertTrue(tmpdirs)
             self.assertFalse(tmpdirs[0].exists())
+            self.assertIn("No SHA256 metadata", stderr.getvalue())
 
     def test_install_release_rejects_sha_mismatch_and_cleans_tmpdir(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,6 +2,7 @@ let cachedReleases = null;
 let installPollTimer = null;
 let installPollStartTime = null;
 let installPollFailCount = 0;
+let installPollInFlight = false;
 let latestStatus = null;
 let latestAppUpdateStatus = null;
 
@@ -49,7 +50,7 @@ async function fetchJson(url, options) {
         if (!resp.ok) {
             throw new Error(`Request failed (${resp.status})`);
         }
-        return null;
+        throw new Error(`Invalid JSON response from ${url}`);
     }
 
     if (!resp.ok) {
@@ -431,33 +432,41 @@ async function checkForUpdates() {
     }
 }
 
-function pollInstallProgress() {
-    if (installPollTimer) clearInterval(installPollTimer);
-    installPollStartTime = Date.now();
+function stopInstallProgressPolling() {
+    if (installPollTimer) {
+        clearInterval(installPollTimer);
+        installPollTimer = null;
+    }
+    installPollStartTime = null;
     installPollFailCount = 0;
+    installPollInFlight = false;
+}
+
+function pollInstallProgress() {
+    stopInstallProgressPolling();
+    installPollStartTime = Date.now();
     installPollTimer = setInterval(async () => {
         if (Date.now() - installPollStartTime > INSTALL_POLL_TIMEOUT_MS) {
-            clearInterval(installPollTimer);
-            installPollTimer = null;
+            stopInstallProgressPolling();
             showStatus("error", "Installation timed out. The server may have stopped responding. Try restarting Llama GUI.");
             showProgress(false);
             setInstallButtonsDisabled(false);
             return;
         }
+        if (installPollInFlight) return;
+        installPollInFlight = true;
         try {
             const prog = await fetchJson("/api/download-progress");
             installPollFailCount = 0;
             updateProgressBar(prog);
             if (prog.status === "done") {
-                clearInterval(installPollTimer);
-                installPollTimer = null;
+                stopInstallProgressPolling();
                 showStatus("success", prog.message);
                 showProgress(false);
                 setInstallButtonsDisabled(false);
                 checkStatus();
             } else if (prog.status === "error") {
-                clearInterval(installPollTimer);
-                installPollTimer = null;
+                stopInstallProgressPolling();
                 showStatus("error", prog.message);
                 showProgress(false);
                 setInstallButtonsDisabled(false);
@@ -465,12 +474,13 @@ function pollInstallProgress() {
         } catch (e) {
             installPollFailCount++;
             if (installPollFailCount >= INSTALL_POLL_MAX_FAILS) {
-                clearInterval(installPollTimer);
-                installPollTimer = null;
+                stopInstallProgressPolling();
                 showStatus("error", "Lost contact with the server during installation. The install may still be in progress \u2014 try restarting Llama GUI.");
                 showProgress(false);
                 setInstallButtonsDisabled(false);
             }
+        } finally {
+            installPollInFlight = false;
         }
     }, 500);
 }
@@ -741,6 +751,8 @@ async function refreshModels() {
             syncQuickLaunchModelOptions();
         }
     } catch (e) {
-        // ignore
+        console.debug("Failed to refresh model list", e);
     }
 }
+
+window.addEventListener("beforeunload", stopInstallProgressPolling);

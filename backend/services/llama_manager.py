@@ -7,6 +7,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -398,6 +399,11 @@ def install_release(
 
     bin_url = asset_map[bin_filename]["browser_download_url"]
     expected_sha = asset_map[bin_filename].get("sha256", None)
+    if not expected_sha:
+        print(
+            f"WARNING: No SHA256 metadata for release asset {bin_filename}; skipping checksum verification.",
+            file=sys.stderr,
+        )
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="llama_install_"))
     try:

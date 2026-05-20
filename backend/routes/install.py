@@ -7,11 +7,14 @@ from ..services import llama_manager
 from ..services import process_manager
 
 
+RELEASE_RESPONSE_LIMIT = 30
+
+
 def get_releases(request, response, ctx):
     try:
         releases = llama_manager.get_releases(ctx)
         result = []
-        for r in releases[:20]:
+        for r in releases[:RELEASE_RESPONSE_LIMIT]:
             result.append(
                 {
                     "tag": r["tag_name"],
