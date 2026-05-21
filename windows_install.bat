@@ -47,6 +47,15 @@ echo Installing Python dependencies from requirements.txt...
 call "%VENV_PYTHON%" -m pip install -r requirements.txt
 if errorlevel 1 goto :install_error
 
+where powershell >nul 2>&1
+if %ERRORLEVEL% EQU 0 (
+    echo Creating desktop shortcut...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%CD%\scripts\create_windows_shortcuts.ps1"
+    if errorlevel 1 echo [WARN] Could not create desktop shortcut. You can run scripts\create_windows_shortcuts.ps1 later.
+) else (
+    echo [WARN] PowerShell was not found; skipping desktop shortcut creation.
+)
+
 echo.
 echo Install complete.
 echo Start the app with windows_start.bat or windows_startsilent.bat

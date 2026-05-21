@@ -70,6 +70,8 @@ irm https://raw.githubusercontent.com/thomas9120/LLama-GUI/main/online_installer
 
 The online installer clones Llama GUI into `~/LLama-GUI` on macOS/Linux or `%USERPROFILE%\LLama-GUI` on Windows, installs the Python dependencies, and starts the app. To install somewhere else, set `LLAMA_GUI_INSTALL_DIR` before running the command. To install without starting the app, set `LLAMA_GUI_NO_START=1`.
 
+On Windows, the installer also creates a **Llama GUI** desktop shortcut. The shortcut starts the local Python server and opens the browser after the app is reachable.
+
 ### Manual install
 
 1. Clone this repository:
@@ -159,12 +161,18 @@ cd LLama-GUI
 ```
 
 3. Run `windows_install.bat`.
-4. Start the app with one of:
+4. Start the app from the **Llama GUI** desktop shortcut, or use one of:
    - `windows_start.bat`
    - `windows_startsilent.bat`
 5. Open `http://127.0.0.1:5240` in your browser.
 6. In the **Install** tab, choose a Windows backend such as `CPU`, `CUDA`, `Vulkan`, `SYCL`, or `HIP`, then click **Install**.
 7. Go to **Quick Launch** for the simplest first run, or **Configure** for full manual tuning.
+
+To recreate the desktop shortcut without reinstalling dependencies:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create_windows_shortcuts.ps1 -ShortcutsOnly
+```
 
 ### macOS
 

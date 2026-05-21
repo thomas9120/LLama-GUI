@@ -28,6 +28,7 @@ desktop.ini
 logs/
 tmp/
 temp/
+.launcher/
 
 config.json
 potential_improvements.md

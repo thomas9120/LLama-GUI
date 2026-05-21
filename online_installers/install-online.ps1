@@ -80,6 +80,21 @@ Invoke-Native $venvPython @("-m", "pip", "install", "--upgrade", "pip")
 Write-Host "Installing Python dependencies from requirements.txt..."
 Invoke-Native $venvPython @("-m", "pip", "install", "-r", "requirements.txt")
 
+try {
+    $shortcutScript = Join-Path $installDir "scripts\create_windows_shortcuts.ps1"
+    if (Test-Path $shortcutScript) {
+        Write-Host "Creating desktop shortcut..."
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $shortcutScript -InstallDir $installDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Desktop shortcut creation failed. Run scripts\create_windows_shortcuts.ps1 later to retry."
+        }
+    } else {
+        Write-Warning "Shortcut helper was not found; skipping desktop shortcut creation."
+    }
+} catch {
+    Write-Warning "Desktop shortcut creation failed: $($_.Exception.Message)"
+}
+
 if ($env:LLAMA_GUI_NO_START -eq "1") {
     Write-Host ""
     Write-Host "Install complete. Start Llama GUI later with:"
