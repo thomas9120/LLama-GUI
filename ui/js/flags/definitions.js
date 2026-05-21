@@ -146,7 +146,7 @@ const FLAGS = [
        beginner_tip: "If replies loop or repeat phrases, raise this slightly above 1.0.",
        desc: "Penalize repeat token sequences (1.0 = disabled)", tool: "both", default: 1.0, min: 0.5, max: 3, step: 0.01 },
     { id: "presence_penalty", flag: "--presence-penalty", category: "sampling", type: "float", label: "Presence Penalty",
-      desc: "Alpha presence penalty (0 = disabled)", tool: "both", default: 0, min: 0, max: 5, step: 0.05 },
+      desc: "Alpha presence penalty (0 = disabled)", tool: "both", default: 0, min: 0, max: 5, step: 0.1 },
     { id: "frequency_penalty", flag: "--frequency-penalty", category: "sampling", type: "float", label: "Frequency Penalty",
       desc: "Alpha frequency penalty (0 = disabled)", tool: "both", default: 0, min: 0, max: 5, step: 0.05 },
     { id: "dry_multiplier", flag: "--dry-multiplier", category: "sampling", type: "float", label: "DRY Multiplier",

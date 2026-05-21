@@ -298,20 +298,20 @@ async function main() {
         await page.dispatchEvent("#quick-temperature", "input");
         await page.fill("#quick-repeat-penalty", "1.02");
         await page.dispatchEvent("#quick-repeat-penalty", "input");
-        await page.fill("#quick-presence-penalty", "0.35");
+        await page.fill("#quick-presence-penalty", "0.3");
         await page.dispatchEvent("#quick-presence-penalty", "input");
         await page.waitForTimeout(250);
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.96);
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().repeat_penalty === 1.02);
-        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().presence_penalty === 0.35);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().presence_penalty === 0.3);
         assert.equal(await page.locator("#quick-temperature").evaluate((el) => el.validity.valid), true);
         assert.equal(await page.locator("#quick-repeat-penalty").evaluate((el) => el.validity.valid), true);
         assert.equal(await page.locator("#quick-presence-penalty").evaluate((el) => el.validity.valid), true);
         await selectSection(page, "configure");
         await page.fill("#config-search", "presence");
         await page.waitForSelector("#flag-presence_penalty", { state: "visible" });
-        await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.35");
-        assert.equal(await page.locator("#flag-presence_penalty").evaluate((el) => el.step), "0.05");
+        await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.3");
+        assert.equal(await page.locator("#flag-presence_penalty").evaluate((el) => el.step), "0.1");
         assert.equal(await page.locator("#flag-presence_penalty").evaluate((el) => el.validity.valid), true);
         await page.fill("#config-search", "temperature");
         await page.waitForSelector("#flag-temperature", { state: "visible" });
@@ -324,14 +324,14 @@ async function main() {
         assert.ok(launchArgs.includes("-ngl") && launchArgs.includes("9"));
         assert.ok(launchArgs.includes("--temp") && launchArgs.includes("0.96"));
         assert.ok(launchArgs.includes("--repeat-penalty") && launchArgs.includes("1.02"));
-        assert.ok(launchArgs.includes("--presence-penalty") && launchArgs.includes("0.35"));
+        assert.ok(launchArgs.includes("--presence-penalty") && launchArgs.includes("0.3"));
 
         await selectSection(page, "quick-launch");
         await page.fill("#quick-temperature", "0.64");
         await page.dispatchEvent("#quick-temperature", "input");
         await page.fill("#quick-repeat-penalty", "1.07");
         await page.dispatchEvent("#quick-repeat-penalty", "input");
-        await page.fill("#quick-presence-penalty", "0.45");
+        await page.fill("#quick-presence-penalty", "0.4");
         await page.dispatchEvent("#quick-presence-penalty", "input");
         await page.waitForTimeout(250);
         await page.fill("#quick-sampler-name", "Smoke Sampler");
@@ -339,7 +339,7 @@ async function main() {
         await page.waitForFunction(() => {
             const raw = localStorage.getItem("llama_gui_sampler_presets_v1");
             const preset = raw && JSON.parse(raw)["Smoke Sampler"];
-            return preset?.temperature === 0.64 && preset?.presence_penalty === 0.45;
+            return preset?.temperature === 0.64 && preset?.presence_penalty === 0.4;
         });
         await page.fill("#quick-temperature", "0.91");
         await page.dispatchEvent("#quick-temperature", "input");
@@ -351,12 +351,12 @@ async function main() {
         await page.selectOption("#quick-sampler-select", "custom|Smoke Sampler");
         await page.click("#btn-quick-sampler-load");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.64);
-        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().presence_penalty === 0.45);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().presence_penalty === 0.4);
         await page.waitForFunction(() => document.querySelector("#chat-slider-temp")?.value === "0.64");
         await selectSection(page, "configure");
         await page.fill("#config-search", "presence");
         await page.waitForSelector("#flag-presence_penalty", { state: "visible" });
-        await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.45");
+        await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.4");
         await selectSection(page, "quick-launch");
         await page.selectOption("#quick-sampler-select", "custom|Smoke Sampler");
         const deletePromise = page.waitForFunction(() => {
