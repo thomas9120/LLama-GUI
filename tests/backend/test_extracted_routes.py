@@ -1467,6 +1467,41 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(result["installed"])
         self.assertIn("ERROR", result["error"])
 
+    def test_create_windows_shortcuts_skips_non_windows(self):
+        from backend.services import git_update as srv
+        with mock.patch.object(srv.sys, "platform", "linux"):
+            result = srv.create_windows_shortcuts(self.ctx)
+        self.assertFalse(result["created"])
+        self.assertTrue(result["skipped"])
+
+    def test_create_windows_shortcuts_runs_helper_on_windows(self):
+        from backend.services import git_update as srv
+        shortcut_script = self.ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
+        shortcut_script.parent.mkdir()
+        shortcut_script.write_text("# helper\n")
+        with mock.patch.object(srv.sys, "platform", "win32"), mock.patch.object(srv.subprocess, "run") as mock_run:
+            mock_run.return_value = type("R", (), {
+                "returncode": 0, "stdout": "Shortcut ready", "stderr": ""
+            })()
+            result = srv.create_windows_shortcuts(self.ctx)
+        self.assertTrue(result["created"])
+        args = mock_run.call_args[0][0]
+        self.assertIn("-ShortcutsOnly", args)
+        self.assertIn(str(shortcut_script), args)
+
+    def test_create_windows_shortcuts_reports_nonfatal_error(self):
+        from backend.services import git_update as srv
+        shortcut_script = self.ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
+        shortcut_script.parent.mkdir()
+        shortcut_script.write_text("# helper\n")
+        with mock.patch.object(srv.sys, "platform", "win32"), mock.patch.object(srv.subprocess, "run") as mock_run:
+            mock_run.return_value = type("R", (), {
+                "returncode": 1, "stdout": "", "stderr": "desktop denied"
+            })()
+            result = srv.create_windows_shortcuts(self.ctx)
+        self.assertFalse(result["created"])
+        self.assertIn("desktop denied", result["error"])
+
     # --- get_app_update_status tests ---
 
     def test_get_status_no_git_repo(self):
@@ -1716,14 +1751,54 @@ class GitUpdateRouteTests(unittest.TestCase):
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         (self.ctx.paths.root / ".git").mkdir()
         (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
-        with mock.patch.object(srv, "run_git", mock_run), mock.patch.object(srv.subprocess, "run") as mock_pip:
+        with (
+            mock.patch.object(srv, "run_git", mock_run),
+            mock.patch.object(srv.subprocess, "run") as mock_pip,
+            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": True, "message": "Shortcut ready"}) as mock_shortcuts,
+        ):
             mock_pip.return_value = type("R", (), {
                 "returncode": 0, "stdout": "Successfully installed", "stderr": ""
             })()
             result = srv.update_app_from_git(self.ctx)
         self.assertTrue(result["updated"])
         self.assertTrue(result["dependencies_installed"])
+        self.assertTrue(result["shortcuts_created"])
+        mock_shortcuts.assert_called_once_with(self.ctx)
         self.assertIn("Fast-forward", result["message"])
+
+    def test_update_pull_success_keeps_shortcut_failure_nonfatal(self):
+        from backend.services import git_update as srv
+        def mock_run(args, cwd):
+            if args == ["--version"]:
+                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
+            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
+            if args == ["config", "--get", "remote.origin.url"]:
+                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
+            if args == ["status", "--porcelain=v1", "-z"]:
+                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            if args[:2] == ["fetch", "origin"]:
+                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+            if args[:2] == ["rev-list", "--left-right"]:
+                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
+            if args[:2] == ["pull", "--ff-only"]:
+                return type("R", (), {"returncode": 0, "stdout": "Updating abc..def", "stderr": ""})()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+        (self.ctx.paths.root / ".git").mkdir()
+        (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+        with (
+            mock.patch.object(srv, "run_git", mock_run),
+            mock.patch.object(srv.subprocess, "run") as mock_pip,
+            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": False, "error": "desktop denied"}),
+        ):
+            mock_pip.return_value = type("R", (), {
+                "returncode": 0, "stdout": "Successfully installed", "stderr": ""
+            })()
+            result = srv.update_app_from_git(self.ctx)
+        self.assertTrue(result["updated"])
+        self.assertTrue(result["dependencies_installed"])
+        self.assertFalse(result["shortcuts_created"])
+        self.assertIn("desktop denied", result["shortcuts_error"])
 
     def test_update_pull_failure(self):
         from backend.services import git_update as srv
@@ -1769,13 +1844,19 @@ class GitUpdateRouteTests(unittest.TestCase):
             return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
         (self.ctx.paths.root / ".git").mkdir()
         (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
-        with mock.patch.object(srv, "run_git", mock_run), mock.patch.object(srv.subprocess, "run") as mock_pip:
+        with (
+            mock.patch.object(srv, "run_git", mock_run),
+            mock.patch.object(srv.subprocess, "run") as mock_pip,
+            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": True, "message": "Shortcut ready"}) as mock_shortcuts,
+        ):
             mock_pip.return_value = type("R", (), {
                 "returncode": 1, "stdout": "", "stderr": "ERROR: No matching distribution"
             })()
             result = srv.update_app_from_git(self.ctx)
         self.assertTrue(result["updated"])
         self.assertFalse(result["dependencies_installed"])
+        self.assertTrue(result["shortcuts_created"])
+        mock_shortcuts.assert_called_once_with(self.ctx)
         self.assertIn("ERROR", result["dependency_error"])
 
     # --- Route tests ---

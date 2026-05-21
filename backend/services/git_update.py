@@ -143,6 +143,43 @@ def install_python_dependencies(ctx: AppContext) -> dict[str, Any]:
     }
 
 
+def create_windows_shortcuts(ctx: AppContext) -> dict[str, Any]:
+    if sys.platform != "win32":
+        return {"created": False, "skipped": True, "message": "Desktop shortcuts are Windows-only."}
+
+    shortcut_script = ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
+    if not shortcut_script.exists():
+        return {"created": False, "skipped": True, "message": "Shortcut helper was not found."}
+
+    res = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(shortcut_script),
+            "-InstallDir",
+            str(ctx.paths.root),
+            "-ShortcutsOnly",
+        ],
+        cwd=str(ctx.paths.root),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    output = (res.stdout or res.stderr or "").strip()
+    if res.returncode != 0:
+        return {
+            "created": False,
+            "error": (res.stderr or res.stdout or "Desktop shortcut creation failed.").strip(),
+        }
+    return {
+        "created": True,
+        "message": output.splitlines()[-1] if output else "Desktop shortcut created.",
+    }
+
+
 def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any]:
     base_dir = ctx.paths.root
     repo_url = ctx.config.app_repo_url
@@ -307,18 +344,26 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
 
     deps_res = install_python_dependencies(ctx)
     if deps_res.get("error"):
+        shortcuts_res = create_windows_shortcuts(ctx)
         return {
             "updated": True,
             "dependencies_installed": False,
             "dependency_error": deps_res["error"],
+            "shortcuts_created": shortcuts_res.get("created", False),
+            "shortcuts_error": shortcuts_res.get("error", ""),
+            "shortcuts_message": shortcuts_res.get("message", ""),
             "message": (pull_res.stdout or "Updated successfully").strip(),
             "status": get_app_update_status(ctx, fetch=False),
         }
 
+    shortcuts_res = create_windows_shortcuts(ctx)
     return {
         "updated": True,
         "dependencies_installed": deps_res.get("installed", False),
         "dependency_message": deps_res.get("message", ""),
+        "shortcuts_created": shortcuts_res.get("created", False),
+        "shortcuts_error": shortcuts_res.get("error", ""),
+        "shortcuts_message": shortcuts_res.get("message", ""),
         "message": (pull_res.stdout or "Updated successfully").strip(),
         "status": get_app_update_status(ctx, fetch=False),
     }

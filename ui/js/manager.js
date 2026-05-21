@@ -648,10 +648,15 @@ async function updateAppFromGitHub() {
                     : result.dependency_message
                         ? " " + result.dependency_message
                         : "";
+                const shortcutText = result.shortcuts_created
+                    ? " Desktop shortcut was updated."
+                    : result.shortcuts_error
+                        ? " Desktop shortcut update failed: " + result.shortcuts_error
+                        : "";
                 await restartPythonServerAndReload({
                     button: document.getElementById("btn-update-app"),
                     showStatusFn: showAppUpdateStatus,
-                    restartingMessage: "App updated." + depText + " Restarting Llama GUI...",
+                    restartingMessage: "App updated." + depText + shortcutText + " Restarting Llama GUI...",
                     reconnectingMessage: "Llama GUI is restarting. Reconnecting...",
                     successMessage: "Llama GUI restarted. Loading the updated interface...",
                     timeoutMessage: "Llama GUI updated, but the server did not become ready in time. Try reloading manually.",
