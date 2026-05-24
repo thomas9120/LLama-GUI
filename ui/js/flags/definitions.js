@@ -314,7 +314,7 @@ const FLAGS = [
       desc: "Enable the built-in web UI", tool: "server", default: true },
     { id: "webui_mcp_proxy", flag: "--webui-mcp-proxy", category: "server", submenu: "MCP Settings", type: "bool", label: "WebUI MCP Proxy",
       short_desc: "Enable MCP CORS proxy support for the Web UI.",
-      desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. Do not enable in untrusted environments.", tool: "server", default: false },
+      desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. This is only for MCP proxying; current llama-server builds handle general API CORS automatically and no longer expose a separate --cors flag. Do not enable in untrusted environments.", tool: "server", default: false },
     { id: "tools", flag: "--tools", category: "server", submenu: "MCP Settings", type: "multi_enum", label: "Built-in Tools",
       short_desc: "Enable local file/shell tools for AI agents in the Web UI.",
       beginner_tip: "Use 'all' only on trusted machines. In shared environments, list only what you need.",
