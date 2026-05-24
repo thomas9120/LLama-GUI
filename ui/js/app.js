@@ -404,7 +404,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (initStatus && initStatus.running) {
         restoreRunningState(initStatus);
     }
+    await loadStartupPresetFromUrl();
 });
+
+function getStartupPresetName() {
+    try {
+        const params = new URLSearchParams(window.location.search || "");
+        const name = params.get("preset");
+        return name ? name.trim() : "";
+    } catch (e) {
+        console.debug("Failed to read startup preset parameter", e);
+        return "";
+    }
+}
+
+async function loadStartupPresetFromUrl() {
+    const presetName = getStartupPresetName();
+    if (!presetName) return;
+    if (typeof loadPreset === "function") {
+        await loadPreset(presetName);
+    }
+}
 
 function initTabs() {
     document.querySelectorAll(".nav-item").forEach(navItem => {

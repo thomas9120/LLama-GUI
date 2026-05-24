@@ -204,6 +204,39 @@ class ExtractedRouteTests(unittest.TestCase):
                 [{"name": "single", "data": {"model": "model.gguf", "flags": {"ctx_size": 4096}}}],
             )
 
+    def test_preset_shortcut_exports_cmd_that_opens_preset_without_llama_launch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.presets.mkdir(parents=True)
+            (ctx.paths.presets / "My Preset.json").write_text(json.dumps({"flags": {"ctx_size": 4096}}))
+            response = DummyResponse()
+
+            presets.export_preset_shortcut(
+                Request("POST", "/api/presets/shortcut", "", {}, body={"name": "My Preset"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.status, 200)
+            self.assertIn("@echo off", response.text_payload)
+            self.assertIn("server.py", response.text_payload)
+            self.assertIn("/?preset=My%%20Preset", response.text_payload)
+            self.assertNotIn("/api/launch", response.text_payload)
+            self.assertNotIn("llama-server", response.text_payload)
+
+    def test_preset_shortcut_requires_existing_preset(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+
+            presets.export_preset_shortcut(
+                Request("POST", "/api/presets/shortcut", "", {}, body={"name": "../Missing"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.payload, {"error": "Preset not found", "status": 404})
+
     def test_metrics_route_uses_context_service(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

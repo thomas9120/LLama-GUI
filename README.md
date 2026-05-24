@@ -16,6 +16,7 @@ Llama GUI provides a browser UI to:
 - view live server stats (prompt tokens, generation speed, KV cache usage)
 - use OpenAI-compatible endpoint helpers/snippets
 - manage full launch presets and sampler presets
+- export Windows preset shortcuts that open Llama GUI with a saved preset already loaded
 - manage local app updates from GitHub
 
 ## Contents

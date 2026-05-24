@@ -261,6 +261,7 @@ function renderPresetEntry(entry) {
     actions.appendChild(createPresetButton("Load", "btn btn-sm", () => loadPreset(entry.name)));
     actions.appendChild(createPresetButton("Update", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
     actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
+    actions.appendChild(createPresetButton("Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows shortcut for this preset"));
     actions.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
 
     el.appendChild(details);
@@ -525,6 +526,31 @@ function exportPreset(name) {
         });
 }
 
+async function exportPresetShortcut(name) {
+    try {
+        const resp = await fetch("/api/presets/shortcut", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+        });
+        if (!resp.ok) {
+            throw new Error(`Shortcut export failed with HTTP ${resp.status}`);
+        }
+        const blob = await resp.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        const safeName = String(name || "Llama GUI").replace(/[<>:"/\\|?*\x00-\x1F]+/g, "_").replace(/^[. _]+|[. _]+$/g, "") || "Llama GUI";
+        a.href = url;
+        a.download = `${safeName}.cmd`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showPresetStatus(`Exported shortcut for "${name}"`, "success");
+    } catch (e) {
+        showPresetStatus("Failed to export shortcut", "error", 3200);
+        console.warn("Failed to export preset shortcut", e);
+    }
+}
+
 function exportAllPresets() {
     fetchJson("/api/presets")
         .then((presets) => {
@@ -601,6 +627,7 @@ async function handlePresetImport(file) {
 
 if (window.LlamaGui) {
     window.LlamaGui.presets = Object.assign(window.LlamaGui.presets || {}, {
+        loadPreset,
         normalizeImportedPresetData,
     });
 }
