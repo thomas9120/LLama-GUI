@@ -145,7 +145,7 @@
             reasoning_budget: -1,
             cache_reuse: 0,
             ctx_checkpoints: 32,
-            checkpoint_every_n_tokens: 8192,
+            checkpoint_every_n_tokens: 256,
         };
 
         if (!Object.prototype.hasOwnProperty.call(inertDefaultValues, f.id)) {
@@ -299,6 +299,10 @@
                     if (normalizedGpuLayers === undefined) continue;
                     if (shouldOmitFlagValue(f, normalizedGpuLayers)) continue;
                     args.push([f.flag, normalizedGpuLayers]);
+                    continue;
+                }
+                if (f.id === "checkpoint_every_n_tokens" && Number(val) < 0) {
+                    args.push([f.flag, "0"]);
                     continue;
                 }
                 if (shouldOmitFlagValue(f, val)) continue;

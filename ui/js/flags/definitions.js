@@ -48,9 +48,9 @@ const FLAGS = [
     { id: "ctx_checkpoints", flag: "-ctxcp", category: "context", type: "int", label: "Context Checkpoints",
       short_desc: "Keeps reusable snapshots of long prompts so follow-up requests can avoid reprocessing as much context.",
       desc: "Maximum number of context checkpoints to create per server slot. Higher values can improve prompt-cache reuse for long chats or agent workflows, but use more RAM. Set 0 to disable context checkpoints.", tool: "server", default: 32, min: 0 },
-    { id: "checkpoint_every_n_tokens", flag: "-cpent", category: "context", type: "int", label: "Checkpoint Interval",
-      short_desc: "Controls how often llama.cpp creates context checkpoints while reading a prompt.",
-      desc: "Create a context checkpoint every N tokens during prompt processing. Lower values create more frequent snapshots and may improve reuse granularity, but can use more memory. -1 disables checkpoint creation.", tool: "server", default: 8192, min: -1, placeholder: "-1 disables" },
+    { id: "checkpoint_every_n_tokens", flag: "-cms", category: "context", type: "int", label: "Checkpoint Min Spacing",
+      short_desc: "Sets the minimum token spacing between context checkpoints.",
+      desc: "Minimum spacing between context checkpoints in tokens. 0 = no minimum spacing. To disable checkpoint creation entirely, set Context Checkpoints (-ctxcp) to 0.", tool: "server", default: 256, min: 0, placeholder: "0 = no minimum" },
 
     // CPU & Threads
     { id: "threads", flag: "-t", category: "cpu", type: "int", label: "CPU Threads",
