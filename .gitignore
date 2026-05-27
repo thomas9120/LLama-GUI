@@ -29,6 +29,12 @@ logs/
 tmp/
 temp/
 .launcher/
+.pi/
+pi/
+.harness/
+harness/
+.codegraph/
+codegraph/
 
 config.json
 potential_improvements.md
