@@ -77,7 +77,8 @@ class BuildBackendSpecsTests(unittest.TestCase):
 
         self.assertIn("cpu", specs)
         self.assertIn("cuda-12.4", specs)
-        self.assertIn("cuda-13.1", specs)
+        self.assertIn("cuda-13.3", specs)
+        self.assertNotIn("cuda-13.1", specs)
         self.assertIn("vulkan", specs)
         self.assertIn("sycl", specs)
         self.assertIn("hip", specs)
@@ -152,8 +153,11 @@ class BuildBackendSpecsTests(unittest.TestCase):
         specs = llama_manager.build_backend_specs("win32", "x64")
 
         self.assertIn("extra_assets", specs["cuda-12.4"])
-        self.assertIn("extra_assets", specs["cuda-13.1"])
+        self.assertIn("extra_assets", specs["cuda-13.3"])
         self.assertEqual(len(specs["cuda-12.4"]["extra_assets"]), 1)
+        self.assertEqual(len(specs["cuda-13.3"]["extra_assets"]), 1)
+        self.assertIn("cuda-13.3", specs["cuda-13.3"]["asset"])
+        self.assertIn("cuda-13.3", specs["cuda-13.3"]["extra_assets"][0])
 
 
 class NormalizeArchTests(unittest.TestCase):

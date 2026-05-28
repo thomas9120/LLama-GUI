@@ -40,10 +40,10 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
                 "extra_assets": ["cudart-llama-bin-win-cuda-12.4-x64.zip"],
             },
-            "cuda-13.1": {
-                "label": "CUDA 13.1 (NVIDIA)",
-                "asset": "llama-{tag}-bin-win-cuda-13.1-x64.zip",
-                "extra_assets": ["cudart-llama-bin-win-cuda-13.1-x64.zip"],
+            "cuda-13.3": {
+                "label": "CUDA 13.3 (NVIDIA)",
+                "asset": "llama-{tag}-bin-win-cuda-13.3-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-13.3-x64.zip"],
             },
             "vulkan": {
                 "label": "Vulkan",
