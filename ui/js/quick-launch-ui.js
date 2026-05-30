@@ -232,7 +232,7 @@
                 : "Chat mode is selected. The process runs as an interactive local terminal chat.";
         }
 
-        const ctxValue = values.ctx_size ?? 16000;
+        const ctxValue = values.ctx_size ?? 32768;
         const contextPreset = document.getElementById("quick-context-preset");
         const contextCustom = document.getElementById("quick-context-custom");
         if (contextPreset && contextCustom) {
@@ -435,7 +435,7 @@
 
         on("btn-quick-fit-sync", "click", () => {
             const values = flagCore.getFlagValues();
-            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? 16000, { quickLaunchFitCtxLinked: true });
+            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? 32768, { quickLaunchFitCtxLinked: true });
         });
 
         on("quick-template-pack", "change", (e) => {

@@ -374,10 +374,10 @@ The Quick Launch tab (`section-quick-launch`) provides a simplified launch inter
 ### Profiles
 
 `QUICK_PROFILES` in `ui/js/app-data.js` provides preconfigured setups consumed by `ui/js/quick-launch-ui.js`:
-- `safe-defaults` / `balanced`: 16K context, auto GPU, auto-fit, Balanced sampler preset
-- `low-memory`: 8K context, smaller batch sizes, Precise sampler preset
-- `long-context`: 32K context, auto-fit
-- `creative-chat`: 16K context, Creative sampler preset
+- `safe-defaults`: 16K context, auto GPU, auto-fit, Balanced sampler preset
+- `balanced`: 32K context, auto GPU, auto-fit, Balanced sampler preset
+- `long-context`: 128K context, auto-fit, Balanced sampler preset
+- `creative-chat`: 32K context, Creative sampler preset
 
 Each profile applies a tool setting, flag values, fit linking, and sampler preset in one action.
 

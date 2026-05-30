@@ -230,12 +230,17 @@ async function main() {
         assert.equal(sourceSecurity[1].tag, "A");
         assert.equal(sourceSecurity[1].href, "https://example.com/path");
 
-        await page.selectOption("#quick-profile-select", "low-memory");
+        const quickProfileOptions = await page.$$eval("#quick-profile-select option", (options) =>
+            options.map((option) => option.value)
+        );
+        assert.ok(!quickProfileOptions.includes("low-memory"));
+
+        await page.selectOption("#quick-profile-select", "long-context");
         await page.dispatchEvent("#quick-profile-select", "change");
-        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 8192);
-        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().batch_size === 1024);
-        await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("-c 8192"));
-        assert.match(await page.textContent("#quick-profile-summary"), /lighter setup/i);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 128000);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().fit_ctx === 128000);
+        await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("-c 128000"));
+        assert.match(await page.textContent("#quick-profile-summary"), /128000 context/i);
 
         await page.selectOption("#quick-context-preset", "custom");
         await page.fill("#quick-context-custom", "12345");
