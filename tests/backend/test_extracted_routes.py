@@ -705,8 +705,12 @@ class ExtractedRouteTests(unittest.TestCase):
                     [
                         ["-m", "models/model.gguf"],
                         ["-c", "16000"],
+                        ["-b", "2048"],
+                        ["-ub", "512"],
                         ["-ngl", "auto"],
                         ["-ctk", "q8_0"],
+                        ["-ctv", "q4_0"],
+                        ["-kvo"],
                         ["--no-mmap"],
                         ["--host", "127.0.0.1"],
                     ],
@@ -715,8 +719,12 @@ class ExtractedRouteTests(unittest.TestCase):
             command = mock_run.call_args.args[0]
             self.assertIn("-m", command)
             self.assertIn("-c", command)
+            self.assertIn("-b", command)
+            self.assertIn("-ub", command)
             self.assertIn("-ngl", command)
             self.assertIn("-ctk", command)
+            self.assertIn("-ctv", command)
+            self.assertIn("-kvo", command)
             self.assertIn("--no-mmap", command)
             self.assertNotIn("--host", command)
 
