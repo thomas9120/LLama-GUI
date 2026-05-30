@@ -34,6 +34,10 @@ def estimate_memory(request, response, ctx):
         response.json(result)
 
 
+def get_buffer_types(request, response, ctx):
+    response.json(process_manager.get_buffer_types(ctx))
+
+
 def stop(request, response, ctx):
     response.json({"stopped": process_manager.stop_process(ctx)})
 

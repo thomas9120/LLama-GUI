@@ -7,6 +7,7 @@ const FLAG_CATEGORIES = [
     { id: "context", name: "Context & Memory", icon: "🧠" },
     { id: "cpu", name: "CPU & Threads", icon: "⚙️" },
     { id: "gpu", name: "GPU / Acceleration", icon: "🎮" },
+    { id: "auto_fit", name: "Auto Fit", icon: "📐" },
     { id: "sampling", name: "Sampling", icon: "🎲" },
     { id: "rope", name: "RoPE Scaling", icon: "📏" },
     { id: "conversation", name: "Conversation & Chat", icon: "💬" },

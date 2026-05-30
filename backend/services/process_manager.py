@@ -246,6 +246,114 @@ def _short_estimate_error(output: str) -> str:
     return cleaned.strip()[-220:]
 
 
+def parse_buffer_types_output(output: str) -> list[str]:
+    cleaned = _ANSI_RE.sub("", output or "")
+    buffer_types: list[str] = []
+    in_section = False
+    for line in cleaned.splitlines():
+        text = line.strip()
+        if not text:
+            if in_section and buffer_types:
+                break
+            continue
+        if text.lower().startswith("available buffer types:"):
+            in_section = True
+            continue
+        if not in_section:
+            continue
+        if re.match(r"^[A-Za-z][A-Za-z0-9_.:-]*$", text):
+            buffer_types.append(text)
+            continue
+        if buffer_types:
+            break
+    return buffer_types
+
+
+def parse_list_devices_output(output: str) -> list[str]:
+    cleaned = _ANSI_RE.sub("", output or "")
+    devices: list[str] = []
+    for line in cleaned.splitlines():
+        match = re.match(r"^\s*([A-Za-z][A-Za-z0-9_.:-]*)\s*:", line)
+        if match:
+            devices.append(match.group(1))
+    return devices
+
+
+def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
+    allowed_tools = list(ctx.services.llama_tools or [])
+    tool = "llama-cli" if "llama-cli" in allowed_tools else (allowed_tools[0] if allowed_tools else "llama-cli")
+    exe_name = ctx.services.get_tool_filename(tool)
+    exe_path = ctx.services.find_tool_executable(tool)
+    if not exe_path.exists():
+        return {
+            "buffers": ["CPU"],
+            "default": "CPU",
+            "error": f"{exe_name} not found. Install llama.cpp first.",
+        }
+
+    runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
+    missing_runtime_files = runtime_health.get("missing_runtime_files") or []
+    if missing_runtime_files:
+        missing = ", ".join(str(name) for name in missing_runtime_files)
+        plural = "libraries" if len(missing_runtime_files) != 1 else "library"
+        return {
+            "buffers": ["CPU"],
+            "default": "CPU",
+            "error": f"Missing llama.cpp runtime {plural}: {missing}.",
+        }
+
+    env = _build_process_env(ctx)
+    try:
+        completed = subprocess.run(
+            [str(exe_path), "-ot", "__llama_gui_probe__=__INVALID_BUFFER__", "--list-devices"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=env,
+            cwd=str(ctx.paths.root),
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"buffers": ["CPU"], "default": "CPU", "error": "Buffer discovery timed out."}
+    except Exception as e:
+        return {"buffers": ["CPU"], "default": "CPU", "error": str(e)}
+
+    combined_output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
+    buffers = parse_buffer_types_output(combined_output)
+    detail = ""
+    if not buffers:
+        try:
+            devices_completed = subprocess.run(
+                [str(exe_path), "--list-devices"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+                cwd=str(ctx.paths.root),
+                timeout=10,
+                check=False,
+            )
+            devices_output = "\n".join(
+                part for part in [devices_completed.stdout, devices_completed.stderr] if part
+            )
+            buffers = parse_list_devices_output(devices_output)
+        except Exception as e:
+            detail = str(e)
+
+    unique_buffers = []
+    for buffer_type in ["CPU", *buffers]:
+        if buffer_type and buffer_type not in unique_buffers:
+            unique_buffers.append(buffer_type)
+    default_buffer = next((buffer_type for buffer_type in unique_buffers if buffer_type != "CPU"), "CPU")
+    result: dict[str, Any] = {"buffers": unique_buffers, "default": default_buffer}
+    if detail:
+        result["detail"] = detail
+    elif not parse_buffer_types_output(combined_output):
+        result["detail"] = _short_estimate_error(combined_output)
+    return result
+
+
 def _memory_estimate_args(args: list[str]) -> list[str]:
     filtered_args: list[str] = []
     i = 0

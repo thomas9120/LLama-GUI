@@ -131,6 +131,14 @@ async function main() {
                 });
                 return;
             }
+            if (pathName === "/api/llama/buffer-types") {
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({ buffers: ["CPU", "CUDA0"], default: "CUDA0" }),
+                });
+                return;
+            }
             if (pathName === "/api/releases") {
                 await route.fulfill({
                     status: 200,
@@ -255,6 +263,25 @@ async function main() {
         await page.dispatchEvent("#flag-gpu_layers", "input");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().gpu_layers === "9");
         assert.match(await page.textContent("#command-preview-text"), /(?:-ngl|--gpu-layers) 9/);
+
+        await page.fill("#config-search", "expert");
+        await page.waitForSelector("#flag-override_tensor", { state: "visible" });
+        await page.waitForFunction(() => document.querySelector(".override-tensor-buffer-select")?.value === "CUDA0");
+        await page.evaluate(() => {
+            window.LlamaGui.flagCore.setMultipleFlagValues({ cpu_moe: true, n_cpu_moe: 2 });
+        });
+        await page.click(".override-tensor-helper .btn");
+        await page.waitForFunction(() => (
+            window.LlamaGui.flagCore.getFlagValues().override_tensor === "blk.*.ffn_.*_exps.weight=CUDA0"
+        ));
+        await page.waitForFunction(() => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return values.cpu_moe === undefined && values.n_cpu_moe === undefined;
+        });
+        assert.match(
+            await page.textContent("#command-preview-text"),
+            /-ot blk\.\*\.ffn_\.\*_exps\.weight=CUDA0/
+        );
 
         await page.fill("#config-search", "metrics");
         await page.waitForSelector("#flag-metrics", { state: "visible" });

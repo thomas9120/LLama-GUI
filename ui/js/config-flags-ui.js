@@ -5,6 +5,10 @@
     let openSubmenus = new Set();
     let configSearchQuery = "";
     let dependencies = {};
+    let tensorBufferTypesPromise = null;
+    let tensorBufferTypesState = { buffers: ["CPU"], default: "CPU", detail: "" };
+
+    const MOE_EXPERT_OVERRIDE_PATTERN = "blk.*.ffn_.*_exps.weight";
 
     function configure(options) {
         dependencies = Object.assign({}, dependencies, options || {});
@@ -102,6 +106,10 @@
             flag.beginner_tip,
             flag.submenu,
         ];
+
+        if (flag.id === "override_tensor") {
+            terms.push("moe", "expert", "experts", "tensor buffer", "cuda", "gpu", "accelerator");
+        }
 
         if (Array.isArray(flag.options)) {
             for (const opt of flag.options) {
@@ -581,6 +589,10 @@
     }
 
     function createTextInput(f) {
+        if (f.id === "override_tensor") {
+            return createOverrideTensorInput(f);
+        }
+
         const textField = document.createElement("input");
         textField.type = "text";
         textField.id = "flag-" + f.id;
@@ -599,6 +611,125 @@
             getFlagCore().setFlagValue(f.id, raw);
         });
         return textField;
+    }
+
+    function createOverrideTensorInput(f) {
+        const wrap = document.createElement("div");
+        wrap.className = "override-tensor-control";
+
+        const textField = document.createElement("input");
+        textField.type = "text";
+        textField.id = "flag-" + f.id;
+        textField.dataset.flagId = f.id;
+        textField.dataset.flagType = "text";
+        textField.placeholder = f.placeholder || "";
+        textField.value = getFlagValues()[f.id] || "";
+        textField.addEventListener("input", () => {
+            getFlagCore().setFlagValue(f.id, textField.value || undefined);
+        });
+        wrap.appendChild(textField);
+
+        const helper = document.createElement("div");
+        helper.className = "override-tensor-helper";
+
+        const select = document.createElement("select");
+        select.className = "override-tensor-buffer-select";
+        select.setAttribute("aria-label", "MoE expert tensor buffer");
+        populateTensorBufferSelect(select, tensorBufferTypesState);
+
+        const applyBtn = document.createElement("button");
+        applyBtn.type = "button";
+        applyBtn.className = "btn btn-sm";
+        applyBtn.textContent = "Apply MoE Experts";
+        applyBtn.addEventListener("click", () => {
+            const bufferType = select.value || tensorBufferTypesState.default || "CPU";
+            const nextValue = mergeMoEExpertOverride(getFlagValues()[f.id], bufferType);
+            textField.value = nextValue;
+            const patch = { [f.id]: nextValue };
+            if (String(bufferType).toUpperCase() !== "CPU") {
+                patch.cpu_moe = undefined;
+                patch.n_cpu_moe = undefined;
+            }
+            getFlagCore().setMultipleFlagValues(patch);
+        });
+
+        helper.appendChild(select);
+        helper.appendChild(applyBtn);
+        wrap.appendChild(helper);
+
+        const note = document.createElement("div");
+        note.className = "override-tensor-note";
+        note.textContent = "Experimental. MoE models only: assigns matching expert weight tensors, not prompt-active experts. GPU targets clear CPU MoE settings to avoid conflicts.";
+        wrap.appendChild(note);
+
+        loadTensorBufferTypes().then((state) => {
+            populateTensorBufferSelect(select, state);
+        });
+
+        return wrap;
+    }
+
+    function populateTensorBufferSelect(select, state) {
+        const current = select.value;
+        const buffers = Array.isArray(state.buffers) && state.buffers.length ? state.buffers : ["CPU"];
+        select.textContent = "";
+        for (const bufferType of buffers) {
+            const option = document.createElement("option");
+            option.value = bufferType;
+            option.textContent = bufferType;
+            select.appendChild(option);
+        }
+        const preferred = current && buffers.includes(current) ? current : (state.default || buffers[0]);
+        select.value = buffers.includes(preferred) ? preferred : buffers[0];
+        if (state.detail) {
+            select.title = state.detail;
+        }
+    }
+
+    function loadTensorBufferTypes() {
+        if (tensorBufferTypesPromise) return tensorBufferTypesPromise;
+        const fetchJson = dependencies.fetchJson;
+        if (typeof fetchJson !== "function") {
+            tensorBufferTypesPromise = Promise.resolve(tensorBufferTypesState);
+            return tensorBufferTypesPromise;
+        }
+        tensorBufferTypesPromise = fetchJson("/api/llama/buffer-types")
+            .then((data) => {
+                if (data && Array.isArray(data.buffers) && data.buffers.length) {
+                    tensorBufferTypesState = {
+                        buffers: data.buffers.map(v => String(v)).filter(Boolean),
+                        default: data.default || data.buffers[0],
+                        detail: data.error || data.detail || "",
+                    };
+                }
+                return tensorBufferTypesState;
+            })
+            .catch((error) => {
+                tensorBufferTypesState = {
+                    buffers: ["CPU"],
+                    default: "CPU",
+                    detail: error && error.message ? error.message : "Unable to discover buffer types.",
+                };
+                return tensorBufferTypesState;
+            });
+        return tensorBufferTypesPromise;
+    }
+
+    function mergeMoEExpertOverride(currentValue, bufferType) {
+        const nextEntry = `${MOE_EXPERT_OVERRIDE_PATTERN}=${bufferType || "CPU"}`;
+        const entries = String(currentValue || "")
+            .split(",")
+            .map(v => v.trim())
+            .filter(Boolean);
+        const existingIndex = entries.findIndex((entry) => (
+            entry.split("=", 1)[0].trim() === MOE_EXPERT_OVERRIDE_PATTERN
+        ));
+        if (existingIndex >= 0) {
+            entries[existingIndex] = nextEntry;
+        } else {
+            entries.push(nextEntry);
+        }
+        return entries.join(",");
     }
 
     function restoreFlagInputs() {

@@ -568,6 +568,55 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertEqual(rows[1]["kind"], "ram")
         self.assertEqual(rows[1]["total_mib"], 2209)
 
+    def test_process_manager_parses_buffer_types_output(self):
+        buffers = process_manager.parse_buffer_types_output(
+            "\x1b[31merror while handling argument \"-ot\": unknown buffer type\x1b[0m\n"
+            "Available buffer types:\n"
+            "  CPU\n"
+            "  CUDA0\n"
+        )
+
+        self.assertEqual(buffers, ["CPU", "CUDA0"])
+
+    def test_process_manager_parses_list_devices_output(self):
+        buffers = process_manager.parse_list_devices_output(
+            "Available devices:\n"
+            "  CUDA0: NVIDIA GeForce RTX 5070 Ti (16302 MiB, 15037 MiB free)\n"
+            "  Vulkan0: Example Device\n"
+        )
+
+        self.assertEqual(buffers, ["CUDA0", "Vulkan0"])
+
+    def test_process_buffer_types_route_returns_discovered_buffers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            cli = ctx.paths.llama_bin / "llama-cli"
+            cli.write_text("binary")
+            ctx.services = BackendServices(
+                current_platform="linux",
+                find_tool_executable=lambda tool: cli,
+                get_tool_filename=lambda tool: tool,
+                llama_tools=["llama-cli"],
+                validate_runtime_dependencies=lambda tools=None: {"missing_runtime_files": []},
+            )
+            completed = SimpleNamespace(
+                stdout="",
+                stderr="error while handling argument \"-ot\": unknown buffer type\n"
+                "Available buffer types:\n"
+                "  CPU\n"
+                "  CUDA0\n",
+                returncode=1,
+            )
+            response = DummyResponse()
+
+            with mock.patch.object(process_manager.subprocess, "run", return_value=completed):
+                process.get_buffer_types(Request("GET", "/api/llama/buffer-types", "", {}), response, ctx)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.payload["buffers"], ["CPU", "CUDA0"])
+            self.assertEqual(response.payload["default"], "CUDA0")
+
     def test_process_estimate_memory_route_rejects_unknown_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

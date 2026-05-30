@@ -141,6 +141,7 @@ function initCustomLaunchArgsControls() {
 
 configFlagsUi.configure({
     debounce,
+    fetchJson,
     getFlagsByCategory,
     getFlags: () => FLAGS,
     switchTab,

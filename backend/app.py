@@ -810,6 +810,7 @@ API_ROUTER = (
     .add("GET", "/api/status", status_routes.get_status)
     .add("GET", "/api/releases", install_routes.get_releases)
     .add("GET", "/api/output", process_routes.get_output)
+    .add("GET", "/api/llama/buffer-types", process_routes.get_buffer_types)
     .add("GET", "/api/download-progress", install_routes.get_download_progress)
     .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
     .add("GET", "/api/remote-tunnel/status", tunnel_routes.get_status)

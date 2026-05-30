@@ -908,6 +908,29 @@ textarea { width: 100%; min-height: 60px; resize: vertical; }
 .flag-input input[type="number"] { width: 90px; }
 .flag-input select { min-width: 140px; }
 
+.override-tensor-control {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+}
+
+.override-tensor-helper {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.override-tensor-buffer-select { min-width: 120px; }
+
+.override-tensor-note {
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--fg-muted);
+    text-align: right;
+}
+
 .flag-multi-options {
     display: grid;
     grid-template-columns: repeat(2, minmax(130px, 1fr));
