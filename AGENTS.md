@@ -195,13 +195,15 @@ with the primary file and only touch secondary files if the change requires it.
 
 | Concern | Primary File | Secondary Files |
 |---------|-------------|-----------------|
-| Flag definitions | `ui/js/flags/definitions.js` | `ui/js/flag-validation.js` |
+| Flag definitions | `ui/js/flags/definitions.js` | `ui/js/flags/options.js` (enum lists), `ui/js/flag-validation.js` |
+| Flag categories / filtering helpers | `ui/js/flags/categories.js`, `ui/js/flags/helpers.js` | `ui/js/config-flags-ui.js` (rendering consumers), `ui/js/flag-core.js` (default values) |
 | Shared flag state | `ui/js/flag-core.js` | `ui/js/app.js` (callbacks) |
 | Launch args / command preview | `ui/js/flag-core.js` | `ui/js/app.js` (render) |
 | Configure tab rendering | `ui/js/config-flags-ui.js` | `ui/js/flag-core.js` (state) |
 | Quick Launch controls | `ui/js/quick-launch-ui.js` | `ui/js/app.js` (init/callbacks), `ui/js/flag-core.js` (state) |
+| Quick Launch profiles | `ui/js/app-data.js` | `ui/js/quick-launch-ui.js` (apply/render), `ui/js/sampler-presets.js` (sampler values) |
 | Chat state/controller | `ui/js/chat-ui.js` | `ui/js/app.js` (init/status/stats callbacks), `ui/js/flag-core.js` (sampler state) |
-| Chat sidebar samplers | `ui/js/chat-ui.js` | `ui/js/flag-core.js` (state) |
+| Chat sidebar samplers | `ui/js/chat-ui.js` | `ui/js/app-data.js` (slider map), `ui/js/flag-core.js` (state) |
 | Chat markdown/rendering helpers | `ui/js/chat-rendering.js` | `ui/js/chat-ui.js` (chat state/controller) |
 | API tab docs/snippets | `ui/js/api-tab.js` | `ui/js/app.js` (status/init), `ui/js/flag-core.js` (state reads) |
 | HF download UI | `ui/js/hf-download-ui.js` | `ui/js/quick-launch-ui.js` (init), `ui/js/app.js` (callbacks), `ui/js/manager.js` (fetchJson) |
@@ -209,8 +211,18 @@ with the primary file and only touch secondary files if the change requires it.
 | Chat template presets | `ui/js/flags/chat-templates.js` | `ui/js/app.js` (mapping helpers) |
 | Sampler presets | `ui/js/sampler-presets.js` | `ui/js/app-data.js` (built-ins), `ui/js/flag-core.js` (apply), `ui/js/app.js` (callbacks) |
 | Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
-| Install/update UI | `ui/js/manager.js` | — |
-| Backend routes | `backend/routes/*.py` | `backend/services/*.py` |
+| Install/update/model manager UI | `ui/js/manager.js` | `ui/js/app.js` (lifecycle callbacks), `ui/js/flag-core.js` (selected model sync) |
+| Shared frontend API utility | `ui/js/manager.js` (`fetchJson`) | UI modules that call backend APIs |
+| Backend route registry / server lifecycle | `backend/app.py` | `backend/routing.py`, `backend/routes/*.py`, `backend/services/lifecycle.py` |
+| Backend route handlers | `backend/routes/*.py` | Matching `backend/services/*.py` where service logic exists |
+| Backend install / release services | `backend/services/llama_manager.py` | `backend/routes/install.py`, `backend/app.py` (service wiring) |
+| Backend process services | `backend/services/process_manager.py` | `backend/routes/process.py`, `backend/state.py` |
+| Backend HF download services | `backend/services/hf_download.py` | `backend/routes/hf_download.py`, `backend/state.py` |
+| Backend tunnel services | `backend/services/tunnel.py` | `backend/routes/tunnel.py`, `backend/state.py`, `backend/http.py` (CORS tunnel URL) |
+| Backend web search / chat helpers | `backend/services/web_search.py`, `backend/services/chat.py` | `backend/routes/search.py`, `backend/routes/chat.py` |
+| Backend app update services | `backend/services/git_update.py` | `backend/routes/git_update.py` |
+| Backend file picker services | `backend/services/file_picker.py` | `backend/routes/file_picker.py` |
+| Backend config / paths | `backend/config.py` | `backend/context.py`, `backend/app.py` |
 | Backend state/locks | `backend/state.py` | `backend/context.py` |
 | Backend HTTP/CORS | `backend/http.py` | `backend/app.py` |
 | Chat templates | `ui/templates/*.jinja` | `ui/js/flags/chat-templates.js` (preset defs) |

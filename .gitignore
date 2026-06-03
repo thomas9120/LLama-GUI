@@ -58,3 +58,5 @@ tools/
 *.zip
 *.tar.gz
 *.tgz
+nul
+scout-local.md
