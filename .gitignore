@@ -35,6 +35,8 @@ pi/
 harness/
 .codegraph/
 codegraph/
+.playwright-mcp/
+playwright-mcp/
 
 config.json
 potential_improvements.md
