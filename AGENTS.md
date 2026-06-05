@@ -40,7 +40,7 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 
 ### Before You Start
 - Read the task carefully and identify which files are involved. Use the
-  Implementation Map in `docs/agent-workflows.md` to locate the right files.
+  File Ownership Reference in this file to locate the right files.
 - Search for existing patterns before writing new code. If a helper, setter,
   or validation function already exists, reuse it.
 - Check `docs/todo.md` for known planned work. If your task overlaps with a
@@ -229,32 +229,7 @@ with the primary file and only touch secondary files if the change requires it.
 | Frontend tests | `tests/frontend/*.cjs` | — |
 | Backend tests | `tests/backend/*.py` | — |
 
-## Script Loading Order
-
-The frontend loads scripts in a strict dependency order via `ui/index.html`:
-
-1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
-2. `flag-validation.js` — read-only validation of flag definitions
-3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
-4. `config-flags-ui.js` — Configure tab rendering
-5. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
-6. `presets.js` — preset CRUD
-7. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
-8. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
-9. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
-10. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
-11. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
-12. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
-13. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-14. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-15. `app.js` — main orchestration (wires everything together)
-
-**Do not change this order.** Each file depends on the ones above it. If you
-add a new module, place it after its dependencies and before its consumers.
-
-`flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules
-access shared state through this namespace, not by importing or referencing
-private closure variables.
+The canonical script loading order is in **`docs/directory.md` (Frontend → Script Loading Order)**. This file only tracks load order changes — keep that section in `directory.md` in sync.
 
 ## Error Handling Expectations
 

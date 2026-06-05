@@ -198,29 +198,6 @@ Scan `tools/server/server.cpp` and `examples/server/README.md` for `--flag` stri
 | `logging` | verbose, log, timestamps, colors, timings |
 | `advanced` | override, tensor check, warmup, offline, host buffer, shortcut presets |
 
-### Implementation Map
-
-When the user asks to implement flag audit findings:
-
-| Change type | Primary file |
-|---|---|
-| Add, remove, rename, or change a llama.cpp flag | `ui/js/flags/definitions.js` |
-| Change launch-argument emission or shared state behavior | `ui/js/flag-core.js` |
-| Change Configure tab rendering/search/input behavior | `ui/js/config-flags-ui.js` |
-| Change Quick Launch controls, profiles, or summaries | `ui/js/quick-launch-ui.js` |
-| Change Chat tab behavior, streaming UI, history, or sidebar controls | `ui/js/chat-ui.js` |
-| Change markdown or chat source rendering | `ui/js/chat-rendering.js` |
-| Change API tab endpoint helpers | `ui/js/api-tab.js` |
-| Change remote tunnel UI | `ui/js/remote-tunnel-ui.js` |
-| Change Hugging Face downloader UI | `ui/js/hf-download-ui.js` |
-| Change sampler preset store/apply/save/delete behavior | `ui/js/sampler-presets.js` |
-| Change app bootstrap, launch/stop wiring, shared polling, or cross-module initialization | `ui/js/app.js` |
-| Change preset save/load/import/export behavior | `ui/js/presets.js` |
-| Strengthen local flag definition checks | `ui/js/flag-validation.js` |
-| Verify mirrored controls and command preview | `tests/frontend/flag_sync_smoke.cjs` |
-
-Keep the AGENTS.md state sync rule in mind: duplicated controls must read from the same `flagCore` state and write through the shared setter path.
-
 ### Output Format
 
 Use this structure for the report:
