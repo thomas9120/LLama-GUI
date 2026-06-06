@@ -760,6 +760,7 @@ class ExtractedRouteTests(unittest.TestCase):
                         ["-ctk", "q8_0"],
                         ["-ctv", "q4_0"],
                         ["-kvo"],
+                        ["--swa-full"],
                         ["--no-mmap"],
                         ["--host", "127.0.0.1"],
                     ],
@@ -774,6 +775,7 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("-ctk", command)
             self.assertIn("-ctv", command)
             self.assertIn("-kvo", command)
+            self.assertIn("--swa-full", command)
             self.assertIn("--no-mmap", command)
             self.assertNotIn("--host", command)
 
