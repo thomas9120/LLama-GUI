@@ -200,6 +200,19 @@ function flat(result) {
 }
 
 {
+    const result = adapter.buildBenchmarkArgs({
+        benchmarkType: "perplexity",
+        flags,
+        source: { model: "ppl-model.gguf", flags: {} },
+        promptFile: "eval.txt",
+        pplCleanRun: true,
+    });
+
+    assert.equal(result.error, null);
+    assert.deepEqual(flat(result), ["-m", "models/ppl-model.gguf", "-f", "eval.txt"]);
+}
+
+{
     function element(value = "") {
         return {
             value,
@@ -213,7 +226,7 @@ function flat(result) {
     }
 
     const elements = {
-        "benchmark-ppl-preset": element("gui"),
+        "benchmark-ppl-preset": element("clean"),
         "benchmark-ppl-ctx": element("4096"),
         "benchmark-ppl-batch": element("2048"),
         "benchmark-ppl-ubatch": element("512"),

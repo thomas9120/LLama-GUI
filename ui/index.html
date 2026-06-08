@@ -884,12 +884,12 @@
                             <div class="form-group">
                                 <label class="form-label" for="benchmark-ppl-preset">Perplexity Preset</label>
                                 <select id="benchmark-ppl-preset">
-                                    <option value="gui" selected>Llama GUI default</option>
+                                    <option value="clean" selected>llama.cpp clean run</option>
+                                    <option value="gui">Llama GUI default</option>
                                     <option value="llamacpp">llama.cpp default</option>
-                                    <option value="clean">llama.cpp clean run</option>
                                     <option value="custom">Custom</option>
                                 </select>
-                                <p class="help-text">Applies a known set of perplexity settings without changing the model or data file.</p>
+                                <p class="help-text">Clean run only passes the model and prompt/data file. It overrides all configuration fields below until you choose another preset or Custom.</p>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="benchmark-prompt-file">Prompt/Data File</label>
