@@ -144,7 +144,7 @@ function updateStatusUI(status) {
 
     if (status.running) {
         if (sidebarStatus) sidebarStatus.style.display = "";
-        if (sidebarStatusText) sidebarStatusText.textContent = "llama-server running";
+        if (sidebarStatusText) sidebarStatusText.textContent = (status.active_process_tool || "llama.cpp") + " running";
     } else {
         if (sidebarStatus) sidebarStatus.style.display = "none";
     }

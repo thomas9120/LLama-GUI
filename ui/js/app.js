@@ -37,6 +37,7 @@ const updateApiEndpoints = apiTab.updateEndpoints;
 const chatUi = window.LlamaGui.chatUi;
 const samplerPresets = window.LlamaGui.samplerPresets;
 const quickLaunchUi = window.LlamaGui.quickLaunchUi;
+const benchmarkUi = window.LlamaGui.benchmarkUi;
 samplerPresets.configure({
     flagCore,
     getFlags: () => FLAGS,
@@ -81,6 +82,15 @@ quickLaunchUi.configure({
     normalizeSamplerPresetValues: samplerPresets.normalizeSamplerPresetValues,
     collectSamplerValues: samplerPresets.collectSamplerValues,
     confirmAction,
+});
+benchmarkUi.configure({
+    flagCore,
+    fetchJson,
+    showToast,
+    getFlags: () => FLAGS,
+    getDefaultFlagValues: getDefaultValues,
+    getLatestStatus: () => latestStatus,
+    refreshRuntimeStatusPanels,
 });
 
 function syncUiAfterToolChange(nextTool) {
@@ -358,6 +368,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initPresetLibraryControls();
     initQuickLaunch();
     initChatTab();
+    benchmarkUi.init();
     configFlagsUi.renderFlags();
     refreshModels();
     fetchReleases();
@@ -441,6 +452,7 @@ function switchTab(tabId) {
     const sidebar = document.getElementById("sidebar");
     if (sidebar) sidebar.classList.remove("open");
     if (tabId === "presets") loadPresets();
+    if (tabId === "benchmarking") benchmarkUi.onShow();
     if (tabId === "quick-launch") refreshQuickLaunchUI();
     if (tabId === "chat") {
         refreshChatSidebarUI();
@@ -536,6 +548,15 @@ function restoreRunningState(status) {
     if (!status || !status.running) return;
 
     const tool = status.active_process_tool || "llama-server";
+    if (tool === "llama-bench" || tool === "llama-perplexity") {
+        switchTab("benchmarking");
+        if (benchmarkUi.restoreRunningState(status)) {
+            updateQuickLaunchActionButtons();
+            refreshRuntimeStatusPanels();
+        }
+        return;
+    }
+
     flagCore.setCurrentTool(tool);
     const toolSelect = document.getElementById("tool-select");
     if (toolSelect) toolSelect.value = tool;
@@ -822,6 +843,7 @@ async function refreshRuntimeStatusPanels() {
     const status = await checkStatus();
     updateChatStatusBadge();
     updateApiEndpoints();
+    benchmarkUi.refreshStatus();
     return status;
 }
 

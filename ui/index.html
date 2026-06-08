@@ -59,6 +59,10 @@
             </button>
 
             <div class="nav-section-label">Manage</div>
+            <button class="nav-item" data-section="benchmarking">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Benchmarking
+            </button>
             <button class="nav-item" data-section="presets">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
                 Presets
@@ -777,6 +781,169 @@
             </div>
         </div>
 
+        <!-- ═══ BENCHMARKING ═══ -->
+        <div class="section-panel" id="section-benchmarking" style="display:none;">
+            <div class="page-header">
+                <div>
+                    <div class="page-title">Benchmarking</div>
+                    <div class="page-title-sub">Run llama.cpp throughput and perplexity checks using your current configuration or saved presets.</div>
+                </div>
+                <div class="benchmark-readiness">
+                    <span id="benchmark-bench-badge" class="badge badge-neutral">llama-bench: Checking</span>
+                    <span id="benchmark-ppl-badge" class="badge badge-neutral">llama-perplexity: Checking</span>
+                </div>
+            </div>
+
+            <div class="benchmark-layout">
+                <div class="benchmark-main">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">Benchmark</div>
+                                <div class="card-title">Run Setup</div>
+                            </div>
+                            <div class="card-icon icon-cyan">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16l3-5 4 3 4-8"/></svg></span>
+                            </div>
+                        </div>
+
+                        <div id="benchmark-status" class="status-box"></div>
+
+                        <div class="benchmark-controls-grid">
+                            <div class="form-group">
+                                <label class="form-label" for="benchmark-source">Source</label>
+                                <select id="benchmark-source">
+                                    <option value="current">Current Configure</option>
+                                    <option value="preset">Saved Preset</option>
+                                    <option value="manual">Manual Model</option>
+                                </select>
+                                <p id="benchmark-source-summary" class="help-text">Current Configure -> No model selected</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="benchmark-type">Benchmark Type</label>
+                                <select id="benchmark-type">
+                                    <option value="bench">Throughput (llama-bench)</option>
+                                    <option value="perplexity">Perplexity (llama-perplexity)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div id="benchmark-preset-row" class="form-group hidden">
+                            <label class="form-label" for="benchmark-preset-select">Saved Preset</label>
+                            <div class="input-row">
+                                <select id="benchmark-preset-select"></select>
+                                <button id="btn-refresh-benchmark-presets" class="btn btn-sm" type="button" title="Refresh presets">
+                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="benchmark-manual-row" class="form-group hidden">
+                            <label class="form-label" for="benchmark-manual-model">Manual Model</label>
+                            <div class="input-row">
+                                <select id="benchmark-manual-model">
+                                    <option value="">-- Select Model --</option>
+                                </select>
+                                <button id="btn-refresh-benchmark-models" class="btn btn-sm" type="button" title="Refresh models">
+                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div id="benchmark-bench-controls" class="benchmark-tool-controls">
+                            <div class="benchmark-controls-grid">
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-repetitions">Repetitions</label>
+                                    <input id="benchmark-repetitions" type="number" min="1" max="50" step="1" value="5">
+                                    <p class="help-text">Runs the same test multiple times and reports steadier performance numbers.</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-output-format">Output Format</label>
+                                    <select id="benchmark-output-format">
+                                        <option value="md">Markdown</option>
+                                        <option value="json">JSON</option>
+                                        <option value="csv">CSV</option>
+                                        <option value="jsonl">JSONL</option>
+                                    </select>
+                                    <p class="help-text">Markdown is easiest to read; JSON/CSV are better for saving or comparing runs.</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-n-prompt">Prompt Tokens</label>
+                                    <input id="benchmark-n-prompt" type="number" min="1" max="131072" step="1" value="512">
+                                    <p class="help-text">Measures prompt processing speed using this many input tokens.</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-n-gen">Generation Tokens</label>
+                                    <input id="benchmark-n-gen" type="number" min="1" max="131072" step="1" value="128">
+                                    <p class="help-text">Measures token generation speed using this many generated tokens.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="benchmark-ppl-controls" class="benchmark-tool-controls hidden">
+                            <div class="form-group">
+                                <label class="form-label" for="benchmark-prompt-file">Prompt/Data File</label>
+                                <input id="benchmark-prompt-file" type="text" placeholder="Path to evaluation text file">
+                                <p class="help-text">Text dataset used to score perplexity. Larger, representative files give more useful results.</p>
+                            </div>
+                            <div class="benchmark-controls-grid">
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-chunks">Chunks</label>
+                                    <input id="benchmark-chunks" type="number" min="-1" step="1" value="-1">
+                                    <p class="help-text">Limits how much of the file to evaluate. Use -1 to process all chunks.</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="benchmark-ppl-stride">PPL Stride</label>
+                                    <input id="benchmark-ppl-stride" type="number" min="0" step="1" value="0">
+                                    <p class="help-text">Controls the overlap between scoring windows. Leave 0 for llama.cpp's default behavior.</p>
+                                </div>
+                            </div>
+                            <label class="toggle-row benchmark-toggle">
+                                <input id="benchmark-warmup" type="checkbox" checked>
+                                <span>Warmup</span>
+                            </label>
+                            <p class="help-text">Runs a small warmup first so load/setup overhead is less likely to skew the score.</p>
+                        </div>
+
+                        <div class="launch-bar benchmark-launch-bar">
+                            <button id="btn-run-benchmark" class="btn btn-primary btn-lg" type="button">
+                                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+                                Run Benchmark
+                            </button>
+                            <button id="btn-stop-benchmark" class="btn btn-danger btn-lg hidden" type="button">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
+                                Stop
+                            </button>
+                            <div class="command-preview">
+                                <label class="form-label">Command Preview</label>
+                                <code id="benchmark-command-preview"></code>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="output-header">
+                            <h3>Benchmark Output</h3>
+                            <button class="btn btn-sm btn-ghost" id="btn-clear-benchmark-output" type="button">Clear</button>
+                        </div>
+                        <div id="benchmark-summary" class="benchmark-summary">Summary appears here when benchmark output includes recognizable throughput data.</div>
+                        <div id="benchmark-output-terminal" class="terminal benchmark-terminal"></div>
+                    </div>
+                </div>
+
+                <aside class="benchmark-side">
+                    <div class="card">
+                        <h3>Applied Settings</h3>
+                        <div id="benchmark-applied-list" class="benchmark-list"></div>
+                    </div>
+                    <div class="card">
+                        <h3>Excluded Settings</h3>
+                        <div id="benchmark-excluded-list" class="benchmark-list"></div>
+                    </div>
+                </aside>
+            </div>
+        </div>
+
         <!-- ═══ PRESETS ═══ -->
         <div class="section-panel" id="section-presets" style="display:none;">
             <div class="page-header">
@@ -874,6 +1041,7 @@
 <script src="/js/remote-tunnel-ui.js?v=revamp-1"></script>
 <script src="/js/quick-launch-ui.js?v=revamp-1"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
+<script src="/js/benchmark-ui.js?v=revamp-1"></script>
 <script src="/js/app.js?v=revamp-1"></script>
 </body>
 </html>
