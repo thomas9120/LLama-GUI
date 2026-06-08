@@ -882,6 +882,15 @@
 
                         <div id="benchmark-ppl-controls" class="benchmark-tool-controls hidden">
                             <div class="form-group">
+                                <label class="form-label" for="benchmark-ppl-preset">Perplexity Preset</label>
+                                <select id="benchmark-ppl-preset">
+                                    <option value="gui" selected>Llama GUI default</option>
+                                    <option value="llamacpp">llama.cpp default</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <p class="help-text">Applies a known set of perplexity settings without changing the model or data file.</p>
+                            </div>
+                            <div class="form-group">
                                 <label class="form-label" for="benchmark-prompt-file">Prompt/Data File</label>
                                 <input id="benchmark-prompt-file" type="text" placeholder="Path to evaluation text file">
                                 <p class="help-text">Text dataset used to score perplexity. Larger, representative files give more useful results.</p>

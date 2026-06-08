@@ -159,4 +159,53 @@ function flat(result) {
     assert.match(result.error, /prompt\/data file/);
 }
 
+{
+    function element(value = "") {
+        return {
+            value,
+            checked: false,
+            type: "text",
+            className: "",
+            textContent: "",
+            classList: { toggle: () => {}, add: () => {}, remove: () => {} },
+            appendChild: () => {},
+        };
+    }
+
+    const elements = {
+        "benchmark-ppl-preset": element("gui"),
+        "benchmark-ppl-ctx": element("4096"),
+        "benchmark-ppl-batch": element("2048"),
+        "benchmark-ppl-ubatch": element("512"),
+        "benchmark-ppl-threads": element("-1"),
+        "benchmark-ppl-gpu-layers": element("auto"),
+        "benchmark-ppl-flash-attn": element("auto"),
+        "benchmark-ppl-cache-k": element("f16"),
+        "benchmark-ppl-cache-v": element("f16"),
+        "benchmark-chunks": element("5"),
+        "benchmark-ppl-stride": element("0"),
+        "benchmark-warmup": { ...element(""), type: "checkbox", checked: false },
+    };
+    context.document.getElementById = (id) => elements[id] || null;
+
+    assert.equal(adapter.applyPerplexityPreset("llamacpp"), true);
+    assert.equal(elements["benchmark-ppl-preset"].value, "llamacpp");
+    assert.equal(elements["benchmark-ppl-ctx"].value, "512");
+    assert.equal(elements["benchmark-chunks"].value, "-1");
+    assert.equal(elements["benchmark-ppl-batch"].value, "2048");
+    assert.equal(elements["benchmark-ppl-ubatch"].value, "512");
+    assert.equal(elements["benchmark-ppl-threads"].value, "-1");
+    assert.equal(elements["benchmark-ppl-gpu-layers"].value, "auto");
+    assert.equal(elements["benchmark-ppl-flash-attn"].value, "auto");
+    assert.equal(elements["benchmark-ppl-cache-k"].value, "f16");
+    assert.equal(elements["benchmark-ppl-cache-v"].value, "f16");
+    assert.equal(elements["benchmark-ppl-stride"].value, "0");
+    assert.equal(elements["benchmark-warmup"].checked, true);
+
+    assert.equal(adapter.applyPerplexityPreset("gui"), true);
+    assert.equal(elements["benchmark-ppl-preset"].value, "gui");
+    assert.equal(elements["benchmark-ppl-ctx"].value, "4096");
+    assert.equal(elements["benchmark-chunks"].value, "5");
+}
+
 console.log("benchmark adapter tests passed");

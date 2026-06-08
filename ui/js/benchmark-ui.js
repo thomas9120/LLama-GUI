@@ -39,6 +39,47 @@
         bench: "Throughput",
         perplexity: "Perplexity",
     };
+    const PERPLEXITY_PRESETS = {
+        gui: {
+            ctx: "4096",
+            batch: "2048",
+            ubatch: "512",
+            threads: "-1",
+            gpuLayers: "auto",
+            flashAttention: "auto",
+            cacheTypeK: "f16",
+            cacheTypeV: "f16",
+            chunks: "5",
+            pplStride: "0",
+            warmup: true,
+        },
+        llamacpp: {
+            ctx: "512",
+            batch: "2048",
+            ubatch: "512",
+            threads: "-1",
+            gpuLayers: "auto",
+            flashAttention: "auto",
+            cacheTypeK: "f16",
+            cacheTypeV: "f16",
+            chunks: "-1",
+            pplStride: "0",
+            warmup: true,
+        },
+    };
+    const PERPLEXITY_PRESET_CONTROL_IDS = [
+        "benchmark-ppl-ctx",
+        "benchmark-ppl-batch",
+        "benchmark-ppl-ubatch",
+        "benchmark-ppl-threads",
+        "benchmark-ppl-gpu-layers",
+        "benchmark-ppl-flash-attn",
+        "benchmark-ppl-cache-k",
+        "benchmark-ppl-cache-v",
+        "benchmark-chunks",
+        "benchmark-ppl-stride",
+        "benchmark-warmup",
+    ];
 
     let flagCore = null;
     let fetchJson = null;
@@ -54,6 +95,7 @@
     let cachedPresets = [];
     let cachedModels = [];
     let selectedPresetName = "";
+    let applyingPerplexityPreset = false;
 
     function byId(id) {
         return document.getElementById(id);
@@ -336,6 +378,52 @@
         if (raw === undefined || raw === null || raw === "") return fallback;
         const value = Number(raw);
         return Number.isFinite(value) ? value : fallback;
+    }
+
+    function setControlValue(id, value) {
+        const el = byId(id);
+        if (!el) return;
+        if (el.type === "checkbox") {
+            el.checked = Boolean(value);
+            return;
+        }
+        el.value = String(value);
+    }
+
+    function setPerplexityPresetSelection(value) {
+        const select = byId("benchmark-ppl-preset");
+        if (select) select.value = value;
+    }
+
+    function markPerplexityPresetCustom() {
+        if (applyingPerplexityPreset) return;
+        setPerplexityPresetSelection("custom");
+        renderCommand();
+    }
+
+    function applyPerplexityPreset(name) {
+        const preset = PERPLEXITY_PRESETS[name];
+        if (!preset) {
+            setPerplexityPresetSelection("custom");
+            renderCommand();
+            return false;
+        }
+        applyingPerplexityPreset = true;
+        setControlValue("benchmark-ppl-ctx", preset.ctx);
+        setControlValue("benchmark-ppl-batch", preset.batch);
+        setControlValue("benchmark-ppl-ubatch", preset.ubatch);
+        setControlValue("benchmark-ppl-threads", preset.threads);
+        setControlValue("benchmark-ppl-gpu-layers", preset.gpuLayers);
+        setControlValue("benchmark-ppl-flash-attn", preset.flashAttention);
+        setControlValue("benchmark-ppl-cache-k", preset.cacheTypeK);
+        setControlValue("benchmark-ppl-cache-v", preset.cacheTypeV);
+        setControlValue("benchmark-chunks", preset.chunks);
+        setControlValue("benchmark-ppl-stride", preset.pplStride);
+        setControlValue("benchmark-warmup", preset.warmup);
+        setPerplexityPresetSelection(name);
+        applyingPerplexityPreset = false;
+        renderCommand();
+        return true;
     }
 
     function getSourceSnapshot() {
@@ -660,6 +748,14 @@
             selectedPresetName = event.target.value || "";
             renderCommand();
         });
+        byId("benchmark-ppl-preset")?.addEventListener("change", (event) => {
+            const value = event.target.value || "custom";
+            if (value === "custom") {
+                renderCommand();
+                return;
+            }
+            applyPerplexityPreset(value);
+        });
         byId("benchmark-manual-model")?.addEventListener("change", renderCommand);
         byId("btn-refresh-benchmark-presets")?.addEventListener("click", loadPresetsForSelect);
         byId("btn-refresh-benchmark-models")?.addEventListener("click", loadModelsForSelect);
@@ -673,21 +769,16 @@
             "benchmark-n-gen",
             "benchmark-output-format",
             "benchmark-prompt-file",
-            "benchmark-ppl-ctx",
-            "benchmark-ppl-batch",
-            "benchmark-ppl-ubatch",
-            "benchmark-ppl-threads",
-            "benchmark-ppl-gpu-layers",
-            "benchmark-ppl-flash-attn",
-            "benchmark-ppl-cache-k",
-            "benchmark-ppl-cache-v",
-            "benchmark-chunks",
-            "benchmark-ppl-stride",
-            "benchmark-warmup",
         ]) {
             const el = byId(id);
             if (el) el.addEventListener("input", renderCommand);
             if (el) el.addEventListener("change", renderCommand);
+        }
+
+        for (const id of PERPLEXITY_PRESET_CONTROL_IDS) {
+            const el = byId(id);
+            if (el) el.addEventListener("input", markPerplexityPresetCustom);
+            if (el) el.addEventListener("change", markPerplexityPresetCustom);
         }
 
         syncModePanels();
@@ -741,6 +832,7 @@
         refreshStatus,
         renderCommand,
         buildBenchmarkArgs,
+        applyPerplexityPreset,
         normalizePresetData,
         flattenArgs,
         formatCommand,
