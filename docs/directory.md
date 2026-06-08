@@ -63,7 +63,7 @@
 ### Backend Capabilities
 
 - Downloads `llama.cpp` releases from GitHub with SHA256 verification.
-- Runs `llama-server` or `llama-cli` as a subprocess and streams stdout/stderr.
+- Runs `llama-server`, `llama-cli`, `llama-bench`, or `llama-perplexity` as a subprocess and streams stdout/stderr.
 - Handles preset, model file, and Hugging Face download APIs.
 - Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.1`, `vulkan`, `hip`, `sycl`, `openvino`, `metal`, `metal-kleidiai`).
 - Proxies OpenAI-compatible chat completions (`/v1/chat/completions`) to `llama-server` with streaming SSE support.
@@ -140,7 +140,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 12. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
 13. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
 14. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-15. `app.js` — main orchestration (wires everything together)
+15. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+16. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -168,6 +169,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/remote-tunnel-ui.js` | `window.LlamaGui.remoteTunnelUi` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling; receives shared utilities and endpoint helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, and status badge updates; reads and writes launch-relevant sampler state through injected `flagCore` |
+| `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared template helpers, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Stylesheet implementing the dark theme (Tokyo Night) and responsive layout |
 | `ui/templates/` | — | Bundled Jinja chat template files for Kobold-style presets |
@@ -179,9 +181,10 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 1. **Install**: Download and install `llama.cpp` releases, select backend, update app from git.
 2. **Quick Launch**: One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
 3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
-4. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
-5. **API**: View and interact with the `llama.cpp` API endpoints, start/stop Cloudflare tunnel.
-6. **Presets**: Save, load, import, export, and manage preset configurations grouped by model.
+4. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
+5. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
+6. **API**: View and interact with the `llama.cpp` API endpoints, start/stop Cloudflare tunnel.
+7. **Presets**: Save, load, import, export, and manage preset configurations grouped by model.
 
 ---
 
@@ -193,6 +196,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - Configure's Custom Launch Args textarea stores its raw value in shared `flagCore.flagValues.custom_args` through `setFlagValue("custom_args", ...)`.
 - Command preview and launch args are generated from shared state (`flagCore.getLaunchArgs()`), never per-tab copies.
 - Custom launch args are parsed and appended only by `flagCore.getLaunchArgs()`, after UI-managed flags and before the selected model arg.
+- Benchmarking reads Configure state or saved preset JSON without mutating them, builds tool-compatible benchmark args, and uses `/api/launch`, `/api/stop`, `/api/output`, and `/api/status` through the existing single process slot.
 - Server output is polled via HTTP endpoint and streamed to the terminal panel.
 - Chat completions are streamed via SSE from `/api/chat/completions` (backend proxies to `llama-server`).
 - Stats are polled from `llama-server`'s Prometheus `/metrics` endpoint, with KV/context usage falling back through the local `/slots` proxy when `llamacpp:kv_cache_usage_ratio` is unavailable.

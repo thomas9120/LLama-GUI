@@ -10,6 +10,7 @@ Llama GUI provides a browser UI to:
 - install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
 - use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
+- benchmark local models with `llama-bench` throughput tests and `llama-perplexity`
 - chat with the model directly from a built-in chat interface
 - optionally search the web from Chat with zero API-key setup, using free DuckDuckGo-backed search
 - monitor process output in real time
@@ -333,6 +334,15 @@ Default-friendly behavior includes:
 - `-fit` set to `on`
 - `-c` context default set to `16000`
 - `llama-server` selected as the default tool
+
+### Benchmarking
+
+- Run throughput benchmarks with `llama-bench`
+- Run perplexity checks with `llama-perplexity`
+- Choose settings from **Current Configure**, a **Saved Preset**, or a **Manual Model**
+- Shows the command preview, applied settings, excluded settings, and raw benchmark output
+- Results are kept only for the current page session
+- Uses the same single process slot as normal launches, so stop any running server or chat process before starting a benchmark
 
 ### API
 
