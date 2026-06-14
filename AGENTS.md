@@ -4,6 +4,8 @@
 
 The full project reference lives in **`docs/directory.md`**. It covers architecture, directory map, backend/frontend module reference, data flow, flag system, chat template presets, Quick Launch, Chat, HF downloader, tunnel, auto-update, sampler presets, metrics, MCP, reasoning support, custom launch args, configuration search, smoke tests, and native file picker.
 
+The test reference lives in **`docs/tests.md`**. It lists the frontend/backend test commands, test file purposes, and when to use focused unit tests versus browser smoke tests.
+
 Read `docs/directory.md` before starting any task.
 
 ## UI State Sync Rule

@@ -2,7 +2,7 @@
   "name": "llama-gui",
   "private": true,
   "scripts": {
-    "test": "npm run test:syntax && node tests/frontend/custom_launch_args_unit.cjs && node tests/frontend/launch_args_unit.cjs && node tests/frontend/benchmark_args_unit.cjs && npm run test:frontend:modules && npm run test:flags && npm run test:frontend",
+    "test": "npm run test:syntax && node tests/frontend/custom_launch_args_unit.cjs && node tests/frontend/launch_args_unit.cjs && node tests/frontend/benchmark_args_unit.cjs && node tests/frontend/chat_rendering_unit.cjs && node tests/frontend/sampler_presets_unit.cjs && node tests/frontend/hf_download_ui_unit.cjs && node tests/frontend/api_tab_unit.cjs && npm run test:frontend:modules && npm run test:flags && npm run test:frontend",
     "test:syntax": "node tests/frontend/js_syntax_check.cjs",
     "test:frontend:modules": "node tests/frontend/module_namespace_unit.cjs",
     "test:flags": "node tests/frontend/llama_flags_supported_unit.cjs",
