@@ -97,7 +97,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         specs = llama_manager.build_backend_specs("darwin", "arm64")
 
         self.assertIn("metal", specs)
-        self.assertIn("metal-kleidiai", specs)
+        self.assertNotIn("metal-kleidiai", specs)
         self.assertNotIn("cpu", specs)
 
     def test_darwin_x64_returns_cpu_only(self):
@@ -118,6 +118,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("vulkan", specs)
         self.assertIn("rocm", specs)
         self.assertIn("openvino", specs)
+        self.assertIn("openvino-2026.2", specs["openvino"]["asset"])
 
     def test_linux_arm64_returns_cpu_and_vulkan(self):
         specs = llama_manager.build_backend_specs("linux", "arm64")

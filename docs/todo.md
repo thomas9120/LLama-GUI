@@ -1,5 +1,20 @@
 # TODO
 
+## llama.cpp Flag Candidates
+
+Follow up on adding useful b9701-era `llama.cpp` flags to the curated Configure surface.
+
+- `--op-offload`: GPU/accelerator host-operation offload toggle. Add as a GPU boolean with the upstream default represented safely.
+- `--mmproj-url`: Multimodal projector URL. Add near the existing mmproj model path controls and keep HF downloader behavior unchanged.
+- `--mtmd-batch-max-tokens`: Maximum image tokens per multimodal batch. Add under Context & Memory or Model after confirming current upstream defaults.
+- `--sampler-seq` / `--sampling-seq`: Simplified sampler sequence. Decide how it should coexist with the existing advanced `--samplers` text field.
+- Newer reasoning controls such as `--reasoning-format` and `--reasoning-budget-message`: add only after confirming how they interact with the existing reasoning mode and preserve-thinking controls.
+
+Acceptance criteria:
+- Verify each flag against the installed `llama-server --help` and `llama-cli --help`.
+- Reuse existing shared flag state and option sources.
+- Run `node --check ui/js/flags/definitions.js` and `npm run test:frontend`.
+
 ## Cross-Platform Preset Shortcuts
 
 Follow up on extending preset shortcut export beyond the current Windows `.cmd` flow.

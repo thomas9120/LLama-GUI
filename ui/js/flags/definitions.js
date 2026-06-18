@@ -340,6 +340,7 @@ const FLAGS = [
 			{ value: "layer", label: "Layer (default)" },
 			{ value: "none", label: "None" },
 			{ value: "row", label: "Row" },
+			{ value: "tensor", label: "Tensor" },
 		],
 	},
 	{
@@ -1355,12 +1356,12 @@ const FLAGS = [
 	},
 	{
 		id: "webui_mcp_proxy",
-		flag: "--webui-mcp-proxy",
+		flag: "--ui-mcp-proxy",
 		category: "mcp",
 		type: "bool",
-		label: "WebUI MCP Proxy",
+		label: "UI MCP Proxy",
 		short_desc: "Enable MCP CORS proxy support for the Web UI.",
-		desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. This is only for MCP proxying; current llama-server builds handle general API CORS automatically and no longer expose a separate --cors flag. Do not enable in untrusted environments.",
+		desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. This replaces the deprecated --webui-mcp-proxy alias. Do not enable in untrusted environments.",
 		tool: "server",
 		default: false,
 	},
