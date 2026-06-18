@@ -66,10 +66,6 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "label": "Metal (Apple Silicon)",
                     "asset": "llama-{tag}-bin-macos-arm64.tar.gz",
                 },
-                "metal-kleidiai": {
-                    "label": "Metal + KleidiAI (Apple Silicon)",
-                    "asset": "llama-{tag}-bin-macos-arm64-kleidiai.tar.gz",
-                },
             }
         if current_arch == "x64":
             return {
@@ -94,7 +90,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 },
                 "openvino": {
                     "label": "OpenVINO",
-                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.0-x64.tar.gz",
+                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.2-x64.tar.gz",
                 },
             }
         if current_arch == "arm64":

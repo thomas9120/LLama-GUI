@@ -1,9 +1,9 @@
-# Llama.cpp Compatibility Report - 2026-05-29
+# Llama.cpp Compatibility Report - 2026-06-18
 
-**Upstream ref:** `ggml-org/llama.cpp` master at `2084434e666c5b08cd5e2a2f256e583a0f85a44c`
-**Latest release checked:** `b9413`
+**Upstream ref:** `ggml-org/llama.cpp` master at `fe7c8b2414bb39e3dbc192fb494a1eb054b90890`
+**Latest release checked:** `b9701`
 **Local FLAGS count:** 138
-**Upstream flag count parsed:** 328
+**Upstream flag count parsed:** 331
 
 ## A. Potential Launch Breakages
 
@@ -28,7 +28,7 @@ Showing up to 60 high-signal unmatched upstream flags. Treat this as a curated-s
 | --lookup-cache-static | -lcs, --lookup-cache-static | text | kv | -lcs --lookup-cache-static path to static lookup cache to use for lookup decoding (not updated by generation) |
 | --lookup-cache-dynamic | -lcd, --lookup-cache-dynamic | text | kv | -lcd --lookup-cache-dynamic path to dynamic lookup cache to use for lookup decoding (updated by generation) |
 | --kv-unified | -kvu, --kv-unified | unknown | kv | -kvu --kv-unified -no-kvu |
-| --cache-idle-slots | --cache-idle-slots | unknown | kv | --cache-idle-slots --no-cache-idle-slots save and clear idle slots on new task (default: enabled, requires unified KV an |
+| --cache-idle-slots | --cache-idle-slots | unknown | conversation | --cache-idle-slots --no-cache-idle-slots save idle slots to the prompt cache on new task, and clear them when using unif |
 | --chunks | --chunks | unknown | advanced | --chunks max number of chunks to process (default: %d, -1 = all) |
 | --perf | --perf | bool | logging | --perf --no-perf whether to enable internal libllama performance timings (default: %s) |
 | --in-file | --in-file | text | speculative | --in-file an input file (use comma-separated values to specify multiple files) error: failed to open file '%s'\n |
@@ -68,21 +68,20 @@ Showing up to 60 high-signal unmatched upstream flags. Treat this as a curated-s
 | --defrag-thold | -dt, --defrag-thold | text | kv | -dt --defrag-thold KV cache defragmentation threshold (DEPRECATED) |
 | --sequences | -ns, --sequences | unknown | advanced | -ns --sequences number of sequences to decode (default: %d) |
 | --mmproj-url | -mmu, --mmproj-url | text | model | -mmu --mmproj-url URL to a multimodal projector file. see tools/mtmd/README.md |
-| --image | --image, --audio | text | model | --image --audio path to an image or audio file. use with multimodal models, use comma-separated values for multiple file |
+| --image | --image, --audio, --video | text | advanced | --image --audio --video |
 | --image-min-tokens | --image-min-tokens | unknown | model | --image-min-tokens minimum number of tokens each image can take, only used by vision models with dynamic resolution (def |
 | --image-max-tokens | --image-max-tokens | unknown | model | --image-max-tokens maximum number of tokens each image can take, only used by vision models with dynamic resolution (def |
+| --mtmd-batch-max-tokens | --mtmd-batch-max-tokens | unknown | context | --mtmd-batch-max-tokens maximum number of image tokens per batch when encoding images (default: %d) |
 | --rpc | --rpc | text | server | --rpc comma-separated list of RPC servers (host:port) |
 | --list-devices | --list-devices | unknown | gpu | --list-devices print list of available devices and exit Available devices:\n |
 | --fit-print | -fitp, --fit-print | text | gpu | -fitp --fit-print print the estimated required memory ('on' or 'off', default: '%s') |
 | --op-offload | --op-offload | bool | gpu | --op-offload --no-op-offload whether to offload host tensor operations to device (default: %s) |
-| --tags | --tags | text | model | --tags set model tags, comma-separated (informational, not used for routing) |
 
 
 ## C. Changed Existing Flags
 
 | Local id | Flag | Change | Local/GUI | Upstream |
 | --- | --- | --- | --- | --- |
-| split_mode | -sm | enum options | missing: tensor | stale:  |
 | preserve_thinking | --chat-template-kwargs | type | bool | text |
 
 
@@ -90,21 +89,18 @@ Showing up to 60 high-signal unmatched upstream flags. Treat this as a curated-s
 
 | Change | Templates |
 | --- | --- |
-| Upstream templates missing locally | granite-4.0, granite-4.1, hunyuan-vl |
+| Upstream templates missing locally | None |
 | Local built-ins absent upstream | None |
 
 
 ## E. Binary Download Compatibility
 
-| Backend label | Expected release asset | Kind |
-| --- | --- | --- |
-| SYCL (Intel) | llama-b9413-bin-win-sycl-x64.zip | primary |
-| Metal + KleidiAI (Apple Silicon) | llama-b9413-bin-macos-arm64-kleidiai.tar.gz | primary |
+No changes found.
 
 
 Additional upstream llama release assets not mapped locally:
 
-llama-b9413-bin-android-arm64.tar.gz, llama-b9413-ui.tar.gz, llama-b9413-xcframework.zip
+llama-b9701-bin-android-arm64.tar.gz, llama-b9701-bin-ubuntu-sycl-fp16-x64.tar.gz, llama-b9701-bin-ubuntu-sycl-fp32-x64.tar.gz, llama-b9701-bin-win-openvino-2026.2-x64.zip, llama-b9701-ui.tar.gz, llama-b9701-xcframework.zip
 
 ## F. Notes and Next Steps
 

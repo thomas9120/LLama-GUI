@@ -434,7 +434,7 @@ Both controls stay in sync.
 ## MCP and Built-in Tools Notes
 
 Configure has a separate **MCP Settings** section with:
-- `--webui-mcp-proxy`
+- `--ui-mcp-proxy`
 - `--tools` (checklist UI)
 
 For `--tools`:
@@ -555,7 +555,7 @@ Fix:
 - The wrapper does not enforce its own authentication layer.
 - The Cloudflare remote tunnel is opt-in and does not start automatically.
 - If exposing beyond localhost, anyone with the tunnel URL can control the running Llama GUI session until you stop the tunnel.
-- Be especially careful with `--webui-mcp-proxy` and high-risk `--tools` entries.
+- Be especially careful with `--ui-mcp-proxy` and high-risk `--tools` entries.
 
 ## Cross-Platform Notes
 

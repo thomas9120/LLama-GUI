@@ -66,7 +66,7 @@
 - Runs `llama-server`, `llama-cli`, `llama-bench`, or `llama-perplexity` as a subprocess and streams stdout/stderr.
 - Downloads the official WikiText-2 raw test file for Benchmarking clean perplexity runs.
 - Handles preset, model file, and Hugging Face download APIs.
-- Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.1`, `vulkan`, `hip`, `sycl`, `openvino`, `metal`, `metal-kleidiai`).
+- Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.3`, `vulkan`, `hip`, `sycl`, `openvino`, `metal`).
 - Proxies OpenAI-compatible chat completions (`/v1/chat/completions`) to `llama-server` with streaming SSE support.
 - Built-in web search via DuckDuckGo (`ddgs` + page fetching with HTML-to-text parsing).
 - Cloudflare tunnel management (auto-downloads `cloudflared`, starts/stops tunnel, returns public URL).
@@ -332,7 +332,10 @@ Some Kobold Lite preset names are intentionally mapped to existing `llama.cpp` b
 | `CommandR` | `command-r` |
 | `Gemma 2 & 3` | `gemma` |
 | `GLM-4 & 4.5` | `chatglm4` |
-| `Granite 4` | `granite` |
+| `Granite 3.x` | `granite` |
+| `Granite 4.0` | `granite-4.0` |
+| `Granite 4.1` | `granite-4.1` |
+| `Hunyuan VL` | `hunyuan-vl` |
 | `Kimi ChatML` | `kimi-k2` |
 | `Llama 2 Chat` | `llama2` |
 | `Llama 3 Chat` | `llama3` |
@@ -590,7 +593,7 @@ Metrics host validation restricts proxying to local addresses only for security.
 ## MCP / Agent Tools
 
 The Configure tab's "MCP Settings" category (separate from "Server Settings") contains:
-- **WebUI MCP Proxy**: Enables CORS proxy support for MCP requests in the Web UI.
+- **UI MCP Proxy**: Enables CORS proxy support for MCP requests in the Web UI via `--ui-mcp-proxy`.
 - **Built-in Tools** (`multi_enum` type): Select from available agent tools exposed to the model:
   - `all`: Enable all tools (high risk)
   - `read_file`, `file_glob_search`, `grep_search`: Read-only tools
