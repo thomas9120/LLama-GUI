@@ -18,7 +18,7 @@ const BUILTIN_SAMPLER_PRESETS = {
         xtc_probability: 0,
         xtc_threshold: 1.0,
         typical_p: 1.0,
-        repeat_last_n: 360,
+        repeat_last_n: 64,
         repeat_penalty: 1.0,
         presence_penalty: 0,
         frequency_penalty: 0,
@@ -35,7 +35,7 @@ const BUILTIN_SAMPLER_PRESETS = {
         xtc_probability: 0,
         xtc_threshold: 1.0,
         typical_p: 1.0,
-        repeat_last_n: 0,
+        repeat_last_n: 64,
         repeat_penalty: 1.03,
         presence_penalty: 0,
         frequency_penalty: 0,
@@ -56,7 +56,7 @@ const BUILTIN_SAMPLER_PRESETS = {
         top_p: 0.98,
         min_p: 0,
         repeat_penalty: 1.1,
-        repeat_last_n: 360,
+        repeat_last_n: 64,
     },
     Precise: {
         temperature: 0.3,
@@ -64,7 +64,7 @@ const BUILTIN_SAMPLER_PRESETS = {
         top_p: 0.6,
         min_p: 0,
         repeat_penalty: 1.02,
-        repeat_last_n: 360,
+        repeat_last_n: 64,
     },
 };
 
