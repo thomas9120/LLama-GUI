@@ -1,6 +1,7 @@
 """Routes for llama.cpp install/update management."""
 
 import threading
+import urllib.parse
 
 from ..http import sanitize_error
 from ..services import llama_manager
@@ -12,7 +13,14 @@ RELEASE_RESPONSE_LIMIT = 30
 
 def get_releases(request, response, ctx):
     try:
-        releases = llama_manager.get_releases(ctx)
+        repo_api = None
+        query = urllib.parse.parse_qs(request.query or "")
+        backend = (query.get("backend") or [""])[0].strip()
+        if backend:
+            spec = ctx.services.backend_specs.get(backend)
+            if spec is not None:
+                repo_api = llama_manager.resolve_repo_api(spec, ctx)
+        releases = llama_manager.get_releases(ctx, repo_api)
         result = []
         for r in releases[:RELEASE_RESPONSE_LIMIT]:
             result.append(
@@ -81,7 +89,9 @@ def start_update(request, response, ctx):
             return
         ctx.state.install_in_progress = True
     try:
-        releases = llama_manager.get_releases(ctx)
+        backend_spec = ctx.services.backend_specs[backend]
+        repo_api = llama_manager.resolve_repo_api(backend_spec, ctx)
+        releases = llama_manager.get_releases(ctx, repo_api)
         latest = releases[0]["tag_name"] if releases else None
         if latest and latest != tag:
 

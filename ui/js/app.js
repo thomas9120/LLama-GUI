@@ -515,7 +515,8 @@ function initInstallButtons() {
     document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
     document.getElementById("btn-stop-app").addEventListener("click", stopPythonServer);
     document.getElementById("btn-restart-app").addEventListener("click", restartPythonServer);
-    document.getElementById("refresh-releases").addEventListener("click", fetchReleases);
+    document.getElementById("refresh-releases").addEventListener("click", () => fetchReleases(selectedBackendId()));
+    document.getElementById("backend-select").addEventListener("change", onBackendChange);
     document.getElementById("btn-open-models").addEventListener("click", () => openFolder("models"));
     document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));
     document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);

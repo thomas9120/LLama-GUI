@@ -19,6 +19,51 @@ from ..context import AppContext
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
 
+# Optional llamacpp-rocm backend (https://github.com/lemonade-sdk/llamacpp-rocm).
+# Publishes nightly ROCm 7 llama.cpp archives for Windows and Ubuntu, one asset
+# per AMD GPU target. Users must choose the target matching their GPU arch.
+LEMONADE_ROCM_REPO_API = (
+    "https://api.github.com/repos/lemonade-sdk/llamacpp-rocm/releases"
+)
+
+# (gpu_target, family label) for every target upstream publishes.
+LEMONADE_ROCM_TARGETS = [
+    ("gfx103X", "AMD RDNA2"),
+    ("gfx110X", "AMD RDNA3"),
+    ("gfx1150", "Ryzen AI 300"),
+    ("gfx1151", "Ryzen AI"),
+    ("gfx120X", "AMD RDNA4"),
+    ("gfx90a", "AMD CDNA2"),
+    ("gfx908", "AMD CDNA1"),
+]
+
+
+def _lemonade_rocm_backend(platform_token: str, gpu_target: str, family: str) -> dict[str, Any]:
+    return {
+        "label": f"ROCm 7 {gpu_target} ({family}, Lemonade)",
+        "asset": f"llama-{{tag}}-{platform_token}-rocm-{gpu_target}-x64.zip",
+        "provider": "lemonade-rocm",
+        "repo_api": LEMONADE_ROCM_REPO_API,
+        "preserve_paths": True,
+        "gpu_target": gpu_target,
+    }
+
+
+def _lemonade_rocm_specs(platform_token: str) -> dict[str, dict[str, Any]]:
+    return {
+        f"lemonade-rocm-{gpu_target}": _lemonade_rocm_backend(platform_token, gpu_target, family)
+        for gpu_target, family in LEMONADE_ROCM_TARGETS
+    }
+
+
+def resolve_repo_api(spec: Mapping[str, Any], ctx: AppContext) -> str:
+    """Return the GitHub releases API for a backend spec.
+
+    Lemonade ROCm specs carry their own ``repo_api``. Official llama.cpp specs
+    omit it and fall back to the configured official API.
+    """
+    return spec.get("repo_api") or ctx.config.github_api
+
 
 def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, Any]:
     if current_platform == "win32":
@@ -33,7 +78,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "asset": "llama-{tag}-bin-win-opencl-adreno-arm64.zip",
                 },
             }
-        return {
+        specs = {
             "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-win-cpu-x64.zip"},
             "cuda-12.4": {
                 "label": "CUDA 12.4 (NVIDIA)",
@@ -58,6 +103,8 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-hip-radeon-x64.zip",
             },
         }
+        specs.update(_lemonade_rocm_specs("windows"))
+        return specs
 
     if current_platform == "darwin":
         if current_arch == "arm64":
@@ -78,7 +125,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
 
     if current_platform.startswith("linux"):
         if current_arch == "x64":
-            return {
+            specs = {
                 "cpu": {"label": "CPU", "asset": "llama-{tag}-bin-ubuntu-x64.tar.gz"},
                 "vulkan": {
                     "label": "Vulkan",
@@ -93,6 +140,8 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "asset": "llama-{tag}-bin-ubuntu-openvino-2026.2-x64.tar.gz",
                 },
             }
+            specs.update(_lemonade_rocm_specs("ubuntu"))
+            return specs
         if current_arch == "arm64":
             return {
                 "cpu": {
@@ -114,18 +163,22 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
     return {}
 
 
-def get_releases(ctx: AppContext) -> list[dict[str, Any]]:
+def get_releases(ctx: AppContext, repo_api: Optional[str] = None) -> list[dict[str, Any]]:
+    api_url = repo_api or ctx.config.github_api
     req = urllib.request.Request(
-        ctx.config.github_api,
+        api_url,
         headers={"Accept": "application/vnd.github+json"},
     )
     with ctx.services.urlopen_with_ssl(req, timeout=30) as resp:
         return json.loads(resp.read())
 
 
-def get_release_by_tag(ctx: AppContext, tag: str) -> dict[str, Any]:
+def get_release_by_tag(
+    ctx: AppContext, tag: str, repo_api: Optional[str] = None
+) -> dict[str, Any]:
+    api_url = repo_api or ctx.config.github_api
     req = urllib.request.Request(
-        f"{ctx.config.github_api}/tags/{tag}",
+        f"{api_url}/tags/{tag}",
         headers={"Accept": "application/vnd.github+json"},
     )
     with ctx.services.urlopen_with_ssl(req, timeout=30) as resp:
@@ -357,6 +410,71 @@ def extract_archive_flat(
     raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
 
+def _safe_preserve_target(dest_root: pathlib.Path, member_name: str) -> Optional[pathlib.Path]:
+    """Resolve an archive member to a path under dest_root, or None if unsafe.
+
+    Rejects absolute paths and ``..`` traversal so a malicious/crafted archive
+    cannot escape the destination directory. Member names use POSIX
+    separators; backslashes are normalized defensively.
+    """
+    raw = (member_name or "").replace("\\", "/")
+    rel = pathlib.PurePosixPath(raw)
+    parts = [p for p in rel.parts if p not in (".", "")]
+    if not parts:
+        return None
+    if rel.is_absolute() or ".." in parts:
+        return None
+    return dest_root.joinpath(*parts)
+
+
+def extract_archive_preserve_paths(
+    archive_path: pathlib.Path,
+    dest_root: pathlib.Path,
+) -> None:
+    """Extract an archive preserving its nested directory layout under dest_root.
+
+    Used for Lemonade ROCm packages, which bundle ROCm runtime data in nested
+    directories (e.g. ``hipblaslt/``, ``rocblas/``) that the flat extractor
+    would destroy. Absolute and path-traversal entries are skipped. Archive
+    links are skipped for safety.
+    """
+    lower_name = archive_path.name.lower()
+    if lower_name.endswith(".zip"):
+        with zipfile.ZipFile(archive_path, "r") as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                target = _safe_preserve_target(dest_root, info.filename)
+                if target is None:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(info, "r") as src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+        return
+
+    if lower_name.endswith((".tar.gz", ".tgz")):
+        with tarfile.open(archive_path, "r:gz") as tf:
+            for member in tf.getmembers():
+                if member.issym() or member.islnk():
+                    continue
+                if not member.isfile():
+                    continue
+                target = _safe_preserve_target(dest_root, member.name)
+                if target is None:
+                    continue
+                src = tf.extractfile(member)
+                if src is None:
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with src, open(target, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+                if member.mode:
+                    os.chmod(target, member.mode)
+        return
+
+    raise ValueError(f"Unsupported archive format: {archive_path.name}")
+
+
 def install_release(
     ctx: AppContext,
     tag: str,
@@ -367,10 +485,13 @@ def install_release(
         ctx, status="downloading", message=f"Fetching release {tag}..."
     )
 
+    backend_spec = backend_specs[backend]
+    repo_api = resolve_repo_api(backend_spec, ctx)
+
     try:
-        release = get_release_by_tag(ctx, tag)
+        release = get_release_by_tag(ctx, tag, repo_api)
     except Exception:
-        releases = get_releases(ctx)
+        releases = get_releases(ctx, repo_api)
         release = next((r for r in releases if r["tag_name"] == tag), None)
         if not release:
             set_download_progress(
@@ -383,7 +504,6 @@ def install_release(
     def progress_cb(downloaded: int, total: int) -> None:
         set_download_progress(ctx, downloaded=downloaded, total=total)
 
-    backend_spec = backend_specs[backend]
     bin_filename = backend_spec["asset"].format(tag=tag)
     if bin_filename not in asset_map:
         set_download_progress(
@@ -436,11 +556,17 @@ def install_release(
                 shutil.rmtree(d)
             d.mkdir(parents=True, exist_ok=True)
 
-        extract_archive_flat(bin_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars)
-        for extra_archive in extra_archives:
-            extract_archive_flat(
-                extra_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars
-            )
+        preserve_paths = bool(backend_spec.get("preserve_paths"))
+        if preserve_paths:
+            extract_archive_preserve_paths(bin_archive, ctx.paths.llama_bin)
+            for extra_archive in extra_archives:
+                extract_archive_preserve_paths(extra_archive, ctx.paths.llama_bin)
+        else:
+            extract_archive_flat(bin_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars)
+            for extra_archive in extra_archives:
+                extract_archive_flat(
+                    extra_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars
+                )
 
         ctx.services.save_config(
             {"version": release.get("name", tag), "backend": backend, "tag": tag}

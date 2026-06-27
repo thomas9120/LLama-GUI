@@ -1,5 +1,6 @@
 import hashlib
 import io
+import json
 import pathlib
 import tarfile
 import tempfile
@@ -159,6 +160,89 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertEqual(len(specs["cuda-13.3"]["extra_assets"]), 1)
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["asset"])
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["extra_assets"][0])
+
+    def test_win32_x64_includes_all_lemonade_rocm_targets(self):
+        specs = llama_manager.build_backend_specs("win32", "x64")
+
+        for gpu in ["gfx103X", "gfx110X", "gfx1150", "gfx1151", "gfx120X", "gfx90a", "gfx908"]:
+            with self.subTest(gpu=gpu):
+                self.assertIn(f"lemonade-rocm-{gpu}", specs)
+
+    def test_linux_x64_includes_all_lemonade_rocm_targets(self):
+        specs = llama_manager.build_backend_specs("linux", "x64")
+
+        for gpu in ["gfx103X", "gfx110X", "gfx1150", "gfx1151", "gfx120X", "gfx90a", "gfx908"]:
+            with self.subTest(gpu=gpu):
+                self.assertIn(f"lemonade-rocm-{gpu}", specs)
+
+    def test_lemonade_rocm_absent_on_unsupported_platforms(self):
+        for platform_name, arch in [
+            ("win32", "arm64"),
+            ("darwin", "arm64"),
+            ("darwin", "x64"),
+            ("linux", "arm64"),
+            ("linux", "s390x"),
+        ]:
+            with self.subTest(platform=platform_name, arch=arch):
+                specs = llama_manager.build_backend_specs(platform_name, arch)
+                self.assertFalse(
+                    any(key.startswith("lemonade-rocm-") for key in specs),
+                    f"unexpected lemonade backend on {platform_name}/{arch}",
+                )
+
+    def test_lemonade_specs_carry_provider_repo_api_preserve_paths_and_gpu_target(self):
+        specs = llama_manager.build_backend_specs("win32", "x64")
+
+        spec = specs["lemonade-rocm-gfx110X"]
+        self.assertEqual(spec["provider"], "lemonade-rocm")
+        self.assertEqual(spec["repo_api"], llama_manager.LEMONADE_ROCM_REPO_API)
+        self.assertIs(spec["preserve_paths"], True)
+        self.assertEqual(spec["gpu_target"], "gfx110X")
+        self.assertIn("{tag}", spec["asset"])
+
+    def test_lemonade_windows_and_linux_asset_patterns_match_upstream(self):
+        win = llama_manager.build_backend_specs("win32", "x64")
+        lin = llama_manager.build_backend_specs("linux", "x64")
+
+        self.assertEqual(
+            win["lemonade-rocm-gfx110X"]["asset"],
+            "llama-{tag}-windows-rocm-gfx110X-x64.zip",
+        )
+        self.assertEqual(
+            lin["lemonade-rocm-gfx110X"]["asset"],
+            "llama-{tag}-ubuntu-rocm-gfx110X-x64.zip",
+        )
+        self.assertEqual(
+            win["lemonade-rocm-gfx110X"]["asset"].format(tag="b1294"),
+            "llama-b1294-windows-rocm-gfx110X-x64.zip",
+        )
+
+    def test_official_specs_do_not_carry_repo_api_or_preserve_paths(self):
+        specs = llama_manager.build_backend_specs("win32", "x64")
+
+        self.assertNotIn("repo_api", specs["cpu"])
+        self.assertNotIn("preserve_paths", specs["cpu"])
+
+
+class ResolveRepoApiTests(unittest.TestCase):
+    def test_returns_spec_repo_api_for_lemonade(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            spec = {"repo_api": llama_manager.LEMONADE_ROCM_REPO_API}
+
+            self.assertEqual(
+                llama_manager.resolve_repo_api(spec, ctx),
+                llama_manager.LEMONADE_ROCM_REPO_API,
+            )
+
+    def test_falls_back_to_config_github_api_for_official(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            spec = {"label": "CPU"}
+
+            self.assertEqual(
+                llama_manager.resolve_repo_api(spec, ctx), ctx.config.github_api
+            )
 
 
 class NormalizeArchTests(unittest.TestCase):
@@ -501,6 +585,212 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertIn("SHA256 mismatch", ctx.state.download_progress.snapshot()["message"])
             ctx.services.save_config.assert_not_called()
             self.assertFalse(tmpdir.exists())
+
+    def test_get_releases_uses_repo_api_when_provided(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            payload = json.dumps([{"tag_name": "b1294", "assets": []}]).encode()
+            ctx.services.urlopen_with_ssl = mock.Mock(
+                return_value=FakeDownloadResponse([payload], content_length=len(payload))
+            )
+
+            result = llama_manager.get_releases(
+                ctx, llama_manager.LEMONADE_ROCM_REPO_API
+            )
+
+            request = ctx.services.urlopen_with_ssl.call_args.args[0]
+            self.assertEqual(
+                request.full_url, llama_manager.LEMONADE_ROCM_REPO_API
+            )
+            self.assertEqual(result[0]["tag_name"], "b1294")
+
+    def test_get_releases_defaults_to_config_github_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            payload = json.dumps([]).encode()
+            ctx.services.urlopen_with_ssl = mock.Mock(
+                return_value=FakeDownloadResponse([payload])
+            )
+
+            llama_manager.get_releases(ctx)
+
+            request = ctx.services.urlopen_with_ssl.call_args.args[0]
+            self.assertEqual(request.full_url, ctx.config.github_api)
+
+    def test_get_release_by_tag_uses_repo_api_tags_endpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            payload = json.dumps({"tag_name": "b1294", "assets": []}).encode()
+            ctx.services.urlopen_with_ssl = mock.Mock(
+                return_value=FakeDownloadResponse([payload])
+            )
+
+            llama_manager.get_release_by_tag(
+                ctx, "b1294", llama_manager.LEMONADE_ROCM_REPO_API
+            )
+
+            request = ctx.services.urlopen_with_ssl.call_args.args[0]
+            self.assertEqual(
+                request.full_url,
+                f"{llama_manager.LEMONADE_ROCM_REPO_API}/tags/b1294",
+            )
+
+    def test_extract_archive_preserve_paths_keeps_nested_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.zip"
+            dest = root / "bin"
+            dest.mkdir()
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("llama-server.exe", "exe")
+                zf.writestr("rocblas/library/tensile.dat", "data")
+                zf.writestr("hipblaslt/kernel.dll", "dll")
+
+            llama_manager.extract_archive_preserve_paths(archive, dest)
+
+            self.assertEqual((dest / "llama-server.exe").read_text(), "exe")
+            self.assertEqual(
+                (dest / "rocblas" / "library" / "tensile.dat").read_text(), "data"
+            )
+            self.assertEqual((dest / "hipblaslt" / "kernel.dll").read_text(), "dll")
+
+    def test_extract_archive_preserve_paths_blocks_traversal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.zip"
+            dest = root / "bin"
+            dest.mkdir()
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("../escape.exe", "evil")
+                zf.writestr("sub/../../escape2.exe", "evil2")
+                zf.writestr("ok/keep.exe", "ok")
+
+            llama_manager.extract_archive_preserve_paths(archive, dest)
+
+            self.assertEqual((dest / "ok" / "keep.exe").read_text(), "ok")
+            self.assertFalse((root / "escape.exe").exists())
+            self.assertFalse((root / "escape2.exe").exists())
+
+    def test_extract_archive_preserve_paths_blocks_absolute_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.zip"
+            dest = root / "bin"
+            dest.mkdir()
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr("/evil.exe", "evil")
+                zf.writestr("keep.exe", "ok")
+
+            llama_manager.extract_archive_preserve_paths(archive, dest)
+
+            self.assertEqual((dest / "keep.exe").read_text(), "ok")
+            self.assertFalse((root / "evil.exe").exists())
+            self.assertFalse((dest / "evil.exe").exists())
+
+    def test_extract_tar_preserve_paths_keeps_nested_directories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.tar.gz"
+            dest = root / "bin"
+            dest.mkdir()
+
+            with tarfile.open(archive, "w:gz") as tf:
+                payload = b"server"
+                info = tarfile.TarInfo("bin/llama-server")
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
+
+                nested = b"data"
+                nested_info = tarfile.TarInfo("rocblas/library/tensile.dat")
+                nested_info.size = len(nested)
+                tf.addfile(nested_info, io.BytesIO(nested))
+
+            llama_manager.extract_archive_preserve_paths(archive, dest)
+
+            self.assertEqual((dest / "bin" / "llama-server").read_bytes(), b"server")
+            self.assertEqual(
+                (dest / "rocblas" / "library" / "tensile.dat").read_bytes(), b"data"
+            )
+
+    def test_install_release_preserve_paths_keeps_nested_rocm_layout_and_threads_repo_api(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            saved_configs = []
+            ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
+            asset_name = "llama-b1294-windows-rocm-gfx110X-x64.zip"
+            release = {
+                "tag_name": "b1294",
+                "name": "b1294",
+                "assets": [
+                    {
+                        "name": asset_name,
+                        "browser_download_url": "https://example.test/pkg.zip",
+                    }
+                ],
+            }
+            backend_specs = {
+                "lemonade-rocm-gfx110X": {
+                    "label": "ROCm 7 gfx110X (AMD RDNA3, Lemonade)",
+                    "asset": "llama-{tag}-windows-rocm-gfx110X-x64.zip",
+                    "provider": "lemonade-rocm",
+                    "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
+                    "preserve_paths": True,
+                    "gpu_target": "gfx110X",
+                }
+            }
+            captured = {}
+
+            def fake_get_release_by_tag(_ctx, tag, repo_api=None):
+                captured["repo_api"] = repo_api
+                return release
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                with zipfile.ZipFile(dest, "w") as zf:
+                    zf.writestr("llama-server.exe", "server")
+                    zf.writestr("rocblas/library/tensile.dat", "data")
+                    zf.writestr("hipblaslt/kernel.dll", "dll")
+                if progress_cb:
+                    progress_cb(10, 10)
+                return 10
+
+            def fake_mkdtemp(prefix):
+                path = pathlib.Path(tmp) / f"{prefix}abc"
+                path.mkdir()
+                return str(path)
+
+            stderr = io.StringIO()
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", side_effect=fake_get_release_by_tag
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager.tempfile, "mkdtemp", side_effect=fake_mkdtemp
+            ), mock.patch("sys.stderr", stderr):
+                ok = llama_manager.install_release(
+                    ctx, "b1294", "lemonade-rocm-gfx110X", backend_specs
+                )
+
+            self.assertTrue(ok)
+            self.assertEqual(captured["repo_api"], llama_manager.LEMONADE_ROCM_REPO_API)
+            self.assertEqual(
+                (ctx.paths.llama_bin / "llama-server.exe").read_text(), "server"
+            )
+            self.assertEqual(
+                (ctx.paths.llama_bin / "rocblas" / "library" / "tensile.dat").read_text(),
+                "data",
+            )
+            self.assertEqual(
+                (ctx.paths.llama_bin / "hipblaslt" / "kernel.dll").read_text(), "dll"
+            )
+            self.assertEqual(
+                saved_configs,
+                [{"version": "b1294", "backend": "lemonade-rocm-gfx110X", "tag": "b1294"}],
+            )
+            self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
+            self.assertIn("No SHA256 metadata", stderr.getvalue())
 
 
 class FilePickerServiceTests(unittest.TestCase):

@@ -1500,6 +1500,74 @@ class InstallRouteTests(unittest.TestCase):
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
 
+    def test_get_releases_uses_backend_repo_api_for_lemonade(self):
+        self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
+            "label": "ROCm 7 gfx110X (Lemonade)",
+            "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
+        }
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=[]) as gr:
+            install.get_releases(
+                Request("GET", "/api/releases", "backend=lemonade-rocm-gfx110X", {}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
+
+    def test_get_releases_without_backend_param_uses_default(self):
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=[]) as gr:
+            install.get_releases(
+                Request("GET", "/api/releases", "", {}),
+                response,
+                self.ctx,
+            )
+        gr.assert_called_once_with(self.ctx, None)
+
+    def test_get_releases_ignores_unknown_backend(self):
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=[]) as gr:
+            install.get_releases(
+                Request("GET", "/api/releases", "backend=does-not-exist", {}),
+                response,
+                self.ctx,
+            )
+        gr.assert_called_once_with(self.ctx, None)
+
+    def test_update_uses_installed_backend_repo_api_for_lemonade(self):
+        self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
+            "label": "ROCm 7 gfx110X (Lemonade)",
+            "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
+        }
+        self.ctx.services.load_config = lambda: {
+            "tag": "b1294",
+            "backend": "lemonade-rocm-gfx110X",
+        }
+        fake_releases = [
+            {
+                "tag_name": "b1295",
+                "name": "b1295",
+                "published_at": "2024-03-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+        response = DummyResponse()
+        immediate_thread = self.run_route_threads_immediately()
+        with (
+            mock.patch.object(install.threading, "Thread", immediate_thread),
+            mock.patch.object(llama_manager, "get_releases", return_value=fake_releases) as gr,
+            mock.patch.object(llama_manager, "install_release", return_value=True),
+        ):
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["status"], "started")
+        gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
+
 
 class TunnelRouteTests(unittest.TestCase):
     def setUp(self):
