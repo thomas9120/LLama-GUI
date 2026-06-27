@@ -8,6 +8,7 @@ Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, 
 
 Llama GUI provides a browser UI to:
 - install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP)
+- choose Lemonade ROCm builds for supported AMD GPU targets on Windows and Linux
 - use a beginner-friendly **Quick Launch** tab for fast startup
 - configure and launch `llama-server` or `llama-cli`
 - benchmark local models with `llama-bench` throughput tests and `llama-perplexity`
