@@ -450,6 +450,9 @@ def extract_archive_preserve_paths(
                 target.parent.mkdir(parents=True, exist_ok=True)
                 with zf.open(info, "r") as src, open(target, "wb") as dst:
                     shutil.copyfileobj(src, dst)
+                mode = (info.external_attr >> 16) & 0o777
+                if mode:
+                    os.chmod(target, mode)
         return
 
     if lower_name.endswith((".tar.gz", ".tgz")):

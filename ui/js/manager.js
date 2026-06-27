@@ -1,5 +1,7 @@
 let cachedReleases = null;
 let releasesBackend = null;
+let releasesBackendInFlight = null;
+let releaseFetchRequestId = 0;
 let installPollTimer = null;
 let installPollStartTime = null;
 let installPollFailCount = 0;
@@ -78,10 +80,15 @@ async function fetchReleases(backend) {
     const url = backendParam
         ? `/api/releases?backend=${encodeURIComponent(backendParam)}`
         : "/api/releases";
+    const requestId = ++releaseFetchRequestId;
+    releasesBackendInFlight = backendParam;
     sel.innerHTML = '<option value="">Loading...</option>';
     try {
-        cachedReleases = await fetchJson(url);
+        const releases = await fetchJson(url);
+        if (requestId !== releaseFetchRequestId) return;
+        cachedReleases = releases;
         releasesBackend = backendParam;
+        releasesBackendInFlight = null;
         sel.innerHTML = "";
         for (const r of cachedReleases) {
             const opt = document.createElement("option");
@@ -101,6 +108,8 @@ async function fetchReleases(backend) {
             sel.value = cachedReleases[0].tag;
         }
     } catch (e) {
+        if (requestId !== releaseFetchRequestId) return;
+        releasesBackendInFlight = null;
         sel.innerHTML = '<option value="">Failed to load</option>';
         showStatus("error", "Failed to fetch releases: " + e.message);
     }
@@ -141,7 +150,7 @@ function updateStatusUI(status) {
 
     if (backendSelect) {
         const targetBackend = backendSelect.value || "";
-        if (targetBackend !== releasesBackend) {
+        if (targetBackend !== releasesBackend && targetBackend !== releasesBackendInFlight) {
             fetchReleases(targetBackend);
         }
     }

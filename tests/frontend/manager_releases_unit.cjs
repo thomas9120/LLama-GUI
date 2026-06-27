@@ -7,12 +7,12 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
 
 function makeElement() {
+    let html = "";
     const el = {
         children: [],
         value: "",
         textContent: "",
         className: "",
-        innerHTML: "",
         style: {},
         disabled: false,
         appendChild(child) {
@@ -28,6 +28,17 @@ function makeElement() {
     Object.defineProperty(el, "options", {
         get() {
             return this.children;
+        },
+        configurable: true,
+    });
+    Object.defineProperty(el, "innerHTML", {
+        get() {
+            return html;
+        },
+        set(value) {
+            html = String(value || "");
+            this.children = [];
+            this.value = "";
         },
         configurable: true,
     });
@@ -86,6 +97,34 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         fetchCalls[fetchCalls.length - 1],
         "/api/releases?backend=cpu",
         "onBackendChange should refetch releases for the selected backend"
+    );
+
+    const pending = new Map();
+    context.fetch = async (url) => {
+        fetchCalls.push(url);
+        return new Promise((resolve) => {
+            pending.set(url, (payload) => resolve({ ok: true, json: async () => payload }));
+        });
+    };
+
+    const first = context.fetchReleases("cpu");
+    const second = context.fetchReleases("lemonade-rocm-gfx110X");
+    pending.get("/api/releases?backend=lemonade-rocm-gfx110X")([
+        { tag: "b1294", published: "2024-01-01T00:00:00Z", assets: [] },
+    ]);
+    await second;
+    const releaseSelect = elements.get("release-select");
+    assert.equal(releaseSelect.options.length, 1);
+    assert.equal(releaseSelect.options[0].value, "b1294");
+
+    pending.get("/api/releases?backend=cpu")([
+        { tag: "b9999", published: "2024-01-02T00:00:00Z", assets: [] },
+    ]);
+    await first;
+    assert.equal(
+        releaseSelect.options[0].value,
+        "b1294",
+        "stale release responses should not overwrite the latest backend releases"
     );
 
     console.log("manager releases unit tests passed");

@@ -655,6 +655,24 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             )
             self.assertEqual((dest / "hipblaslt" / "kernel.dll").read_text(), "dll")
 
+    def test_extract_archive_preserve_paths_restores_zip_file_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            archive = root / "release.zip"
+            dest = root / "bin"
+            dest.mkdir()
+            info = zipfile.ZipInfo("llama-server")
+            info.external_attr = 0o755 << 16
+
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr(info, "exe")
+
+            with mock.patch.object(llama_manager.os, "chmod") as chmod:
+                llama_manager.extract_archive_preserve_paths(archive, dest)
+
+            chmod.assert_called_once_with(dest / "llama-server", 0o755)
+            self.assertEqual((dest / "llama-server").read_text(), "exe")
+
     def test_extract_archive_preserve_paths_blocks_traversal(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
