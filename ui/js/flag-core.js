@@ -129,6 +129,8 @@
             n_predict: -1,
             keep: 0,
             threads: -1,
+            image_min_tokens: -1,
+            image_max_tokens: -1,
             top_n_sigma: -1,
             xtc_probability: 0,
             xtc_threshold: 1.0,
