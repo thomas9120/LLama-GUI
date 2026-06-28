@@ -48,6 +48,8 @@ function flatLaunchArgs() {
         "--dynatemp-exp",
         "--xtc-probability",
         "--xtc-threshold",
+        "--image-min-tokens",
+        "--image-max-tokens",
         "--mirostat",
         "--mirostat-lr",
         "--mirostat-ent",
@@ -92,6 +94,21 @@ function flatLaunchArgs() {
     assert.ok(args.includes("--mirostat") && args.includes("2"));
     assert.ok(args.includes("--mirostat-lr") && args.includes("0.2"));
     assert.ok(args.includes("--mirostat-ent") && args.includes("6"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            image_min_tokens: 256,
+            image_max_tokens: 1024,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--image-min-tokens") && args.includes("256"));
+    assert.ok(args.includes("--image-max-tokens") && args.includes("1024"));
+    assert.ok(!args.includes("--image-min-token"), "singular image min token flag should not be emitted");
+    assert.ok(!args.includes("--image-max-token"), "singular image max token flag should not be emitted");
 }
 
 {
