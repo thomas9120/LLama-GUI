@@ -94,4 +94,19 @@ function flatLaunchArgs() {
     assert.ok(args.includes("--mirostat-ent") && args.includes("6"));
 }
 
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            spec_type: "draft-eagle3",
+            draft_max: 8,
+            gpu_layers_draft: "auto",
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--spec-type") && args.includes("draft-eagle3"));
+    assert.ok(args.includes("--spec-draft-n-max") && args.includes("8"));
+    assert.ok(args.includes("-ngld") && args.includes("auto"));
+}
+
 console.log("launch args unit tests passed");

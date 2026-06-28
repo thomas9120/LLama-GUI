@@ -28,7 +28,7 @@ function hasDraftModelSpeculation(values) {
     const cfg = values || {};
     if (cfg.model_draft || cfg.hf_repo_draft) return true;
     const specType = String(cfg.spec_type || "none").trim();
-    return specType === "draft-simple" || specType === "draft-mtp";
+    return new Set(["draft-simple", "draft-eagle3", "draft-mtp"]).has(specType);
 }
 
 function shouldOmitSpeculativeFlag(f, values) {

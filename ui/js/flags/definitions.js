@@ -1179,6 +1179,7 @@ const FLAGS = [
 		options: [
 			{ value: "none", label: "None (default)" },
 			{ value: "draft-simple", label: "Draft Simple" },
+			{ value: "draft-eagle3", label: "Draft EAGLE-3" },
 			{ value: "draft-mtp", label: "Draft MTP (Multi-Token Prediction)" },
 			{ value: "ngram-cache", label: "Ngram Cache" },
 			{ value: "ngram-simple", label: "Ngram Simple" },
