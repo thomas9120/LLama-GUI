@@ -109,4 +109,21 @@ function flatLaunchArgs() {
     assert.ok(args.includes("-ngld") && args.includes("auto"));
 }
 
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            spec_type: "draft-dflash",
+            draft_max: 15,
+            flash_attn: "on",
+            jinja: true,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--spec-type") && args.includes("draft-dflash"));
+    assert.ok(args.includes("--spec-draft-n-max") && args.includes("15"));
+    assert.ok(args.includes("-fa") && args.includes("on"));
+    assert.ok(args.includes("--jinja"));
+}
+
 console.log("launch args unit tests passed");
