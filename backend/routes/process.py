@@ -12,11 +12,12 @@ def launch(request, response, ctx):
     body = request.body or {}
     tool = body.get("tool", "llama-cli")
     args = body.get("args", [])
+    runtime_env = body.get("runtime_env")
     allowed_tools = ctx.services.llama_tools or []
     if tool not in allowed_tools:
         response.error(f"Unknown tool: {tool!r}", 400)
         return
-    result = process_manager.launch_process(ctx, tool, args)
+    result = process_manager.launch_process(ctx, tool, args, runtime_env)
     if "error" in result:
         response.error(result.get("error", "Launch failed"), 400)
     else:
@@ -27,7 +28,8 @@ def estimate_memory(request, response, ctx):
     body = request.body or {}
     tool = body.get("tool", "llama-cli")
     args = body.get("args", [])
-    result = process_manager.estimate_memory(ctx, tool, args)
+    runtime_env = body.get("runtime_env")
+    result = process_manager.estimate_memory(ctx, tool, args, runtime_env)
     if "error" in result:
         response.error(result.get("error", "Memory estimate failed"), 400, extra=result)
     else:

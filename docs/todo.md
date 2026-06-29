@@ -6,24 +6,16 @@ Plain `--reasoning-format deepseek` is intentionally not exposed yet. It returns
 thinking text through separated `reasoning_content` fields, and the Chat tab
 currently renders streamed `delta.content` only.
 
-Acceptance criteria:
-- Update the Chat tab stream handling to render `delta.reasoning_content`.
-- Add `deepseek` to the `Reasoning Output Format` dropdown after the stream UI
-  can display separated reasoning content clearly.
-- Run `node --check ui/js/chat-ui.js` and `npm run test:frontend`.
-
-## DeepSeek V4 Follow-Ups
-
-PR `ggml-org/llama.cpp#24162` landed in `b9840` and adds DeepSeek V4 runtime/conversion support plus an upstream conversion-time template at `models/templates/deepseek-ai-DeepSeek-V4.jinja`.
-
-- Consider adding a bundled `DeepSeek V4` chat template preset as a fallback for GGUFs that do not carry the converted template metadata.
-- Keep Auto/template-from-model as the recommended default; `b9840` does not advertise `deepseek4` as a built-in `--chat-template` value.
-- If adding the bundled preset, copy the upstream Jinja template intentionally, add it under `ui/templates/`, register it in `CHAT_TEMPLATE_PRESETS`, and verify Configure/Quick Launch template sync.
+- `--op-offload`: GPU/accelerator host-operation offload toggle. Add as a GPU boolean with the upstream default represented safely.
+- `--mmproj-url`: Multimodal projector URL. Add near the existing mmproj model path controls and keep HF downloader behavior unchanged.
+- `--mtmd-batch-max-tokens`: Maximum image tokens per multimodal batch. Add under Context & Memory or Model after confirming current upstream defaults.
+- `--sampler-seq` / `--sampling-seq`: Simplified sampler sequence. Decide how it should coexist with the existing advanced `--samplers` text field.
+- Newer reasoning controls such as `--reasoning-format` and `--reasoning-budget-message`: add only after confirming how they interact with the existing reasoning mode and preserve-thinking controls.
 
 Acceptance criteria:
-- Confirm the current installed `llama-server --help` still does not list `deepseek4` before deciding between bundled and built-in preset modes.
-- Verify `--chat-template-file ui/templates/<deepseek-v4>.jinja` appears in command preview when the preset is selected.
-- Run `node --check ui/js/flags/chat-templates.js` and `npm run test:frontend`.
+- Verify each flag against the installed `llama-server --help` and `llama-cli --help`.
+- Reuse existing shared flag state and option sources.
+- Run `node --check ui/js/flags/definitions.js` and `npm run test:frontend`.
 
 ## Cross-Platform Preset Shortcuts
 

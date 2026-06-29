@@ -348,7 +348,22 @@
             excluded.push({ label: "Custom Launch Args", reason: "Excluded for benchmark safety" });
         }
 
-        return { tool, args, applied, excluded, error: null, command: formatCommand(tool, args) };
+        let envVars = {};
+        if (typeof flags.runtime_env_vars === "string" && flags.runtime_env_vars.trim()) {
+            if (flagCore && typeof flagCore.parseRuntimeEnvVars === "function") {
+                const parsedEnv = flagCore.parseRuntimeEnvVars(flags.runtime_env_vars);
+                if (parsedEnv.error) {
+                    return { tool, args, applied, excluded, error: parsedEnv.error };
+                }
+                envVars = parsedEnv.vars;
+                const count = Object.keys(envVars).length;
+                if (count > 0) {
+                    applied.push({ label: "Runtime Env Vars", value: count + " var" + (count === 1 ? "" : "s") });
+                }
+            }
+        }
+
+        return { tool, args, applied, excluded, error: null, command: formatCommand(tool, args), envVars };
     }
 
     function renderList(container, items, emptyText) {
@@ -764,7 +779,7 @@
             const launchResult = await fetchJson("/api/launch", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ tool: result.tool, args: result.args }),
+                body: JSON.stringify({ tool: result.tool, args: result.args, runtime_env: result.envVars || {} }),
             });
             appendOutput("PID: " + launchResult.pid);
             startOutputPolling();

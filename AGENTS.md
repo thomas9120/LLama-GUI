@@ -100,6 +100,12 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
   `console.debug()` for expected optional failures and `console.warn()` for
   unexpected ones.
 
+- **Do not bypass `parseRuntimeEnvVars()` validation.** Runtime env vars
+  must be parsed by `flagCore.parseRuntimeEnvVars()` and sent as the
+  `runtime_env` dict in the `/api/launch` body. The backend
+  `_validate_runtime_env()` re-validates keys; never construct the env
+  dict manually or pass raw strings to the backend.
+
 ### Backend
 
 - **Do not add broad `except Exception` without re-raising or logging.**
@@ -180,6 +186,18 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 4. Verify command preview updates correctly for success and error cases.
 5. Verify parser errors block launch and show near the textarea.
 
+### Modifying the Runtime Env Vars Parser
+
+1. Edit `parseRuntimeEnvVars()` in `ui/js/flag-core.js`.
+2. Run `node tests/frontend/custom_launch_args_unit.cjs` immediately (the
+  same file covers both parsers).
+3. Add new test cases for new parsing behavior.
+4. If backend validation changes, edit `_validate_runtime_env()` in
+  `backend/services/process_manager.py` and run
+  `python -m unittest tests.backend.test_services.RuntimeEnvValidationTests`.
+5. Verify command preview includes the `KEY=VALUE` prefix.
+6. Verify parser errors block launch and show near the textarea.
+
 ### Changing Backend Route Behavior
 
 1. Identify the route file in `backend/routes/`.
@@ -201,6 +219,8 @@ with the primary file and only touch secondary files if the change requires it.
 | Flag categories / filtering helpers | `ui/js/flags/categories.js`, `ui/js/flags/helpers.js` | `ui/js/config-flags-ui.js` (rendering consumers), `ui/js/flag-core.js` (default values) |
 | Shared flag state | `ui/js/flag-core.js` | `ui/js/app.js` (callbacks) |
 | Launch args / command preview | `ui/js/flag-core.js` | `ui/js/app.js` (render) |
+| Runtime env vars (parser + state) | `ui/js/flag-core.js` | `ui/js/app.js` (init/restore), `ui/js/benchmark-ui.js` (launch body), `ui/js/presets.js` (persist) |
+| Runtime env vars (backend merge) | `backend/services/process_manager.py` (`_build_process_env`, `_validate_runtime_env`) | `backend/routes/process.py` (body field) |
 | Configure tab rendering | `ui/js/config-flags-ui.js` | `ui/js/flag-core.js` (state) |
 | Quick Launch controls | `ui/js/quick-launch-ui.js` | `ui/js/app.js` (init/callbacks), `ui/js/flag-core.js` (state) |
 | Quick Launch profiles | `ui/js/app-data.js` | `ui/js/quick-launch-ui.js` (apply/render), `ui/js/sampler-presets.js` (sampler values) |

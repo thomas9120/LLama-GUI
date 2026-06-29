@@ -515,6 +515,23 @@
                 <div id="custom-launch-args-status" class="custom-args-status" aria-live="polite"></div>
             </div>
 
+            <div class="custom-launch-args-panel">
+                <div class="custom-args-header">
+                    <div>
+                        <label class="form-label" for="runtime-env-vars">Runtime Environment Variables</label>
+                        <p class="help-text">
+                            Set environment variables for the llama.cpp process, one <code>KEY=VALUE</code> per line. Applied at launch time &mdash; affects GPU selection, logging, and runtime behavior. Example: <code>CUDA_VISIBLE_DEVICES=0</code>
+                        </p>
+                    </div>
+                    <span class="badge badge-neutral">Advanced</span>
+                </div>
+                <textarea id="runtime-env-vars" rows="4" spellcheck="false" placeholder="CUDA_VISIBLE_DEVICES=0&#10;GGML_CUDA_NO_PEER_COPY=1&#10;LLAMA_LOG_PREFIX=1"></textarea>
+                <p class="custom-args-warning">
+                    Variables are merged into the process environment. Keys must start with a letter or underscore and contain only letters, digits, or underscores. Lines starting with <code>#</code> are ignored.
+                </p>
+                <div id="runtime-env-vars-status" class="custom-args-status" aria-live="polite"></div>
+            </div>
+
             <div id="server-address" class="server-address hidden">
                 <span class="server-label">Server Address:</span>
                 <a id="server-url" href="#" target="_blank" class="server-link"></a>

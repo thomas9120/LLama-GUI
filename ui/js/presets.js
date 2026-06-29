@@ -12,11 +12,19 @@ function normalizePresetData(data) {
     return { tool: null, model: "", flags: data };
 }
 
+const SPECIAL_PRESET_FLAG_IDS = new Set([
+    "custom_args",
+    "runtime_env_vars",
+]);
+
 function getKnownPresetFlagIds() {
     const flags = Array.isArray(window.FLAGS)
         ? window.FLAGS
         : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
-    return new Set(flags.map((flag) => flag && flag.id).filter(Boolean));
+    return new Set([
+        ...flags.map((flag) => flag && flag.id).filter(Boolean),
+        ...SPECIAL_PRESET_FLAG_IDS,
+    ]);
 }
 
 function normalizeImportedPresetData(data) {
@@ -101,6 +109,10 @@ function getPresetWarnings(presetData) {
 
     if (typeof flags.custom_args === "string" && flags.custom_args.trim()) {
         warnings.push("Includes custom launch args. Review them before launching because they may override UI controls.");
+    }
+
+    if (typeof flags.runtime_env_vars === "string" && flags.runtime_env_vars.trim()) {
+        warnings.push("Includes runtime environment variables. Review them before launching because they may change GPU selection or runtime behavior.");
     }
 
     return warnings;
@@ -265,6 +277,11 @@ function getNotablePresetSettings(presetData) {
     settings.push({
         label: "Custom Args",
         value: typeof flags.custom_args === "string" && flags.custom_args.trim() ? "present" : "none",
+    });
+
+    settings.push({
+        label: "Runtime Env Vars",
+        value: typeof flags.runtime_env_vars === "string" && flags.runtime_env_vars.trim() ? "present" : "none",
     });
 
     return settings;

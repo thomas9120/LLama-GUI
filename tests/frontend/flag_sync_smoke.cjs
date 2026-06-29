@@ -503,6 +503,38 @@ async function main() {
         assert.match(launchDialogMessage, /unmatched single quote/);
         assert.equal(launchBodies.length, launchCountBefore);
 
+        await page.fill("#custom-launch-args", "");
+        await page.dispatchEvent("#custom-launch-args", "input");
+
+        await page.fill("#runtime-env-vars", "CUDA_VISIBLE_DEVICES=0\nLLAMA_LOG_PREFIX=1");
+        await page.dispatchEvent("#runtime-env-vars", "input");
+        await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("CUDA_VISIBLE_DEVICES=0"));
+        const envState = await page.evaluate(() => ({
+            raw: window.LlamaGui.flagCore.getFlagValues().runtime_env_vars,
+            envVars: window.LlamaGui.flagCore.getLaunchArgs().envVars,
+        }));
+        assert.equal(envState.raw, "CUDA_VISIBLE_DEVICES=0\nLLAMA_LOG_PREFIX=1");
+        assert.deepEqual(envState.envVars, { CUDA_VISIBLE_DEVICES: "0", LLAMA_LOG_PREFIX: "1" });
+
+        await page.evaluate(() => window.LlamaGui.flagCore.applyFlagValues({ runtime_env_vars: "GGML_CUDA_NO_PEER_COPY=1" }));
+        await page.waitForFunction(() => document.querySelector("#runtime-env-vars")?.value === "GGML_CUDA_NO_PEER_COPY=1");
+        assert.match(await page.textContent("#command-preview-text"), /GGML_CUDA_NO_PEER_COPY=1/);
+
+        await page.fill("#runtime-env-vars", "BAD-KEY=value");
+        await page.dispatchEvent("#runtime-env-vars", "input");
+        await page.waitForFunction(() => document.querySelector("#runtime-env-vars-status")?.textContent.includes("invalid key"));
+        assert.match(await page.textContent("#command-preview-text"), /Cannot launch:/);
+
+        await page.fill("#runtime-env-vars", "VALID_KEY=ok");
+        await page.dispatchEvent("#runtime-env-vars", "input");
+        await page.waitForFunction(() => !document.querySelector("#command-preview-text")?.textContent.includes("Cannot launch"));
+
+        const envLaunchCountBefore = launchBodies.length;
+        await page.click("#btn-launch");
+        await page.waitForFunction(() => document.querySelector("#output-terminal")?.textContent.includes("PID:"));
+        const envLaunchBody = launchBodies[launchBodies.length - 1];
+        assert.deepEqual(envLaunchBody.runtime_env, { VALID_KEY: "ok" });
+
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
     } finally {
         await browser.close().catch(() => {});

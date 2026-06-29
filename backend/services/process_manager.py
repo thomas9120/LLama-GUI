@@ -7,13 +7,14 @@ import subprocess
 import sys
 import threading
 import re
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from .. import config
 from ..context import AppContext
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ESTIMATE_VALUE_FLAGS = {
     "-t",
     "--threads",
@@ -399,7 +400,7 @@ def _memory_estimate_args(args: list[str]) -> list[str]:
     return filtered_args
 
 
-def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]]) -> dict[str, Any]:
+def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]], runtime_env: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     allowed_tools = ctx.services.llama_tools or []
     if tool not in allowed_tools:
         return {"error": f"Unknown tool: {tool!r}"}
@@ -425,7 +426,7 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            env=_build_process_env(ctx),
+            env=_build_process_env(ctx, runtime_env),
             cwd=str(ctx.paths.root),
             timeout=30,
             check=False,
@@ -489,8 +490,31 @@ def parse_launch_api_target(ctx: AppContext, args_list: Optional[Iterable[Any]])
         return dict(ctx.services.get_llama_api_target())
 
 
-def _build_process_env(ctx: AppContext) -> dict[str, str]:
+def _validate_runtime_env(runtime_env):
+    """Validate user-supplied env vars and return a clean dict.
+
+    Keys must match ``^[A-Za-z_][A-Za-z0-9_]*$`` and values must be strings
+    without null bytes. Invalid entries are silently dropped as
+    defense-in-depth; the frontend parser already rejects these.
+    """
+    if not runtime_env or not isinstance(runtime_env, dict):
+        return {}
+    validated = {}
+    for key, value in runtime_env.items():
+        key_str = str(key)
+        value_str = str(value)
+        if not _ENV_KEY_RE.match(key_str):
+            continue
+        if "\x00" in value_str:
+            continue
+        validated[key_str] = value_str
+    return validated
+
+
+def _build_process_env(ctx, runtime_env=None):
     env = os.environ.copy()
+    env.update(_validate_runtime_env(runtime_env))
+
     runtime_paths = [str(ctx.paths.llama_bin)]
     existing_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
@@ -506,10 +530,11 @@ def _build_process_env(ctx: AppContext) -> dict[str, str]:
         env["DYLD_LIBRARY_PATH"] = os.pathsep.join(
             runtime_paths + ([existing_dyld] if existing_dyld else [])
         )
+
     return env
 
 
-def launch_process(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]]) -> dict[str, Any]:
+def launch_process(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]], runtime_env: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     with ctx.state.process_lock:
         if ctx.state.process and ctx.state.process.poll() is None:
             return {"error": "A process is already running"}
@@ -532,7 +557,7 @@ def launch_process(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]
             }
 
         args = [str(exe_path), *flatten_launch_args(args_list)]
-        env = _build_process_env(ctx)
+        env = _build_process_env(ctx, runtime_env)
 
         with ctx.state.output_buffer_lock:
             ctx.state.output_buffer.clear()

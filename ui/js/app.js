@@ -105,6 +105,7 @@ function syncUiAfterToolChange(nextTool) {
 function syncUiAfterSharedStateChange() {
     configFlagsUi.restoreFlagInputs();
     restoreCustomLaunchArgsInput();
+    restoreRuntimeEnvVarsInput();
     flagCore.updateCommandPreview();
     refreshChatSidebarUI();
 }
@@ -116,6 +117,10 @@ function setCustomLaunchArgsMessages(result = {}) {
     status.textContent = "";
     status.className = "custom-args-status";
 
+    if (result.envError) {
+        return;
+    }
+
     if (result.error) {
         status.textContent = result.error;
         status.classList.add("error");
@@ -125,6 +130,19 @@ function setCustomLaunchArgsMessages(result = {}) {
     if (Array.isArray(result.warnings) && result.warnings.length > 0) {
         status.textContent = result.warnings.join(" ");
         status.classList.add("warning");
+    }
+}
+
+function setRuntimeEnvVarsMessages(result = {}) {
+    const status = document.getElementById("runtime-env-vars-status");
+    if (!status) return;
+
+    status.textContent = "";
+    status.className = "custom-args-status";
+
+    if (result.envError) {
+        status.textContent = result.envError;
+        status.classList.add("error");
     }
 }
 
@@ -145,6 +163,25 @@ function initCustomLaunchArgsControls() {
         flagCore.setFlagValue("custom_args", textarea.value.trim() ? textarea.value : undefined);
     });
     restoreCustomLaunchArgsInput();
+}
+
+function restoreRuntimeEnvVarsInput() {
+    const textarea = document.getElementById("runtime-env-vars");
+    if (!textarea) return;
+    const value = flagCore.getFlagValues().runtime_env_vars;
+    const nextValue = value !== undefined && value !== null ? String(value) : "";
+    if (textarea.value !== nextValue) {
+        textarea.value = nextValue;
+    }
+}
+
+function initRuntimeEnvVarsControls() {
+    const textarea = document.getElementById("runtime-env-vars");
+    if (!textarea) return;
+    textarea.addEventListener("input", () => {
+        flagCore.setFlagValue("runtime_env_vars", textarea.value.trim() ? textarea.value : undefined);
+    });
+    restoreRuntimeEnvVarsInput();
 }
 
 configFlagsUi.configure({
@@ -177,6 +214,7 @@ flagCore.configure({
         preview.textContent = result && result.error ? `Cannot launch: ${result.error}` : command;
         preview.classList.toggle("command-preview-error", Boolean(result && result.error));
         setCustomLaunchArgsMessages(result || {});
+        setRuntimeEnvVarsMessages(result || {});
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
@@ -339,6 +377,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initToolSelect();
     initConfigControls();
     initCustomLaunchArgsControls();
+    initRuntimeEnvVarsControls();
     initInstallButtons();
     initApiTab();
     remoteTunnelUi.init();
@@ -605,7 +644,7 @@ async function launchLlama() {
         const launchResult = await fetchJson("/api/launch", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tool, args }),
+            body: JSON.stringify({ tool, args, runtime_env: result.envVars || {} }),
         });
         if (launchResult.error) {
             appendOutput("ERROR: " + launchResult.error);
@@ -746,7 +785,7 @@ async function updateMemoryEstimate() {
         const data = await fetchJson("/api/estimate-memory", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tool: flagCore.getCurrentTool(), args }),
+            body: JSON.stringify({ tool: flagCore.getCurrentTool(), args, runtime_env: result.envVars || {} }),
         });
         if (requestId !== memoryEstimateRequestId) return;
         if (!data || data.error) {
