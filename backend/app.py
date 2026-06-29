@@ -80,9 +80,9 @@ def create_ssl_context():
 
 SSL_CONTEXT = create_ssl_context()
 
-# Sentinel returned by read_body() when a 413 response has already been sent.
-# Callers must treat this the same as None (abort without sending another response).
-_BODY_TOO_LARGE = object()
+# Sentinel returned by read_body() when an error response has already been sent.
+# Callers must abort without sending another response.
+_BODY_HANDLED = object()
 
 
 def urlopen_with_ssl(request, timeout):
@@ -503,26 +503,23 @@ def get_local_llama_slots(host, port):
         return None, f"Failed to fetch llama-server slots: {exc}"
 
 
-def get_ui_asset_version():
+def iter_versioned_ui_asset_paths(index_html=None):
+    assets = {UI_DIR / "index.html", APP_LOGO_FILE}
+    if index_html is None:
+        try:
+            index_html = (UI_DIR / "index.html").read_text(encoding="utf-8")
+        except OSError:
+            index_html = ""
+
+    for match in re.finditer(r'(?:href|src)="(/(?:css|js|assets)/[^"?#]+)', index_html):
+        rel_path = match.group(1).lstrip("/")
+        assets.add(UI_DIR / rel_path)
+    return sorted(assets)
+
+
+def get_ui_asset_version(index_html=None):
     latest_mtime = 0
-    for path in (
-        UI_DIR / "index.html",
-        UI_DIR / "css" / "tokens.css",
-        UI_DIR / "css" / "style.css",
-        UI_DIR / "js" / "flags" / "categories.js",
-        UI_DIR / "js" / "flags" / "options.js",
-        UI_DIR / "js" / "flags" / "chat-templates.js",
-        UI_DIR / "js" / "flags" / "definitions.js",
-        UI_DIR / "js" / "flags" / "helpers.js",
-        UI_DIR / "js" / "flag-validation.js",
-        UI_DIR / "js" / "flag-core.js",
-        UI_DIR / "js" / "config-flags-ui.js",
-        UI_DIR / "js" / "manager.js",
-        UI_DIR / "js" / "presets.js",
-        UI_DIR / "js" / "app-data.js",
-        UI_DIR / "js" / "app.js",
-        APP_LOGO_FILE,
-    ):
+    for path in iter_versioned_ui_asset_paths(index_html):
         try:
             latest_mtime = max(latest_mtime, int(path.stat().st_mtime))
         except OSError:
@@ -531,7 +528,7 @@ def get_ui_asset_version():
 
 
 def version_ui_asset_urls(html):
-    version = get_ui_asset_version()
+    version = get_ui_asset_version(html)
 
     def replace_asset_url(match):
         attr = match.group(1)
@@ -594,12 +591,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return {}
         if length > MAX_BODY_SIZE:
             self.send_error_json(f"Request body too large (max {MAX_BODY_SIZE // (1024 * 1024)} MB)", 413)
-            return _BODY_TOO_LARGE
+            return _BODY_HANDLED
         try:
             return json.loads(self.read_request_bytes(length))
         except (TimeoutError, socket.timeout):
             self.send_error_json("Request body timed out", 408)
-            return _BODY_TOO_LARGE
+            return _BODY_HANDLED
         except (json.JSONDecodeError, UnicodeDecodeError):
             return None
 
@@ -811,7 +808,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         body = self.read_body()
 
-        if body is _BODY_TOO_LARGE:
+        if body is _BODY_HANDLED:
             return
 
         if body is None:
@@ -828,7 +825,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         body = self.read_body()
 
-        if body is _BODY_TOO_LARGE:
+        if body is _BODY_HANDLED:
             return
 
         if not self.is_safe_request_origin():

@@ -36,8 +36,17 @@ vm.runInContext(`
     flagCore.replaceFlagValues(getDefaultValues());
 `, context);
 
+{
+    const templateOptions = vm.runInContext("CHAT_TEMPLATE_PRESET_OPTIONS.map((option) => option.value)", context);
+    assert.ok(!templateOptions.includes("__koboldcpp_automatic__"));
+}
+
 function flatLaunchArgs() {
     return vm.runInContext("window.LlamaGui.flagCore.getLaunchArgs().args.flat()", context);
+}
+
+function launchResult() {
+    return vm.runInContext("window.LlamaGui.flagCore.getLaunchArgs()", context);
 }
 
 {
@@ -53,6 +62,8 @@ function flatLaunchArgs() {
         "--mirostat",
         "--mirostat-lr",
         "--mirostat-ent",
+        "--mtmd-batch-max-tokens",
+        "--reasoning-format",
     ]) {
         assert.ok(!args.includes(flag), `default launch args should omit ${flag}`);
     }
@@ -74,6 +85,46 @@ function flatLaunchArgs() {
     assert.ok(!args.includes("--mirostat"), "disabled Mirostat should be omitted");
     assert.ok(!args.includes("--mirostat-lr"), "Mirostat LR should be omitted when Mirostat is disabled");
     assert.ok(!args.includes("--mirostat-ent"), "Mirostat entropy should be omitted when Mirostat is disabled");
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("custom_args", "--temp 0.5");
+    `, context);
+    assert.deepEqual(
+        Array.from(launchResult().warnings),
+        ["Custom launch args duplicate UI-managed flags: --temp"]
+    );
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setFlagValue("custom_args", "--temp=0.5");
+    `, context);
+    assert.deepEqual(
+        Array.from(launchResult().warnings),
+        ["Custom launch args duplicate UI-managed flags: --temp"]
+    );
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            mmproj_url: "https://example.com/mmproj.gguf",
+            mtmd_batch_max_tokens: 2048,
+            op_offload: false,
+            sampler_seq: "edskypmxt",
+            reasoning_format: "none",
+            reasoning_budget_message: "Reasoning budget exhausted.",
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--mmproj-url") && args.includes("https://example.com/mmproj.gguf"));
+    assert.ok(args.includes("--mtmd-batch-max-tokens") && args.includes("2048"));
+    assert.ok(args.includes("--no-op-offload"));
+    assert.ok(args.includes("--sampler-seq") && args.includes("edskypmxt"));
+    assert.ok(args.includes("--reasoning-format") && args.includes("none"));
+    assert.ok(args.includes("--reasoning-budget-message") && args.includes("Reasoning budget exhausted."));
 }
 
 {

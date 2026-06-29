@@ -6,6 +6,7 @@ import unittest
 from email.message import Message
 from pathlib import Path
 
+import backend.app as backend_app
 import server
 
 
@@ -195,7 +196,7 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
 
         result = handler.read_body()
 
-        self.assertIsNotNone(result)
+        self.assertIs(result, backend_app._BODY_HANDLED)
         self.assertEqual(handler.sent_response, 408)
 
     def test_version_ui_asset_urls_rewrites_local_assets(self):
@@ -213,6 +214,24 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         self.assertRegex(versioned, r'src="/js/app\.js\?v=\d+"')
         self.assertRegex(versioned, r'src="/assets/app-logo\.png\?v=\d+"')
         self.assertIn('href="https://fonts.googleapis.com"', versioned)
+
+    def test_ui_asset_version_tracks_all_local_index_assets(self):
+        index_html = (server.UI_DIR / "index.html").read_text(encoding="utf-8")
+        tracked = {
+            path.relative_to(server.UI_DIR).as_posix()
+            for path in server.iter_versioned_ui_asset_paths(index_html)
+            if server.UI_DIR in path.parents
+        }
+        local_assets = {
+            match.group(1).split("?", 1)[0].lstrip("/")
+            for match in server.re.finditer(
+                r'(?:href|src)="(/(?:css|js|assets)/[^"?#]+(?:\?[^"#]*)?)"',
+                index_html,
+            )
+        }
+
+        self.assertGreater(len(local_assets), 0)
+        self.assertTrue(local_assets.issubset(tracked))
 
     def test_api_router_knows_existing_endpoint(self):
         match = server.API_ROUTER.match("GET", "/api/status")

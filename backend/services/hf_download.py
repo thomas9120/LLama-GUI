@@ -2,6 +2,7 @@
 
 import pathlib
 import re
+import sys
 import threading
 import urllib.request
 from typing import Any, Callable, Mapping, Optional
@@ -119,7 +120,8 @@ def get_hf_file_size(repo_id: str, filename: str, revision: str, token: Optional
         url = hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
         metadata = get_hf_file_metadata(url, token=token or False, timeout=20)
         return int(metadata.size or 0)
-    except Exception:
+    except Exception as exc:
+        print(f"[hf_download] failed to read file size for {repo_id}/{filename}: {exc}", file=sys.stderr)
         return 0
 
 
