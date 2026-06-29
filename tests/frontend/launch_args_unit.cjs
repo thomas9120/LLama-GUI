@@ -114,6 +114,21 @@ function flatLaunchArgs() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+    let args = flatLaunchArgs();
+    assert.ok(!args.includes("--reasoning-preserve"), "preserve reasoning default should be omitted");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setFlagValue("reasoning_preserve", true);
+    `, context);
+    args = flatLaunchArgs();
+    assert.ok(args.includes("--reasoning-preserve"), "enabled preserve reasoning should emit upstream flag");
+    assert.ok(!args.includes("--chat-template-kwargs"), "preserve reasoning should not use legacy template kwargs");
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setMultipleFlagValues({
             spec_type: "draft-eagle3",
             draft_max: 8,

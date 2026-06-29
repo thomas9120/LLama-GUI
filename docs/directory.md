@@ -609,9 +609,10 @@ When a high-risk tool is selected, a warning message appears.
 Flags for reasoning/thinking models:
 - `-rea` (enum: auto/on/off): Enable or disable reasoning/thinking mode.
 - `--reasoning-budget` (int): Token budget for thinking (-1 = unlimited, 0 = off).
-- `--chat-template-kwargs` (bool, flag: `preserve_thinking`): When enabled, passes `{"preserve_thinking":true}` to the chat template engine. Required for models like Qwen3, DeepSeek-R1 to show chain-of-thought output.
+- `--reasoning-preserve` (bool): Preserve reasoning traces across the full chat history when the selected template supports llama.cpp's preserve-reasoning capability.
+- `--chat-template-kwargs` (bool, flag: `preserve_thinking`): Legacy compatibility path. When enabled, passes `{"preserve_thinking":true}` to the chat template engine.
 
-If `preserve_thinking` is true and the flag passes the inert-default filter, the launch arg is `--chat-template-kwargs {"preserve_thinking":true}`.
+If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. If legacy `preserve_thinking` is true, the launch arg is `--chat-template-kwargs {"preserve_thinking":true}`.
 
 ---
 
