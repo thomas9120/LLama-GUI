@@ -1,6 +1,7 @@
 import hashlib
 import io
 import json
+import os
 import pathlib
 import tarfile
 import tempfile
@@ -14,6 +15,7 @@ from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_service
 from backend.services import llama_manager
+from backend.services import process_manager
 from backend.services import web_search as web_search_service
 
 
@@ -1289,6 +1291,73 @@ class WebSearchDirectTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["results"], [])
         self.assertIn("network down", result["error"])
+
+
+class RuntimeEnvValidationTests(unittest.TestCase):
+    def test_validate_valid_env_vars(self):
+        result = process_manager._validate_runtime_env(
+            {"CUDA_VISIBLE_DEVICES": "0", "LLAMA_LOG_PREFIX": "1"}
+        )
+        self.assertEqual(result, {"CUDA_VISIBLE_DEVICES": "0", "LLAMA_LOG_PREFIX": "1"})
+
+    def test_validate_drops_bad_keys(self):
+        result = process_manager._validate_runtime_env(
+            {"GOOD_KEY": "ok", "bad-key": "dropped", "1KEY": "dropped", "": "dropped"}
+        )
+        self.assertEqual(result, {"GOOD_KEY": "ok"})
+
+    def test_validate_drops_null_bytes_in_values(self):
+        result = process_manager._validate_runtime_env({"KEY": "bad\x00value"})
+        self.assertEqual(result, {})
+
+    def test_validate_handles_none_and_non_dict(self):
+        self.assertEqual(process_manager._validate_runtime_env(None), {})
+        self.assertEqual(process_manager._validate_runtime_env("not a dict"), {})
+        self.assertEqual(process_manager._validate_runtime_env([]), {})
+
+    def test_validate_coerces_non_string_values(self):
+        result = process_manager._validate_runtime_env({"NUM": 42, "FLAG": True})
+        self.assertEqual(result, {"NUM": "42", "FLAG": "True"})
+
+    def test_build_process_env_merges_runtime_env(self):
+        paths = SimpleNamespace(
+            llama_bin=pathlib.Path("/fake/llama/bin"),
+        )
+        ctx = SimpleNamespace(
+            paths=paths,
+            services=SimpleNamespace(
+                current_platform="linux",
+            ),
+        )
+        original = dict(os.environ)
+        try:
+            os.environ["EXISTING_VAR"] = "original"
+            env = process_manager._build_process_env(
+                ctx, {"CUDA_VISIBLE_DEVICES": "0", "CUSTOM_VAR": "hello"}
+            )
+            self.assertEqual(env["CUDA_VISIBLE_DEVICES"], "0")
+            self.assertEqual(env["CUSTOM_VAR"], "hello")
+            self.assertEqual(env["EXISTING_VAR"], "original")
+            self.assertIn(str(paths.llama_bin), env["PATH"])
+            self.assertIn(str(paths.llama_bin), env["LD_LIBRARY_PATH"])
+        finally:
+            os.environ.clear()
+            os.environ.update(original)
+
+    def test_build_process_env_without_runtime_env(self):
+        paths = SimpleNamespace(
+            llama_bin=pathlib.Path("/fake/llama/bin"),
+        )
+        ctx = SimpleNamespace(
+            paths=paths,
+            services=SimpleNamespace(
+                current_platform="win32",
+            ),
+        )
+        env = process_manager._build_process_env(ctx)
+        self.assertIn(str(paths.llama_bin), env["PATH"])
+        self.assertNotIn("LD_LIBRARY_PATH", env or "")
+        self.assertNotIn("DYLD_LIBRARY_PATH", env or "")
 
 
 if __name__ == "__main__":

@@ -198,6 +198,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - Configure's Custom Launch Args textarea stores its raw value in shared `flagCore.flagValues.custom_args` through `setFlagValue("custom_args", ...)`.
 - Command preview and launch args are generated from shared state (`flagCore.getLaunchArgs()`), never per-tab copies.
 - Custom launch args are parsed and appended only by `flagCore.getLaunchArgs()`, after UI-managed flags and before the selected model arg.
+- Runtime environment variables (`runtime_env_vars`) are parsed by `flagCore.parseRuntimeEnvVars()` inside `getLaunchArgs()`, returned as the `envVars` dict, sent as `runtime_env` in the `/api/launch` and `/api/estimate-memory` request body, and merged into the subprocess environment by `_build_process_env()`.
 - Benchmarking reads Configure state or saved preset JSON without mutating them, builds tool-compatible benchmark args, can prepare the official WikiText-2 raw test file through `/api/benchmark/wikitext2`, and uses `/api/launch`, `/api/stop`, `/api/output`, and `/api/status` through the existing single process slot.
 - Server output is polled via HTTP endpoint and streamed to the terminal panel.
 - Chat completions are streamed via SSE from `/api/chat/completions` (backend proxies to `llama-server`).
@@ -633,6 +634,30 @@ The Configure tab includes an advanced `Custom Launch Args` textarea near the co
 
 - Run `node tests/frontend/custom_launch_args_unit.cjs` after parser changes.
 - Run `npm run test:frontend` after mirrored-control, custom-args, flag-state, or command-preview changes when Playwright is available.
+
+---
+
+## Runtime Environment Variables
+
+The Configure tab includes an advanced `Runtime Environment Variables` textarea next to `Custom Launch Args`.
+
+### Behavior
+
+- The raw value is stored in shared launch state as `runtime_env_vars`; do not keep a separate per-tab copy.
+- `flagCore.parseRuntimeEnvVars()` parses one `KEY=VALUE` per line. Keys must match `^[A-Za-z_][A-Za-z0-9_]*$`. Lines starting with `#` are treated as comments and skipped. Empty lines are ignored. Duplicate keys produce an error.
+- Parsed env vars are sent to `/api/launch` and `/api/estimate-memory` as the `runtime_env` dict in the request body. The backend `_build_process_env()` merges them on top of `os.environ` after PATH / `LD_LIBRARY_PATH` / `DYLD_LIBRARY_PATH` are set.
+- The backend re-validates keys with the same regex and silently drops invalid entries (defense-in-depth).
+- Parser errors (invalid key, missing `=`, duplicate key) show near the textarea, mark the command preview as blocked, and prevent `/api/launch`.
+- The command preview prefixes env vars using standard `KEY=VALUE` shell syntax (values with spaces are quoted).
+- Presets store the raw textarea value under `flags.runtime_env_vars` and should preserve it through save, update, load, import, and export.
+- Benchmarking honors `runtime_env_vars` — the parsed dict is sent with `/api/launch` for `llama-bench` and `llama-perplexity`.
+- Quick Launch mirrors the effect via the shared command preview (the `KEY=VALUE` prefix appears in the Quick Launch command preview automatically).
+
+### Validation
+
+- Run `node tests/frontend/custom_launch_args_unit.cjs` after parser changes (the file also covers `parseRuntimeEnvVars`).
+- Run `python -m unittest tests.backend.test_services.RuntimeEnvValidationTests` after backend env-merge changes.
+- Run `npm run test:frontend` after command-preview or launch-body changes when Playwright is available.
 
 ---
 

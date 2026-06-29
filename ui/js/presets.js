@@ -103,6 +103,10 @@ function getPresetWarnings(presetData) {
         warnings.push("Includes custom launch args. Review them before launching because they may override UI controls.");
     }
 
+    if (typeof flags.runtime_env_vars === "string" && flags.runtime_env_vars.trim()) {
+        warnings.push("Includes runtime environment variables. Review them before launching because they may change GPU selection or runtime behavior.");
+    }
+
     return warnings;
 }
 
@@ -265,6 +269,11 @@ function getNotablePresetSettings(presetData) {
     settings.push({
         label: "Custom Args",
         value: typeof flags.custom_args === "string" && flags.custom_args.trim() ? "present" : "none",
+    });
+
+    settings.push({
+        label: "Runtime Env Vars",
+        value: typeof flags.runtime_env_vars === "string" && flags.runtime_env_vars.trim() ? "present" : "none",
     });
 
     return settings;

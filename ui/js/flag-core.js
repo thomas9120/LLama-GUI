@@ -264,6 +264,44 @@
         return { tokens };
     }
 
+    function parseRuntimeEnvVars(raw) {
+        const input = String(raw || "");
+        const vars = {};
+        const lines = input.split(/\r?\n/);
+        for (let i = 0; i < lines.length; i += 1) {
+            const line = lines[i].trim();
+            if (!line || line.startsWith("#")) continue;
+            const eqIndex = line.indexOf("=");
+            if (eqIndex < 1) {
+                return { error: `Runtime env line ${i + 1}: missing "=". Expected KEY=VALUE.` };
+            }
+            const key = line.slice(0, eqIndex).trim();
+            if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+                return {
+                    error: `Runtime env line ${i + 1}: invalid key "${key}". Keys must start with a letter or underscore and contain only letters, digits, or underscores.`,
+                };
+            }
+            if (Object.prototype.hasOwnProperty.call(vars, key)) {
+                return { error: `Runtime env line ${i + 1}: duplicate key "${key}".` };
+            }
+            vars[key] = line.slice(eqIndex + 1).trim();
+        }
+        return { vars };
+    }
+
+    function formatEnvVarsPrefix(envVars) {
+        const keys = Object.keys(envVars || {});
+        if (keys.length === 0) return "";
+        const parts = keys.map((key) => {
+            const value = envVars[key];
+            if (value === "" || /[\s"'`$\\#]/.test(value)) {
+                return `${key}="${String(value).replace(/"/g, '\\"')}"`;
+            }
+            return `${key}=${value}`;
+        });
+        return parts.join(" ") + " ";
+    }
+
     function getKnownCliFlags() {
         const names = new Set();
         for (const f of getFlags()) {
@@ -326,11 +364,21 @@
             }
         }
 
+        const envRaw = flagValues.runtime_env_vars;
+        let envVars = {};
+        if (envRaw !== undefined && envRaw !== null && String(envRaw).trim()) {
+            const parsedEnv = parseRuntimeEnvVars(envRaw);
+            if (parsedEnv.error) {
+                return { args, error: parsedEnv.error, warnings, envVars, envError: parsedEnv.error };
+            }
+            envVars = parsedEnv.vars;
+        }
+
         const customRaw = flagValues.custom_args;
         if (customRaw !== undefined && customRaw !== null && String(customRaw).trim()) {
             const parsedCustom = parseCustomLaunchArgs(customRaw);
             if (parsedCustom.error) {
-                return { args, error: parsedCustom.error, warnings };
+                return { args, error: parsedCustom.error, warnings, envVars };
             }
 
             const knownCliFlags = getKnownCliFlags();
@@ -344,12 +392,12 @@
         const modelName = selectedModel;
         if (modelName) {
             if (modelName.includes("..") || modelName.includes("/") || modelName.includes("\\")) {
-                return { args, error: "Invalid model filename.", warnings };
+                return { args, error: "Invalid model filename.", warnings, envVars };
             }
             args.push(["-m", "models/" + modelName]);
         }
 
-        return { args, error: null, warnings };
+        return { args, error: null, warnings, envVars };
     }
 
     function updateCommandPreview() {
@@ -362,7 +410,8 @@
                 parts.push(String(entry));
             }
         }
-        const command = parts.join(" ");
+        const envPrefix = formatEnvVarsPrefix(result.envVars || {});
+        const command = envPrefix + parts.join(" ");
         if (typeof renderCommandPreview === "function") {
             renderCommandPreview(command, result);
         }
@@ -392,6 +441,7 @@
         isValidGpuLayersValue,
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
+        parseRuntimeEnvVars,
         getLaunchArgs,
         updateCommandPreview,
         registerApi,
