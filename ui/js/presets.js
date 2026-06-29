@@ -12,11 +12,19 @@ function normalizePresetData(data) {
     return { tool: null, model: "", flags: data };
 }
 
+const SPECIAL_PRESET_FLAG_IDS = new Set([
+    "custom_args",
+    "runtime_env_vars",
+]);
+
 function getKnownPresetFlagIds() {
     const flags = Array.isArray(window.FLAGS)
         ? window.FLAGS
         : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
-    return new Set(flags.map((flag) => flag && flag.id).filter(Boolean));
+    return new Set([
+        ...flags.map((flag) => flag && flag.id).filter(Boolean),
+        ...SPECIAL_PRESET_FLAG_IDS,
+    ]);
 }
 
 function normalizeImportedPresetData(data) {

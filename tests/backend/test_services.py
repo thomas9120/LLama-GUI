@@ -1359,6 +1359,32 @@ class RuntimeEnvValidationTests(unittest.TestCase):
         self.assertNotIn("LD_LIBRARY_PATH", env or "")
         self.assertNotIn("DYLD_LIBRARY_PATH", env or "")
 
+    def test_build_process_env_preserves_runtime_path_prefix(self):
+        paths = SimpleNamespace(
+            llama_bin=pathlib.Path("/fake/llama/bin"),
+        )
+        ctx = SimpleNamespace(
+            paths=paths,
+            services=SimpleNamespace(
+                current_platform="linux",
+            ),
+        )
+        env = process_manager._build_process_env(
+            ctx,
+            {
+                "PATH": "/custom/bin",
+                "LD_LIBRARY_PATH": "/custom/lib",
+            },
+        )
+        self.assertEqual(
+            env["PATH"].split(os.pathsep)[:2],
+            [str(paths.llama_bin), "/custom/bin"],
+        )
+        self.assertEqual(
+            env["LD_LIBRARY_PATH"].split(os.pathsep)[:2],
+            [str(paths.llama_bin), "/custom/lib"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

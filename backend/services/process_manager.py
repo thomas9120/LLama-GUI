@@ -509,6 +509,8 @@ def _validate_runtime_env(runtime_env):
 
 def _build_process_env(ctx, runtime_env=None):
     env = os.environ.copy()
+    env.update(_validate_runtime_env(runtime_env))
+
     runtime_paths = [str(ctx.paths.llama_bin)]
     existing_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
@@ -525,7 +527,6 @@ def _build_process_env(ctx, runtime_env=None):
             runtime_paths + ([existing_dyld] if existing_dyld else [])
         )
 
-    env.update(_validate_runtime_env(runtime_env))
     return env
 
 

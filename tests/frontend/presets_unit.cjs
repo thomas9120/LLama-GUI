@@ -11,7 +11,6 @@ const context = {
     FLAGS: [
         { id: "temperature" },
         { id: "ctx_size" },
-        { id: "custom_args" },
     ],
 };
 
@@ -48,6 +47,7 @@ assert.equal(
 const legacyPlainFlags = normalizeImportedPresetData({
     temperature: 0.33,
     custom_args: "--parallel 4",
+    runtime_env_vars: "CUDA_VISIBLE_DEVICES=0",
     stale_flag: "drop me",
 });
 
@@ -59,6 +59,7 @@ assert.equal(
         flags: {
             temperature: 0.33,
             custom_args: "--parallel 4",
+            runtime_env_vars: "CUDA_VISIBLE_DEVICES=0",
         },
     })
 );
