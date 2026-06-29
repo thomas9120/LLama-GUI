@@ -277,7 +277,6 @@ Each preset entry has:
 
 **Modes:**
 - `auto`: clears both `chat_template` and `chat_template_custom`
-- `auto_alias`: also clears both, but exists as a named dropdown preset
 - `builtin`: maps the preset to a real `llama.cpp` built-in template name
 - `bundled`: maps the preset to an app-owned Jinja file under `ui/templates/`
 
@@ -346,10 +345,6 @@ Some Kobold Lite preset names are intentionally mapped to existing `llama.cpp` b
 | `Vicuna` | `vicuna` |
 | `OpenAI Harmony` | `gpt-oss` |
 
-### KoboldCppAutomatic
-
-`KoboldCppAutomatic` is a named preset that behaves like auto/template-from-model selection. It exists as a selectable label in the dropdown, but its launch behavior is: no `--chat-template`, no `--chat-template-file`. It is primarily a UI-facing alias rather than a distinct launch-format implementation.
-
 ### Backward Compatibility
 
 - The dropdown is curated; the old built-in allowlist is still present for launch/preset compatibility.
@@ -357,7 +352,7 @@ Some Kobold Lite preset names are intentionally mapped to existing `llama.cpp` b
 
 ### Reuse Pattern for Future Templates
 
-1. Decide: `builtin`, `bundled`, or `auto`/`auto_alias`.
+1. Decide: `builtin`, `bundled`, or `auto`.
 2. Add one entry to `CHAT_TEMPLATE_PRESETS`.
 3. If bundled, add the Jinja file under `ui/templates/`.
 4. `CHAT_TEMPLATE_PRESET_OPTIONS` populates the dropdown automatically.

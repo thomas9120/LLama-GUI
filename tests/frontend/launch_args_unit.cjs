@@ -36,6 +36,11 @@ vm.runInContext(`
     flagCore.replaceFlagValues(getDefaultValues());
 `, context);
 
+{
+    const templateOptions = vm.runInContext("CHAT_TEMPLATE_PRESET_OPTIONS.map((option) => option.value)", context);
+    assert.ok(!templateOptions.includes("__koboldcpp_automatic__"));
+}
+
 function flatLaunchArgs() {
     return vm.runInContext("window.LlamaGui.flagCore.getLaunchArgs().args.flat()", context);
 }

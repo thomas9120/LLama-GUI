@@ -267,9 +267,6 @@ function getQuickTemplateSummaryText() {
         if (preset.mode === "bundled") {
             return `Using bundled template preset: ${preset.label}.`;
         }
-        if (preset.mode === "auto_alias") {
-            return `Using model-provided template preset: ${preset.label}.`;
-        }
         if (preset.mode === "builtin") {
             return `Using preset: ${preset.label}.`;
         }
@@ -299,14 +296,6 @@ function setChatTemplateValue(value, options = {}) {
     if (preset && preset.mode === "auto") {
         flagCore.setMultipleFlagValues({
             chat_template: undefined,
-            chat_template_custom: undefined,
-        });
-        return;
-    }
-
-    if (preset && preset.mode === "auto_alias") {
-        flagCore.setMultipleFlagValues({
-            chat_template: preset.value,
             chat_template_custom: undefined,
         });
         return;
