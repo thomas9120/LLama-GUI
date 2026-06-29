@@ -73,6 +73,9 @@ const expectedNamespaces = [
     "hfDownloadUi",
     "remoteTunnelUi",
     "samplerPresets",
+    "benchmarkUi",
+    "presets",
+    "manager",
 ];
 
 for (const namespace of expectedNamespaces) {
@@ -87,5 +90,8 @@ assert.equal(typeof context.window.LlamaGui.quickLaunchUi.refresh, "function");
 assert.equal(typeof context.window.LlamaGui.chatUi.init, "function");
 assert.equal(typeof context.window.LlamaGui.apiTab.updateEndpoints, "function");
 assert.equal(typeof context.window.LlamaGui.remoteTunnelUi.renderStatus, "function");
+assert.equal(typeof context.window.LlamaGui.benchmarkUi.init, "function");
+assert.equal(typeof context.window.LlamaGui.presets.loadPreset, "function");
+assert.equal(typeof context.window.LlamaGui.manager.fetchJson, "function");
 
 console.log(`module namespace check passed for ${scriptFiles.length} scripts`);

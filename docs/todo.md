@@ -1,14 +1,16 @@
 # TODO
 
-## llama.cpp Flag Candidates
+## Reasoning Content Follow-Up
 
-Follow up on adding useful b9701-era `llama.cpp` flags to the curated Configure surface.
+Plain `--reasoning-format deepseek` is intentionally not exposed yet. It returns
+thinking text through separated `reasoning_content` fields, and the Chat tab
+currently renders streamed `delta.content` only.
 
-- `--op-offload`: GPU/accelerator host-operation offload toggle. Add as a GPU boolean with the upstream default represented safely.
-- `--mmproj-url`: Multimodal projector URL. Add near the existing mmproj model path controls and keep HF downloader behavior unchanged.
-- `--mtmd-batch-max-tokens`: Maximum image tokens per multimodal batch. Add under Context & Memory or Model after confirming current upstream defaults.
-- `--sampler-seq` / `--sampling-seq`: Simplified sampler sequence. Decide how it should coexist with the existing advanced `--samplers` text field.
-- Newer reasoning controls such as `--reasoning-format` and `--reasoning-budget-message`: add only after confirming how they interact with the existing reasoning mode and preserve-reasoning controls. If exposing `--reasoning-format deepseek`, update the Chat tab stream handling to render `delta.reasoning_content` instead of silently ignoring separated reasoning chunks.
+Acceptance criteria:
+- Update the Chat tab stream handling to render `delta.reasoning_content`.
+- Add `deepseek` to the `Reasoning Output Format` dropdown after the stream UI
+  can display separated reasoning content clearly.
+- Run `node --check ui/js/chat-ui.js` and `npm run test:frontend`.
 
 ## DeepSeek V4 Follow-Ups
 
@@ -22,22 +24,6 @@ Acceptance criteria:
 - Confirm the current installed `llama-server --help` still does not list `deepseek4` before deciding between bundled and built-in preset modes.
 - Verify `--chat-template-file ui/templates/<deepseek-v4>.jinja` appears in command preview when the preset is selected.
 - Run `node --check ui/js/flags/chat-templates.js` and `npm run test:frontend`.
-
-## llama.cpp Release Asset Drift
-
-Release `b9840` uses OpenVINO asset names with `openvino-2026.2.1`; the local Linux OpenVINO backend spec currently expects `openvino-2026.2`.
-
-- Update OpenVINO backend asset patterns if this naming remains current in the next release.
-- Check both Windows and Linux OpenVINO specs; Windows OpenVINO is not currently exposed in `build_backend_specs()` for x64, but the release includes a matching asset.
-
-Acceptance criteria:
-- Compare `/api/releases` asset selection against the latest `ggml-org/llama.cpp` release.
-- Run backend tests after changing `backend/services/llama_manager.py`.
-
-Acceptance criteria:
-- Verify each flag against the installed `llama-server --help` and `llama-cli --help`.
-- Reuse existing shared flag state and option sources.
-- Run `node --check ui/js/flags/definitions.js` and `npm run test:frontend`.
 
 ## Cross-Platform Preset Shortcuts
 

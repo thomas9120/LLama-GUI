@@ -83,8 +83,10 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("vulkan", specs)
         self.assertIn("sycl", specs)
         self.assertIn("hip", specs)
+        self.assertIn("openvino", specs)
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
+        self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
     def test_win32_arm64_returns_cpu_and_opencl_adreno(self):
         specs = llama_manager.build_backend_specs("win32", "arm64")
@@ -119,7 +121,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("vulkan", specs)
         self.assertIn("rocm", specs)
         self.assertIn("openvino", specs)
-        self.assertIn("openvino-2026.2", specs["openvino"]["asset"])
+        self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
     def test_linux_arm64_returns_cpu_and_vulkan(self):
         specs = llama_manager.build_backend_specs("linux", "arm64")

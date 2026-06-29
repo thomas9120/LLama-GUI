@@ -56,6 +56,15 @@ const FLAGS = [
 		tool: "both",
 	},
 	{
+		id: "mmproj_url",
+		flag: "--mmproj-url",
+		category: "model",
+		type: "text",
+		label: "Multimodal Projector URL",
+		desc: "URL to a multimodal projector file. Local HF downloader behavior is unchanged.",
+		tool: "both",
+	},
+	{
 		id: "image_min_tokens",
 		flag: "--image-min-tokens",
 		category: "model",
@@ -76,6 +85,17 @@ const FLAGS = [
 		tool: "both",
 		default: -1,
 		min: -1,
+	},
+	{
+		id: "mtmd_batch_max_tokens",
+		flag: "--mtmd-batch-max-tokens",
+		category: "model",
+		type: "int",
+		label: "Multimodal Batch Max Tokens",
+		desc: "Maximum number of image tokens per batch when encoding images.",
+		tool: "server",
+		default: 1024,
+		min: 1,
 	},
 	{
 		id: "model_vocoder",
@@ -431,6 +451,17 @@ const FLAGS = [
 		desc: "Enable weight repacking",
 		tool: "both",
 		default: false,
+	},
+	{
+		id: "op_offload",
+		flag: "--op-offload",
+		false_flag: "--no-op-offload",
+		category: "gpu",
+		type: "bool",
+		label: "Operation Offload",
+		desc: "Offload host tensor operations to the device when supported.",
+		tool: "both",
+		default: true,
 	},
 	{
 		id: "fit",
@@ -809,6 +840,16 @@ const FLAGS = [
 		tool: "both",
 		placeholder: "penalties;dry;top_k;top_p;temperature",
 	},
+	{
+		id: "sampler_seq",
+		flag: "--sampler-seq",
+		category: "sampling",
+		type: "text",
+		label: "Sampler Sequence (Short)",
+		desc: "Simplified sampler sequence shorthand. Leave empty when using the advanced sampler order above.",
+		tool: "both",
+		placeholder: "edskypmxt",
+	},
 
 	// RoPE Scaling
 	{
@@ -1012,6 +1053,17 @@ const FLAGS = [
 		],
 	},
 	{
+		id: "reasoning_format",
+		flag: "--reasoning-format",
+		category: "conversation",
+		type: "enum",
+		label: "Reasoning Output Format",
+		desc: "Controls how thought tags are parsed. Plain DeepSeek extraction is intentionally omitted until the Chat tab renders separated reasoning content.",
+		tool: "both",
+		default: "auto",
+		options: REASONING_FORMAT_OPTIONS,
+	},
+	{
 		id: "reasoning_budget",
 		flag: "--reasoning-budget",
 		category: "conversation",
@@ -1021,6 +1073,15 @@ const FLAGS = [
 		tool: "both",
 		default: -1,
 		min: -1,
+	},
+	{
+		id: "reasoning_budget_message",
+		flag: "--reasoning-budget-message",
+		category: "conversation",
+		type: "text",
+		label: "Reasoning Budget Message",
+		desc: "Message injected before the end-of-thinking tag when the reasoning budget is exhausted.",
+		tool: "both",
 	},
 	{
 		id: "reasoning_preserve",
