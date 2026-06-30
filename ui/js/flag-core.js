@@ -311,6 +311,14 @@
                     args.push([f.flag, values.join(",")]);
                 }
             } else {
+                if (f.id === "kv_unified") {
+                    if (val === "enabled") {
+                        args.push([f.flag]);
+                    } else if (val === "disabled" && f.false_flag) {
+                        args.push([f.false_flag]);
+                    }
+                    continue;
+                }
                 if (f.id === "chat_template"
                     && typeof isSupportedChatTemplateValue === "function"
                     && !isSupportedChatTemplateValue(val)) {
