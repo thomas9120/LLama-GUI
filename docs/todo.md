@@ -1,10 +1,8 @@
 # TODO
 
-## Reasoning Content Follow-Up
+## llama.cpp Flag Candidates
 
-Plain `--reasoning-format deepseek` is intentionally not exposed yet. It returns
-thinking text through separated `reasoning_content` fields, and the Chat tab
-currently renders streamed `delta.content` only.
+Follow up on adding useful b9701-era `llama.cpp` flags to the curated Configure surface.
 
 - `--op-offload`: GPU/accelerator host-operation offload toggle. Add as a GPU boolean with the upstream default represented safely.
 - `--mmproj-url`: Multimodal projector URL. Add near the existing mmproj model path controls and keep HF downloader behavior unchanged.

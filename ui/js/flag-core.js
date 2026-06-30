@@ -131,7 +131,6 @@
             threads: -1,
             image_min_tokens: -1,
             image_max_tokens: -1,
-            mtmd_batch_max_tokens: 1024,
             top_n_sigma: -1,
             xtc_probability: 0,
             xtc_threshold: 1.0,
@@ -152,7 +151,6 @@
             yarn_beta_slow: -1,
             yarn_beta_fast: -1,
             reasoning_budget: -1,
-            reasoning_format: "auto",
             cache_reuse: 0,
             ctx_checkpoints: 32,
             checkpoint_every_n_tokens: 256,
@@ -313,13 +311,6 @@
         return names;
     }
 
-    function getCustomArgFlagName(token) {
-        const value = String(token || "");
-        if (!value.startsWith("-")) return value;
-        const eqIndex = value.indexOf("=");
-        return eqIndex > 0 ? value.slice(0, eqIndex) : value;
-    }
-
     function getLaunchArgs() {
         const args = [];
         const warnings = [];
@@ -391,9 +382,7 @@
             }
 
             const knownCliFlags = getKnownCliFlags();
-            const duplicates = Array.from(new Set(parsedCustom.tokens
-                .map(getCustomArgFlagName)
-                .filter(token => knownCliFlags.has(token))));
+            const duplicates = Array.from(new Set(parsedCustom.tokens.filter(token => knownCliFlags.has(token))));
             if (duplicates.length > 0) {
                 warnings.push(`Custom launch args duplicate UI-managed flags: ${duplicates.join(", ")}`);
             }

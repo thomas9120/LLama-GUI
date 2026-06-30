@@ -4,7 +4,6 @@ from pathlib import Path
 import json
 import platform
 import subprocess
-import sys
 from typing import Any, Optional, Sequence, Tuple
 
 from backend.context import AppContext
@@ -82,8 +81,8 @@ def select_file_in_native_dialog(
     root.withdraw()
     try:
         root.attributes("-topmost", True)
-    except Exception as exc:
-        print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
+    except Exception:
+        pass
 
     dialog_options: dict[str, Any] = {"title": title, "parent": root}
     if initial_dir:

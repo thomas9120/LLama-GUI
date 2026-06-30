@@ -233,10 +233,9 @@ def stop_remote_tunnel(ctx: AppContext) -> dict:
             else:
                 proc.terminate()
             proc.wait(timeout=5)
-        except Exception as exc:
-            print(f"[tunnel] graceful stop failed, killing process: {exc}", file=sys.stderr)
+        except Exception:
             try:
                 proc.kill()
-            except Exception as kill_exc:
-                print(f"[tunnel] failed to kill process: {kill_exc}", file=sys.stderr)
+            except Exception:
+                pass
     return get_remote_tunnel_snapshot(ctx)

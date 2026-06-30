@@ -188,8 +188,8 @@ def stream_output(ctx: AppContext, pipe: Any, is_stderr: bool = False) -> None:
                     ctx.state.output_buffer.append(decoded)
                     if len(ctx.state.output_buffer) > config.PROCESS_OUTPUT_LIMIT:
                         del ctx.state.output_buffer[: config.PROCESS_OUTPUT_TRIM]
-    except Exception as exc:
-        print(f"[process] output stream reader stopped: {exc}", file=sys.stderr)
+    except Exception:
+        pass
 
 
 def flatten_launch_args(args_list: Optional[Iterable[Any]]) -> list[str]:
@@ -471,18 +471,14 @@ def parse_launch_api_target(ctx: AppContext, args_list: Optional[Iterable[Any]])
             host = flat_args[i + 1]
             i += 2
             continue
-        elif item.startswith("--host="):
+        if item.startswith("--host="):
             host = item.split("=", 1)[1]
-            i += 1
-            continue
         elif item == "--port" and i + 1 < len(flat_args):
             port = flat_args[i + 1]
             i += 2
             continue
         elif item.startswith("--port="):
             port = item.split("=", 1)[1]
-            i += 1
-            continue
         i += 1
     try:
         return dict(ctx.services.set_llama_api_target(host, port))
@@ -613,8 +609,7 @@ def send_input(ctx: AppContext, text: str) -> bool:
                     ctx.state.process.stdin.write(text + "\n")
                     ctx.state.process.stdin.flush()
                     return True
-            except Exception as exc:
-                print(f"[process] failed to send input: {exc}", file=sys.stderr)
+            except Exception:
                 return False
         return False
 

@@ -797,15 +797,3 @@ async function refreshModels() {
 if (window.addEventListener) {
     window.addEventListener("beforeunload", stopInstallProgressPolling);
 }
-
-if (window.LlamaGui) {
-    window.LlamaGui.manager = Object.assign(window.LlamaGui.manager || {}, {
-        fetchJson,
-        fetchReleases,
-        checkStatus,
-        refreshModels,
-        checkAppUpdateStatus,
-        updateAppFromGitHub,
-        stopInstallProgressPolling,
-    });
-}

@@ -16,6 +16,8 @@ let pollStatsActive = false;
 let pollOutputFailCount = 0;
 let serverReadyNotified = false;
 
+let selectedChatTemplatePresetValue = "";
+
 let chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
 let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
 const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
@@ -227,12 +229,22 @@ flagCore.configure({
         }
         if (flagId === "chat_template_custom") {
             patch.chat_template = undefined;
+            const matchedPreset = getChatTemplatePresetByPath(value);
+            selectedChatTemplatePresetValue = matchedPreset ? matchedPreset.value : "";
         }
     },
     afterPatch(patch, options) {
         quickLaunchUi.afterPatch(patch, options);
     },
     afterApply(values) {
+        selectedChatTemplatePresetValue = "";
+        if (values.chat_template_custom) {
+            const bundled = getChatTemplatePresetByPath(values.chat_template_custom);
+            if (bundled) selectedChatTemplatePresetValue = bundled.value;
+        } else if (values.chat_template) {
+            const builtin = getChatTemplatePresetByBuiltinName(values.chat_template);
+            if (builtin) selectedChatTemplatePresetValue = builtin.value;
+        }
         quickLaunchUi.afterApply(values);
     },
     postUpdate: syncUiAfterSharedStateChange,
@@ -279,22 +291,25 @@ function getChatTemplatePresetByPath(path) {
 
 function getSelectedChatTemplateDropdownValue() {
     const values = flagCore.getFlagValues();
+    if (selectedChatTemplatePresetValue === "__koboldcpp_automatic__"
+        && !values.chat_template
+        && !values.chat_template_custom) {
+        return selectedChatTemplatePresetValue;
+    }
 
     const bundledPreset = getChatTemplatePresetByPath(values.chat_template_custom);
     if (bundledPreset) {
+        selectedChatTemplatePresetValue = bundledPreset.value;
         return bundledPreset.value;
-    }
-
-    const directPreset = getChatTemplatePresetByValue(values.chat_template);
-    if (directPreset && directPreset.mode !== "auto") {
-        return directPreset.value;
     }
 
     const builtinPreset = getChatTemplatePresetByBuiltinName(values.chat_template);
     if (builtinPreset) {
+        selectedChatTemplatePresetValue = builtinPreset.value;
         return builtinPreset.value;
     }
 
+    selectedChatTemplatePresetValue = "";
     return isSupportedChatTemplateValue(values.chat_template) ? String(values.chat_template ?? "") : "";
 }
 
@@ -304,6 +319,9 @@ function getQuickTemplateSummaryText() {
     if (preset) {
         if (preset.mode === "bundled") {
             return `Using bundled template preset: ${preset.label}.`;
+        }
+        if (preset.mode === "auto_alias") {
+            return `Using model-provided template preset: ${preset.label}.`;
         }
         if (preset.mode === "builtin") {
             return `Using preset: ${preset.label}.`;
@@ -324,6 +342,7 @@ function setChatTemplateValue(value, options = {}) {
     const preset = getChatTemplatePresetByValue(normalizedValue);
 
     if (preset && preset.mode === "bundled") {
+        selectedChatTemplatePresetValue = preset.value;
         flagCore.setMultipleFlagValues({
             chat_template: undefined,
             chat_template_custom: preset.path,
@@ -331,7 +350,8 @@ function setChatTemplateValue(value, options = {}) {
         return;
     }
 
-    if (preset && preset.mode === "auto") {
+    if (preset && (preset.mode === "auto" || preset.mode === "auto_alias")) {
+        selectedChatTemplatePresetValue = preset.value;
         flagCore.setMultipleFlagValues({
             chat_template: undefined,
             chat_template_custom: undefined,
@@ -340,6 +360,7 @@ function setChatTemplateValue(value, options = {}) {
     }
 
     if (preset && preset.mode === "builtin") {
+        selectedChatTemplatePresetValue = preset.value;
         flagCore.setMultipleFlagValues({
             chat_template: preset.builtin,
             chat_template_custom: undefined,
@@ -347,6 +368,7 @@ function setChatTemplateValue(value, options = {}) {
         return;
     }
 
+    selectedChatTemplatePresetValue = "";
     const patch = {
         chat_template: normalizedValue || undefined,
     };

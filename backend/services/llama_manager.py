@@ -102,10 +102,6 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "label": "HIP (AMD Radeon)",
                 "asset": "llama-{tag}-bin-win-hip-radeon-x64.zip",
             },
-            "openvino": {
-                "label": "OpenVINO",
-                "asset": "llama-{tag}-bin-win-openvino-2026.2.1-x64.zip",
-            },
         }
         specs.update(_lemonade_rocm_specs("windows"))
         return specs
@@ -141,7 +137,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 },
                 "openvino": {
                     "label": "OpenVINO",
-                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.2.1-x64.tar.gz",
+                    "asset": "llama-{tag}-bin-ubuntu-openvino-2026.2-x64.tar.gz",
                 },
             }
             specs.update(_lemonade_rocm_specs("ubuntu"))
