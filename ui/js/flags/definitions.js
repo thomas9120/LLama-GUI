@@ -206,7 +206,7 @@ const FLAGS = [
 		label: "Memory Map Model",
 		desc: "Load the model using memory-mapped files for faster loading and lower RAM usage. Disable if you get pageout/stuttering issues.",
 		tool: "both",
-		default: false,
+		default: true,
 	},
 	{
 		id: "direct_io",
@@ -1419,7 +1419,7 @@ const FLAGS = [
 		label: "Timeout (seconds)",
 		desc: "Server read/write timeout",
 		tool: "server",
-		default: 600,
+		default: 3600,
 		min: 1,
 	},
 	{
