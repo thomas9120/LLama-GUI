@@ -51,6 +51,11 @@ function launchResult() {
 
 {
     const args = flatLaunchArgs();
+    assert.ok(args.includes("--mmap"), "default launch args should enable mmap");
+    assert.ok(!args.includes("--no-mmap"), "default launch args should not disable mmap");
+    const timeoutIndex = args.indexOf("-to");
+    assert.notEqual(timeoutIndex, -1, "default launch args should include server timeout");
+    assert.equal(args[timeoutIndex + 1], "3600");
     for (const flag of [
         "--dry-base",
         "--dry-allowed-length",
