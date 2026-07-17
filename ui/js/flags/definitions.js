@@ -126,13 +126,13 @@ const FLAGS = [
 		label: "Total Context Window",
 		short_desc: "How much text the model can keep in memory at once.",
 		beginner_tip:
-			"32768 is a strong default. Lower it if you run out of memory.",
+			"64000 is a strong default. Lower it if you run out of memory.",
 		desc: "Total context size in tokens. This is the maximum number of tokens the model can 'remember' at once, including your prompt, system prompt, conversation history, AND the model's reply. Larger values use more VRAM/RAM. Set 0 to use the model's default.",
 		tool: "both",
-		default: 32768,
+		default: 64000,
 		min: 0,
 		max: 262144,
-		placeholder: "32768 recommended",
+		placeholder: "64000 recommended",
 	},
 	{
 		id: "batch_size",

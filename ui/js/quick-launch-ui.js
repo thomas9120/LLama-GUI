@@ -192,6 +192,81 @@
         status.textContent = message || "";
     }
 
+    function updateSamplerSliderVisual(slider) {
+        if (!slider || slider.type !== "range") return;
+        const min = parseFloat(slider.min || "0");
+        const max = parseFloat(slider.max || "100");
+        const value = parseFloat(slider.value);
+        const pct = Number.isFinite(value) && max > min ? ((value - min) / (max - min)) * 100 : 0;
+        slider.style.setProperty("--fill", `${pct}%`);
+        const badge = document.getElementById(`${slider.id}-value`);
+        if (badge) {
+            const step = parseFloat(slider.step || "1");
+            const decimals = Number.isInteger(step) ? 0 : 2;
+            badge.textContent = Number.isFinite(value) ? value.toFixed(decimals) : "—";
+        }
+    }
+
+    function setReadinessChip(id, ok, text) {
+        const chip = document.getElementById(id);
+        if (!chip) return;
+        chip.classList.toggle("ok", ok);
+        chip.classList.toggle("missing", !ok);
+        const label = chip.querySelector(".chip-text");
+        if (label) label.textContent = text;
+    }
+
+    function updateReadinessChips(values) {
+        const modelSelect = document.getElementById("model-select");
+        const modelName = modelSelect && modelSelect.value ? modelSelect.value : "";
+        setReadinessChip("quick-chip-model", Boolean(modelName), modelName ? `Model: ${modelName}` : "Model: none");
+
+        const profileSelect = document.getElementById("quick-profile-select");
+        const profileLabel = profileSelect && profileSelect.value
+            ? (profileSelect.selectedOptions[0] ? profileSelect.selectedOptions[0].textContent : profileSelect.value)
+            : "";
+        setReadinessChip("quick-chip-profile", Boolean(profileLabel), profileLabel ? `Profile: ${profileLabel}` : "Profile: none");
+
+        const ctx = values.ctx_size ?? 64000;
+        setReadinessChip("quick-chip-context", true, `Context: ${Math.round(ctx / 1000)}K`);
+
+        const gpuLayers = String(values.gpu_layers ?? "auto");
+        const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
+        setReadinessChip("quick-chip-gpu", true, `GPU: ${gpuLabel}`);
+
+        const hasApiKey = Boolean(values.api_key);
+        setReadinessChip("quick-chip-api", hasApiKey, hasApiKey ? "API: protected" : "API: open access");
+
+        const protectedBadge = document.getElementById("quick-api-protected-badge");
+        if (protectedBadge) protectedBadge.classList.toggle("visible", hasApiKey);
+    }
+
+    function setQuickLaunchBusy(busy, outcome) {
+        const launchBtn = document.getElementById("btn-quick-launch");
+        const label = document.getElementById("btn-quick-launch-label");
+        if (!launchBtn || !label) return;
+        if (busy) {
+            launchBtn.disabled = true;
+            label.innerHTML = "";
+            const spinner = document.createElement("span");
+            spinner.className = "spinner";
+            label.appendChild(spinner);
+            label.appendChild(document.createTextNode("Starting…"));
+            setQuickLaunchStatus("info", "Launching llama.cpp — loading the model, this can take a moment.");
+            return;
+        }
+        label.textContent = "Launch";
+        launchBtn.disabled = false;
+        updateActionButtons();
+        if (outcome && outcome.ok) {
+            setQuickLaunchStatus("info", "Server is up — see the address badge above or open the Chat tab.");
+        } else if (outcome && !outcome.cancelled && outcome.error) {
+            setQuickLaunchStatus("error", outcome.error);
+        } else {
+            setQuickLaunchStatus("", "");
+        }
+    }
+
     function getQuickLaunchReadiness() {
         const result = flagCore.getLaunchArgs();
         if (result.error) {
@@ -257,11 +332,11 @@
         const modeSummary = document.getElementById("quick-mode-summary");
         if (modeSummary) {
             modeSummary.textContent = tool === "llama-server"
-                ? "API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
-                : "Chat mode is selected. The process runs as an interactive local terminal chat.";
+                ? "Web / API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
+                : "Terminal Chat is selected. The process runs as an interactive local terminal chat.";
         }
 
-        const ctxValue = values.ctx_size ?? 32768;
+        const ctxValue = values.ctx_size ?? 64000;
         const contextPreset = document.getElementById("quick-context-preset");
         const contextCustom = document.getElementById("quick-context-custom");
         if (contextPreset && contextCustom) {
@@ -336,6 +411,9 @@
         if (minP) minP.value = values.min_p ?? "";
         if (repeatPenalty) repeatPenalty.value = values.repeat_penalty ?? "";
         if (presencePenalty) presencePenalty.value = values.presence_penalty ?? "";
+        for (const slider of [temperature, topK, topP, minP, repeatPenalty, presencePenalty]) {
+            updateSamplerSliderVisual(slider);
+        }
 
         const profileSummary = document.getElementById("quick-profile-summary");
         const profileSelect = document.getElementById("quick-profile-select");
@@ -357,6 +435,7 @@
         quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
         quickCommand.classList.toggle("command-preview-error", document.getElementById("command-preview-text").classList.contains("command-preview-error"));
         updateQuickServerAddressPreview();
+        updateReadinessChips(values);
         updateActionButtons();
         const readiness = getQuickLaunchReadiness();
         const mainLaunchBtn = document.getElementById("btn-launch");
@@ -484,7 +563,7 @@
 
         on("btn-quick-fit-sync", "click", () => {
             const values = flagCore.getFlagValues();
-            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? 32768, { quickLaunchFitCtxLinked: true });
+            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? 64000, { quickLaunchFitCtxLinked: true });
         });
 
         on("quick-template-pack", "change", (e) => {
@@ -563,6 +642,7 @@
                 flagCore.setFlagValue(flagId, nextValue);
             }, 200);
             on(elementId, "input", (e) => {
+                updateSamplerSliderVisual(e.target);
                 applyQuickSamplerValue(e.target.value.trim());
             });
         }
@@ -577,7 +657,9 @@
             const readiness = getQuickLaunchReadiness();
             setQuickLaunchStatus(readiness.ok ? "" : readiness.type, readiness.message);
             if (!readiness.ok) return;
-            await launchLlama();
+            setQuickLaunchBusy(true);
+            const outcome = await launchLlama();
+            setQuickLaunchBusy(false, outcome);
         });
 
         on("btn-quick-stop", "click", stopLlama);

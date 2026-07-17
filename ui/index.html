@@ -268,7 +268,7 @@
 
             <section class="card model-switch-card" id="model-switch-card" aria-labelledby="model-switch-title">
                 <div class="model-switch-header">
-                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="true" aria-controls="model-switch-body">
+                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="false" aria-controls="model-switch-body">
                         <span class="model-switch-chevron" aria-hidden="true">▾</span>
                         <span>
                             <span class="card-kicker">Two-slot launcher</span>
@@ -276,10 +276,8 @@
                             <span class="model-switch-summary" id="model-switch-summary">Assign two saved server presets for quick switching.</span>
                         </span>
                     </button>
-                    <button class="btn btn-sm" id="model-switch-manage-toggle" type="button" aria-expanded="false" aria-controls="model-switch-manage">Manage slots</button>
                 </div>
-                <div id="model-switch-body">
-                    <p class="model-switch-explainer">Standby means the model configuration is saved and ready to preflight; it is not kept loaded in RAM or VRAM.</p>
+                <div id="model-switch-body" class="hidden" aria-hidden="true">
                     <div class="model-switch-notice hidden" id="model-switch-notice" role="status" aria-live="polite"></div>
                     <div class="model-switch-slots">
                         <article class="model-switch-slot" id="model-switch-slot-a" aria-labelledby="model-switch-slot-a-title">
@@ -291,10 +289,15 @@
                                 <span class="model-switch-badge" id="model-switch-slot-a-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Preset</dt><dd id="model-switch-slot-a-preset">—</dd></div>
                                 <div><dt>Model</dt><dd id="model-switch-slot-a-model">—</dd></div>
                                 <div><dt>GGUF</dt><dd id="model-switch-slot-a-gguf">—</dd></div>
                             </dl>
+                            <div class="slot-assign-row">
+                                <select id="model-switch-select-a" aria-label="Model A preset">
+                                    <option value="">Assign preset…</option>
+                                </select>
+                                <button class="btn btn-sm btn-ghost" id="model-switch-clear-a" type="button" title="Clear slot A" aria-label="Clear slot A preset" disabled>✕</button>
+                            </div>
                             <div class="model-switch-slot-footer">
                                 <span class="model-switch-slot-message" id="model-switch-slot-a-message">Choose a saved llama-server preset.</span>
                                 <button class="btn btn-sm btn-primary hidden" id="model-switch-slot-a-action" type="button" data-model-switch-action="a">Switch to Model A</button>
@@ -309,36 +312,22 @@
                                 <span class="model-switch-badge" id="model-switch-slot-b-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Preset</dt><dd id="model-switch-slot-b-preset">—</dd></div>
                                 <div><dt>Model</dt><dd id="model-switch-slot-b-model">—</dd></div>
                                 <div><dt>GGUF</dt><dd id="model-switch-slot-b-gguf">—</dd></div>
                             </dl>
+                            <div class="slot-assign-row">
+                                <select id="model-switch-select-b" aria-label="Model B preset">
+                                    <option value="">Assign preset…</option>
+                                </select>
+                                <button class="btn btn-sm btn-ghost" id="model-switch-clear-b" type="button" title="Clear slot B" aria-label="Clear slot B preset" disabled>✕</button>
+                            </div>
                             <div class="model-switch-slot-footer">
                                 <span class="model-switch-slot-message" id="model-switch-slot-b-message">Choose a saved llama-server preset.</span>
                                 <button class="btn btn-sm btn-primary hidden" id="model-switch-slot-b-action" type="button" data-model-switch-action="b">Switch to Model B</button>
                             </div>
                         </article>
                     </div>
-                    <div class="model-switch-manage hidden" id="model-switch-manage" aria-hidden="true">
-                        <div class="model-switch-manage-heading">Assign saved server presets</div>
-                        <div class="model-switch-manage-grid">
-                            <div class="form-group">
-                                <label class="form-label" for="model-switch-select-a">Model A preset</label>
-                                <div class="input-row">
-                                    <select id="model-switch-select-a"><option value="">Unassigned</option></select>
-                                    <button class="btn btn-sm btn-ghost" id="model-switch-clear-a" type="button" disabled>Clear</button>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" for="model-switch-select-b">Model B preset</label>
-                                <div class="input-row">
-                                    <select id="model-switch-select-b"><option value="">Unassigned</option></select>
-                                    <button class="btn btn-sm btn-ghost" id="model-switch-clear-b" type="button" disabled>Clear</button>
-                                </div>
-                            </div>
-                        </div>
-                        <p class="help-text">Only saved full presets configured for llama-server are available.</p>
-                    </div>
+                    <p class="help-text model-switch-footer-note">Only saved full presets configured for llama-server are available. Standby means the model configuration is saved and ready to preflight; it is not kept loaded in RAM or VRAM.</p>
                 </div>
             </section>
 
@@ -365,7 +354,7 @@
                             </div>
                         </div>
                         <div class="form-group">
-                            <label class="form-label" for="quick-profile-select">Beginner Profile</label>
+                            <label class="form-label" for="quick-profile-select">Profile</label>
                             <select id="quick-profile-select">
                                 <option value="">Choose a profile...</option>
                             </select>
@@ -384,12 +373,18 @@
                         </div>
                         <div class="quick-mode-toggle" id="quick-mode-toggle">
                             <label class="quick-choice">
-                                <input type="radio" name="quick-launch-mode" value="llama-server" checked />
-                                <span>API Server</span>
+                                <span class="quick-choice-title">
+                                    <input type="radio" name="quick-launch-mode" value="llama-server" checked />
+                                    Web / API Server
+                                </span>
+                                <span class="quick-choice-desc">Browser chat and OpenAI-compatible API endpoints.</span>
                             </label>
                             <label class="quick-choice">
-                                <input type="radio" name="quick-launch-mode" value="llama-cli" />
-                                <span>Chat</span>
+                                <span class="quick-choice-title">
+                                    <input type="radio" name="quick-launch-mode" value="llama-cli" />
+                                    Terminal Chat
+                                </span>
+                                <span class="quick-choice-desc">Interactive llama-cli chat in a console window.</span>
                             </label>
                         </div>
                         <p id="quick-mode-summary" class="help-text">API Server exposes the OpenAI-compatible endpoints and built-in web UI.</p>
@@ -397,7 +392,10 @@
                         <div class="quick-auth-section" id="quick-auth-section">
                             <div class="quick-subsection-label">API Protection (optional)</div>
                             <label class="form-label" for="quick-api-key">API Key</label>
-                            <div id="quick-api-key-control"></div>
+                            <div class="api-key-row">
+                                <div id="quick-api-key-control"></div>
+                                <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
+                            </div>
                             <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
                         </div>
 
@@ -424,17 +422,17 @@
                             <label class="form-label" for="quick-context-preset">Context Length</label>
                             <div class="input-row">
                                 <select id="quick-context-preset">
-                                    <option value="8192">8192</option>
-                                    <option value="16000">16000</option>
-                                    <option value="32768">32768</option>
-                                    <option value="64000">64000</option>
-                                    <option value="128000">128000</option>
-                                    <option value="256000">256000</option>
-                                    <option value="custom">Custom</option>
+                                    <option value="8192">8K</option>
+                                    <option value="16000">16K</option>
+                                    <option value="32768">32K</option>
+                                    <option value="64000">64K (recommended)</option>
+                                    <option value="128000">128K</option>
+                                    <option value="256000">256K</option>
+                                    <option value="custom">Custom…</option>
                                 </select>
                                 <input type="number" id="quick-context-custom" min="0" step="1" placeholder="Custom tokens" />
                             </div>
-                            <p class="help-text">32768 is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
+                            <p class="help-text">64K is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
                         </div>
 
                         <div class="form-group">
@@ -459,19 +457,22 @@
                             </select>
                         </div>
 
-                        <div class="quick-fit-grid">
-                            <div class="form-group">
-                                <label class="form-label" for="quick-fit-target">Fit Target Margin (MiB)</label>
-                                <input type="text" id="quick-fit-target" placeholder="1024" />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-fit-ctx">Minimum Fit Context</label>
-                                <div class="input-row">
-                                    <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="16000" />
-                                    <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
+                        <details class="fit-advanced">
+                            <summary>Advanced fit options</summary>
+                            <div class="quick-fit-grid">
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
+                                    <input type="text" id="quick-fit-target" placeholder="1024" />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
+                                    <div class="input-row">
+                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="16000" />
+                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        </details>
 
                         <p id="quick-fit-summary" class="help-text"></p>
                     </div>
@@ -502,29 +503,47 @@
                         </div>
 
                         <div class="quick-slider-grid">
-                            <div class="form-group">
-                                <label class="form-label" for="quick-temperature">Temperature</label>
-                                <input type="number" id="quick-temperature" min="0" max="5" step="0.01" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-temperature">Temperature</label>
+                                    <span class="sampler-slider-value" id="quick-temperature-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-temperature" min="0" max="2" step="0.01" />
                             </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-top-k">Top-K</label>
-                                <input type="number" id="quick-top-k" min="0" step="1" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-top-k">Top-K</label>
+                                    <span class="sampler-slider-value" id="quick-top-k-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-top-k" min="0" max="100" step="1" />
                             </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-top-p">Top-P</label>
-                                <input type="number" id="quick-top-p" min="0" max="1" step="0.01" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-top-p">Top-P</label>
+                                    <span class="sampler-slider-value" id="quick-top-p-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-top-p" min="0" max="1" step="0.01" />
                             </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-min-p">Min-P</label>
-                                <input type="number" id="quick-min-p" min="0" max="1" step="0.01" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-min-p">Min-P</label>
+                                    <span class="sampler-slider-value" id="quick-min-p-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-min-p" min="0" max="1" step="0.01" />
                             </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
-                                <input type="number" id="quick-repeat-penalty" min="0.5" max="3" step="0.01" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
+                                    <span class="sampler-slider-value" id="quick-repeat-penalty-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-repeat-penalty" min="0.5" max="2" step="0.01" />
                             </div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
-                                <input type="number" id="quick-presence-penalty" min="0" max="5" step="0.1" />
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
+                                    <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.05" />
                             </div>
                         </div>
                     </div>
@@ -604,23 +623,35 @@
                         </div>
                     </div>
                     <p class="help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
-                    <div class="code-block-wrap">
-                        <div class="code-block" id="quick-command-preview"></div>
-                        <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                            Copy
-                        </button>
+                    <div class="readiness-bar" id="quick-readiness-bar">
+                        <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
+                        <span class="readiness-chip missing" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: none</span></span>
+                        <span class="readiness-chip ok" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
+                        <span class="readiness-chip ok" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
+                        <span class="readiness-chip missing" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
                     </div>
+                    <details class="cmd-preview-toggle">
+                        <summary>Show launch command</summary>
+                        <div class="code-block-wrap">
+                            <div class="code-block" id="quick-command-preview"></div>
+                            <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                    </details>
                     <div id="quick-launch-status" class="quick-launch-status" role="status" aria-live="polite"></div>
-                    <div class="quick-actions">
-                        <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">
-                            <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                            Launch
-                        </button>
-                        <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
-                            Stop
-                        </button>
+                    <div class="quick-actions-sticky">
+                        <div class="quick-actions">
+                            <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">
+                                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+                                <span id="btn-quick-launch-label">Launch</span>
+                            </button>
+                            <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
+                                Stop
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

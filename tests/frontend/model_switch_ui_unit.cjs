@@ -99,7 +99,9 @@ assert.ok(blocked.warnings.length >= 2, "storage failures should be logged");
 
 assert.match(indexHtml, /id="model-switch-card"/);
 assert.match(indexHtml, /id="model-switch-toggle"[^>]+aria-controls="model-switch-body"/);
-assert.match(indexHtml, /id="model-switch-manage-toggle"[^>]+aria-controls="model-switch-manage"/);
+assert.doesNotMatch(indexHtml, /model-switch-manage-toggle/, "manage mode should be replaced by inline slot selects");
+assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-select-a"/, "slot A should carry its own preset select");
+assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-select-b"/, "slot B should carry its own preset select");
 assert.match(indexHtml, /Standby means the model configuration is saved and ready to preflight/);
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?role="slider"/);
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?aria-disabled="true"/);
