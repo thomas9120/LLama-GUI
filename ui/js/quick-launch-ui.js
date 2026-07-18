@@ -192,6 +192,146 @@
         status.textContent = message || "";
     }
 
+    function getDefaultCtxSize() {
+        const flag = Array.isArray(FLAGS) ? FLAGS.find((entry) => entry.id === "ctx_size") : null;
+        const value = flag && Number(flag.default);
+        return Number.isFinite(value) ? value : 64000;
+    }
+
+    function formatContextLabel(ctx) {
+        const key = String(ctx);
+        const presetLabels = {
+            "8192": "8K",
+            "16000": "16K",
+            "32768": "32K",
+            "64000": "64K",
+            "128000": "128K",
+            "256000": "256K",
+        };
+        if (presetLabels[key]) return presetLabels[key];
+        const num = Number(ctx);
+        if (!Number.isFinite(num)) return String(ctx ?? "—");
+        if (num >= 1024 && num % 1024 === 0) return `${num / 1024}K`;
+        if (num >= 1000 && num % 1000 === 0) return `${num / 1000}K`;
+        return `${num}`;
+    }
+
+    function formatSamplerBadgeValue(value, step) {
+        if (!Number.isFinite(value)) return "—";
+        if (Number.isInteger(step) || step >= 1) return String(Math.round(value));
+        const decimals = Math.max(0, (String(step).split(".")[1] || "").length || 2);
+        return value.toFixed(decimals);
+    }
+
+    function updateSamplerSliderVisual(slider, displayValue) {
+        if (!slider || slider.type !== "range") return;
+        const min = parseFloat(slider.min || "0");
+        const max = parseFloat(slider.max || "100");
+        const thumbValue = parseFloat(slider.value);
+        const value = Number.isFinite(displayValue) ? displayValue : thumbValue;
+        const fillSource = Number.isFinite(thumbValue) ? thumbValue : value;
+        const pct = Number.isFinite(fillSource) && max > min
+            ? Math.min(100, Math.max(0, ((fillSource - min) / (max - min)) * 100))
+            : 0;
+        slider.style.setProperty("--fill", `${pct}%`);
+        const badge = document.getElementById(`${slider.id}-value`);
+        if (badge) {
+            const step = parseFloat(slider.step || "1");
+            badge.textContent = formatSamplerBadgeValue(value, step);
+            badge.title = Number.isFinite(value) && Number.isFinite(thumbValue) && value !== thumbValue
+                ? `Stored value ${formatSamplerBadgeValue(value, step)} is outside this slider's range`
+                : "";
+        }
+    }
+
+    function applySamplerSliderValue(slider, rawValue) {
+        if (!slider) return;
+        if (rawValue === undefined || rawValue === null || rawValue === "") {
+            updateSamplerSliderVisual(slider);
+            return;
+        }
+        const num = Number(rawValue);
+        if (!Number.isFinite(num)) {
+            updateSamplerSliderVisual(slider);
+            return;
+        }
+        slider.value = String(num);
+        updateSamplerSliderVisual(slider, num);
+    }
+
+    function setReadinessChip(id, tone, text) {
+        const chip = document.getElementById(id);
+        if (!chip) return;
+        chip.classList.remove("ok", "missing", "info");
+        if (tone) chip.classList.add(tone);
+        const label = chip.querySelector(".chip-text");
+        if (label) label.textContent = text;
+        chip.title = text && text.length > 40 ? text : "";
+    }
+
+    function updateReadinessChips(values) {
+        const modelSelect = document.getElementById("model-select");
+        const modelName = modelSelect && modelSelect.value ? modelSelect.value : "";
+        setReadinessChip(
+            "quick-chip-model",
+            modelName ? "ok" : "missing",
+            modelName ? `Model: ${modelName}` : "Model: none",
+        );
+
+        const profileSelect = document.getElementById("quick-profile-select");
+        const profileLabel = profileSelect && profileSelect.value
+            ? (profileSelect.selectedOptions[0] ? profileSelect.selectedOptions[0].textContent : profileSelect.value)
+            : "";
+        setReadinessChip(
+            "quick-chip-profile",
+            "info",
+            profileLabel ? `Profile: ${profileLabel}` : "Profile: optional",
+        );
+
+        const ctx = values.ctx_size ?? getDefaultCtxSize();
+        setReadinessChip("quick-chip-context", "info", `Context: ${formatContextLabel(ctx)}`);
+
+        const gpuLayers = String(values.gpu_layers ?? "auto");
+        const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
+        setReadinessChip("quick-chip-gpu", "info", `GPU: ${gpuLabel}`);
+
+        const hasApiKey = Boolean(values.api_key);
+        setReadinessChip(
+            "quick-chip-api",
+            hasApiKey ? "ok" : "info",
+            hasApiKey ? "API: protected" : "API: open access",
+        );
+
+        const protectedBadge = document.getElementById("quick-api-protected-badge");
+        if (protectedBadge) protectedBadge.classList.toggle("visible", hasApiKey);
+    }
+
+    function setQuickLaunchBusy(busy, outcome) {
+        const launchBtn = document.getElementById("btn-quick-launch");
+        const label = document.getElementById("btn-quick-launch-label");
+        if (!launchBtn || !label) return;
+        if (busy) {
+            launchBtn.disabled = true;
+            label.replaceChildren();
+            const spinner = document.createElement("span");
+            spinner.className = "spinner";
+            label.appendChild(spinner);
+            label.appendChild(document.createTextNode("Starting…"));
+            setQuickLaunchStatus("info", "Launching llama.cpp — loading the model, this can take a moment.");
+            return;
+        }
+        label.textContent = "Launch";
+        launchBtn.disabled = false;
+        updateActionButtons();
+        if (outcome && outcome.ok) {
+            setQuickLaunchStatus("info", "Server is up — see the address badge above or open the Chat tab.");
+        } else if (outcome && !outcome.cancelled && outcome.error) {
+            setQuickLaunchStatus("error", outcome.error);
+        } else {
+            setQuickLaunchStatus("", "");
+        }
+    }
+
     function getQuickLaunchReadiness() {
         const result = flagCore.getLaunchArgs();
         if (result.error) {
@@ -257,11 +397,11 @@
         const modeSummary = document.getElementById("quick-mode-summary");
         if (modeSummary) {
             modeSummary.textContent = tool === "llama-server"
-                ? "API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
-                : "Chat mode is selected. The process runs as an interactive local terminal chat.";
+                ? "Web / API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
+                : "Terminal Chat is selected. The process runs as an interactive local terminal chat.";
         }
 
-        const ctxValue = values.ctx_size ?? 32768;
+        const ctxValue = values.ctx_size ?? getDefaultCtxSize();
         const contextPreset = document.getElementById("quick-context-preset");
         const contextCustom = document.getElementById("quick-context-custom");
         if (contextPreset && contextCustom) {
@@ -330,12 +470,12 @@
         const minP = document.getElementById("quick-min-p");
         const repeatPenalty = document.getElementById("quick-repeat-penalty");
         const presencePenalty = document.getElementById("quick-presence-penalty");
-        if (temperature) temperature.value = values.temperature ?? "";
-        if (topK) topK.value = values.top_k ?? "";
-        if (topP) topP.value = values.top_p ?? "";
-        if (minP) minP.value = values.min_p ?? "";
-        if (repeatPenalty) repeatPenalty.value = values.repeat_penalty ?? "";
-        if (presencePenalty) presencePenalty.value = values.presence_penalty ?? "";
+        applySamplerSliderValue(temperature, values.temperature);
+        applySamplerSliderValue(topK, values.top_k);
+        applySamplerSliderValue(topP, values.top_p);
+        applySamplerSliderValue(minP, values.min_p);
+        applySamplerSliderValue(repeatPenalty, values.repeat_penalty);
+        applySamplerSliderValue(presencePenalty, values.presence_penalty);
 
         const profileSummary = document.getElementById("quick-profile-summary");
         const profileSelect = document.getElementById("quick-profile-select");
@@ -357,6 +497,7 @@
         quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
         quickCommand.classList.toggle("command-preview-error", document.getElementById("command-preview-text").classList.contains("command-preview-error"));
         updateQuickServerAddressPreview();
+        updateReadinessChips(values);
         updateActionButtons();
         const readiness = getQuickLaunchReadiness();
         const mainLaunchBtn = document.getElementById("btn-launch");
@@ -484,7 +625,7 @@
 
         on("btn-quick-fit-sync", "click", () => {
             const values = flagCore.getFlagValues();
-            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? 32768, { quickLaunchFitCtxLinked: true });
+            flagCore.setFlagValue("fit_ctx", values.ctx_size ?? getDefaultCtxSize(), { quickLaunchFitCtxLinked: true });
         });
 
         on("quick-template-pack", "change", (e) => {
@@ -563,6 +704,7 @@
                 flagCore.setFlagValue(flagId, nextValue);
             }, 200);
             on(elementId, "input", (e) => {
+                updateSamplerSliderVisual(e.target);
                 applyQuickSamplerValue(e.target.value.trim());
             });
         }
@@ -577,7 +719,9 @@
             const readiness = getQuickLaunchReadiness();
             setQuickLaunchStatus(readiness.ok ? "" : readiness.type, readiness.message);
             if (!readiness.ok) return;
-            await launchLlama();
+            setQuickLaunchBusy(true);
+            const outcome = await launchLlama();
+            setQuickLaunchBusy(false, outcome);
         });
 
         on("btn-quick-stop", "click", stopLlama);

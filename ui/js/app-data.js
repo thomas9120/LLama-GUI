@@ -72,14 +72,14 @@ const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256
 const QUICK_PROFILES = {
     "safe-defaults": {
         label: "Safe Defaults",
-        summary: "Applies a full starter setup: 16000 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
+        summary: "Applies a full starter setup: 32768 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
         tool: "llama-server",
         flags: {
-            ctx_size: 16000,
+            ctx_size: 32768,
             gpu_layers: "auto",
             fit: "on",
             fit_target: "1024",
-            fit_ctx: 16000,
+            fit_ctx: 32768,
             temperature: 0.8,
             top_p: 0.95,
             min_p: 0.05,
@@ -89,14 +89,14 @@ const QUICK_PROFILES = {
     },
     balanced: {
         label: "Balanced",
-        summary: "Applies a full general-purpose setup with 32768 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
+        summary: "Applies a full general-purpose setup with 64000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
         tool: "llama-server",
         flags: {
-            ctx_size: 32768,
+            ctx_size: 64000,
             gpu_layers: "auto",
             fit: "on",
             fit_target: "1024",
-            fit_ctx: 32768,
+            fit_ctx: 64000,
             temperature: 0.8,
             top_p: 0.95,
             min_p: 0.05,

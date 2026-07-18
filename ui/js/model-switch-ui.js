@@ -473,7 +473,7 @@
             .sort((left, right) => left.name.localeCompare(right.name));
     }
 
-    function populateManageSelect(slotId, entries, record) {
+    function populateSlotSelect(slotId, entries, record) {
         const select = byId(`model-switch-select-${slotId}`);
         const clear = byId(`model-switch-clear-${slotId}`);
         if (!select) return;
@@ -485,7 +485,7 @@
         select.textContent = "";
         const empty = document.createElement("option");
         empty.value = "";
-        empty.textContent = "Unassigned";
+        empty.textContent = "Assign preset…";
         select.appendChild(empty);
         if (current && !validNames.has(current)) {
             const missing = document.createElement("option");
@@ -511,10 +511,13 @@
         const action = byId(`model-switch-slot-${view.id}-action`);
         if (slot) slot.dataset.state = view.state;
         setText(`model-switch-slot-${view.id}-title`, view.displayPresetName || view.presetName || "Unassigned");
-        setText(`model-switch-slot-${view.id}-preset`, view.displayPresetName || view.presetName || "—");
         setText(`model-switch-slot-${view.id}-model`, view.model);
         setText(`model-switch-slot-${view.id}-gguf`, view.gguf);
         setText(`model-switch-slot-${view.id}-message`, view.message);
+        for (const part of ["model", "gguf"]) {
+            const el = byId(`model-switch-slot-${view.id}-${part}`);
+            if (el) el.title = el.textContent || "";
+        }
         if (badge) {
             badge.textContent = view.badge;
             badge.dataset.tone = view.tone;
@@ -602,8 +605,8 @@
         for (const view of viewState.views) renderSlot(view, actionSlot, lifecycle);
         setText("model-switch-summary", summaryText(viewState.views, lifecycle, runtime));
         renderNotice(viewState.storageStatus, viewState.issues);
-        populateManageSelect("a", viewState.entries, viewState.assignments);
-        populateManageSelect("b", viewState.entries, viewState.assignments);
+        populateSlotSelect("a", viewState.entries, viewState.assignments);
+        populateSlotSelect("b", viewState.entries, viewState.assignments);
         renderSidebarSlider(viewState);
     }
 
@@ -662,17 +665,6 @@
             body.setAttribute("aria-hidden", String(!expanded));
             setHidden(body, !expanded);
         }
-    }
-
-    function setManageExpanded(expanded) {
-        const toggle = byId("model-switch-manage-toggle");
-        const panel = byId("model-switch-manage");
-        if (toggle) toggle.setAttribute("aria-expanded", String(expanded));
-        if (panel) {
-            panel.setAttribute("aria-hidden", String(!expanded));
-            setHidden(panel, !expanded);
-        }
-        if (expanded) setExpanded(true);
     }
 
     async function handleAssignmentChange(slotId, presetName) {
@@ -836,14 +828,8 @@
         if (!initialized) {
             initialized = true;
             const collapse = byId("model-switch-toggle");
-            const manage = byId("model-switch-manage-toggle");
             if (collapse) collapse.addEventListener("click", () => {
                 setExpanded(collapse.getAttribute("aria-expanded") !== "true");
-            });
-            if (manage) manage.addEventListener("click", () => {
-                const expanded = manage.getAttribute("aria-expanded") !== "true";
-                setManageExpanded(expanded);
-                refresh({ reloadPresets: expanded });
             });
             for (const slotId of SLOT_IDS) {
                 const action = byId(`model-switch-slot-${slotId}-action`);
@@ -868,8 +854,7 @@
                 sidebarThumb.addEventListener("pointercancel", event => finishSidebarPointer(event, true));
             }
         }
-        setExpanded(true);
-        setManageExpanded(false);
+        setExpanded(false);
         refresh({ reloadPresets: true });
         return true;
     }

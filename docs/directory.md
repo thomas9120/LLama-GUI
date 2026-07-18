@@ -384,8 +384,8 @@ The Quick Launch tab (`section-quick-launch`) provides a simplified launch inter
 ### Profiles
 
 `QUICK_PROFILES` in `ui/js/app-data.js` provides preconfigured setups consumed by `ui/js/quick-launch-ui.js`:
-- `safe-defaults`: 16K context, auto GPU, auto-fit, Balanced sampler preset
-- `balanced`: 32K context, auto GPU, auto-fit, Balanced sampler preset
+- `safe-defaults`: 32K context, auto GPU, auto-fit, Balanced sampler preset
+- `balanced`: 64K context, auto GPU, auto-fit, Balanced sampler preset
 - `long-context`: 128K context, auto-fit, Balanced sampler preset
 - `creative-chat`: 32K context, Creative sampler preset
 
@@ -395,16 +395,19 @@ Each profile applies a tool setting, flag values, fit linking, and sampler prese
 
 Quick Launch renders simplified controls for:
 - Model selection (synced with Configure's model dropdown)
-- Tool mode toggle (llama-server / llama-cli)
-- Context size (preset dropdown + custom input, linked to fit_ctx by default)
+- Tool mode toggle (Web / API Server = llama-server, Terminal Chat = llama-cli), shown as descriptive cards
+- Context size (K-formatted preset dropdown with 64K recommended + custom input, linked to fit_ctx by default)
 - GPU layers (auto/0/all/custom, synced with Configure)
-- Auto Fit toggle + fit target/context inputs
+- Auto Fit toggle; fit target/context inputs live behind an "Advanced fit options" disclosure
 - Chat template (reuses shared `chat_template` options from `ui/js/flags/chat-templates.js`)
 - Sampler preset selection (load/save/delete from shared sampler preset store)
-- Quick sampler fields (temperature, top-k, top-p, min-p, repeat-penalty)
+- Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty) with live value badges
 - Metrics toggle
-- Optional session-only API key with masked entry, generation, copy, and shared Configure synchronization
+- Optional session-only API key with masked entry, generation, copy, a "Protected" badge, and shared Configure synchronization
 - Profile selector with summary text
+- Readiness chips (model required; profile/context/GPU/API are informational) above the launch actions
+- Collapsible launch-command preview and a sticky launch/stop action bar with a busy ("Starting…") state
+- The Model Switcher card is collapsed by default; slots are assigned via inline per-slot preset selects (no manage mode) and detail values are ellipsis-truncated filenames
 
 All controls write through `window.LlamaGui.flagCore` setters (`setFlagValue()` / `setMultipleFlagValues()`), keeping Configure and Quick Launch in sync.
 
@@ -415,6 +418,12 @@ presets. It owns assignment, missing/invalid/drift/failure presentation while
 `process-lifecycle.js` owns preflight, stop, launch, readiness, and recovery.
 Standby means configuration is ready to preflight, not that a second model is
 resident in RAM or VRAM.
+
+The card is collapsed by default. Each slot card carries its own inline preset
+select (`model-switch-select-a/b`) and clear button — there is no separate
+manage mode. Both slots render identical detail rows (Model, GGUF, both
+filename-only via `basename()`), with the select row and a footer holding the
+status message and the switch action.
 
 The compact slider above the sidebar theme selector is a shortcut for an
 already-active Model Switcher runtime. Its position comes from authoritative
