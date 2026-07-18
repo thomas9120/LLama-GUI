@@ -405,7 +405,7 @@ Quick Launch renders simplified controls for:
 - Metrics toggle
 - Optional session-only API key with masked entry, generation, copy, a "Protected" badge, and shared Configure synchronization
 - Profile selector with summary text
-- Readiness chips (model, profile, context, GPU, API protection) above the launch actions
+- Readiness chips (model required; profile/context/GPU/API are informational) above the launch actions
 - Collapsible launch-command preview and a sticky launch/stop action bar with a busy ("Starting…") state
 - The Model Switcher card is collapsed by default; slots are assigned via inline per-slot preset selects (no manage mode) and detail values are ellipsis-truncated filenames
 

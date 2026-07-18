@@ -584,12 +584,9 @@ async function main() {
         await page.waitForFunction(() => !window.LlamaGui.flagCore.getLaunchArgs().args.flat().includes("-cd"));
 
         await selectSection(page, "quick-launch");
-        await page.fill("#quick-temperature", "0.64");
-        await page.dispatchEvent("#quick-temperature", "input");
-        await page.fill("#quick-repeat-penalty", "1.07");
-        await page.dispatchEvent("#quick-repeat-penalty", "input");
-        await page.fill("#quick-presence-penalty", "0.4");
-        await page.dispatchEvent("#quick-presence-penalty", "input");
+        await setRangeValue(page, "#quick-temperature", "0.64");
+        await setRangeValue(page, "#quick-repeat-penalty", "1.07");
+        await setRangeValue(page, "#quick-presence-penalty", "0.4");
         await page.waitForTimeout(250);
         await page.fill("#quick-sampler-name", "Smoke Sampler");
         await page.click("#btn-quick-sampler-save");
@@ -598,12 +595,9 @@ async function main() {
             const preset = raw && JSON.parse(raw)["Smoke Sampler"];
             return preset?.temperature === 0.64 && preset?.presence_penalty === 0.4;
         });
-        await page.fill("#quick-temperature", "0.91");
-        await page.dispatchEvent("#quick-temperature", "input");
-        await page.fill("#quick-repeat-penalty", "1.19");
-        await page.dispatchEvent("#quick-repeat-penalty", "input");
-        await page.fill("#quick-presence-penalty", "0.9");
-        await page.dispatchEvent("#quick-presence-penalty", "input");
+        await setRangeValue(page, "#quick-temperature", "0.91");
+        await setRangeValue(page, "#quick-repeat-penalty", "1.19");
+        await setRangeValue(page, "#quick-presence-penalty", "0.9");
         await page.waitForTimeout(250);
         await page.selectOption("#quick-sampler-select", "custom|Smoke Sampler");
         await page.click("#btn-quick-sampler-load");

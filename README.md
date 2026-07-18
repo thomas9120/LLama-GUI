@@ -174,7 +174,7 @@ The **Model Switcher** card can assign exactly two saved full `llama-server` pre
 
 Full flag browser (search, expand/collapse, beginner tips), command preview, **Custom Launch Args** (shell-like quoting; duplicates of UI flags warn; unparseable input blocks launch), server URL preview, and live stats bar for `llama-server`.
 
-Defaults: tool `llama-server`, `-fit on`, context `16000`. Stats require `--metrics` (on by default); toggled from Quick Launch (“Show server stats bar”) or Configure (“Prometheus Metrics”) — both stay in sync.
+Defaults: tool `llama-server`, `-fit on`, context `64000`. Stats require `--metrics` (on by default); toggled from Quick Launch (“Show server stats bar”) or Configure (“Prometheus Metrics”) — both stay in sync.
 
 **MCP Settings**: `--ui-mcp-proxy` and `--tools` (high-risk tools are marked and warned).
 

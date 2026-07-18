@@ -1129,6 +1129,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 }
 .readiness-chip.ok { color: var(--green); border-color: var(--green-border); background: var(--green-subtle); }
 .readiness-chip.missing { color: var(--yellow); border-color: var(--yellow-border); background: var(--yellow-subtle); }
+.readiness-chip.info { color: var(--fg-muted); border-color: var(--border-strong); background: var(--bg-raised); }
+.readiness-chip .chip-text { max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .readiness-chip .chip-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex-shrink: 0; }
 
 /* Quick Launch: launch busy state */

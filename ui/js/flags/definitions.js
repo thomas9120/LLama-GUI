@@ -507,10 +507,10 @@ const FLAGS = [
 			"Raise this only if you need a guaranteed minimum context and have enough VRAM to support it.",
 		desc: "Minimum context size that auto-fit is allowed to choose. Think of this as a floor, not a replacement for your normal context setting: -fit still decides whether to adjust memory-related settings, while -fitc only limits how far context may be reduced during that process. If -fit is OFF, this setting has no effect.",
 		tool: "both",
-		default: 32768,
+		default: 64000,
 		min: 0,
 		max: 262144,
-		placeholder: "32768",
+		placeholder: "64000",
 	},
 	{
 		id: "cpu_moe",

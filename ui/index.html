@@ -467,7 +467,7 @@
                                 <div class="form-group">
                                     <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
                                     <div class="input-row">
-                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="16000" />
+                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
                                         <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
                                     </div>
                                 </div>
@@ -515,7 +515,7 @@
                                     <label class="form-label" for="quick-top-k">Top-K</label>
                                     <span class="sampler-slider-value" id="quick-top-k-value">—</span>
                                 </div>
-                                <input type="range" class="sampler-range" id="quick-top-k" min="0" max="100" step="1" />
+                                <input type="range" class="sampler-range" id="quick-top-k" min="0" max="200" step="1" />
                             </div>
                             <div class="sampler-slider">
                                 <div class="sampler-slider-head">
@@ -543,7 +543,7 @@
                                     <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
                                     <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
                                 </div>
-                                <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.05" />
+                                <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.1" />
                             </div>
                         </div>
                     </div>
@@ -625,10 +625,10 @@
                     <p class="help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
                     <div class="readiness-bar" id="quick-readiness-bar">
                         <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
-                        <span class="readiness-chip missing" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: none</span></span>
-                        <span class="readiness-chip ok" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
-                        <span class="readiness-chip ok" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
-                        <span class="readiness-chip missing" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
+                        <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: optional</span></span>
+                        <span class="readiness-chip info" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
+                        <span class="readiness-chip info" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
+                        <span class="readiness-chip info" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
                     </div>
                     <details class="cmd-preview-toggle">
                         <summary>Show launch command</summary>
