@@ -558,6 +558,18 @@ async function main() {
         assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.step), "0.01");
         assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.validity.valid), true);
 
+        await page.fill("#flag-temperature", "");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === undefined);
+        await selectSection(page, "quick-launch");
+        assert.equal(await page.textContent("#quick-temperature-value"), "—");
+        assert.equal(await page.locator("#quick-temperature").getAttribute("data-unset"), "true");
+        assert.ok(!(await page.textContent("#quick-command-preview")).includes("--temp"));
+        await setRangeValue(page, "#quick-temperature", "0.96");
+        await page.waitForTimeout(250);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.96);
+        assert.equal(await page.locator("#quick-temperature").getAttribute("data-unset"), "false");
+        await selectSection(page, "configure");
+
         await page.fill("#config-search", "checkpoint min");
         await page.waitForSelector("#flag-checkpoint_every_n_tokens", { state: "visible" });
         assert.equal(await page.locator("#flag-checkpoint_every_n_tokens").getAttribute("min"), "0");
@@ -672,6 +684,36 @@ async function main() {
         assert.ok(tunnelStates.error.badgeClasses.includes("error"));
 
         await selectSection(page, "configure");
+        await page.selectOption("#model-select", "");
+        await page.dispatchEvent("#model-select", "change");
+        await page.evaluate(() => {
+            window.LlamaGui.flagCore.setCurrentTool("llama-server");
+            window.LlamaGui.flagCore.setMultipleFlagValues({
+                hf_repo: "smoke/remote-model",
+                api_key: undefined,
+                custom_args: "--api-key one-off-smoke-key",
+            });
+        });
+        await selectSection(page, "quick-launch");
+        await page.waitForFunction(() => document.querySelector("#quick-chip-model .chip-text")?.textContent === "Model: remote source");
+        assert.ok((await page.locator("#quick-chip-model").getAttribute("class")).includes("ok"));
+        assert.equal(await page.textContent("#quick-chip-api .chip-text"), "API: protected");
+        assert.ok((await page.locator("#quick-api-protected-badge").getAttribute("class")).includes("visible"));
+
+        await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
+        await page.waitForFunction(() => document.querySelector("#quick-chip-api .chip-text")?.textContent === "API: not applicable");
+        assert.ok(!(await page.locator("#quick-api-protected-badge").getAttribute("class")).includes("visible"));
+
+        await page.evaluate(() => {
+            window.LlamaGui.flagCore.setCurrentTool("llama-server");
+            window.LlamaGui.flagCore.setMultipleFlagValues({
+                hf_repo: undefined,
+                custom_args: undefined,
+            });
+        });
+        await selectSection(page, "configure");
+        await page.selectOption("#model-select", "smoke-model.gguf");
+        await page.dispatchEvent("#model-select", "change");
         await page.fill("#custom-launch-args", "--threads 8\n--chat-template-kwargs '{\"preserve_thinking\":true}'");
         await page.dispatchEvent("#custom-launch-args", "input");
         await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("--threads 8"));
@@ -694,6 +736,10 @@ async function main() {
         assert.match(await page.textContent("#command-preview-text"), /Cannot launch:/);
         await page.selectOption("#model-select", "smoke-model.gguf");
         await page.dispatchEvent("#model-select", "change");
+        await selectSection(page, "quick-launch");
+        assert.ok((await page.locator("#quick-chip-model").getAttribute("class")).includes("ok"));
+        assert.equal(await page.textContent("#quick-chip-model .chip-text"), "Model: smoke-model.gguf");
+        await selectSection(page, "configure");
         const launchCountBefore = launchBodies.length;
         await page.click("#btn-launch");
         await page.waitForFunction(() => document.querySelector("#toast-container")?.textContent.includes("unmatched single quote"));

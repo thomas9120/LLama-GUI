@@ -223,31 +223,36 @@
         return value.toFixed(decimals);
     }
 
-    function updateSamplerSliderVisual(slider, displayValue) {
+    function updateSamplerSliderVisual(slider, displayValue, options = {}) {
         if (!slider || slider.type !== "range") return;
+        const unset = options.unset === true;
         const min = parseFloat(slider.min || "0");
         const max = parseFloat(slider.max || "100");
+        if (unset) slider.value = slider.min || "0";
         const thumbValue = parseFloat(slider.value);
         const value = Number.isFinite(displayValue) ? displayValue : thumbValue;
-        const fillSource = Number.isFinite(thumbValue) ? thumbValue : value;
+        const fillSource = unset ? min : Number.isFinite(thumbValue) ? thumbValue : value;
         const pct = Number.isFinite(fillSource) && max > min
             ? Math.min(100, Math.max(0, ((fillSource - min) / (max - min)) * 100))
             : 0;
+        slider.dataset.unset = String(unset);
         slider.style.setProperty("--fill", `${pct}%`);
         const badge = document.getElementById(`${slider.id}-value`);
         if (badge) {
             const step = parseFloat(slider.step || "1");
-            badge.textContent = formatSamplerBadgeValue(value, step);
-            badge.title = Number.isFinite(value) && Number.isFinite(thumbValue) && value !== thumbValue
-                ? `Stored value ${formatSamplerBadgeValue(value, step)} is outside this slider's range`
-                : "";
+            badge.textContent = unset ? "—" : formatSamplerBadgeValue(value, step);
+            badge.title = unset
+                ? "Not set; llama.cpp will use its default."
+                : Number.isFinite(value) && Number.isFinite(thumbValue) && value !== thumbValue
+                    ? `Stored value ${formatSamplerBadgeValue(value, step)} is outside this slider's range`
+                    : "";
         }
     }
 
     function applySamplerSliderValue(slider, rawValue) {
         if (!slider) return;
         if (rawValue === undefined || rawValue === null || rawValue === "") {
-            updateSamplerSliderVisual(slider);
+            updateSamplerSliderVisual(slider, undefined, { unset: true });
             return;
         }
         const num = Number(rawValue);
@@ -269,13 +274,28 @@
         chip.title = text && text.length > 40 ? text : "";
     }
 
-    function updateReadinessChips(values) {
+    function hasLaunchFlag(args, names) {
+        const expected = new Set(names);
+        return (args || []).some((entry) => {
+            const tokens = Array.isArray(entry) ? entry : [entry];
+            return tokens.some((token) => {
+                const value = String(token || "");
+                const separator = value.indexOf("=");
+                const flag = separator === -1 ? value : value.slice(0, separator);
+                return expected.has(flag);
+            });
+        });
+    }
+
+    function updateReadinessChips(values, tool) {
+        const launchArgs = flagCore.getLaunchArgs().args;
         const modelSelect = document.getElementById("model-select");
         const modelName = modelSelect && modelSelect.value ? modelSelect.value : "";
+        const hasModel = Boolean(modelName) || hasLaunchModelArg(launchArgs);
         setReadinessChip(
             "quick-chip-model",
-            modelName ? "ok" : "missing",
-            modelName ? `Model: ${modelName}` : "Model: none",
+            hasModel ? "ok" : "missing",
+            modelName ? `Model: ${modelName}` : hasModel ? "Model: remote source" : "Model: none",
         );
 
         const profileSelect = document.getElementById("quick-profile-select");
@@ -295,11 +315,12 @@
         const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
         setReadinessChip("quick-chip-gpu", "info", `GPU: ${gpuLabel}`);
 
-        const hasApiKey = Boolean(values.api_key);
+        const apiApplies = tool === "llama-server";
+        const hasApiKey = apiApplies && hasLaunchFlag(launchArgs, ["--api-key"]);
         setReadinessChip(
             "quick-chip-api",
             hasApiKey ? "ok" : "info",
-            hasApiKey ? "API: protected" : "API: open access",
+            !apiApplies ? "API: not applicable" : hasApiKey ? "API: protected" : "API: open access",
         );
 
         const protectedBadge = document.getElementById("quick-api-protected-badge");
@@ -497,7 +518,7 @@
         quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
         quickCommand.classList.toggle("command-preview-error", document.getElementById("command-preview-text").classList.contains("command-preview-error"));
         updateQuickServerAddressPreview();
-        updateReadinessChips(values);
+        updateReadinessChips(values, tool);
         updateActionButtons();
         const readiness = getQuickLaunchReadiness();
         const mainLaunchBtn = document.getElementById("btn-launch");
