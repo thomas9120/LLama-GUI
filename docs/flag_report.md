@@ -62,9 +62,9 @@ No local flag appears truly removed.
 |---|---|---|---|
 | `-sm` / `--split-mode` | enum options | `none`, `layer`, `row` | adds `tensor` |
 | `--tools` | enum options | missing `get_datetime` | upstream includes `get_datetime` |
-| `-c` / `--ctx-size` | default | `16000` | upstream default `0`, loaded from model |
+| `-c` / `--ctx-size` | default | `64000` | upstream default `0`, loaded from model |
 | `--mmap` | default | local default disables mmap via `--no-mmap` | upstream default enabled |
-| `-fitc` / `--fit-ctx` | default | `16000` | upstream default `4096` |
+| `-fitc` / `--fit-ctx` | default | `64000` | upstream default `4096` |
 | `-np` / `--parallel` | default | `-1` | upstream default `1` (correction, July 2026: upstream now defaults to `-1` = auto as well — no longer a divergence) |
 | `--metrics` | default | local default enabled | upstream default disabled |
 

@@ -8,6 +8,7 @@ const source = fs.readFileSync(path.join(ROOT, "ui", "js", "model-switch-ui.js")
 const appSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app.js"), "utf8");
 const managerSource = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
 const indexHtml = fs.readFileSync(path.join(ROOT, "ui", "index.html"), "utf8");
+const styleSource = fs.readFileSync(path.join(ROOT, "ui", "css", "style.css"), "utf8");
 
 function createContext(storage) {
     const warnings = [];
@@ -99,8 +100,15 @@ assert.ok(blocked.warnings.length >= 2, "storage failures should be logged");
 
 assert.match(indexHtml, /id="model-switch-card"/);
 assert.match(indexHtml, /id="model-switch-toggle"[^>]+aria-controls="model-switch-body"/);
-assert.match(indexHtml, /id="model-switch-manage-toggle"[^>]+aria-controls="model-switch-manage"/);
+assert.doesNotMatch(indexHtml, /model-switch-manage-toggle/, "manage mode should be replaced by inline slot selects");
+assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-select-a"/, "slot A should carry its own preset select");
+assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-select-b"/, "slot B should carry its own preset select");
 assert.match(indexHtml, /Standby means the model configuration is saved and ready to preflight/);
+assert.match(
+    styleSource,
+    /\.model-switch-details\s*{[^}]*grid-template-columns:\s*repeat\(2,/,
+    "the two remaining Model Switcher details should use a two-column grid"
+);
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?role="slider"/);
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?aria-disabled="true"/);
 assert.ok(
