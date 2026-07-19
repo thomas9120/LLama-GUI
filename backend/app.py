@@ -798,6 +798,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.proxy_v1_request("POST", parsed)
             return
 
+        # Reject disallowed origins before reading the body so unauthorized
+        # callers can't force a full request-body read and JSON parse.
+        if not self.is_safe_request_origin():
+            self.send_error_json("Request origin not allowed", 403)
+            return
+
         body = self.read_body()
 
         if body is _BODY_HANDLED:
@@ -807,21 +813,18 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error_json("Invalid or malformed JSON body", 400)
             return
 
-        if not self.is_safe_request_origin():
-            self.send_error_json("Request origin not allowed", 403)
-            return
-
         self.dispatch_api_request("POST", parsed, body)
 
     def do_DELETE(self):
         parsed = urllib.parse.urlparse(self.path)
-        body = self.read_body()
-
-        if body is _BODY_HANDLED:
-            return
 
         if not self.is_safe_request_origin():
             self.send_error_json("Request origin not allowed", 403)
+            return
+
+        body = self.read_body()
+
+        if body is _BODY_HANDLED:
             return
 
         self.dispatch_api_request("DELETE", parsed, body)

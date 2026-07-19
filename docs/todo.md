@@ -1,5 +1,14 @@
 # TODO
 
+## Code Review Polish (2026-07 backend review)
+
+Low-severity findings from a full-codebase review. None are blockers; pick up opportunistically.
+
+- **`web_search` (`ddgs`) is not SSRF-pinned like `fetch_page_text`.** `DDGS().text()` in `backend/services/web_search.py` uses the library's own networking, bypassing the IP-pinning/private-range blocking that `fetch_page_text` enforces. Impact is limited (fixed DuckDuckGo endpoints, not user-controlled hosts), but the asymmetry is worth closing if the library ever allows custom endpoints or proxies.
+- **`parse_memory_estimate_output` requires exactly 4 whitespace-split columns.** In `backend/services/process_manager.py`, a device name containing a space, or a new column added by a future llama.cpp version, silently drops the row and the estimate reports "output was not recognized." Fails safe, but brittle against upstream output changes.
+- **Confirm `.env` prefix match in auto-update safe-dirty list is intended.** `is_safe_dirty_path` in `backend/services/git_update.py` treats any path starting with `.env` as safe (so it won't block `git pull --ff-only`). That also matches e.g. `.environment_notes.md`. If only `.env` / `.env.*` files are meant, tighten the match.
+- **`install_in_progress` stays set across a synchronous network call.** In `backend/routes/install.py` `start_update`, the flag is set before a blocking GitHub `get_releases()` call runs on the request thread. A slow/hung GitHub response leaves the UI showing an install in progress with no worker thread started. Consider moving the release lookup into the worker.
+
 ## DeepSeek V4 Follow-Ups
 
 PR `ggml-org/llama.cpp#24162` landed in `b9840` and adds DeepSeek V4 runtime/conversion support plus an upstream conversion-time template at `models/templates/deepseek-ai-DeepSeek-V4.jinja`.
