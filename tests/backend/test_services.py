@@ -1146,6 +1146,44 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertFalse(tmpdirs[0].exists())
             self.assertIn("No SHA256 metadata", stderr.getvalue())
 
+    def test_install_release_does_not_save_config_when_executable_repair_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.save_config = mock.Mock()
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                with zipfile.ZipFile(dest, "w") as zf:
+                    zf.writestr("llama-server", "server")
+                return 6
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager,
+                "ensure_installed_tool_executables",
+                side_effect=PermissionError("permission repair failed"),
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            self.assertEqual(
+                ctx.state.download_progress.snapshot()["message"],
+                "permission repair failed",
+            )
+            ctx.services.save_config.assert_not_called()
+
     def test_install_release_rejects_sha_mismatch_and_cleans_tmpdir(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
@@ -1267,6 +1305,109 @@ class LlamaManagerDownloadTests(unittest.TestCase):
 
             chmod.assert_called_once_with(dest / "llama-server", 0o755)
             self.assertEqual((dest / "llama-server").read_text(), "exe")
+
+    def test_lemonade_style_zip_mode_is_repaired_after_extraction(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.llama_tools = ["llama-server"]
+            ctx.services.get_tool_filename = lambda tool: tool
+            ctx.paths.llama_bin.mkdir(parents=True)
+            archive = pathlib.Path(tmp) / "lemonade.zip"
+            info = zipfile.ZipInfo("llama-server")
+            info.external_attr = 0o100644 << 16
+            with zipfile.ZipFile(archive, "w") as zf:
+                zf.writestr(info, "server")
+
+            with mock.patch.object(
+                llama_manager.stat, "S_IMODE", return_value=0o644
+            ), mock.patch.object(
+                llama_manager.os, "chmod"
+            ) as chmod, mock.patch.object(
+                llama_manager.os, "access", return_value=True
+            ):
+                llama_manager.extract_archive_preserve_paths(archive, ctx.paths.llama_bin)
+                repaired = llama_manager.ensure_installed_tool_executables(ctx)
+
+            self.assertEqual(repaired, ["llama-server"])
+            self.assertEqual(
+                chmod.call_args_list,
+                [
+                    mock.call(ctx.paths.llama_bin / "llama-server", 0o644),
+                    mock.call(ctx.paths.llama_bin / "llama-server", 0o755),
+                ],
+            )
+
+    def test_ensure_installed_tool_executables_repairs_only_known_tools(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.llama_tools = ["llama-cli", "llama-server"]
+            ctx.services.get_tool_filename = lambda tool: tool
+            ctx.paths.llama_bin.mkdir(parents=True)
+            cli_path = ctx.paths.llama_bin / "llama-cli"
+            server_path = ctx.paths.llama_bin / "llama-server"
+            library_path = ctx.paths.llama_bin / "libggml.so"
+            for path in (cli_path, server_path, library_path):
+                path.write_text("binary")
+
+            with mock.patch.object(
+                llama_manager.stat, "S_IMODE", return_value=0o644
+            ), mock.patch.object(
+                llama_manager.os, "chmod"
+            ) as chmod, mock.patch.object(
+                llama_manager.os, "access", return_value=True
+            ) as access:
+                repaired = llama_manager.ensure_installed_tool_executables(ctx)
+
+            self.assertEqual(repaired, ["llama-cli", "llama-server"])
+            self.assertEqual(
+                chmod.call_args_list,
+                [mock.call(cli_path, 0o755), mock.call(server_path, 0o755)],
+            )
+            self.assertEqual(
+                access.call_args_list,
+                [
+                    mock.call(cli_path, llama_manager.os.X_OK),
+                    mock.call(server_path, llama_manager.os.X_OK),
+                ],
+            )
+            self.assertNotIn(library_path, [call.args[0] for call in chmod.call_args_list])
+
+    def test_ensure_installed_tool_executables_skips_windows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "win32"
+            ctx.services.llama_tools = ["llama-server"]
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            ctx.paths.llama_bin.mkdir(parents=True)
+            (ctx.paths.llama_bin / "llama-server.exe").write_text("binary")
+
+            with mock.patch.object(llama_manager.os, "chmod") as chmod, mock.patch.object(
+                llama_manager.os, "access"
+            ) as access:
+                repaired = llama_manager.ensure_installed_tool_executables(ctx)
+
+            self.assertEqual(repaired, [])
+            chmod.assert_not_called()
+            access.assert_not_called()
+
+    def test_ensure_installed_tool_executables_rejects_unusable_filesystem(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.llama_tools = ["llama-server"]
+            ctx.services.get_tool_filename = lambda tool: tool
+            ctx.paths.llama_bin.mkdir(parents=True)
+            (ctx.paths.llama_bin / "llama-server").write_text("binary")
+
+            with mock.patch.object(
+                llama_manager.stat, "S_IMODE", return_value=0o644
+            ), mock.patch.object(llama_manager.os, "chmod"), mock.patch.object(
+                llama_manager.os, "access", return_value=False
+            ):
+                with self.assertRaisesRegex(PermissionError, "mount options"):
+                    llama_manager.ensure_installed_tool_executables(ctx)
 
     def test_extract_archive_preserve_paths_blocks_traversal(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -7,6 +7,7 @@ import os
 import pathlib
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -632,6 +633,34 @@ def extract_archive_preserve_paths(
     raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
 
+def ensure_installed_tool_executables(ctx: AppContext) -> list[str]:
+    """Add executable bits to downloaded llama.cpp tools on Unix platforms."""
+    current_platform = ctx.services.current_platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    if current_platform == "win32":
+        return []
+
+    repaired: list[str] = []
+    for tool in ctx.services.llama_tools:
+        filename = ctx.services.get_tool_filename(tool)
+        tool_path = ctx.paths.llama_bin / filename
+        if not tool_path.is_file():
+            continue
+
+        current_mode = stat.S_IMODE(tool_path.stat().st_mode)
+        executable_mode = current_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+        if executable_mode != current_mode:
+            os.chmod(tool_path, executable_mode)
+            repaired.append(filename)
+        if not os.access(tool_path, os.X_OK):
+            raise PermissionError(
+                f"Could not make {filename} executable. Check filesystem permissions or mount options."
+            )
+
+    return repaired
+
+
 def install_release(
     ctx: AppContext,
     tag: str,
@@ -725,6 +754,8 @@ def install_release(
                     extra_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars
                 )
 
+        ensure_installed_tool_executables(ctx)
+
         ctx.services.save_config(
             {"version": release.get("name", tag), "backend": backend, "tag": tag}
         )
@@ -735,6 +766,7 @@ def install_release(
         return True
 
     except Exception as e:
+        print(f"[llama_manager] install_release failed: {e}", file=sys.stderr)
         set_download_progress(ctx, status="error", message=str(e))
         return False
     finally:

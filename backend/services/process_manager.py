@@ -1001,8 +1001,20 @@ def _validate_launch_environment(
 ) -> tuple[Optional[Path], Optional[str]]:
     exe_name = ctx.services.get_tool_filename(tool)
     exe_path = ctx.services.find_tool_executable(tool)
-    if not exe_path.exists():
+    if not exe_path.is_file():
         return None, f"{exe_name} not found. Install llama.cpp first."
+
+    current_platform = ctx.services.current_platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    if current_platform != "win32" and not os.access(exe_path, os.X_OK):
+        cfg = _load_config_safe(ctx)
+        recovery = (
+            f"Run chmod +x on llama/custom/bin/{exe_name}."
+            if cfg.get("backend") == "custom"
+            else "Use Repair Install to restore executable permissions."
+        )
+        return None, f"{exe_name} is not executable. {recovery}"
 
     runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
     missing_runtime_files = runtime_health.get("missing_runtime_files") or []
