@@ -1,5 +1,7 @@
 """Backend status API route."""
 
+import os
+
 from ..http import sanitize_error
 from ..config import LLAMA_HOST, LLAMA_PORT
 from ..services import process_manager
@@ -12,7 +14,10 @@ def get_status(request, response, ctx):
         exes = {}
         for tool in services.llama_tools:
             name = services.get_tool_filename(tool)
-            exes[name] = services.find_tool_executable(tool).exists()
+            executable = services.find_tool_executable(tool)
+            exes[name] = executable.is_file() and (
+                services.current_platform == "win32" or os.access(executable, os.X_OK)
+            )
 
         runtime_files = services.get_runtime_files()
         runtime_health = dict(services.validate_runtime_dependencies())

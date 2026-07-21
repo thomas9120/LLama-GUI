@@ -560,6 +560,37 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertFalse(response.payload["api_auth_configured"])
             self.assertEqual(response.payload["last_exit_code"], 7)
 
+    def test_status_route_marks_non_executable_unix_tools_unavailable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            cli_path = ctx.paths.llama_bin / "llama-cli"
+            server_path = ctx.paths.llama_bin / "llama-server"
+            cli_path.parent.mkdir(parents=True)
+            cli_path.write_text("binary")
+            server_path.write_text("binary")
+            ctx.services = BackendServices(
+                backend_specs={"cpu": {"label": "CPU"}},
+                current_arch="x64",
+                current_platform="linux",
+                find_tool_executable=lambda tool: ctx.paths.llama_bin / tool,
+                get_platform_label=lambda: "Linux",
+                get_runtime_files=lambda: [],
+                get_tool_filename=lambda tool: tool,
+                llama_tools=["llama-cli", "llama-server"],
+                load_config=lambda: {"tag": "b1", "backend": "cpu"},
+            )
+            response = DummyResponse()
+
+            with mock.patch.object(status.os, "access", return_value=False):
+                status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+            self.assertEqual(
+                response.payload["executables"],
+                {"llama-cli": False, "llama-server": False},
+            )
+            self.assertFalse(response.payload["installed"])
+            self.assertTrue(response.payload["config_stale"])
+
     def test_status_route_exposes_safe_active_runtime_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -609,6 +640,8 @@ class ExtractedRouteTests(unittest.TestCase):
             cli_path.parent.mkdir(parents=True)
             cli_path.write_text("")
             server_path.write_text("")
+            cli_path.chmod(0o755)
+            server_path.chmod(0o755)
             ctx.services = BackendServices(
                 backend_specs={"metal": {"label": "Metal"}},
                 current_arch="arm64",
@@ -641,6 +674,7 @@ class ExtractedRouteTests(unittest.TestCase):
             cli_path = ctx.paths.llama_custom_bin / "llama-cli"
             cli_path.parent.mkdir(parents=True)
             cli_path.write_text("")
+            cli_path.chmod(0o755)
             ctx.services = BackendServices(
                 backend_specs={"custom": {"label": "Custom (User-Provided)"}},
                 current_arch="x64",
@@ -666,6 +700,8 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.paths.llama_custom_bin.mkdir(parents=True)
             (ctx.paths.llama_custom_bin / "llama-cli").write_text("")
             (ctx.paths.llama_custom_bin / "llama-server").write_text("")
+            (ctx.paths.llama_custom_bin / "llama-cli").chmod(0o755)
+            (ctx.paths.llama_custom_bin / "llama-server").chmod(0o755)
             ctx.services = BackendServices(
                 backend_specs={"custom": {"label": "Custom (User-Provided)"}},
                 current_arch="arm64",
@@ -926,6 +962,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             ctx.paths.llama_bin.mkdir(parents=True)
             (ctx.paths.llama_bin / "llama-server").write_text("binary")
+            (ctx.paths.llama_bin / "llama-server").chmod(0o755)
             ctx.services = BackendServices(
                 current_platform="darwin",
                 find_tool_executable=lambda tool: ctx.paths.llama_bin / tool,
@@ -944,6 +981,33 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("Missing llama.cpp runtime library", result["error"])
             self.assertIn("libllama-common.0.dylib", result["error"])
             mock_popen.assert_not_called()
+
+    def test_process_manager_launch_rejects_non_executable_unix_tools(self):
+        cases = [
+            ("cpu", "Repair Install"),
+            ("custom", "chmod +x on llama/custom/bin/llama-server"),
+        ]
+        for backend, expected_recovery in cases:
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as tmp:
+                ctx = make_context(tmp)
+                executable = ctx.paths.llama_bin / "llama-server"
+                executable.parent.mkdir(parents=True)
+                executable.write_text("binary")
+                ctx.services = BackendServices(
+                    current_platform="linux",
+                    find_tool_executable=lambda tool: executable,
+                    get_tool_filename=lambda tool: tool,
+                    load_config=lambda backend=backend: {"backend": backend},
+                )
+
+                with mock.patch.object(
+                    process_manager.os, "access", return_value=False
+                ), mock.patch.object(process_manager.subprocess, "Popen") as mock_popen:
+                    result = process_manager.launch_process(ctx, "llama-server", [])
+
+                self.assertIn("llama-server is not executable", result["error"])
+                self.assertIn(expected_recovery, result["error"])
+                mock_popen.assert_not_called()
 
     def test_process_manager_redacts_api_keys_from_display_commands(self):
         self.assertEqual(
@@ -966,6 +1030,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.paths.llama_bin.mkdir(parents=True)
             executable = ctx.paths.llama_bin / "llama-server"
             executable.write_text("binary")
+            executable.chmod(0o755)
             ctx.services = BackendServices(
                 current_platform="linux",
                 find_tool_executable=lambda tool: executable,
@@ -1057,6 +1122,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.paths.llama_bin.mkdir(parents=True)
             executable = ctx.paths.llama_bin / "llama-server"
             executable.write_text("binary")
+            executable.chmod(0o755)
             ctx.services = BackendServices(
                 current_platform="linux",
                 find_tool_executable=lambda tool: executable,
@@ -1134,6 +1200,7 @@ class ExtractedRouteTests(unittest.TestCase):
             executable = ctx.paths.llama_bin / "llama-server"
             executable.parent.mkdir(parents=True)
             executable.write_text("binary")
+            executable.chmod(0o755)
             model = ctx.paths.models / "qwen.gguf"
             model.parent.mkdir(parents=True)
             model.write_text("model")
@@ -1265,6 +1332,7 @@ class ExtractedRouteTests(unittest.TestCase):
 
             executable.parent.mkdir(parents=True)
             executable.write_text("binary")
+            executable.chmod(0o755)
             ctx.services.validate_runtime_dependencies = lambda tools=None: {
                 "missing_runtime_files": ["runtime.dll"]
             }
@@ -1580,6 +1648,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.paths.llama_bin.mkdir(parents=True)
             executable = ctx.paths.llama_bin / "llama-server"
             executable.write_text("binary")
+            executable.chmod(0o755)
             ctx.services.find_tool_executable = lambda tool: executable
             ctx.services.get_tool_filename = lambda tool: tool
             fake_process = mock.Mock()
@@ -1638,6 +1707,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             ctx.paths.llama_bin.mkdir(parents=True)
             (ctx.paths.llama_bin / "llama-server").write_text("binary")
+            (ctx.paths.llama_bin / "llama-server").chmod(0o755)
             ctx.services = BackendServices(
                 current_platform="darwin",
                 find_tool_executable=lambda tool: ctx.paths.llama_bin / tool,
