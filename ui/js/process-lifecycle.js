@@ -4,6 +4,7 @@
     const root = window.LlamaGui = window.LlamaGui || {};
     const listeners = new Set();
     const DEFAULT_HEALTH_POLL_MS = 500;
+    const DEFAULT_SLOW_LOAD_WARNING_MS = 120000;
 
     let deps = {};
     let transitionId = 0;
@@ -156,6 +157,13 @@
         return Number.isFinite(configured) && configured >= 0 ? configured : DEFAULT_HEALTH_POLL_MS;
     }
 
+    function slowLoadWarningDelay() {
+        const configured = Number(deps.slowLoadWarningMs);
+        return Number.isFinite(configured) && configured >= 0
+            ? configured
+            : DEFAULT_SLOW_LOAD_WARNING_MS;
+    }
+
     function delay(ms) {
         if (typeof deps.delay === "function") return deps.delay(ms);
         return new Promise(resolve => setTimeout(resolve, ms));
@@ -186,6 +194,8 @@
         if (generation === null) {
             return settleAsFailed(id, "Launch did not provide a runtime generation.", options);
         }
+        const waitStartedAt = Date.now();
+        let slowLoadWarningShown = false;
 
         while (isCurrent(id)) {
             let health;
@@ -260,6 +270,22 @@
                         ? "Another runtime replaced the launched process."
                         : "The launched process exited before it became ready.";
                 return settleAsFailed(id, message, options);
+            }
+
+            if (
+                !slowLoadWarningShown
+                && Date.now() - waitStartedAt >= slowLoadWarningDelay()
+            ) {
+                slowLoadWarningShown = true;
+                await callOptionalHook(
+                    options,
+                    "onSlowLoad",
+                    "Model loading is taking longer than expected. Check the process output for GPU driver, device, or memory errors; Stop remains available.",
+                    copyRuntime(runtime),
+                    getSnapshot(),
+                    health
+                );
+                if (!isCurrent(id)) return result(false, { cancelled: true });
             }
 
             updateSnapshot({

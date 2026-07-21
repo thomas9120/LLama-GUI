@@ -462,7 +462,9 @@ function updateStatusUI(status) {
         hint.className = "installed-info-hint";
         hint.textContent = status.backend === "custom"
             ? "Add llama-cli and llama-server to llama/custom/bin/, then click Activate Custom again."
-            : "Click Repair Install to reinstall the configured version/backend and restore binaries.";
+            : status.platform === "linux" && missingRuntimeFiles.length > 0
+                ? "Click Repair Install first. If the same libraries remain missing, install or update the Vulkan/ROCm driver runtime for this system."
+                : "Click Repair Install to reinstall the configured version/backend and restore binaries.";
         info.appendChild(hint);
 
         appendRow("Version (config)", String(status.version));

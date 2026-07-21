@@ -63,6 +63,7 @@
 ### Backend Capabilities
 
 - Downloads `llama.cpp` releases from GitHub with SHA256 verification.
+- Validates packaged runtime libraries with `otool` on macOS and `ldd` on Linux before launch, while preserving the local runtime-library search path.
 - Runs `llama-server`, `llama-cli`, `llama-bench`, or `llama-perplexity` as a subprocess and streams stdout/stderr.
 - Downloads the official WikiText-2 raw test file for Benchmarking clean perplexity runs.
 - Handles preset, model file, and Hugging Face download APIs.
@@ -170,7 +171,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |
 | `ui/js/output-cursor.js` | `window.LlamaGui.outputCursor` | Shared monotonic cursor consumer for main and benchmark process-output polling |
-| `ui/js/process-lifecycle.js` | `window.LlamaGui.processLifecycle` | Race-resistant launch, stop, switch, restore, authoritative-status reconciliation, and generation-keyed readiness controller with injectable UI hooks |
+| `ui/js/process-lifecycle.js` | `window.LlamaGui.processLifecycle` | Race-resistant launch, stop, switch, restore, authoritative-status reconciliation, generation-keyed readiness, and one-shot prolonged-load diagnostics with injectable UI hooks |
 | `ui/js/sampler-presets.js` | `window.LlamaGui.samplerPresets` | Sampler preset storage, normalization, apply behavior, import/export, and Configure-tab controls; writes sampler values through injected `flagCore` |
 | `ui/js/chat-rendering.js` | `window.LlamaGui.chatRendering` | Markdown and low-level chat DOM rendering helpers |
 | `ui/js/api-tab.js` | `window.LlamaGui.apiTab` | API tab endpoint/snippet data, base URL and authorization helpers, and rendering; reads shared state through injected `flagCore` |

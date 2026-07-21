@@ -240,6 +240,16 @@ Place `.gguf` files in `models/`, refresh the model list in Configure, or use `-
 
 Immediate crash or DLL/backend errors: reinstall a backend that matches your hardware/drivers, try **Install → Repair Install**, or test with `CPU` first.
 
+On Linux, Llama GUI uses `ldd` when available to check `llama-server`, `llama-cli`, and packaged ggml backend plugins before launch, then reports unresolved shared libraries in the Install tab. If a repaired Vulkan or ROCm install still fails, verify the host driver stack directly:
+
+```bash
+ldd llama/bin/llama-server | grep "not found"
+vulkaninfo --summary   # Vulkan
+rocminfo               # ROCm / AMD kernel-driver access
+```
+
+Lemonade ROCm archives include user-space ROCm libraries, but the selected `gfx` target must match the GPU and the host still needs working AMD kernel-driver access. If model loading runs unusually long, the app keeps the process stoppable and adds a persistent warning directing you to the live process output.
+
 ### Antivirus / Defender quarantine
 
 Install looks fine but binaries are missing: check quarantine, restore blocked `llama/` files, and only add a project exclusion if you trust the source.

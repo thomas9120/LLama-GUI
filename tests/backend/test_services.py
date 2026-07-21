@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import pathlib
 import subprocess
 import tarfile
@@ -519,6 +520,33 @@ class ActivateCustomBackendTests(unittest.TestCase):
             self.assertEqual(result["missing_runtime_files"], ["libllama-common.0.dylib"])
             ctx.services.save_config.assert_not_called()
 
+    def test_rejects_linux_custom_backend_when_shared_library_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.llama_tools = ["llama-cli", "llama-server"]
+            ctx.services.current_platform = "linux"
+            ctx.services.get_tool_filename = lambda tool: tool
+            ctx.services.load_config = lambda: {"tag": None, "backend": None}
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_custom_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                tool_path = ctx.paths.llama_custom_bin / tool
+                tool_path.write_text("binary")
+                tool_path.chmod(0o755)
+
+            with mock.patch.object(
+                llama_manager,
+                "get_linux_missing_libraries",
+                return_value=["libamdhip64.so.7"],
+            ):
+                result = llama_manager.activate_custom_backend(ctx)
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["missing_required"], [])
+            self.assertEqual(result["not_executable"], [])
+            self.assertEqual(result["missing_runtime_files"], ["libamdhip64.so.7"])
+            ctx.services.save_config.assert_not_called()
+
 
 class ResolveRepoApiTests(unittest.TestCase):
     def test_returns_spec_repo_api_for_lemonade(self):
@@ -682,6 +710,41 @@ class RuntimeDependencyValidationTests(unittest.TestCase):
             ["libllama-common.0.dylib"],
         )
 
+    def test_parse_ldd_missing_libraries_returns_unique_basenames(self):
+        output = """
+        libggml-vulkan.so => /tmp/llama/bin/libggml-vulkan.so (0x00007f00)
+        libvulkan.so.1 => not found
+        /opt/rocm/lib/libamdhip64.so.7 => not found
+        libvulkan.so.1 => not found
+        libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f01)
+"""
+
+        self.assertEqual(
+            llama_manager.parse_ldd_missing_libraries(output),
+            ["libvulkan.so.1", "libamdhip64.so.7"],
+        )
+
+    def test_get_linux_missing_libraries_uses_local_runtime_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            executable = root / "llama-server"
+            completed = subprocess.CompletedProcess(
+                ["ldd", str(executable)],
+                0,
+                stdout="libvulkan.so.1 => not found\n",
+                stderr="",
+            )
+
+            with mock.patch.object(
+                llama_manager.subprocess, "run", return_value=completed
+            ) as run:
+                missing = llama_manager.get_linux_missing_libraries(executable, root)
+
+        self.assertEqual(missing, ["libvulkan.so.1"])
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["LD_LIBRARY_PATH"].split(os.pathsep)[0], str(root))
+        self.assertEqual(env["PATH"].split(os.pathsep)[0], str(root))
+
     def test_validate_macos_runtime_dependencies_passes_when_dylib_exists(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = self.make_runtime_context(tmp)
@@ -713,6 +776,76 @@ class RuntimeDependencyValidationTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["missing_runtime_files"], ["libllama-common.0.dylib"])
+
+    def test_validate_linux_runtime_dependencies_reports_missing_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = self.make_runtime_context(tmp, "linux")
+            (ctx.paths.llama_bin / "llama-server").write_text("binary")
+
+            with mock.patch.object(
+                llama_manager,
+                "get_linux_missing_libraries",
+                return_value=["libvulkan.so.1"],
+            ) as probe:
+                result = llama_manager.validate_runtime_dependencies(
+                    ctx, ["llama-server"]
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertTrue(result["checked"])
+        self.assertEqual(result["missing_runtime_files"], ["libvulkan.so.1"])
+        probe.assert_called_once_with(
+            ctx.paths.llama_bin / "llama-server", ctx.paths.llama_bin
+        )
+
+    def test_validate_linux_runtime_dependencies_checks_backend_plugins(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = self.make_runtime_context(tmp, "linux")
+            executable = ctx.paths.llama_bin / "llama-server"
+            plugin = ctx.paths.llama_bin / "libggml-vulkan.so"
+            executable.write_text("binary")
+            plugin.write_text("library")
+
+            def inspect(path, _runtime_dir):
+                return ["libvulkan.so.1"] if path == plugin else []
+
+            with mock.patch.object(
+                llama_manager,
+                "get_linux_missing_libraries",
+                side_effect=inspect,
+            ) as probe:
+                result = llama_manager.validate_runtime_dependencies(
+                    ctx, ["llama-server"]
+                )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["missing_runtime_files"], ["libvulkan.so.1"])
+        self.assertEqual(result["checked_runtime_files"], ["libggml-vulkan.so"])
+        self.assertEqual(
+            probe.call_args_list,
+            [
+                mock.call(executable, ctx.paths.llama_bin),
+                mock.call(plugin, ctx.paths.llama_bin),
+            ],
+        )
+
+    def test_validate_linux_runtime_dependencies_degrades_without_ldd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = self.make_runtime_context(tmp, "linux")
+            (ctx.paths.llama_bin / "llama-server").write_text("binary")
+
+            with mock.patch.object(
+                llama_manager,
+                "get_linux_missing_libraries",
+                side_effect=FileNotFoundError(),
+            ):
+                result = llama_manager.validate_runtime_dependencies(
+                    ctx, ["llama-server"]
+                )
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["checked"])
+        self.assertEqual(result["unchecked_tools"], ["llama-server"])
 
     def test_validate_macos_custom_runtime_checks_custom_bin_only(self):
         with tempfile.TemporaryDirectory() as tmp:
