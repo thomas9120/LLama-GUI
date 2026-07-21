@@ -1027,7 +1027,11 @@ def _validate_launch_environment(
     recovery = (
         "Add the missing files to llama/custom/bin/."
         if cfg.get("backend") == "custom"
-        else "Use Repair Install to reinstall binaries."
+        else (
+            "Use Repair Install, then verify the matching Vulkan/ROCm driver runtime is installed."
+            if current_platform.startswith("linux")
+            else "Use Repair Install to reinstall binaries."
+        )
     )
     return None, f"Missing llama.cpp runtime {plural}: {missing}. {recovery}"
 

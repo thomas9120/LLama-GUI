@@ -113,6 +113,7 @@ processLifecycle.configure({
     startStats: startStatsPolling,
     postReady: handleLifecycleReady,
     onFailed: handleLifecycleFailure,
+    onSlowLoad: handleLifecycleSlowLoad,
 });
 window.LlamaGui.manager.setAcceptedStatusObserver(reconcileAuthoritativeStatus);
 modelSwitchUi.configure({
@@ -750,6 +751,11 @@ async function handleLifecycleReady(runtime) {
 async function handleLifecycleFailure(message) {
     appendOutput("ERROR: " + message);
     await refreshRuntimeStatusPanels();
+}
+
+function handleLifecycleSlowLoad(message) {
+    appendOutput("WARNING: " + message);
+    showToast(message, "warning", { duration: 0 });
 }
 
 async function handleReconciliationFailure(message) {

@@ -21,10 +21,11 @@ from ..context import AppContext
 
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
+LDD_NOT_FOUND_RE = re.compile(r"^\s*([^\s]+)\s+=>\s+not found\s*$")
 
-# Runtime dependency validation shells out to otool on macOS, so results are
-# cached briefly. Config-changing operations (install, cleanup, backend
-# activation) clear the cache to keep /api/status fresh.
+# Runtime dependency validation shells out to otool on macOS and ldd on Linux,
+# so results are cached briefly. Config-changing operations (install, cleanup,
+# backend activation) clear the cache to keep /api/status fresh.
 RUNTIME_HEALTH_CACHE_TTL_SECONDS = 5.0
 
 # Optional llamacpp-rocm backend (https://github.com/lemonade-sdk/llamacpp-rocm).
@@ -260,11 +261,70 @@ def get_macos_rpath_libraries(executable: pathlib.Path) -> list[str]:
     return parse_otool_rpath_libraries(result.stdout)
 
 
+def parse_ldd_missing_libraries(output: str) -> list[str]:
+    """Return unresolved shared-library names from Linux ``ldd`` output."""
+    libraries: list[str] = []
+    seen: set[str] = set()
+    for line in (output or "").splitlines():
+        match = LDD_NOT_FOUND_RE.match(line)
+        if not match:
+            continue
+        name = pathlib.PurePosixPath(match.group(1)).name
+        if name and name not in seen:
+            seen.add(name)
+            libraries.append(name)
+    return libraries
+
+
+def get_linux_missing_libraries(
+    executable: pathlib.Path, runtime_dir: pathlib.Path
+) -> list[str]:
+    """Inspect a Linux executable using the same local library path as launch."""
+    env = os.environ.copy()
+    existing_path = env.get("PATH", "")
+    existing_ld = env.get("LD_LIBRARY_PATH", "")
+    env["PATH"] = os.pathsep.join(
+        [str(runtime_dir), *([existing_path] if existing_path else [])]
+    )
+    env["LD_LIBRARY_PATH"] = os.pathsep.join(
+        [str(runtime_dir), *([existing_ld] if existing_ld else [])]
+    )
+    result = subprocess.run(
+        ["ldd", str(executable)],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        env=env,
+    )
+    output = "\n".join(part for part in (result.stdout, result.stderr) if part)
+    missing = parse_ldd_missing_libraries(output)
+    if result.returncode != 0 and not missing:
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            result.args,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return missing
+
+
+def get_linux_runtime_probe_files(runtime_dir: pathlib.Path) -> list[pathlib.Path]:
+    """Return packaged ggml backend libraries whose transitive deps matter."""
+    return sorted(
+        path
+        for path in runtime_dir.glob("libggml*.so*")
+        if path.is_file()
+    )
+
+
 def validate_runtime_dependencies(
     ctx: AppContext, tools: Optional[Iterable[str]] = None
 ) -> dict[str, Any]:
-    current_platform = ctx.services.current_platform
-    if current_platform != "darwin":
+    current_platform = ctx.services.current_platform or sys.platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    if current_platform != "darwin" and not current_platform.startswith("linux"):
         return {
             "ok": True,
             "checked": False,
@@ -302,6 +362,16 @@ def _validate_runtime_dependencies_uncached(
     checked_tools: list[str] = []
     unchecked_tools: list[str] = []
     missing_executables: list[str] = []
+    checked_runtime_files: list[str] = []
+    unchecked_runtime_files: list[str] = []
+    current_platform = ctx.services.current_platform or sys.platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    runtime_dir = (
+        ctx.paths.llama_custom_bin
+        if cfg.get("backend") == "custom"
+        else ctx.paths.llama_bin
+    )
 
     for tool in tool_names:
         exe_path = ctx.services.find_tool_executable(tool)
@@ -309,7 +379,10 @@ def _validate_runtime_dependencies_uncached(
             missing_executables.append(ctx.services.get_tool_filename(tool))
             continue
         try:
-            required.update(get_macos_rpath_libraries(exe_path))
+            if current_platform == "darwin":
+                required.update(get_macos_rpath_libraries(exe_path))
+            else:
+                required.update(get_linux_missing_libraries(exe_path, runtime_dir))
             checked_tools.append(tool)
         except (
             FileNotFoundError,
@@ -319,19 +392,33 @@ def _validate_runtime_dependencies_uncached(
         ):
             unchecked_tools.append(tool)
 
-    runtime_dir = (
-        ctx.paths.llama_custom_bin
-        if cfg.get("backend") == "custom"
-        else ctx.paths.llama_bin
-    )
-    missing_runtime_files = sorted(
-        name for name in required if not (runtime_dir / name).exists()
+    if current_platform.startswith("linux"):
+        for library_path in get_linux_runtime_probe_files(runtime_dir):
+            try:
+                required.update(
+                    get_linux_missing_libraries(library_path, runtime_dir)
+                )
+                checked_runtime_files.append(library_path.name)
+            except (
+                FileNotFoundError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                OSError,
+            ):
+                unchecked_runtime_files.append(library_path.name)
+
+    missing_runtime_files = (
+        sorted(name for name in required if not (runtime_dir / name).exists())
+        if current_platform == "darwin"
+        else sorted(required)
     )
     return {
         "ok": not missing_runtime_files,
         "checked": bool(checked_tools),
         "checked_tools": checked_tools,
         "unchecked_tools": unchecked_tools,
+        "checked_runtime_files": checked_runtime_files,
+        "unchecked_runtime_files": unchecked_runtime_files,
         "required_runtime_files": sorted(required),
         "missing_runtime_files": missing_runtime_files,
         "missing_executables": missing_executables,
@@ -406,8 +493,10 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
 def _validate_custom_runtime_dependencies(
     ctx: AppContext, executable_names: Iterable[str]
 ) -> dict[str, Any]:
-    current_platform = ctx.services.current_platform
-    if current_platform != "darwin":
+    current_platform = ctx.services.current_platform or sys.platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    if current_platform != "darwin" and not current_platform.startswith("linux"):
         return {
             "ok": True,
             "checked": False,
@@ -418,11 +507,18 @@ def _validate_custom_runtime_dependencies(
     required: set[str] = set()
     checked_tools: list[str] = []
     unchecked_tools: list[str] = []
+    checked_runtime_files: list[str] = []
+    unchecked_runtime_files: list[str] = []
 
     for exe_name in executable_names:
         exe_path = ctx.paths.llama_custom_bin / exe_name
         try:
-            required.update(get_macos_rpath_libraries(exe_path))
+            if current_platform == "darwin":
+                required.update(get_macos_rpath_libraries(exe_path))
+            else:
+                required.update(
+                    get_linux_missing_libraries(exe_path, ctx.paths.llama_custom_bin)
+                )
             checked_tools.append(exe_name)
         except (
             FileNotFoundError,
@@ -432,14 +528,39 @@ def _validate_custom_runtime_dependencies(
         ):
             unchecked_tools.append(exe_name)
 
-    missing_runtime_files = sorted(
-        name for name in required if not (ctx.paths.llama_custom_bin / name).exists()
+    if current_platform.startswith("linux"):
+        for library_path in get_linux_runtime_probe_files(ctx.paths.llama_custom_bin):
+            try:
+                required.update(
+                    get_linux_missing_libraries(
+                        library_path, ctx.paths.llama_custom_bin
+                    )
+                )
+                checked_runtime_files.append(library_path.name)
+            except (
+                FileNotFoundError,
+                subprocess.CalledProcessError,
+                subprocess.TimeoutExpired,
+                OSError,
+            ):
+                unchecked_runtime_files.append(library_path.name)
+
+    missing_runtime_files = (
+        sorted(
+            name
+            for name in required
+            if not (ctx.paths.llama_custom_bin / name).exists()
+        )
+        if current_platform == "darwin"
+        else sorted(required)
     )
     return {
         "ok": not missing_runtime_files,
         "checked": bool(checked_tools),
         "checked_tools": checked_tools,
         "unchecked_tools": unchecked_tools,
+        "checked_runtime_files": checked_runtime_files,
+        "unchecked_runtime_files": unchecked_runtime_files,
         "required_runtime_files": sorted(required),
         "missing_runtime_files": missing_runtime_files,
     }

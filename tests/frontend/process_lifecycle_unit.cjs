@@ -112,6 +112,41 @@ async function testReadinessProgression() {
     assert.equal(calls.filter(([url]) => url.startsWith("/api/llama/health")).length, 3);
 }
 
+async function testSlowLoadWarnsOnceAndContinuesToReady() {
+    const { lifecycle } = loadLifecycle();
+    const activeRuntime = runtime(2);
+    const warnings = [];
+    const health = [
+        { state: "loading", ready: false, generation: 2 },
+        { state: "loading", ready: false, generation: 2 },
+        { state: "ready", ready: true, generation: 2 },
+    ];
+    lifecycle.configure({
+        healthPollMs: 0,
+        slowLoadWarningMs: 0,
+        delay: async () => {},
+        refreshStatus: async () => runningStatus(activeRuntime),
+        fetchJson: async (url) => {
+            if (url === "/api/launch") {
+                return { pid: 11, output_cursor: 5, active_runtime: activeRuntime };
+            }
+            if (url.startsWith("/api/llama/health")) return health.shift();
+            throw new Error(`Unexpected URL: ${url}`);
+        },
+        onSlowLoad: async message => warnings.push(message),
+    });
+
+    const response = await lifecycle.launch({
+        tool: "llama-server",
+        args: ["-m", "models/model-2.gguf"],
+    });
+
+    assert.equal(response.ok, true);
+    assert.equal(lifecycle.getSnapshot().phase, "ready");
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /taking longer than expected/i);
+}
+
 async function testRestoreUsesAuthoritativeRuntimeAndHealth() {
     const { lifecycle } = loadLifecycle();
     const activeRuntime = runtime(9, { host: "127.0.0.1", port: 9009 });
@@ -630,6 +665,7 @@ async function testReconcileServerToBenchmarkReplacement() {
 async function main() {
     const tests = [
         ["readiness progression", testReadinessProgression],
+        ["slow-load warning", testSlowLoadWarnsOnceAndContinuesToReady],
         ["authoritative restore", testRestoreUsesAuthoritativeRuntimeAndHealth],
         ["invalid preflight", testInvalidPreflightDoesNotStop],
         ["stop refusal", testStopRefusalPreventsApplyAndLaunch],
