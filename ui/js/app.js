@@ -917,8 +917,13 @@ function summarizeMemoryEstimate(rows) {
     if (!Array.isArray(rows) || rows.length === 0) return "";
     return rows.map(row => {
         const label = row.device || (row.kind === "ram" ? "Host" : "Device");
-        return `${label}: ${formatMiB(row.total_mib)}`;
-    }).join(" • ");
+        const parts = [];
+        if (row.model_mib > 0) parts.push(`model ${formatMiB(row.model_mib)}`);
+        if (row.context_mib > 0) parts.push(`ctx ${formatMiB(row.context_mib)}`);
+        if (row.compute_mib > 0) parts.push(`compute ${formatMiB(row.compute_mib)}`);
+        const breakdown = parts.length ? ` (${parts.join(" · ")})` : "";
+        return `${label}: ${formatMiB(row.total_mib)}${breakdown}`;
+    }).join("\n");
 }
 
 async function updateMemoryEstimate() {

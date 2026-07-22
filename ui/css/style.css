@@ -242,9 +242,10 @@ body.chat-focus-mode .sidebar {
 
 .sidebar-memory-detail {
     margin-top: var(--space-2);
-    color: var(--fg-faint);
+    color: var(--fg-muted);
     font-size: 10px;
     line-height: 1.35;
+    white-space: pre-line;
 }
 
 .sidebar-footer {
