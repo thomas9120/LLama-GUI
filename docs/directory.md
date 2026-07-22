@@ -421,8 +421,8 @@ Standby means configuration is ready to preflight, not that a second model is
 resident in RAM or VRAM.
 
 The card is collapsed by default. Each slot card carries its own inline preset
-select (`model-switch-select-a/b`) and clear button — there is no separate
-manage mode. Both slots render identical detail rows (Model, GGUF, both
+select (`model-switch-select-a/b`), shared-list refresh button, and clear button —
+there is no separate manage mode. Both slots render identical detail rows (Model, GGUF, both
 filename-only via `basename()`), with the select row and a footer holding the
 status message and the switch action.
 
