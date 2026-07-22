@@ -870,6 +870,53 @@ async function main() {
         await page.waitForFunction(() => Array.from(document.querySelector("#model-switch-select-a")?.options || [])
             .some(option => option.value === "Refreshed from B"));
 
+        await page.evaluate(() => {
+            const select = document.querySelector("#model-switch-select-a");
+            for (let i = 0; i < 20; i += 1) {
+                const option = document.createElement("option");
+                option.value = `layout-check-${i}`;
+                option.textContent = `Layout check preset ${i}`;
+                select.appendChild(option);
+            }
+        });
+        await page.click("#model-switch-select-a + .ss-wrap .ss-button");
+        await page.waitForSelector(".ss-popup:not(.hidden) .ss-item");
+        const searchableSelectAccessibility = await page.evaluate(() => {
+            const select = document.querySelector("#model-switch-select-a");
+            const button = select?.nextElementSibling?.querySelector(".ss-button");
+            const search = document.querySelector(".ss-popup:not(.hidden) .ss-search");
+            const activeId = search?.getAttribute("aria-activedescendant") || "";
+            const quickSelect = document.querySelector("#quick-model-select");
+            const quickButton = quickSelect?.nextElementSibling?.querySelector(".ss-button");
+            const quickLabel = quickButton ? document.querySelector(`label[for="${quickButton.id}"]`) : null;
+            return {
+                buttonLabel: button?.getAttribute("aria-label") || "",
+                activeId,
+                activeOptionExists: Boolean(activeId && document.getElementById(activeId)),
+                quickButtonLabel: quickButton?.getAttribute("aria-label") || "",
+                quickLabelText: quickLabel?.textContent?.trim() || "",
+            };
+        });
+        assert.match(searchableSelectAccessibility.buttonLabel, /^Model A preset:/);
+        assert.ok(searchableSelectAccessibility.activeOptionExists, "active searchable option must be exposed to assistive technology");
+        assert.match(searchableSelectAccessibility.quickButtonLabel, /^Model:/);
+        assert.equal(searchableSelectAccessibility.quickLabelText, "Model");
+        const searchableOptionLayout = await page.evaluate(() => {
+            const item = document.querySelector(".ss-popup:not(.hidden) .ss-item");
+            const style = getComputedStyle(item);
+            return {
+                height: item.getBoundingClientRect().height,
+                contentHeight: parseFloat(style.lineHeight)
+                    + parseFloat(style.paddingTop)
+                    + parseFloat(style.paddingBottom),
+            };
+        });
+        assert.ok(
+            searchableOptionLayout.height >= searchableOptionLayout.contentHeight - 1,
+            "searchable preset options must retain enough height to render a full text line"
+        );
+        await page.keyboard.press("Escape");
+
         await page.click("#sidebar-model-switcher-track", { position: { x: 70, y: 5 } });
         assert.equal(await page.evaluate(() => window.__sidebarSwitchCalls), 0, "track clicks must be inert");
 
