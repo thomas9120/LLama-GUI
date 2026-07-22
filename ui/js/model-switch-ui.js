@@ -843,6 +843,9 @@
                 const clear = byId(`model-switch-clear-${slotId}`);
                 if (action) action.addEventListener("click", () => handleSwitch(slotId));
                 if (select) select.addEventListener("change", () => handleAssignmentChange(slotId, select.value));
+                if (select && root.searchableSelect) {
+                    root.searchableSelect.enhance(select, { searchPlaceholder: "Search presets..." });
+                }
                 if (refreshButton) refreshButton.addEventListener("click", handlePresetRefresh);
                 if (clear) clear.addEventListener("click", () => handleAssignmentChange(slotId, ""));
             }

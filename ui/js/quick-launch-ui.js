@@ -561,6 +561,14 @@
         populateProfileOptions();
         refreshSamplerPresetSelect();
         syncModelOptions();
+        if (window.LlamaGui.searchableSelect) {
+            window.LlamaGui.searchableSelect.enhance(document.getElementById("model-select"), {
+                searchPlaceholder: "Search models...",
+            });
+            window.LlamaGui.searchableSelect.enhance(document.getElementById("quick-model-select"), {
+                searchPlaceholder: "Search models...",
+            });
+        }
         hfDownloadUi.init();
 
         const quickApiKeyHost = document.getElementById("quick-api-key-control");
