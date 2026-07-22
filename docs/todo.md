@@ -31,3 +31,25 @@ Follow up on extending preset shortcut export beyond the current Windows `.cmd` 
 - Optional macOS polish: investigate a generated `.app` bundle with `Info.plist` and an `.icns` icon. This is more work than `.command` but would feel native.
 - Keep all formats loading the preset only. They should start Llama GUI's Python server and open the web UI, but must not launch `llama.cpp`.
 - Reuse the existing `/?preset=<name>` deep-link behavior so shared flag state, command preview, Configure, and Quick Launch remain synchronized.
+
+## Memory Estimate: Fit Check Against Free Device Memory
+
+Follow-up to the memory estimate breakdown display (shipped 2026-07). The estimate panel currently shows per-device model/context/compute totals but cannot say whether the configuration actually fits.
+
+- Extend `parse_list_devices_output` in `backend/services/process_manager.py` (or add a sibling parser) to capture the per-device `(total MiB, free MiB)` numbers that `--list-devices` already prints, e.g. `CUDA0: NVIDIA GeForce RTX 5070 Ti (16302 MiB, 15037 MiB free)`. The current parser keeps only device names.
+- In `estimate_memory()`, after a successful estimate, run `--list-devices` once (or reuse/cache the buffer-type discovery call), match estimate rows to devices by name, and add `free_mib` / `total_mib` / `fits` / `headroom_mib` to each row.
+- Frontend (`summarizeMemoryEstimate` / `setMemoryEstimateState` in `ui/js/app.js`): show headroom when the estimate fits and a warning when it exceeds free memory (e.g. "exceeds free VRAM by ~1.2 GB").
+- UI copy must note that free memory is a point-in-time snapshot and can change before launch.
+
+Acceptance criteria:
+- New parser tests in `tests/backend/test_extracted_routes.py` with mocked subprocess output, following the existing patterns around `test_process_manager_parses_list_devices_output`.
+- `python -m unittest discover tests -v` passes.
+- `node --check ui/js/app.js` and `npm run test:frontend` pass.
+- Manual check against the bundled CUDA build: fit/headroom display matches actual free VRAM.
+
+## Memory Estimate: Cache Repeated Estimates (Optional)
+
+Low priority. Every command-preview re-render schedules `updateMemoryEstimate()` (700 ms debounce, `ui/js/app.js:26`), and each run spawns a `llama-fit-params` subprocess. The debounce covers most churn, but repeated edits still re-run identical estimates.
+
+- Add a small args-hash → result cache (frontend or backend) so unchanged `{tool, args}` skips the subprocess.
+- Only worth doing if estimate subprocess churn shows up in practice; skip otherwise.
