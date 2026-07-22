@@ -804,8 +804,13 @@ async function main() {
                 preset_fingerprint: "a".repeat(64),
             };
             window.__sidebarSwitchCalls = 0;
+            window.__modelSwitcherFetchCalls = 0;
+            window.__modelSwitcherEntries = entries;
             window.LlamaGui.modelSwitchUi.configure({
-                fetchPresetEntries: async () => entries,
+                fetchPresetEntries: async () => {
+                    window.__modelSwitcherFetchCalls += 1;
+                    return window.__modelSwitcherEntries;
+                },
                 findPresetByName: (list, name) => list.find(entry => entry.name === name) || null,
                 getPresetFingerprint: entry => entry.fingerprint || "",
                 getLatestBackendStatus: () => ({ running: true, active_runtime: activeRuntime }),
@@ -825,6 +830,45 @@ async function main() {
             await window.LlamaGui.modelSwitchUi.refresh({ reloadPresets: true });
         });
         await page.waitForFunction(() => document.querySelector("#sidebar-model-switcher-slider")?.getAttribute("aria-disabled") === "false");
+
+        await page.click("#model-switch-toggle");
+        const initialModelSwitcherFetchCalls = await page.evaluate(() => window.__modelSwitcherFetchCalls);
+        await page.evaluate(() => {
+            window.__modelSwitcherEntries.push({
+                name: "Refreshed from A",
+                full: true,
+                fingerprint: "c".repeat(64),
+                data: { tool: "llama-server", model: "gamma.gguf", flags: {} },
+            });
+        });
+        await page.click("#model-switch-refresh-a");
+        await page.waitForFunction(() => Array.from(document.querySelector("#model-switch-select-b")?.options || [])
+            .some(option => option.value === "Refreshed from A"));
+        assert.equal(
+            await page.evaluate(() => window.__modelSwitcherFetchCalls),
+            initialModelSwitcherFetchCalls + 1,
+            "Model A refresh should force exactly one preset reload"
+        );
+        assert.deepEqual(
+            await page.evaluate(() => [
+                document.querySelector("#model-switch-select-a")?.value,
+                document.querySelector("#model-switch-select-b")?.value,
+            ]),
+            ["Sidebar Model A", "Sidebar Model B"],
+            "refreshing presets must preserve both slot assignments"
+        );
+
+        await page.evaluate(() => {
+            window.__modelSwitcherEntries.push({
+                name: "Refreshed from B",
+                full: true,
+                fingerprint: "d".repeat(64),
+                data: { tool: "llama-server", model: "delta.gguf", flags: {} },
+            });
+        });
+        await page.click("#model-switch-refresh-b");
+        await page.waitForFunction(() => Array.from(document.querySelector("#model-switch-select-a")?.options || [])
+            .some(option => option.value === "Refreshed from B"));
 
         await page.click("#sidebar-model-switcher-track", { position: { x: 70, y: 5 } });
         assert.equal(await page.evaluate(() => window.__sidebarSwitchCalls), 0, "track clicks must be inert");

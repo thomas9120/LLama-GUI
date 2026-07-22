@@ -103,6 +103,8 @@ assert.match(indexHtml, /id="model-switch-toggle"[^>]+aria-controls="model-switc
 assert.doesNotMatch(indexHtml, /model-switch-manage-toggle/, "manage mode should be replaced by inline slot selects");
 assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-select-a"/, "slot A should carry its own preset select");
 assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-select-b"/, "slot B should carry its own preset select");
+assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-refresh-a"/, "slot A should carry its own preset refresh button");
+assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-refresh-b"/, "slot B should carry its own preset refresh button");
 assert.match(indexHtml, /Standby means the model configuration is saved and ready to preflight/);
 assert.match(
     styleSource,
@@ -122,6 +124,8 @@ assert.doesNotMatch(source, /sidebarThumb\.addEventListener\("click"/, "thumb cl
 assert.match(appSource, /\/api\/presets\/fingerprint/);
 assert.doesNotMatch(appSource, /crypto\.subtle/, "drift fingerprints must use backend canonicalization");
 assert.match(source, /handleAssignmentChange[\s\S]*refresh\(\{ reloadPresets: true \}\)/);
+assert.match(source, /handlePresetRefresh[\s\S]*refresh\(\{ reloadPresets: true \}\)/);
+assert.match(source, /model-switch-refresh-\$\{slotId\}[\s\S]*addEventListener\("click", handlePresetRefresh\)/);
 assert.match(managerSource, /await acceptedStatusObserver\(status\)/);
 assert.match(appSource, /setAcceptedStatusObserver\(reconcileAuthoritativeStatus\)/);
 assert.match(

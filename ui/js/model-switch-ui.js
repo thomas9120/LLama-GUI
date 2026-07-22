@@ -682,6 +682,11 @@
         return refresh({ reloadPresets: true });
     }
 
+    function handlePresetRefresh() {
+        uiWarning = "";
+        return refresh({ reloadPresets: true });
+    }
+
     async function handleSwitch(slotId) {
         if (pendingSlot) return;
         const switchSlot = dependencies.switchSlot;
@@ -834,9 +839,11 @@
             for (const slotId of SLOT_IDS) {
                 const action = byId(`model-switch-slot-${slotId}-action`);
                 const select = byId(`model-switch-select-${slotId}`);
+                const refreshButton = byId(`model-switch-refresh-${slotId}`);
                 const clear = byId(`model-switch-clear-${slotId}`);
                 if (action) action.addEventListener("click", () => handleSwitch(slotId));
                 if (select) select.addEventListener("change", () => handleAssignmentChange(slotId, select.value));
+                if (refreshButton) refreshButton.addEventListener("click", handlePresetRefresh);
                 if (clear) clear.addEventListener("click", () => handleAssignmentChange(slotId, ""));
             }
             const sidebarSlider = byId("sidebar-model-switcher-slider");
