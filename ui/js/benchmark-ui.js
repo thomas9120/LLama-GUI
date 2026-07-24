@@ -19,6 +19,7 @@
         "main_gpu",
         "device",
         "flash_attn",
+        "load_mode",
         "mmap",
         "direct_io",
         "fit",
@@ -222,6 +223,18 @@
             return true;
         }
 
+        if (flag.type === "text_list") {
+            const values = Array.isArray(value) ? value : String(value).split(/\r?\n/);
+            let added = false;
+            for (const item of values) {
+                const normalized = String(item).trim();
+                if (!normalized) continue;
+                args.push([flag.flag, normalized]);
+                added = true;
+            }
+            return added;
+        }
+
         args.push([flag.flag, String(value)]);
         return true;
     }
@@ -255,6 +268,7 @@
                 if (!flag || !flag.id || !flag.flag) continue;
                 const value = flags[flag.id];
                 if (isEmptyFlagValue(value)) continue;
+                if (shouldOmitLegacyLoadFlag(flag, flags)) continue;
 
                 if (!BENCH_COMPATIBLE_IDS.has(flag.id)) {
                     if (!Object.prototype.hasOwnProperty.call(defaultFlags, flag.id) || !valuesEqual(value, defaultFlags[flag.id])) {

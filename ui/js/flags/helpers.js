@@ -53,11 +53,16 @@ function shouldOmitSpeculativeFlag(f, values) {
     return draftModelOnlyFlags.has(f.id) && !hasDraftModelSpeculation(values);
 }
 
+function shouldOmitLegacyLoadFlag(f, values) {
+    const loadMode = String((values || {}).load_mode || "").trim();
+    return Boolean(loadMode) && new Set(["mlock", "mmap", "direct_io"]).has(f.id);
+}
+
 function getDefaultValues() {
     const defaults = {};
     for (const f of FLAGS) {
         if (f.default !== undefined) {
-            defaults[f.id] = f.default;
+            defaults[f.id] = Array.isArray(f.default) ? [...f.default] : f.default;
         }
     }
     return defaults;

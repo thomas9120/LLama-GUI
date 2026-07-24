@@ -103,6 +103,8 @@ function launchResult() {
     for (const flag of [
         "--dry-base",
         "--dry-allowed-length",
+        "--dry-penalty-last-n",
+        "--dry-sequence-breaker",
         "--dynatemp-exp",
         "--xtc-probability",
         "--xtc-threshold",
@@ -116,6 +118,67 @@ function launchResult() {
     ]) {
         assert.ok(!args.includes(flag), `default launch args should omit ${flag}`);
     }
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            dry_multiplier: 0.8,
+            dry_penalty_last_n: 2048,
+            dry_sequence_breakers: ["—", "##"],
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--dry-penalty-last-n") && args.includes("2048"));
+    assert.equal(args.filter(value => value === "--dry-sequence-breaker").length, 2);
+    assert.ok(args.includes("—") && args.includes("##"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("dry_sequence_breakers", ["none"]);
+    `, context);
+    let args = flatLaunchArgs();
+    assert.ok(args.includes("--dry-sequence-breaker") && args.includes("none"));
+
+    vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("dry_sequence_breakers", undefined)`, context);
+    args = flatLaunchArgs();
+    assert.ok(!args.includes("--dry-sequence-breaker"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("load_mode", "dio");
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--load-mode") && args.includes("dio"));
+    assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"));
+    assert.ok(!args.includes("--mlock") && !args.includes("-dio"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        const external = ["first"];
+        window.LlamaGui.flagCore.setFlagValue("dry_sequence_breakers", external);
+        external.push("mutated-outside");
+        this.__isolatedBreakers = window.LlamaGui.flagCore.getFlagValues().dry_sequence_breakers;
+    `, context);
+    const isolated = vm.runInContext("Array.from(this.__isolatedBreakers)", context);
+    assert.deepEqual(Array.from(isolated), ["first"]);
+}
+
+{
+    vm.runInContext(`
+        const firstDefaults = getDefaultValues();
+        firstDefaults.dry_sequence_breakers.push("mutated-default");
+        this.__freshDefaultBreakers = getDefaultValues().dry_sequence_breakers;
+    `, context);
+    const freshDefaults = vm.runInContext("Array.from(this.__freshDefaultBreakers)", context);
+    assert.deepEqual(Array.from(freshDefaults), []);
 }
 
 {

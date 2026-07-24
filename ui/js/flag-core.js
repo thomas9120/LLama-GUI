@@ -38,7 +38,10 @@
     }
 
     function replaceFlagValues(values) {
-        flagValues = { ...(values || {}) };
+        flagValues = {};
+        for (const [key, value] of Object.entries(values || {})) {
+            flagValues[key] = cloneFlagValue(value);
+        }
         return flagValues;
     }
 
@@ -56,7 +59,7 @@
             if (value === undefined) {
                 delete flagValues[flagId];
             } else {
-                flagValues[flagId] = value;
+                flagValues[flagId] = cloneFlagValue(value);
             }
         }
         return flagValues;
@@ -151,6 +154,7 @@
             dry_multiplier: 0,
             dry_base: 1.75,
             dry_allowed_length: 2,
+            dry_penalty_last_n: -1,
             dynatemp_range: 0,
             dynatemp_exp: 1.0,
             mirostat: "0",
@@ -350,6 +354,7 @@
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
+            if (shouldOmitLegacyLoadFlag(f, values)) continue;
             const val = values[f.id];
             if (val === undefined || val === null || val === "") continue;
 
@@ -369,6 +374,12 @@
                 const values = normalizeMultiEnumValue(val);
                 if (values.length > 0) {
                     args.push([f.flag, values.join(",")]);
+                }
+            } else if (f.type === "text_list") {
+                const items = Array.isArray(val) ? val : String(val).split(/\r?\n/);
+                for (const item of items) {
+                    const normalized = String(item).trim();
+                    if (normalized) args.push([f.flag, normalized]);
                 }
             } else {
                 if (f.id === "kv_unified") {
