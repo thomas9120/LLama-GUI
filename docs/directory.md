@@ -584,7 +584,7 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 
 | Preset | Temperature | top_k | top_p | min_p | repeat_penalty | repeat_last_n |
 |--------|-------------|-------|-------|-------|----------------|---------------|
-| **Neutral** | 1.0 | 200 | 1.0 | 0 | 1.0 | 64 |
+| **Neutral** | 1.0 | 0 | 1.0 | 0 | 1.0 | 64 |
 | **Balanced** | 1.0 | 0 | 0.95 | 0.1 | 1.03 | 64 |
 | **Creative** | 1.0 | 100 | 0.98 | 0 | 1.1 | 64 |
 | **Precise** | 0.3 | 25 | 0.6 | 0 | 1.02 | 64 |

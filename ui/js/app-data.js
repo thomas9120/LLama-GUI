@@ -11,7 +11,7 @@ const SAMPLER_PRESET_STORAGE_KEY = "llama_gui_sampler_presets_v1";
 const BUILTIN_SAMPLER_PRESETS = {
     Neutral: {
         temperature: 1.0,
-        top_k: 200,
+        top_k: 0,
         top_p: 1.0,
         min_p: 0,
         top_n_sigma: -1,
