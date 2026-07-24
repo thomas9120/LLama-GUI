@@ -225,7 +225,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 `ui/js/flags/definitions.js` defines the `FLAGS` array. Each flag has:
 - `id`, `flag` (CLI name), `category`, `type`, `label`, `desc`, `tool`, `default`
 - `tool` field: `"both"`, `"server"`, `"cli"` — controls visibility
-- Types: `bool`, `int`, `float`, `text`, `path`, `enum`, `multi_enum`
+- Types: `bool`, `int`, `float`, `text`, `text_list`, `path`, `enum`, `multi_enum`
 - Categories: model, context, cpu, gpu, auto_fit, sampling, rope, conversation, lora, kv, speculative, server, mcp, grammar, logging, advanced
 - `false_flag` for boolean negation (e.g., `--mmap` / `--no-mmap`)
 
@@ -235,6 +235,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - **`int`**: Numeric input with min/max/step constraints.
 - **`float`**: Decimal input with min/max/step constraints.
 - **`text`**: Free-form text input.
+- **`text_list`**: One value per line; emits the same CLI flag once for each value.
 - **`path`**: Text input with native file picker "Browse" button (tkinter).
 - **`enum`**: Dropdown select from a predefined options list.
 - **`multi_enum`**: Multiple checkboxes for selecting zero or more values. Supports an `all` shortcut and `risk: "high"` badges with warnings for dangerous options (e.g., shell command execution).
@@ -602,6 +603,11 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 - Quick Launch tab: Sampler Preset controls in the sampler section.
 - Quick profiles reference preset names (e.g., `samplerPresetName: "Balanced"`).
 - Loading a preset calls `window.LlamaGui.samplerPresets.applySamplerPresetValues()` which writes through `window.LlamaGui.flagCore.setMultipleFlagValues()`.
+- Configure groups all DRY controls under the collapsible **DRY Sampling** submenu. `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
+
+### Model Load Mode
+
+The Context & Memory category exposes `--load-mode` with llama.cpp's `none`, `mmap`, `mlock`, and `dio` modes. The deprecated mmap, mlock, and Direct I/O controls remain available for older builds. When an explicit load mode is selected, command generation suppresses those overlapping legacy arguments so only `--load-mode` is emitted.
 
 ---
 

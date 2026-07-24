@@ -5,6 +5,7 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const outputCursorSource = fs.readFileSync(path.join(ROOT, "ui", "js", "output-cursor.js"), "utf8");
+const flagHelpersSource = fs.readFileSync(path.join(ROOT, "ui", "js", "flags", "helpers.js"), "utf8");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "benchmark-ui.js"), "utf8");
 
 const context = {
@@ -27,6 +28,7 @@ const context = {
 context.window.window = context.window;
 vm.createContext(context);
 vm.runInContext(outputCursorSource, context, { filename: "ui/js/output-cursor.js" });
+vm.runInContext(flagHelpersSource, context, { filename: "ui/js/flags/helpers.js" });
 vm.runInContext(source, context, { filename: "ui/js/benchmark-ui.js" });
 
 const adapter = context.window.LlamaGui.benchmarkUi;
@@ -35,6 +37,7 @@ const flags = [
     { id: "ctx_size", flag: "-c", type: "int", label: "Context" },
     { id: "gpu_layers", flag: "-ngl", type: "text", label: "GPU Layers" },
     { id: "threads", flag: "-t", type: "int", label: "Threads" },
+    { id: "load_mode", flag: "--load-mode", type: "enum", label: "Load Mode" },
     { id: "mmap", flag: "--mmap", false_flag: "--no-mmap", type: "bool", label: "Mmap" },
     { id: "direct_io", flag: "-dio", type: "bool", label: "Direct I/O" },
     { id: "hf_repo", flag: "-hf", type: "text", label: "HF Repo" },
@@ -79,6 +82,35 @@ function flat(result) {
     assert.ok(result.excluded.some((item) => item.label === "GPU Layers"));
     assert.ok(result.excluded.some((item) => item.label === "Temperature"));
     assert.ok(result.excluded.some((item) => item.label === "Custom Launch Args"));
+}
+
+{
+    const result = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: {
+            model: "tiny.gguf",
+            flags: { load_mode: "dio", mmap: true, direct_io: true },
+        },
+    });
+
+    const args = flat(result);
+    assert.ok(args.includes("--load-mode") && args.includes("dio"));
+    assert.ok(!args.includes("-mmp") && !args.includes("-dio"));
+}
+
+{
+    const textListFlags = [
+        { id: "hf_repo", flag: "--item", type: "text_list", label: "Items" },
+    ];
+    const result = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags: textListFlags,
+        source: { model: "tiny.gguf", flags: { hf_repo: ["first", "second"] } },
+    });
+    const args = flat(result);
+    assert.equal(args.filter(value => value === "--item").length, 2);
+    assert.ok(args.includes("first") && args.includes("second"));
 }
 
 {

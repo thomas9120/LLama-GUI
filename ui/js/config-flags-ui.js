@@ -310,6 +310,7 @@
             bool: createBoolInput,
             enum: createEnumInput,
             multi_enum: createMultiEnumInput,
+            text_list: createTextListInput,
             path: createPathInput,
             int: createIntInput,
             float: createFloatInput,
@@ -617,6 +618,22 @@
         return textField;
     }
 
+    function createTextListInput(f) {
+        const field = document.createElement("textarea");
+        field.id = "flag-" + f.id;
+        field.dataset.flagId = f.id;
+        field.dataset.flagType = "text_list";
+        field.rows = 4;
+        field.placeholder = f.placeholder || "One value per line";
+        const current = getFlagValues()[f.id];
+        field.value = Array.isArray(current) ? current.join("\n") : String(current || "");
+        field.addEventListener("input", () => {
+            const values = field.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+            getFlagCore().setFlagValue(f.id, values.length > 0 ? values : undefined);
+        });
+        return field;
+    }
+
     function generateSensitiveValue() {
         if (!window.crypto || typeof window.crypto.getRandomValues !== "function") {
             throw new Error("Secure random generation is unavailable in this browser.");
@@ -847,6 +864,11 @@
                 if (warning) {
                     warning.classList.toggle("hidden", !hasSelectedHighRiskOption(f.options, selected));
                 }
+                continue;
+            }
+            if (f.type === "text_list") {
+                const nextValue = Array.isArray(val) ? val.join("\n") : String(val || "");
+                if (el && el.value !== nextValue) el.value = nextValue;
                 continue;
             }
             if (!el) continue;
