@@ -5,6 +5,7 @@ import sys
 from typing import Any
 
 from ..context import AppContext
+from .subprocess_utils import get_no_window_creationflags
 
 
 SAFE_DIRTY_PATH_PREFIXES = (
@@ -116,6 +117,7 @@ def run_git(args, cwd):
         capture_output=True,
         text=True,
         check=False,
+        creationflags=get_no_window_creationflags(),
     )
 
 
@@ -130,6 +132,7 @@ def install_python_dependencies(ctx: AppContext) -> dict[str, Any]:
         capture_output=True,
         text=True,
         check=False,
+        creationflags=get_no_window_creationflags(),
     )
     output = (res.stdout or res.stderr or "").strip()
     if res.returncode != 0:
@@ -167,6 +170,7 @@ def create_windows_shortcuts(ctx: AppContext) -> dict[str, Any]:
         capture_output=True,
         text=True,
         check=False,
+        creationflags=get_no_window_creationflags(),
     )
     output = (res.stdout or res.stderr or "").strip()
     if res.returncode != 0:

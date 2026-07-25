@@ -271,6 +271,59 @@ def save_preset(request, response, ctx):
     response.json({"saved": True, "name": safe_name})
 
 
+def _is_same_file(left, right):
+    """True when two paths are the same file on disk.
+
+    Distinguishes a case-only rename on a case-insensitive filesystem (same file,
+    safe to rename) from a genuine collision with a different preset. Errors are
+    treated as a collision so a rename never overwrites an unreadable file.
+    """
+    try:
+        return left.samefile(right)
+    except OSError:
+        return False
+
+
+def rename_preset(request, response, ctx):
+    body = request.body or {}
+    safe_name = sanitize_preset_name(body.get("name"))
+    safe_new_name = sanitize_preset_name(body.get("new_name"))
+    if not safe_name or not safe_new_name:
+        response.error("Invalid preset name", 400)
+        return
+
+    presets_dir = ctx.paths.presets
+    preset_file = get_preset_file_path(presets_dir, safe_name)
+    # validation only: the resolved path is unusable as a rename target because
+    # Windows collapses its casing onto any existing file
+    validated_target = get_preset_file_path(presets_dir, safe_new_name)
+    if preset_file is None or validated_target is None:
+        response.error("Invalid preset name", 400)
+        return
+    if not preset_file.exists():
+        response.error("Preset not found", 404)
+        return
+    if safe_name == safe_new_name:
+        response.json({"renamed": True, "name": safe_new_name})
+        return
+
+    # On Windows both Path equality and resolve() are case-insensitive, so a case-only
+    # rename would collapse onto the source and silently do nothing. Rename against the
+    # requested spelling instead, inside the parent get_preset_file_path already validated.
+    renamed_file = preset_file.parent / f"{safe_new_name}.json"
+    if renamed_file.exists() and not _is_same_file(renamed_file, preset_file):
+        response.error("A preset with that name already exists", 409)
+        return
+
+    preset_file.rename(renamed_file)
+    created_times = _load_preset_created_times(presets_dir)
+    if preset_file.name in created_times:
+        # carry the original creation time so "Date added" sorting survives a rename
+        created_times[renamed_file.name] = created_times.pop(preset_file.name)
+        _save_preset_created_times(presets_dir, created_times)
+    response.json({"renamed": True, "name": safe_new_name})
+
+
 def export_preset_shortcut(request, response, ctx):
     body = request.body or {}
     safe_name = sanitize_preset_name(body.get("name"))

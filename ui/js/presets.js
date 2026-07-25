@@ -308,6 +308,44 @@ function markPresetUsed(name) {
     savePresetJsonMap(PRESET_LAST_USED_STORAGE_KEY, lastUsed);
 }
 
+function setPresetsFavorite(names, favorite) {
+    // one read/write for the whole selection instead of one per preset
+    const favorites = loadPresetJsonMap(PRESET_FAVORITES_STORAGE_KEY);
+    let changed = 0;
+    for (const name of names || []) {
+        if (favorite) {
+            if (favorites[name] === true) continue;
+            favorites[name] = true;
+        } else {
+            if (!favorites[name]) continue;
+            delete favorites[name];
+        }
+        changed++;
+    }
+    if (changed) savePresetJsonMap(PRESET_FAVORITES_STORAGE_KEY, favorites);
+    return changed;
+}
+
+function renamePresetLocalState(oldName, newName) {
+    // group collapse state is keyed by model path, so only the name-keyed maps move
+    for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
+        const map = loadPresetJsonMap(storageKey);
+        if (!Object.prototype.hasOwnProperty.call(map, oldName)) continue;
+        map[newName] = map[oldName];
+        delete map[oldName];
+        savePresetJsonMap(storageKey, map);
+    }
+}
+
+function buildDuplicatePresetName(name, existingNames) {
+    const taken = existingNames instanceof Set ? existingNames : new Set(existingNames || []);
+    const base = `${name} copy`;
+    if (!taken.has(base)) return base;
+    let suffix = 2;
+    while (taken.has(`${base} ${suffix}`)) suffix++;
+    return `${base} ${suffix}`;
+}
+
 function prunePresetLocalState(existingNames) {
     for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
         const map = loadPresetJsonMap(storageKey);
@@ -600,6 +638,8 @@ function renderPresetDetailPanel() {
     const actions = document.createElement("div");
     actions.className = "preset-detail-actions";
     actions.appendChild(createPresetButton("Load Preset", "btn btn-sm btn-primary", () => loadPreset(entry.name)));
+    actions.appendChild(createPresetButton("Duplicate", "btn btn-sm", () => duplicatePreset(entry.name), "Save a copy of this preset without changing current settings"));
+    actions.appendChild(createPresetButton("Rename", "btn btn-sm", () => renamePreset(entry.name), "Rename this preset, keeping its favorite and usage history"));
     actions.appendChild(createPresetButton("Update from Current", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
     actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
     actions.appendChild(createPresetButton("Windows Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows .cmd shortcut for this preset"));
@@ -686,6 +726,8 @@ function renderPresetBulkControls() {
     const deleteButton = document.getElementById("btn-presets-delete-selected");
     const exportButton = document.getElementById("btn-presets-export-selected");
     const clearButton = document.getElementById("btn-presets-select-none");
+    const favoriteButton = document.getElementById("btn-presets-favorite-selected");
+    const unfavoriteButton = document.getElementById("btn-presets-unfavorite-selected");
     const browser = document.getElementById("presets-browser");
     const visibleNames = new Set(getVisiblePresetEntries().map((entry) => entry.name));
     let visibleSelectedCount = 0;
@@ -705,6 +747,12 @@ function renderPresetBulkControls() {
     }
     if (clearButton) {
         clearButton.disabled = selectedPresetNames.size === 0;
+    }
+    if (favoriteButton) {
+        favoriteButton.disabled = selectedPresetNames.size === 0;
+    }
+    if (unfavoriteButton) {
+        unfavoriteButton.disabled = selectedPresetNames.size === 0;
     }
     if (browser) {
         browser.classList.toggle("has-checked", selectedPresetNames.size > 0);
@@ -1028,6 +1076,16 @@ function initPresetLibraryControls() {
         deleteSelected.addEventListener("click", deleteSelectedPresets);
     }
 
+    const favoriteSelected = document.getElementById("btn-presets-favorite-selected");
+    if (favoriteSelected) {
+        favoriteSelected.addEventListener("click", () => favoriteSelectedPresets(true));
+    }
+
+    const unfavoriteSelected = document.getElementById("btn-presets-unfavorite-selected");
+    if (unfavoriteSelected) {
+        unfavoriteSelected.addEventListener("click", () => favoriteSelectedPresets(false));
+    }
+
     const exportSelected = document.getElementById("btn-presets-export-selected");
     if (exportSelected) {
         exportSelected.addEventListener("click", exportSelectedPresets);
@@ -1129,6 +1187,75 @@ async function updatePreset(name) {
     }
 }
 
+async function duplicatePreset(name) {
+    try {
+        const presets = await fetchPresetEntries();
+        const source = presets.find((preset) => preset.name === name);
+        if (!source) {
+            showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
+            return;
+        }
+        // duplicates the saved preset, not the live Configure state, so the current
+        // launch settings are left untouched
+        const duplicateName = buildDuplicatePresetName(name, new Set(presets.map((preset) => preset.name)));
+        const result = await fetchJson("/api/presets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: duplicateName, data: normalizePresetData(source.data) }),
+        });
+        if (result.saved) {
+            selectedPresetName = result.name || duplicateName;
+            await loadPresets();
+            showPresetStatus(`Duplicated to "${result.name || duplicateName}"`, "success");
+        }
+    } catch (e) {
+        const message = e && e.message === SENSITIVE_CUSTOM_ARG_MESSAGE
+            ? SENSITIVE_CUSTOM_ARG_MESSAGE
+            : "Failed to duplicate preset";
+        showPresetStatus(message, "error", 5000);
+        console.warn("Failed to duplicate preset", e);
+    }
+}
+
+async function renamePreset(name) {
+    const nextName = await promptAction(
+        "Rename Preset",
+        `Enter a new name for "${name}".`,
+        name,
+        "Rename"
+    );
+    if (nextName === null) return;
+    if (!nextName) {
+        showPresetStatus("Preset name cannot be empty", "error", 3200);
+        return;
+    }
+    if (nextName === name) return;
+
+    try {
+        const result = await fetchJson("/api/presets/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, new_name: nextName }),
+        });
+        if (result.renamed) {
+            const savedName = result.name || nextName;
+            // must run before loadPresets, which prunes local state for unknown names
+            renamePresetLocalState(name, savedName);
+            if (selectedPresetName === name) selectedPresetName = savedName;
+            if (selectedPresetNames.has(name)) {
+                selectedPresetNames.delete(name);
+                selectedPresetNames.add(savedName);
+            }
+            await loadPresets();
+            showPresetStatus(`Renamed to "${savedName}"`, "success");
+        }
+    } catch (e) {
+        const message = e && e.message ? e.message : "Failed to rename preset";
+        showPresetStatus(message, "error", 5000);
+        console.warn("Failed to rename preset", e);
+    }
+}
+
 async function loadPreset(name) {
     try {
         const presets = await fetchPresetEntries();
@@ -1168,6 +1295,29 @@ async function deletePreset(name) {
         showPresetStatus("Failed to delete preset", "error", 3200);
         console.warn("Failed to delete preset", e);
     }
+}
+
+async function favoriteSelectedPresets(favorite) {
+    const names = Array.from(selectedPresetNames);
+    if (names.length === 0) {
+        showPresetStatus("No presets selected", "error", 3200);
+        return;
+    }
+    const changed = setPresetsFavorite(names, favorite);
+    if (!changed) {
+        showPresetStatus(
+            favorite
+                ? `Already favorited (${names.length} selected)`
+                : `No favorites in the selection (${names.length} selected)`,
+            "success"
+        );
+        return;
+    }
+    await loadPresets();
+    showPresetStatus(
+        `${favorite ? "Favorited" : "Unfavorited"} ${changed} preset${changed === 1 ? "" : "s"}`,
+        "success"
+    );
 }
 
 async function deleteSelectedPresets() {

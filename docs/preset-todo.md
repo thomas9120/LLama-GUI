@@ -45,22 +45,39 @@ Acceptance criteria:
 
 ## 3. Duplicate And Rename Presets
 
-- [ ] Open.
+- [x] Shipped 2026-07-24.
 
-Neither action exists in the frontend or `backend/routes/presets.py`. Creating a variant means
-Load → edit → retype a name → Save, which round-trips through Configure and mutates live launch
-state. Renaming means save-under-new-name plus delete.
+Neither action existed in the frontend or `backend/routes/presets.py`. Creating a variant meant
+Load → edit → retype a name → Save, which round-tripped through Configure and mutated live launch
+state. Renaming meant save-under-new-name plus delete.
 
-- Add Duplicate to the detail panel action row. Pure frontend plus one `POST /api/presets`;
-  suggest a `<name> copy` default and do not touch current Configure state.
-- Add Rename. Needs a backend endpoint (or a copy-then-delete helper) that preserves `created`
-  and migrates the favorite/last-used/group localStorage keys to the new name.
-- Both must preserve the sensitive-flag stripping applied on save.
+- Duplicate (`duplicatePreset`) copies the *saved* preset data straight to `POST /api/presets`,
+  so live Configure/Quick Launch values are never touched. `buildDuplicatePresetName` picks
+  `<name> copy`, then `<name> copy 2`, and so on against the existing names.
+- Rename uses a new `POST /api/presets/rename` route. It renames the file, carries the
+  `.preset-created-times` entry so "Date added" sorting survives, 404s on a missing source,
+  409s on an existing target, and treats a same-name rename as a no-op success.
+- Case-only renames (`Base` → `base`) need care on Windows: `Path.__eq__` is case-insensitive
+  *and* `Path.resolve()` rewrites the requested spelling to the existing on-disk casing, so any
+  comparison built on `get_preset_file_path()` output sees the two names as identical and skips
+  the rename. The no-op check therefore compares the sanitized request strings, and the rename
+  targets `preset_file.parent / f"{safe_new_name}.json"` to keep the requested casing. Collision
+  detection uses `samefile()` so a case-only change is allowed through while a real collision
+  still 409s on case-sensitive filesystems.
+- `renamePresetLocalState` moves the favorite and last-used entries before `loadPresets()` runs,
+  since that call prunes local state for names the backend no longer knows.
+- Correction to the original note: group collapse state is keyed by *model path*, not preset
+  name, so it needs no migration.
+- Both paths keep the existing sensitive-flag stripping, which lives in `save_preset` /
+  `sanitize_preset_data` on the backend and applies to duplicates automatically.
+- Rename needed a text-input dialog, so `promptAction()` was added next to `confirmAction()` in
+  `ui/js/manager.js` with a matching `#prompt-modal` in `index.html`. It resolves `null` on
+  cancel so callers can tell "dismissed" from "cleared the field".
 
 Acceptance criteria:
-- Duplicating a preset does not alter the active Configure/Quick Launch values.
-- Renaming carries favorite and last-used state across the name change.
-- `python -m unittest discover tests -v` and `npm run test:frontend` pass.
+- Duplicating a preset does not alter the active Configure/Quick Launch values. Verified live.
+- Renaming carries favorite and last-used state across the name change. Verified live.
+- `python -m unittest discover tests` and `npm test` pass.
 
 ## 4. Search Across Override Flags
 
@@ -76,13 +93,31 @@ what it actually changes.
 
 ## 5. Bulk Favorite / Unfavorite
 
-- [ ] Open.
+- [x] Shipped 2026-07-24.
 
-The bulk bar offers Select All / Clear / Export / Delete. Starring ten presets is ten clicks,
-each triggering a full `loadPresets()` re-render.
+The bulk bar offered Select All / Clear / Export / Delete. Starring ten presets was ten clicks,
+each doing its own storage read/write plus a full `loadPresets()` re-render.
 
-- Add Favorite / Unfavorite to the bulk bar.
-- Batch the storage write and re-render once.
+- `★ Favorite` and `☆ Unfavorite` sit between Clear and Export, disabled with an empty
+  selection like the other bulk actions.
+- `setPresetsFavorite(names, favorite)` does one read and at most one write for the whole
+  selection, and returns how many entries actually changed.
+- A selection that is already fully favorited writes nothing and reports the no-op instead of
+  triggering a pointless refetch.
+
+Verified live: 58 presets favorited in a single storage write and one re-render; the no-op path
+wrote nothing; unfavorite cleared exactly the selected names.
+
+Follow-up (same day): the two text buttons pushed the bar 121 px past the 430 px column, clipping
+Export and Delete. The left column always resolves to its 430 px maximum on desktop, so the
+shortfall was constant rather than width-dependent. Fixed by making the toggles 26x24 icon
+buttons reusing `.presets-icon-btn`, trimming the bar gap to 6 px and button padding to
+`--space-2`, and adding `flex-wrap: wrap` to the base rule so a future action wraps instead of
+clipping. `.presets-bulk-bar { flex-wrap: wrap }` previously existed only in the 700 px query.
+
+Acceptance criteria:
+- One storage write per bulk action regardless of selection size.
+- `npm test` passes.
 
 ## 6. Library Summary In The Empty Detail Panel
 

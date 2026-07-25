@@ -868,6 +868,7 @@ API_ROUTER = (
     .add("POST", "/api/send-input", process_routes.send_input)
     .add("POST", "/api/presets", presets_routes.save_preset)
     .add("POST", "/api/presets/shortcut", presets_routes.export_preset_shortcut)
+    .add("POST", "/api/presets/rename", presets_routes.rename_preset)
     .add("POST", "/api/open-folder", lifecycle_routes.post_open_folder)
     .add("POST", "/api/select-file", file_picker_routes.select_file)
     .add_prefix("DELETE", "/api/presets/", presets_routes.delete_preset, "name")

@@ -2674,12 +2674,19 @@ input[type="range"].sampler-range::-moz-range-thumb {
 /* bulk actions remain visible so selection capabilities are discoverable */
 .presets-bulk-bar {
     display: flex;
+    /* wrap rather than clip: the row must survive a future action being added */
+    flex-wrap: wrap;
     flex: none;
     align-items: center;
-    gap: var(--space-2);
+    gap: 6px;
     padding: var(--space-2) var(--space-3);
     border-top: 1px solid var(--border);
     background: var(--bg-raised);
+}
+
+.presets-bulk-bar .btn {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
 }
 
 .presets-browser.has-checked .presets-bulk-bar {
@@ -2694,9 +2701,27 @@ input[type="range"].sampler-range::-moz-range-thumb {
     color: var(--accent);
 }
 
-.presets-bulk-bar .btn:disabled {
+.presets-bulk-bar .btn:disabled,
+.presets-bulk-bar .presets-icon-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+}
+
+.presets-bulk-bar .presets-icon-btn:disabled:hover {
+    background: transparent;
+    color: var(--fg-muted);
+}
+
+/* match btn-sm height so the row stays one consistent band */
+.presets-bulk-bar .presets-icon-btn {
+    width: 26px;
+    height: 24px;
+}
+
+/* the favorite toggles read as stars, matching the per-row control */
+.presets-bulk-bar .presets-icon-btn:not(:disabled):hover {
+    color: var(--yellow);
+    border-color: var(--yellow-border);
 }
 
 /* ── Right column: detail pane ── */
@@ -2941,6 +2966,11 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .modal-dialog h3 { margin-bottom: var(--space-3); color: var(--fg-bright); }
 .modal-dialog p { margin-bottom: var(--space-4); color: var(--fg-muted); }
 .modal-dialog .form-row { margin-bottom: 0; justify-content: flex-end; }
+
+.prompt-modal-input {
+    width: 100%;
+    margin-bottom: var(--space-4);
+}
 
 /* ════════════════════════════════════════════
    SCROLLBAR

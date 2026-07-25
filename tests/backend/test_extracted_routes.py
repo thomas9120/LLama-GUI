@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import subprocess
 import tempfile
 import unittest
 import urllib.error
@@ -218,6 +219,145 @@ class ExtractedRouteTests(unittest.TestCase):
                 json.loads((ctx.paths.presets / ".preset-created-times").read_text(encoding="utf-8")),
                 {},
             )
+
+    def test_rename_preset_moves_file_and_keeps_created_time(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request("POST", "/api/presets", "", {}, body={"name": "Original", "data": {"temperature": 0.7}}),
+                DummyResponse(),
+                ctx,
+            )
+            list_response = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), list_response, ctx)
+            created = list_response.payload[0]["created"]
+
+            response = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "Original", "new_name": "Renamed"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.payload, {"renamed": True, "name": "Renamed"})
+            self.assertFalse((ctx.paths.presets / "Original.json").exists())
+            self.assertTrue((ctx.paths.presets / "Renamed.json").exists())
+
+            renamed_list = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), renamed_list, ctx)
+            self.assertEqual(len(renamed_list.payload), 1)
+            self.assertEqual(renamed_list.payload[0]["name"], "Renamed")
+            self.assertEqual(renamed_list.payload[0]["data"], {"temperature": 0.7})
+            self.assertEqual(renamed_list.payload[0]["created"], created)
+            self.assertEqual(
+                json.loads((ctx.paths.presets / ".preset-created-times").read_text(encoding="utf-8")),
+                {"Renamed.json": created},
+            )
+
+    def test_rename_preset_applies_a_case_only_change(self):
+        """Windows resolve()/Path equality are case-insensitive; the rename must still land."""
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request("POST", "/api/presets", "", {}, body={"name": "Base", "data": {"temperature": 0.7}}),
+                DummyResponse(),
+                ctx,
+            )
+            list_response = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), list_response, ctx)
+            created = list_response.payload[0]["created"]
+
+            response = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "Base", "new_name": "base"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.payload, {"renamed": True, "name": "base"})
+            on_disk = [name for name in os.listdir(ctx.paths.presets) if name.endswith(".json")]
+            self.assertEqual(on_disk, ["base.json"], "the file must actually take the new casing")
+
+            renamed_list = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), renamed_list, ctx)
+            self.assertEqual(renamed_list.payload[0]["name"], "base")
+            self.assertEqual(
+                renamed_list.payload[0]["created"],
+                created,
+                "a case-only rename must still carry the creation time",
+            )
+            self.assertEqual(
+                json.loads((ctx.paths.presets / ".preset-created-times").read_text(encoding="utf-8")),
+                {"base.json": created},
+                "stale metadata under the old casing would break Date-added sorting",
+            )
+
+    def test_rename_preset_treats_an_identical_name_as_a_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request("POST", "/api/presets", "", {}, body={"name": "Same", "data": {"temperature": 0.7}}),
+                DummyResponse(),
+                ctx,
+            )
+            response = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "Same", "new_name": "Same"}),
+                response,
+                ctx,
+            )
+            self.assertEqual(response.payload, {"renamed": True, "name": "Same"})
+            self.assertTrue((ctx.paths.presets / "Same.json").exists())
+
+    def test_rename_preset_rejects_missing_source_and_existing_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            for name in ("First", "Second"):
+                presets.save_preset(
+                    Request("POST", "/api/presets", "", {}, body={"name": name, "data": {"temperature": 0.7}}),
+                    DummyResponse(),
+                    ctx,
+                )
+
+            missing = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "Ghost", "new_name": "Whatever"}),
+                missing,
+                ctx,
+            )
+            self.assertEqual(missing.status, 404)
+
+            collision = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "First", "new_name": "Second"}),
+                collision,
+                ctx,
+            )
+            self.assertEqual(collision.status, 409)
+            self.assertTrue((ctx.paths.presets / "First.json").exists())
+            self.assertEqual(
+                json.loads((ctx.paths.presets / "Second.json").read_text(encoding="utf-8")),
+                {"temperature": 0.7},
+            )
+
+            invalid = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "First", "new_name": "///"}),
+                invalid,
+                ctx,
+            )
+            self.assertEqual(invalid.status, 400)
+
+            unchanged = DummyResponse()
+            presets.rename_preset(
+                Request("POST", "/api/presets/rename", "", {}, body={"name": "First", "new_name": "First"}),
+                unchanged,
+                ctx,
+            )
+            self.assertEqual(unchanged.payload, {"renamed": True, "name": "First"})
+            self.assertTrue((ctx.paths.presets / "First.json").exists())
 
     def test_list_presets_skips_malformed_file_with_stderr_warning(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2941,6 +3081,63 @@ class TunnelRouteTests(unittest.TestCase):
         self.assertEqual(response.payload["status"], "stopped")
         self.assertIsNone(self.ctx.state.remote_tunnel_process)
         self.assertEqual(killed, [ctrl_break_event])
+
+
+class SubprocessWindowFlagTests(unittest.TestCase):
+    """Helper subprocesses must not flash a console when the server runs detached."""
+
+    def test_creationflags_are_windows_only(self):
+        from backend.services import subprocess_utils
+
+        with mock.patch.object(subprocess_utils.sys, "platform", "win32"):
+            self.assertEqual(
+                subprocess_utils.get_no_window_creationflags(),
+                subprocess.CREATE_NO_WINDOW,
+            )
+        for platform_name in ("linux", "darwin"):
+            with mock.patch.object(subprocess_utils.sys, "platform", platform_name):
+                self.assertEqual(subprocess_utils.get_no_window_creationflags(), 0)
+
+    def test_run_git_hides_the_console_window(self):
+        from backend.services import git_update as srv
+
+        with mock.patch.object(srv.subprocess, "run") as runner:
+            with mock.patch.object(srv, "get_no_window_creationflags", return_value=0x08000000):
+                srv.run_git(["status"], ".")
+
+        self.assertEqual(runner.call_args.kwargs["creationflags"], 0x08000000)
+
+    def test_every_probe_subprocess_run_sets_creationflags(self):
+        """Guards against a new probe reintroducing the console flash."""
+        import ast
+        import pathlib
+
+        services = pathlib.Path(__file__).resolve().parents[2] / "backend" / "services"
+        missing = []
+        found = []
+        for module_name in ("git_update.py", "process_manager.py"):
+            module_path = services / module_name
+            tree = ast.parse(module_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call):
+                    continue
+                func = node.func
+                is_subprocess_run = (
+                    isinstance(func, ast.Attribute)
+                    and func.attr == "run"
+                    and isinstance(func.value, ast.Name)
+                    and func.value.id == "subprocess"
+                )
+                if not is_subprocess_run:
+                    continue
+                found.append(f"{module_name}:{node.lineno}")
+                keywords = {kw.arg for kw in node.keywords}
+                if "creationflags" not in keywords:
+                    missing.append(f"{module_name}:{node.lineno}")
+
+        # without this the scan could silently match nothing and pass vacuously
+        self.assertGreaterEqual(len(found), 6, f"probe scan found too few call sites: {found}")
+        self.assertEqual(missing, [], f"subprocess.run without creationflags: {missing}")
 
 
 class GitUpdateRouteTests(unittest.TestCase):
