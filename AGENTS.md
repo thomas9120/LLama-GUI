@@ -237,7 +237,9 @@ with the primary file and only touch secondary files if the change requires it.
 | Remote tunnel UI | `ui/js/remote-tunnel-ui.js` | `ui/js/app.js` (init), `ui/js/api-tab.js` (endpoint config), `ui/js/manager.js` (fetchJson) |
 | Chat template presets | `ui/js/flags/chat-templates.js` | `ui/js/app.js` (mapping helpers) |
 | Sampler presets | `ui/js/sampler-presets.js` | `ui/js/app-data.js` (built-ins), `ui/js/flag-core.js` (apply), `ui/js/app.js` (callbacks) |
-| Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply) |
+| Preset save/load/import/export | `ui/js/presets.js` | `ui/js/flag-core.js` (collect/apply), `ui/js/manager.js` (`getKnownModelNames` for missing-model warnings) |
+| Preset library browser UI | `ui/js/presets.js` | `.presets-browser` in `ui/css/style.css` (layout, focus rings) |
+| Known model name cache | `ui/js/manager.js` (`refreshModels`) | `ui/js/presets.js` (`refreshModelPresence`) |
 | Install/update/model manager UI | `ui/js/manager.js` | `ui/js/app.js` (lifecycle callbacks), `ui/js/flag-core.js` (selected model sync) |
 | Shared frontend API utility | `ui/js/manager.js` (`fetchJson`) | UI modules that call backend APIs |
 | Backend route registry / server lifecycle | `backend/app.py` | `backend/routing.py`, `backend/routes/*.py`, `backend/services/lifecycle.py` |

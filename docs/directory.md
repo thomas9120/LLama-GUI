@@ -167,8 +167,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/theme-ui.js` | `window.LlamaGui.themeUi` | Theme preference persistence, root theme attribute application, color-scheme hints, and switcher button state |
 | `ui/js/flag-core.js` | `window.LlamaGui.flagCore` | Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
-| `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, and accepted-status observer wiring for runtime reconciliation |
-| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, exporting, importing, and group-by-model rendering with search and collapsible groups |
+| `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
+| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
 | `ui/js/searchable-select.js` | `window.LlamaGui.searchableSelect` | Searchable combobox wrapper that visually replaces a native `<select>` (button + popup with search) while keeping the select in the DOM as the source of truth for options, value, and change events |
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |
@@ -196,7 +196,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 4. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
 5. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
 6. **API**: View and interact with the `llama.cpp` API endpoints, start/stop Cloudflare tunnel.
-7. **Presets**: Save, load, import, export, and manage preset configurations grouped by model.
+7. **Presets**: Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
 
 ---
 
@@ -458,6 +458,88 @@ Frontend downloader controls, status rendering, progress polling, cancel handlin
 
 ---
 
+## Presets Tab
+
+The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in `ui/js/presets.js`; styling is under `.presets-browser` in `ui/css/style.css`.
+
+The tab is built for libraries of scale. The reference case is 58 presets across 33 model groups, and several design decisions below only make sense at that size.
+
+### Layout
+
+Two columns inside `.presets-workspace`, which takes a definite `height: max(460px, calc(100vh - 216px))` so both columns end level and each scrolls internally rather than scrolling the page:
+- **Browser** (`#presets-list`): toolbar, filters, bulk bar pinned; the list is the only flexible child.
+- **Detail panel** (`#preset-detail-panel`): the selected preset, or a library summary when nothing is selected.
+
+### Grouping And Sorting
+
+Presets group by their saved `model` value. Groups are keyed by model path, sorted by label, and **collapsed by default** — `isPresetGroupCollapsed()` returns `true` unless a group was explicitly expanded. Presets with no model land in a `__no_model__` group pinned last.
+
+Sort modes are name, recently used, and date added. Group order follows the active sort, except name mode which always sorts by label.
+
+Note for tests and fixtures: groups render in **label order**, not the order a fixture declares them.
+
+### Search
+
+`getPresetSearchText()` covers preset name, model path and label, tool, and — for non-default flags only — each overridden flag's id, its de-underscored id, and its human label from `getPresetFlagLabel()`. So `ctx` finds presets that changed `ctx_size`, while a preset holding that flag at its default does not match.
+
+Search text is precomputed onto `entry.searchText` in `buildPresetGroups()`, not rebuilt per keystroke. `getPresetFlagLabel()` is backed by a `Map` cached on the `FLAGS` array identity.
+
+### Filters
+
+- **Favorites** is tri-state: `All` → `★ First` (sort only) → `★ Only` (filters).
+- **`⚠ Warnings`** shows only presets with at least one warning.
+- Search and filters force groups open so matches stay visible.
+
+### Bulk Actions
+
+Select All, Clear, `★ Favorite`, `☆ Unfavorite`, Export, Delete. Favorite/unfavorite do one storage read and at most one write for the whole selection, and report a no-op rather than triggering a pointless refetch.
+
+### Warnings
+
+`getPresetWarnings()` flags three things:
+- The saved model file is not in the models folder (see below).
+- An outdated or unsupported chat template.
+- Custom launch args, which may override UI controls.
+
+Missing-model detection compares each preset's model basename against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. It is deliberately conservative: an unknown list, an empty models folder, and a preset with no model all stay silent, because a preset for a model kept on another machine is legitimate.
+
+`null` from that cache means "not known yet" and must stay distinct from a known-empty folder. The summary surfaces this as `modelsChecked`; when false, the Missing Models stat renders `—` and the health line says the check did not run rather than giving a false all-clear.
+
+Because warnings are computed at build time, `refreshModels()` calls `refreshModelPresence()` on both its success and failure paths so an open Presets tab rebuilds. That guard keys on `#section-presets` visibility, since `#presets-list` is static markup and always present.
+
+### Detail Panel
+
+With a preset selected: model, tool, override count, quant, warning count, notable settings chips, and the action row — Load Preset, Duplicate, Rename, Update from Current, Export, Windows Shortcut, Favorite, and Delete.
+
+With nothing selected: a library summary — preset count, model groups, favorites, warnings, missing models, most recently used, and a health line. The summary describes the **visible** presets, not everything on disk, so its numbers always agree with the list and the count line. Any absolute claim about library health is suppressed while a filter is active or while the model list is unchecked.
+
+### Keyboard Navigation
+
+The list is one composite widget rather than a few hundred tab stops. At the reference size it was 33 header buttons plus 58 rows x 4 stops each = 265 stops to cross; it is now one stop to enter.
+
+- The focus sequence is group headers plus the rows of expanded groups, in document order. Rows in a collapsed group are `display: none` and are skipped.
+- Only the current item carries `tabindex="0"`. Its checkbox, favorite toggle, and Load button are restored to the tab order with it, so Tab reaches them and then leaves the list.
+- Up/Down move, clamped at both ends; Home/End jump. Enter/Space still select.
+- `presetRovingKey` identifies position by preset name or group key, so the full re-render that selecting or favoriting triggers restores focus to the same preset. A `focusin` listener syncs the key when focus arrives by click, Tab, or programmatic `focus()`.
+
+### Duplicate And Rename
+
+`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames need care on Windows — see the notes in `docs/design-docs/preset-todo.md`.
+
+### Local Storage Keys
+
+| Key | Purpose |
+|-----|---------|
+| `llama_gui_preset_group_state_v1` | Per-model-path group collapse state |
+| `llama_gui_preset_favorites_v1` | Favorited preset names |
+| `llama_gui_preset_last_used_v1` | Last-used timestamps for recency sort |
+| `llama_gui_preset_sort_v1` | Active sort mode |
+| `llama_gui_preset_favorites_first_v1` | Favorites tri-state (migrated from an older boolean) |
+
+All reads and writes go through helpers that tolerate blocked storage; failures log rather than breaking preset actions.
+
+---
+
 ## Chat Tab
 
 The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface that proxies through the Python backend.
@@ -708,6 +790,7 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Quick Launch sampler edits sync to Chat, Configure, shared flag state, and launch args.
 - Custom Launch Args update shared state, command preview, launch args, and launch blocking on parser errors.
 - API-key controls sync across Configure and Quick Launch, generated/manual keys authenticate Chat and stats, and rendered commands never expose the secret.
+- The Presets browser list is a single tab stop, arrow keys skip collapsed groups' rows, only the focused row's controls stay tabbable, and focus survives the re-render that selecting a preset triggers.
 
 When running local browser smoke checks manually, serve `ui/` as the web root. Serving from the repo root will break root-relative assets such as `/js/app.js`.
 
@@ -749,7 +832,11 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
 | `docs/directory.md` | This file — project structure and feature reference |
-| `docs/todo.md` | Known planned work |
-| `docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
-| `docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |
+| `docs/tests.md` | Test suite layout, commands, and what each test covers |
+| `docs/design-docs/todo.md` | Known planned work |
+| `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
+| `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
+| `docs/design-docs/router-mode.md` | Router mode design notes |
+| `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
+| `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |
 | `docs/images/` | Screenshots used by README.md |

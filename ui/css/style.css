@@ -2502,6 +2502,14 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 .preset-group-header:hover { background: var(--bg-raised); }
 
+/* Arrow-key roving focus moves through group headers as well as rows, so the
+   header needs the same visible focus ring the rows already have. Without it a
+   keyboard user loses track of position every time they cross a group. */
+.preset-group-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
 .preset-group-chevron {
     color: var(--fg-faint);
     flex-shrink: 0;
