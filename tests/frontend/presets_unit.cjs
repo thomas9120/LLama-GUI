@@ -380,4 +380,60 @@ assert.equal(vm.runInContext("setPresetsFavorite([], true)", bulkContext), 0);
 assert.equal(vm.runInContext("setPresetsFavorite(undefined, true)", bulkContext), 0, "a missing list must be safe");
 assert.equal(countWrites(bulkContext), 0);
 
+// --- Missing model warnings (preset-todo item 9) ---------------------------
+// The check must only fire on a confident miss. Anything else - an unknown
+// model list, an empty models/ folder, a preset with no model - stays silent,
+// because presets for models kept on another machine are legitimate.
+function createModelContext(knownModelNames) {
+    const ctx = {
+        window: {},
+        document: { getElementById: () => null },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: { getItem: () => null, setItem: () => {} },
+        FLAGS: [],
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = {
+        manager: { getKnownModelNames: () => knownModelNames },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    return ctx;
+}
+
+const modelsPresent = createModelContext(new Set(["kept.gguf", "other.gguf"]));
+const isMissing = (ctx, model) => ctx.window.LlamaGui.presets.isPresetModelMissing(model);
+
+assert.equal(isMissing(modelsPresent, "gone.gguf"), true, "a model absent from models/ must be flagged");
+assert.equal(isMissing(modelsPresent, "kept.gguf"), false, "a model present in models/ must not be flagged");
+assert.equal(isMissing(modelsPresent, "KEPT.GGUF"), false, "the name match must ignore case");
+assert.equal(isMissing(modelsPresent, ""), false, "a preset with no model saved is not library rot");
+assert.equal(
+    isMissing(modelsPresent, "C:\\models\\kept.gguf"),
+    false,
+    "a path-like model value must match on its file name"
+);
+assert.equal(isMissing(modelsPresent, "/srv/models/kept.gguf"), false, "posix paths must match on file name too");
+
+// An unknown list must never be read as proof that a model is gone.
+assert.equal(isMissing(createModelContext(null), "gone.gguf"), false, "a failed model fetch must not warn");
+assert.equal(isMissing(createModelContext(new Set()), "gone.gguf"), false, "an empty models folder must not warn");
+assert.equal(
+    createModelContext(undefined).window.LlamaGui.presets.isPresetModelMissing("gone.gguf"),
+    false,
+    "a manager without the cache accessor must not warn"
+);
+
+const missingWarnings = modelsPresent.window.LlamaGui.presets.getPresetWarnings({
+    model: "gone.gguf",
+    flags: {},
+});
+assert.equal(missingWarnings.length, 1, "a missing model must surface exactly one warning");
+assert.match(missingWarnings[0], /gone\.gguf/, "the warning must name the missing file");
+assert.equal(
+    modelsPresent.window.LlamaGui.presets.getPresetWarnings({ model: "kept.gguf", flags: {} }).length,
+    0,
+    "a preset whose model still exists must be warning-free"
+);
+
 console.log("presets unit tests passed");

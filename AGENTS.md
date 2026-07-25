@@ -100,6 +100,31 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
   `console.debug()` for expected optional failures and `console.warn()` for
   unexpected ones.
 
+- **Do not use `instanceof` to type-check values that cross a realm.**
+  `instanceof Set`, `instanceof Array`, and friends compare against the
+  constructor of the *current* realm, so they return `false` for an otherwise
+  valid object built elsewhere. The frontend unit tests in `tests/frontend/`
+  run module source through `node:vm` with its own intrinsics, so any
+  `instanceof` guard on a value the test supplies fails there even though it
+  passes in the browser. This fails in the dangerous direction: the guard
+  rejects the value, the feature silently disables itself, and the test still
+  reports green because nothing threw. Duck-type the shape you actually need
+  instead:
+
+  ```js
+  // Wrong - false for a Set created in the vm test context.
+  return names instanceof Set ? names : null;
+
+  // Right - checks the capability, works across realms.
+  return names && typeof names.has === "function" && typeof names.size === "number"
+      ? names
+      : null;
+  ```
+
+  Use `Array.isArray()` for arrays, which is realm-safe by design and already
+  the convention in `presets.js` and `flag-core.js`. The same applies to any
+  future iframe or web worker.
+
 ### Backend
 
 - **Do not add broad `except Exception` without re-raising or logging.**

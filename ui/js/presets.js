@@ -198,10 +198,45 @@ function applyPresetData(data, options = {}) {
     return prepared;
 }
 
-function getPresetWarnings(presetData) {
+// The set of .gguf names currently in the models/ folder, as cached by
+// refreshModels(). Returns null when the list is unknown so callers can stay
+// silent instead of flagging every preset.
+function getKnownModelNames() {
+    const manager = window.LlamaGui && window.LlamaGui.manager;
+    if (!manager || typeof manager.getKnownModelNames !== "function") return null;
+    const names = manager.getKnownModelNames();
+    // Duck-typed rather than `instanceof Set`, which is false for a Set built in
+    // another realm (the vm-based unit tests, or any future iframe/worker).
+    return names && typeof names.has === "function" && typeof names.size === "number" ? names : null;
+}
+
+// Presets normally store a bare file name, matching what /api/models returns,
+// but getPresetGroupLabel() tolerates path-like values so this does too.
+function getPresetModelFileName(model) {
+    const parts = String(model || "").split(/[\\/]+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "";
+}
+
+// Deliberately conservative: only report a miss we are confident about. An
+// unknown model list, an empty models/ folder, or a preset with no model saved
+// all stay silent, since a preset for a model held on another machine is
+// legitimate and false warnings would make the Warnings filter useless.
+function isPresetModelMissing(model, knownModelNames = getKnownModelNames()) {
+    if (!knownModelNames || knownModelNames.size === 0) return false;
+    const fileName = getPresetModelFileName(model);
+    if (!fileName) return false;
+    return !knownModelNames.has(fileName.toLowerCase());
+}
+
+function getPresetWarnings(presetData, knownModelNames = getKnownModelNames()) {
     const warnings = [];
     const flags = (presetData && presetData.flags) || {};
     const chatTemplate = flags.chat_template;
+
+    if (isPresetModelMissing(presetData && presetData.model, knownModelNames)) {
+        const fileName = getPresetModelFileName(presetData.model);
+        warnings.push(`Model file "${fileName}" is not in the models folder. Add it back or point this preset at another model before launching.`);
+    }
 
     if (chatTemplate && typeof isSupportedChatTemplateValue === "function" && !isSupportedChatTemplateValue(chatTemplate)) {
         warnings.push(`Uses outdated or unsupported chat template "${chatTemplate}". It will be ignored and Auto from model is safer.`);
@@ -440,11 +475,13 @@ function getNonDefaultPresetFlagIds(presetData) {
 
 function buildPresetGroups(presets) {
     const groupsByKey = new Map();
+    // Resolved once per render rather than once per preset.
+    const knownModelNames = getKnownModelNames();
 
     for (const preset of presets) {
         const presetData = normalizePresetData(preset.data);
         const groupKey = getPresetGroupKey(presetData.model);
-        const warnings = getPresetWarnings(presetData);
+        const warnings = getPresetWarnings(presetData, knownModelNames);
         const overrideFlagIds = getNonDefaultPresetFlagIds(presetData);
         const entry = {
             name: preset.name,
@@ -455,6 +492,7 @@ function buildPresetGroups(presets) {
             overrideFlagIds,
             overrideCount: overrideFlagIds.length,
             warnings,
+            modelMissing: isPresetModelMissing(presetData.model, knownModelNames),
             // backend sends epoch seconds; convert to ms to match Date.now()
             created: typeof preset.created === "number" ? preset.created * 1000 : 0,
             lastUsed: getPresetLastUsed(preset.name),
@@ -1516,6 +1554,9 @@ if (window.LlamaGui) {
         findPresetByName,
         normalizePresetData,
         normalizeImportedPresetData,
+        getPresetWarnings,
+        isPresetModelMissing,
+        getPresetModelFileName,
         isFullPresetData,
         preparePresetLaunchState,
         applyPresetData,
