@@ -2,6 +2,9 @@
     window.LlamaGui = window.LlamaGui || {};
 
     let dependencies = {};
+    // Survives the panel rebuilds that renderFlags() triggers, so the Configure sampler
+    // dropdown does not lose the user's pick on an unrelated re-render.
+    let selectedConfigPresetValue = "";
 
     function configure(options) {
         dependencies = Object.assign({}, dependencies, options || {});
@@ -84,6 +87,64 @@
         return entries.sort((a, b) => a.name.localeCompare(b.name));
     }
 
+    const SAMPLER_RENAME_MESSAGES = {
+        empty: "Sampler preset name cannot be empty.",
+        builtin: "Built-in sampler presets cannot be renamed.",
+        missing: "That sampler preset no longer exists.",
+        taken: "A sampler preset with that name already exists.",
+    };
+
+    function getSamplerRenameMessage(reason) {
+        return SAMPLER_RENAME_MESSAGES[reason] || "Failed to rename sampler preset.";
+    }
+
+    /**
+     * Rename a custom sampler preset in the shared store.
+     *
+     * Validation lives here so the Configure and Quick Launch buttons stay
+     * thin; callers render their own message from `reason`.
+     *
+     * @returns {{ok: true, name: string}|{ok: false, reason: "empty"|"builtin"|"missing"|"taken"}}
+     */
+    function renameSamplerPreset(oldName, newName) {
+        const from = String(oldName == null ? "" : oldName);
+        const to = String(newName == null ? "" : newName).trim();
+        if (!to) return { ok: false, reason: "empty" };
+
+        const store = loadSamplerPresetStore();
+        if (!Object.prototype.hasOwnProperty.call(store, from)) {
+            if (Object.prototype.hasOwnProperty.call(BUILTIN_SAMPLER_PRESETS, from)) {
+                return { ok: false, reason: "builtin" };
+            }
+            return { ok: false, reason: "missing" };
+        }
+        if (from === to) return { ok: true, name: to };
+
+        // Compare case-insensitively so two presets can never differ by casing alone,
+        // but allow re-casing a preset's own name (mirrors the case-only rename carve-out
+        // in backend/routes/presets.py).
+        const folded = to.toLowerCase();
+        const builtinTaken = Object.keys(BUILTIN_SAMPLER_PRESETS)
+            .some(name => name.toLowerCase() === folded);
+        const customTaken = Object.keys(store)
+            .some(name => name !== from && name.toLowerCase() === folded);
+        if (builtinTaken || customTaken) return { ok: false, reason: "taken" };
+
+        // Move the stored values as-is rather than re-normalizing, so a rename can
+        // never silently drop a flag the current build does not know about.
+        const values = store[from];
+        delete store[from];
+        store[to] = values;
+        saveSamplerPresetStore(store);
+        // Keep the Configure panel's remembered selection on the renamed preset, so a
+        // rename made from Quick Launch does not snap it back to the first entry on the
+        // next renderFlags() rebuild.
+        if (selectedConfigPresetValue === `custom|${from}`) {
+            selectedConfigPresetValue = `custom|${to}`;
+        }
+        return { ok: true, name: to };
+    }
+
     function applySamplerPresetValues(values) {
         const core = getFlagCore();
         if (!core) return;
@@ -102,9 +163,11 @@
         core.setMultipleFlagValues(patch);
     }
 
-    function refreshConsumers() {
+    // `preferredValue` lets a rename carry the mirrored Quick Launch dropdown onto the
+    // new name instead of dropping back to the placeholder when the old name disappears.
+    function refreshConsumers(preferredValue) {
         if (typeof dependencies.refreshSamplerPresetSelect === "function") {
-            dependencies.refreshSamplerPresetSelect();
+            dependencies.refreshSamplerPresetSelect(preferredValue);
         }
     }
 
@@ -133,6 +196,11 @@
         saveBtn.className = "btn btn-sm";
         saveBtn.type = "button";
         saveBtn.textContent = "Save";
+
+        const renameBtn = document.createElement("button");
+        renameBtn.className = "btn btn-sm";
+        renameBtn.type = "button";
+        renameBtn.textContent = "Rename";
 
         const delBtn = document.createElement("button");
         delBtn.className = "btn btn-sm btn-danger";
@@ -175,7 +243,17 @@
             return candidate;
         };
 
-        const refreshOptions = () => {
+        // Reads the value back after assigning it: the browser coerces `select.value`
+        // to "" when no option matches, and the remembered value must track what the
+        // DOM actually holds. Only refreshOptions calls this, once the options exist.
+        const applySelection = (value) => {
+            select.value = value;
+            selectedConfigPresetValue = select.value;
+        };
+
+        // `preferredValue` is for callers that just changed the store and want the
+        // selection to land on a name that did not exist before this rebuild.
+        const refreshOptions = (preferredValue) => {
             const entries = getAllSamplerPresets();
             const builtins = entries.filter(e => e.source === "builtin");
             const customs = entries.filter(e => e.source === "custom");
@@ -210,11 +288,22 @@
                 select.appendChild(group);
             }
 
-            if (entries.length) {
+            // Keep the current pick instead of snapping back to the alphabetically first
+            // preset, since renderFlags() rebuilds this panel on every Configure search
+            // keystroke and on Expand/Collapse All.
+            const desired = preferredValue || selectedConfigPresetValue;
+            const stillExists = Array.from(select.options).some(opt => opt.value === desired);
+            if (stillExists) {
+                applySelection(desired);
+            } else if (entries.length) {
                 const first = entries[0];
-                select.value = `${first.source}|${first.name}`;
+                applySelection(`${first.source}|${first.name}`);
             }
         };
+
+        select.addEventListener("change", () => {
+            selectedConfigPresetValue = select.value;
+        });
 
         loadBtn.addEventListener("click", () => {
             const selected = getSelectedPresetEntry();
@@ -233,10 +322,39 @@
             const store = loadSamplerPresetStore();
             store[name] = normalizeSamplerPresetValues(collectSamplerValues());
             saveSamplerPresetStore(store);
-            refreshOptions();
+            refreshOptions(`custom|${name}`);
             refreshConsumers();
-            select.value = `custom|${name}`;
             nameInput.value = "";
+        });
+
+        renameBtn.addEventListener("click", async () => {
+            const selected = getSelectedPresetEntry();
+            if (!selected) return;
+            if (selected.source !== "custom") {
+                alert(getSamplerRenameMessage("builtin"));
+                return;
+            }
+
+            const promptAction = dependencies.promptAction;
+            // resolves to null on cancel, so an empty string still means "cleared the field"
+            const nextName = typeof promptAction === "function"
+                ? await promptAction(
+                    "Rename Sampler Preset",
+                    `Enter a new name for "${selected.name}".`,
+                    selected.name,
+                    "Rename"
+                )
+                : prompt(`Enter a new name for "${selected.name}".`, selected.name);
+            if (nextName === null || nextName === undefined) return;
+
+            const result = renameSamplerPreset(selected.name, nextName);
+            if (!result.ok) {
+                alert(getSamplerRenameMessage(result.reason));
+                return;
+            }
+
+            refreshOptions(`custom|${result.name}`);
+            refreshConsumers(`custom|${result.name}`);
         });
 
         delBtn.addEventListener("click", async () => {
@@ -323,11 +441,8 @@
                 }
 
                 saveSamplerPresetStore(store);
-                refreshOptions();
+                refreshOptions(lastImportedName ? `custom|${lastImportedName}` : "");
                 refreshConsumers();
-                if (lastImportedName) {
-                    select.value = `custom|${lastImportedName}`;
-                }
             } catch (e) {
                 alert("Failed to import sampler preset: " + e.message);
             }
@@ -337,6 +452,7 @@
         row.appendChild(nameInput);
         row.appendChild(loadBtn);
         row.appendChild(saveBtn);
+        row.appendChild(renameBtn);
         row.appendChild(delBtn);
         row.appendChild(exportBtn);
         row.appendChild(importBtn);
@@ -356,6 +472,8 @@
         collectSamplerValues,
         normalizeSamplerPresetValues,
         getAllSamplerPresets,
+        renameSamplerPreset,
+        getSamplerRenameMessage,
         applySamplerPresetValues,
         createSamplerPresetControls,
     };

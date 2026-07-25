@@ -51,7 +51,8 @@ samplerPresets.configure({
     getFlags: () => FLAGS,
     getDefaultFlagValues: getDefaultValues,
     confirmAction,
-    refreshSamplerPresetSelect: () => quickLaunchUi.refreshSamplerPresetSelect(),
+    promptAction,
+    refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
 const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
 remoteTunnelUi.configure({
@@ -89,7 +90,10 @@ quickLaunchUi.configure({
     saveSamplerPresetStore: samplerPresets.saveSamplerPresetStore,
     normalizeSamplerPresetValues: samplerPresets.normalizeSamplerPresetValues,
     collectSamplerValues: samplerPresets.collectSamplerValues,
+    renameSamplerPreset: samplerPresets.renameSamplerPreset,
+    getSamplerRenameMessage: samplerPresets.getSamplerRenameMessage,
     confirmAction,
+    promptAction,
     hasLaunchModelArg: flagCore.hasLaunchModelArg,
 });
 benchmarkUi.configure({

@@ -679,13 +679,23 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 
 - Stored in `localStorage` under `llama_gui_sampler_presets_v1`.
 - Saved from current sampler values with user-defined names.
-- Unique name generation handles collisions (e.g., "Creative (2)").
-- Load, save, delete, export (single JSON file), and import (single or batch JSON) operations.
+- Unique name generation handles collisions (e.g., "Creative (2)") on import.
+- Load, save, rename, delete, export (single JSON file), and import (single or batch JSON) operations.
+
+### Rename
+
+- `window.LlamaGui.samplerPresets.renameSamplerPreset(oldName, newName)` owns all validation and returns `{ ok: true, name }` or `{ ok: false, reason }` where `reason` is `empty`, `builtin`, `missing`, or `taken`. Callers render text via `getSamplerRenameMessage(reason)`.
+- Built-in presets cannot be renamed, matching delete behavior.
+- Collisions are rejected rather than auto-uniquified, mirroring the 409 from the backend launch-preset rename. Comparison is case-insensitive, except that a preset may re-case its own name (`my preset` → `My Preset`).
+- Stored values move verbatim, so a rename never drops a flag the current build does not recognize.
+- Both tabs call the same function; the Configure panel refreshes the mirrored Quick Launch dropdown through `refreshSamplerPresetSelect(preferredValue)` so the selection follows the new name instead of resetting to the placeholder. A rename made from Quick Launch instead updates the Configure panel's remembered selection (`selectedConfigPresetValue`) inside `renameSamplerPreset` itself, so the next `renderFlags()` rebuild keeps it on the new name.
 
 ### Integration
 
-- Configure tab: Sampler Preset controls appear at the top of the Sampling accordion.
-- Quick Launch tab: Sampler Preset controls in the sampler section.
+- Configure tab: Sampler Preset controls appear at the top of the Sampling accordion (Load / Save / Rename / Delete / Export / Import).
+- The Configure dropdown selection is remembered in module state (`selectedConfigPresetValue`) because `renderFlags()` destroys and rebuilds the panel on every Configure search keystroke and on Expand/Collapse All. It falls back to the first preset only when the remembered value no longer matches an option.
+- `refreshOptions(preferredValue)` is the only place that changes the selection. Handlers that just wrote to the store (save, rename, import) pass the name they want selected rather than assigning `select.value` afterward — the option does not exist until the rebuild runs, and assigning a missing value silently resolves to the placeholder.
+- Quick Launch tab: Sampler Preset controls in the sampler section (Load, then Save / Rename / Delete).
 - Quick profiles reference preset names (e.g., `samplerPresetName: "Balanced"`).
 - Loading a preset calls `window.LlamaGui.samplerPresets.applySamplerPresetValues()` which writes through `window.LlamaGui.flagCore.setMultipleFlagValues()`.
 - Configure groups all DRY controls under the collapsible **DRY Sampling** submenu. `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
