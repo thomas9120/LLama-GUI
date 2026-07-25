@@ -70,6 +70,9 @@ const CHAT_TEMPLATE_PRESETS = [
     { value: "command-r", label: "CommandR", mode: "builtin", builtin: "command-r" },
     { value: "deepseek3", label: "Deepseek v2.5 & v3", mode: "builtin", builtin: "deepseek3" },
     { value: "__deepseek_v31_nonthinking__", label: "Deepseek v3.1 Non-Thinking", mode: "bundled", path: "ui/templates/deepseek-v31-nonthinking.jinja" },
+    // No `deepseek4` built-in exists; llama.cpp routes V4 through its DeepSeek V3.2/V4
+    // parser based on template content, so this is bundled rather than builtin.
+    { value: "__deepseek_v4__", label: "Deepseek v4", mode: "bundled", path: "ui/templates/deepseek-v4.jinja" },
     { value: "gemma", label: "Gemma 2 & 3", mode: "builtin", builtin: "gemma" },
     { value: "__gemma4_e2b_e4b__", label: "Gemma 4 E2B & E4B", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b.jinja" },
     { value: "__gemma4_e2b_e4b_nothink__", label: "Gemma 4 E2B & E4B NoThink", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b-nothink.jinja" },
