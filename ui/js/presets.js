@@ -637,6 +637,164 @@ function appendDetailStat(container, label, value, valueClass = "") {
     container.appendChild(stat);
 }
 
+// Same wording as formatHistoryTime() in chat-ui.js, which is closure-private
+// there. Kept as a local copy rather than widening that module's surface.
+function formatPresetTimestamp(ts) {
+    if (!ts) return "";
+    const then = new Date(ts);
+    const diffMin = Math.floor((Date.now() - then.getTime()) / 60000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return then.toLocaleDateString();
+}
+
+function isPresetFilterActive() {
+    return Boolean(presetSearchQuery.trim()) || presetWarningFilterActive || presetFavoritesMode === "only";
+}
+
+// Describes the presets currently visible rather than every preset on disk, so
+// the numbers always agree with the list beside them and with the count line.
+// Reading currentPresetGroups keeps this free of a second copy of library state.
+function getPresetLibrarySummary() {
+    const entries = getVisiblePresetEntries();
+    const mostRecent = entries.reduce(
+        (best, entry) => (entry.lastUsed && (!best || entry.lastUsed > best.lastUsed) ? entry : best),
+        null
+    );
+    return {
+        presetCount: entries.length,
+        modelCount: currentPresetGroups.length,
+        warningCount: entries.reduce((total, entry) => total + entry.warnings.length, 0),
+        missingModelCount: entries.filter((entry) => entry.modelMissing).length,
+        favoriteCount: entries.filter((entry) => entry.favorite).length,
+        mostRecent,
+        filtered: isPresetFilterActive(),
+    };
+}
+
+// The summary counts only visible presets, so health copy must never make an
+// absolute claim about the library while a filter is narrowing the view. The
+// dangerous case is a filtered-but-clean view: searching past a preset with a
+// deleted GGUF would otherwise render a green "every preset loads cleanly"
+// all-clear while the rot is simply hidden behind the query.
+function getPresetHealthMessage(summary) {
+    // Pointing at a filter that is already applied is dead advice.
+    const review = presetWarningFilterActive ? "" : " Use the Warnings filter to review them.";
+    const scopePrefix = summary.filtered ? "Of the presets shown, " : "";
+
+    if (summary.missingModelCount > 0) {
+        const count = summary.missingModelCount;
+        const subject = count === 1 ? "1 preset points" : `${count} presets point`;
+        return `${scopePrefix}${subject} at a model file that is no longer in the models folder.${review}`;
+    }
+
+    if (summary.warningCount > 0) {
+        const count = summary.warningCount;
+        const subject = `${count} warning${count === 1 ? "" : "s"}`;
+        return summary.filtered
+            ? `${subject} among the presets shown.${review}`
+            : `${subject} across the library.${review}`;
+    }
+
+    return summary.filtered
+        ? "No warnings among the presets shown. Clear the search and filters to check the whole library."
+        : "No warnings. Every preset points at a model that is present and loads cleanly.";
+}
+
+function renderPresetLibrarySummary(panel) {
+    const summary = getPresetLibrarySummary();
+
+    if (summary.presetCount === 0) {
+        const empty = document.createElement("div");
+        empty.className = "preset-detail-empty";
+        empty.appendChild(createPresetIcon(PRESET_ICON_EMPTY));
+
+        const emptyTitle = document.createElement("div");
+        emptyTitle.className = "preset-detail-empty-title";
+        emptyTitle.textContent = summary.filtered ? "No presets match" : "No presets saved yet";
+
+        const emptyText = document.createElement("p");
+        emptyText.textContent = summary.filtered
+            ? "Clear the search or filters to see the rest of the library."
+            : "Save a preset from Configure to keep a launch setup you can return to.";
+
+        empty.appendChild(emptyTitle);
+        empty.appendChild(emptyText);
+        panel.appendChild(empty);
+        return;
+    }
+
+    const kicker = document.createElement("div");
+    kicker.className = "preset-detail-kicker";
+    kicker.textContent = summary.filtered ? "Matching Presets" : "Preset Library";
+
+    const title = document.createElement("div");
+    title.className = "preset-detail-title";
+    title.textContent = `${summary.presetCount} preset${summary.presetCount === 1 ? "" : "s"}`;
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "preset-detail-subtitle";
+    subtitle.textContent = summary.filtered
+        ? "Filtered view. Clear the search and filters to summarize the whole library."
+        : "Select a preset on the left to preview its saved model, tool, warnings, and settings.";
+
+    const stats = document.createElement("div");
+    stats.className = "preset-detail-stats";
+    appendDetailStat(stats, "Models", String(summary.modelCount));
+    appendDetailStat(stats, "Favorites", String(summary.favoriteCount));
+    appendDetailStat(
+        stats,
+        "Warnings",
+        String(summary.warningCount),
+        summary.warningCount ? "warn" : "ok"
+    );
+    appendDetailStat(
+        stats,
+        "Missing Models",
+        String(summary.missingModelCount),
+        summary.missingModelCount ? "warn" : "ok"
+    );
+
+    panel.appendChild(kicker);
+    panel.appendChild(title);
+    panel.appendChild(subtitle);
+    panel.appendChild(stats);
+
+    const recentTitle = document.createElement("div");
+    recentTitle.className = "preset-detail-section-title";
+    recentTitle.textContent = "Most Recently Used";
+
+    const recent = document.createElement("div");
+    recent.className = "preset-detail-info preset-summary-block";
+    const recentText = document.createElement("span");
+    // textContent, never innerHTML: preset names are user-supplied.
+    recentText.textContent = summary.mostRecent
+        ? `${summary.mostRecent.name} · ${formatPresetTimestamp(summary.mostRecent.lastUsed)}`
+        : "No preset loaded yet on this machine.";
+    recent.appendChild(recentText);
+
+    panel.appendChild(recentTitle);
+    panel.appendChild(recent);
+
+    const healthTitle = document.createElement("div");
+    healthTitle.className = "preset-detail-section-title";
+    // "Library Health" is an absolute claim, and the counts under it are not.
+    healthTitle.textContent = summary.filtered ? "Health Of Presets Shown" : "Library Health";
+
+    const health = document.createElement("div");
+    const needsAttention = summary.warningCount > 0;
+    health.className = needsAttention ? "preset-warning" : "preset-detail-note";
+    health.appendChild(createPresetIcon(needsAttention ? PRESET_ICON_WARNING : PRESET_ICON_CHECK));
+    const healthText = document.createElement("span");
+    healthText.textContent = getPresetHealthMessage(summary);
+    health.appendChild(healthText);
+
+    panel.appendChild(healthTitle);
+    panel.appendChild(health);
+}
+
 function renderPresetDetailPanel() {
     const panel = document.getElementById("preset-detail-panel");
     if (!panel) return;
@@ -644,20 +802,7 @@ function renderPresetDetailPanel() {
 
     const entry = findVisiblePresetEntry(selectedPresetName);
     if (!entry) {
-        const empty = document.createElement("div");
-        empty.className = "preset-detail-empty";
-        empty.appendChild(createPresetIcon(PRESET_ICON_EMPTY));
-
-        const emptyTitle = document.createElement("div");
-        emptyTitle.className = "preset-detail-empty-title";
-        emptyTitle.textContent = "No preset selected";
-
-        const emptyText = document.createElement("p");
-        emptyText.textContent = "Select a preset on the left to preview its saved model, tool, warnings, and notable settings.";
-
-        empty.appendChild(emptyTitle);
-        empty.appendChild(emptyText);
-        panel.appendChild(empty);
+        renderPresetLibrarySummary(panel);
         return;
     }
 
@@ -1557,6 +1702,9 @@ if (window.LlamaGui) {
         getPresetWarnings,
         isPresetModelMissing,
         getPresetModelFileName,
+        getPresetLibrarySummary,
+        getPresetHealthMessage,
+        formatPresetTimestamp,
         isFullPresetData,
         preparePresetLaunchState,
         applyPresetData,

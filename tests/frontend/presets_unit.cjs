@@ -384,12 +384,16 @@ assert.equal(countWrites(bulkContext), 0);
 // The check must only fire on a confident miss. Anything else - an unknown
 // model list, an empty models/ folder, a preset with no model - stays silent,
 // because presets for models kept on another machine are legitimate.
-function createModelContext(knownModelNames) {
+function createModelContext(knownModelNames, initialStorage = {}) {
+    const store = { ...initialStorage };
     const ctx = {
         window: {},
         document: { getElementById: () => null },
         console: { ...console, debug: () => {}, warn: () => {} },
-        localStorage: { getItem: () => null, setItem: () => {} },
+        localStorage: {
+            getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+            setItem: (key, value) => { store[key] = String(value); },
+        },
         FLAGS: [],
     };
     ctx.window = ctx;
@@ -435,5 +439,110 @@ assert.equal(
     0,
     "a preset whose model still exists must be warning-free"
 );
+
+// --- Library summary (preset-todo item 6) ----------------------------------
+// The summary describes the visible presets, so its numbers always agree with
+// the list beside it. buildPresetGroups() is driven through the real filters
+// rather than hand-building currentPresetGroups, so the two cannot drift.
+const summaryContext = createModelContext(new Set(["kept.gguf"]));
+const summaryPresets = [
+    { name: "alpha", data: { model: "kept.gguf", flags: {} } },
+    { name: "beta", data: { model: "gone.gguf", flags: {} } },
+    { name: "gamma", data: { model: "kept.gguf", flags: { custom_args: "--verbose" } } },
+];
+summaryContext.__presets = summaryPresets;
+vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", summaryContext);
+
+let summary = vm.runInContext("getPresetLibrarySummary()", summaryContext);
+assert.equal(summary.presetCount, 3);
+assert.equal(summary.modelCount, 2, "kept.gguf and gone.gguf are two model groups");
+assert.equal(summary.missingModelCount, 1, "only the preset pointing at gone.gguf counts as missing");
+assert.equal(summary.warningCount, 2, "one missing model plus one custom-args preset");
+assert.equal(summary.filtered, false, "no search or filter is active");
+assert.equal(summary.mostRecent, null, "an unused library has no most-recent preset");
+
+// A filtered view must report what is visible, not the whole library, or the
+// summary would contradict the list and the count line next to it.
+vm.runInContext("presetWarningFilterActive = true; currentPresetGroups = buildPresetGroups(__presets)", summaryContext);
+summary = vm.runInContext("getPresetLibrarySummary()", summaryContext);
+assert.equal(summary.presetCount, 2, "only the two presets with warnings remain visible");
+assert.equal(summary.filtered, true, "the summary must announce that it is filtered");
+
+vm.runInContext("presetWarningFilterActive = false; presetSearchQuery = 'alpha'; currentPresetGroups = buildPresetGroups(__presets)", summaryContext);
+summary = vm.runInContext("getPresetLibrarySummary()", summaryContext);
+assert.equal(summary.presetCount, 1);
+assert.equal(summary.missingModelCount, 0, "the missing preset is filtered out, so it is not counted");
+assert.equal(summary.filtered, true, "an active search counts as filtered");
+
+// Most-recently-used must pick the newest entry, not the first or the last.
+const usedContext = createModelContext(new Set(["kept.gguf"]), {
+    llama_gui_preset_last_used_v1: JSON.stringify({
+        alpha: 1000,
+        beta: 9000,
+        gamma: 5000,
+    }),
+});
+usedContext.__presets = summaryPresets;
+vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", usedContext);
+summary = vm.runInContext("getPresetLibrarySummary()", usedContext);
+assert.equal(summary.mostRecent.name, "beta", "the newest lastUsed entry must win");
+assert.equal(summary.mostRecent.lastUsed, 9000);
+
+// Health copy must never make an absolute claim while a filter is narrowing the
+// view. The regression this guards: searching past a preset with a deleted GGUF
+// rendered a green "every preset loads cleanly" all-clear over hidden rot.
+const healthContext = createModelContext(new Set(["kept.gguf"]));
+healthContext.__presets = [
+    { name: "hermes-a", data: { model: "kept.gguf", flags: {} } },
+    { name: "hermes-b", data: { model: "kept.gguf", flags: {} } },
+    { name: "old-rig", data: { model: "gone.gguf", flags: {} } },
+];
+const healthMessage = (setup) => {
+    vm.runInContext(`${setup}; currentPresetGroups = buildPresetGroups(__presets)`, healthContext);
+    return vm.runInContext("getPresetHealthMessage(getPresetLibrarySummary())", healthContext);
+};
+const RESET = "presetSearchQuery = ''; presetWarningFilterActive = false; presetFavoritesMode = 'all'";
+
+const unfilteredRot = healthMessage(RESET);
+assert.match(unfilteredRot, /^1 preset points at a model file/, "an unfiltered view states the count plainly");
+assert.match(unfilteredRot, /Use the Warnings filter/, "the review hint belongs on an unfiltered view");
+
+const hiddenRot = healthMessage(`${RESET}; presetSearchQuery = 'hermes'`);
+assert.doesNotMatch(
+    hiddenRot,
+    /Every preset/,
+    "a filtered view that hides the only rotten preset must not claim every preset is clean"
+);
+assert.match(hiddenRot, /among the presets shown/, "a clean filtered view must scope its all-clear");
+assert.match(hiddenRot, /Clear the search and filters/, "and must say how to check the rest");
+
+assert.match(
+    healthMessage(`${RESET}; presetSearchQuery = 'old'`),
+    /^Of the presets shown, 1 preset points/,
+    "counts under a filter must be scoped to what is visible"
+);
+
+// The Warnings filter cannot be the suggested next step when it is already on.
+assert.doesNotMatch(
+    healthMessage(`${RESET}; presetWarningFilterActive = true`),
+    /Use the Warnings filter/,
+    "advice to apply the already-active filter is dead advice"
+);
+
+// Unfiltered and clean is the one case allowed to speak for the whole library.
+const cleanContext = createModelContext(new Set(["kept.gguf"]));
+cleanContext.__presets = [{ name: "alpha", data: { model: "kept.gguf", flags: {} } }];
+vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", cleanContext);
+assert.match(
+    vm.runInContext("getPresetHealthMessage(getPresetLibrarySummary())", cleanContext),
+    /Every preset points at a model that is present/,
+    "an unfiltered clean library may still give an absolute all-clear"
+);
+
+const formatPresetTimestamp = summaryContext.window.LlamaGui.presets.formatPresetTimestamp;
+assert.equal(formatPresetTimestamp(0), "", "a preset never used has no timestamp to show");
+assert.equal(formatPresetTimestamp(Date.now()), "Just now");
+assert.equal(formatPresetTimestamp(Date.now() - 5 * 60000), "5m ago");
+assert.equal(formatPresetTimestamp(Date.now() - 3 * 3600000), "3h ago");
 
 console.log("presets unit tests passed");
