@@ -173,4 +173,211 @@ assert.equal(applied[2][0], "flags");
 assert.equal(applied[2][1].api_key, "session-secret");
 assert.equal(applied[2][1].ctx_size, 4096);
 
+// favorites tri-state: needs a working storage, unlike the blocked-storage context above
+function createStoredContext(initialStorage = {}) {
+    const store = { ...initialStorage };
+    const favoritesContext = {
+        window: {},
+        document: { getElementById: () => null },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: {
+            getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+            setItem: (key, value) => { store[key] = String(value); },
+        },
+        FLAGS: [],
+    };
+    favoritesContext.window = favoritesContext;
+    favoritesContext.window.LlamaGui = {};
+    vm.createContext(favoritesContext);
+    vm.runInContext(source, favoritesContext, { filename: "presets.js" });
+    return favoritesContext;
+}
+
+const FAVORITES_KEY = "llama_gui_preset_favorites_first_v1";
+
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext()),
+    "first",
+    "favorites emphasis should default to sorting favorites first"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "true" })),
+    "first",
+    "the legacy true value must migrate to first"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "false" })),
+    "all",
+    "the legacy false value must migrate to all"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "only" })),
+    "only",
+    "a stored tri-state value must load unchanged"
+);
+
+const cycleContext = createStoredContext();
+assert.equal(
+    JSON.stringify(vm.runInContext(
+        "['all','first','only'].map(nextPresetFavoritesMode)",
+        cycleContext
+    )),
+    JSON.stringify(["first", "only", "all"]),
+    "the favorites chip must cycle all - first - only"
+);
+
+const filterContext = createStoredContext({
+    [FAVORITES_KEY]: "only",
+    llama_gui_preset_favorites_v1: JSON.stringify({ "Starred Preset": true }),
+});
+const favoriteOnlyGroups = vm.runInContext(`
+    buildPresetGroups([
+        { name: "Starred Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Plain Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Other Model Preset", data: { tool: "llama-server", model: "b.gguf", flags: {} } },
+    ]).map(group => group.entries.map(entry => entry.name))
+`, filterContext);
+assert.equal(
+    JSON.stringify(favoriteOnlyGroups),
+    JSON.stringify([["Starred Preset"]]),
+    "favorites-only must drop unstarred presets and their now-empty groups"
+);
+
+const emphasisContext = createStoredContext({
+    [FAVORITES_KEY]: "first",
+    llama_gui_preset_favorites_v1: JSON.stringify({ "Starred Preset": true }),
+});
+const favoriteFirstGroups = vm.runInContext(`
+    buildPresetGroups([
+        { name: "Plain Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Starred Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+    ]).map(group => group.entries.map(entry => entry.name))
+`, emphasisContext);
+assert.equal(
+    JSON.stringify(favoriteFirstGroups),
+    JSON.stringify([["Starred Preset", "Plain Preset"]]),
+    "favorites-first must sort without filtering"
+);
+
+// duplicate naming
+const duplicateContext = createStoredContext();
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', new Set(['Base']))", duplicateContext),
+    "Base copy"
+);
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', new Set(['Base', 'Base copy']))", duplicateContext),
+    "Base copy 2",
+    "an existing copy must bump the suffix rather than collide"
+);
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', new Set(['Base', 'Base copy', 'Base copy 2']))", duplicateContext),
+    "Base copy 3"
+);
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', ['Base', 'Base copy'])", duplicateContext),
+    "Base copy 2",
+    "an array of names must work like a Set"
+);
+
+// rename carries name-keyed local state across
+const renameContext = createStoredContext({
+    llama_gui_preset_favorites_v1: JSON.stringify({ Original: true, Other: true }),
+    llama_gui_preset_last_used_v1: JSON.stringify({ Original: 1234, Other: 99 }),
+    llama_gui_preset_group_state_v1: JSON.stringify({ "models/a.gguf": false }),
+});
+vm.runInContext("renamePresetLocalState('Original', 'Renamed')", renameContext);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_favorites_v1'))", renameContext),
+    JSON.stringify({ Other: true, Renamed: true }),
+    "favorites must follow the rename"
+);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_last_used_v1'))", renameContext),
+    JSON.stringify({ Other: 99, Renamed: 1234 }),
+    "last-used must follow the rename"
+);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetGroupState())", renameContext),
+    JSON.stringify({ "models/a.gguf": false }),
+    "group collapse state is keyed by model and must not change on rename"
+);
+
+const untrackedRenameContext = createStoredContext({
+    llama_gui_preset_favorites_v1: JSON.stringify({ Other: true }),
+});
+vm.runInContext("renamePresetLocalState('Original', 'Renamed')", untrackedRenameContext);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_favorites_v1'))", untrackedRenameContext),
+    JSON.stringify({ Other: true }),
+    "renaming a preset with no local state must not invent entries"
+);
+
+// bulk favorite/unfavorite: one storage write for the whole selection
+function countWrites(ctx) {
+    return vm.runInContext("__writes", ctx);
+}
+
+function createWriteCountingContext(initialStorage = {}) {
+    const store = { ...initialStorage };
+    const ctx = {
+        window: {},
+        document: { getElementById: () => null },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: {
+            getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+            setItem(key, value) {
+                store[key] = String(value);
+                ctx.__writes++;
+            },
+        },
+        FLAGS: [],
+        __writes: 0,
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = {};
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    ctx.__writes = 0;
+    return ctx;
+}
+
+let bulkContext = createWriteCountingContext();
+assert.equal(
+    vm.runInContext("setPresetsFavorite(['a', 'b', 'c'], true)", bulkContext),
+    3,
+    "favoriting three unstarred presets must report three changes"
+);
+assert.equal(countWrites(bulkContext), 1, "a bulk favorite must write storage exactly once");
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_favorites_v1'))", bulkContext),
+    JSON.stringify({ a: true, b: true, c: true })
+);
+
+bulkContext = createWriteCountingContext({
+    llama_gui_preset_favorites_v1: JSON.stringify({ a: true, b: true }),
+});
+assert.equal(
+    vm.runInContext("setPresetsFavorite(['a', 'b'], true)", bulkContext),
+    0,
+    "re-favoriting already-starred presets must report no changes"
+);
+assert.equal(countWrites(bulkContext), 0, "a no-op bulk favorite must not touch storage");
+
+bulkContext = createWriteCountingContext({
+    llama_gui_preset_favorites_v1: JSON.stringify({ a: true, b: true, keep: true }),
+});
+assert.equal(vm.runInContext("setPresetsFavorite(['a', 'b', 'missing'], false)", bulkContext), 2);
+assert.equal(countWrites(bulkContext), 1);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_favorites_v1'))", bulkContext),
+    JSON.stringify({ keep: true }),
+    "unfavoriting must only remove the named presets"
+);
+
+bulkContext = createWriteCountingContext();
+assert.equal(vm.runInContext("setPresetsFavorite([], true)", bulkContext), 0);
+assert.equal(vm.runInContext("setPresetsFavorite(undefined, true)", bulkContext), 0, "a missing list must be safe");
+assert.equal(countWrites(bulkContext), 0);
+
 console.log("presets unit tests passed");

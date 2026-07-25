@@ -220,13 +220,14 @@ const PRESET_LAST_USED_STORAGE_KEY = "llama_gui_preset_last_used_v1";
 const PRESET_SORT_STORAGE_KEY = "llama_gui_preset_sort_v1";
 const PRESET_FAVORITES_FIRST_STORAGE_KEY = "llama_gui_preset_favorites_first_v1";
 const PRESET_SORT_MODES = new Set(["name", "recent", "added"]);
+const PRESET_FAVORITES_MODES = ["all", "first", "only"];
 const NO_MODEL_PRESET_GROUP_KEY = "__no_model__";
 
 let presetStatusTimer = null;
 let presetSearchQuery = "";
 let presetWarningFilterActive = false;
 let presetSortMode = loadPresetSortMode();
-let presetFavoritesFirst = loadPresetFavoritesFirst();
+let presetFavoritesMode = loadPresetFavoritesMode();
 let currentPresetGroups = [];
 let selectedPresetName = "";
 let selectedPresetNames = new Set();
@@ -269,9 +270,17 @@ function loadPresetSortMode() {
     return PRESET_SORT_MODES.has(stored) ? stored : "name";
 }
 
-function loadPresetFavoritesFirst() {
+function loadPresetFavoritesMode() {
     const stored = getPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY);
-    return stored === null ? true : stored !== "false";
+    if (stored === null) return "first";
+    if (PRESET_FAVORITES_MODES.includes(stored)) return stored;
+    // migrate the pre-tri-state boolean values
+    return stored === "false" ? "all" : "first";
+}
+
+function nextPresetFavoritesMode(mode) {
+    const index = PRESET_FAVORITES_MODES.indexOf(mode);
+    return PRESET_FAVORITES_MODES[(index + 1) % PRESET_FAVORITES_MODES.length];
 }
 
 function isPresetFavorite(name) {
@@ -297,6 +306,44 @@ function markPresetUsed(name) {
     const lastUsed = loadPresetJsonMap(PRESET_LAST_USED_STORAGE_KEY);
     lastUsed[name] = Date.now();
     savePresetJsonMap(PRESET_LAST_USED_STORAGE_KEY, lastUsed);
+}
+
+function setPresetsFavorite(names, favorite) {
+    // one read/write for the whole selection instead of one per preset
+    const favorites = loadPresetJsonMap(PRESET_FAVORITES_STORAGE_KEY);
+    let changed = 0;
+    for (const name of names || []) {
+        if (favorite) {
+            if (favorites[name] === true) continue;
+            favorites[name] = true;
+        } else {
+            if (!favorites[name]) continue;
+            delete favorites[name];
+        }
+        changed++;
+    }
+    if (changed) savePresetJsonMap(PRESET_FAVORITES_STORAGE_KEY, favorites);
+    return changed;
+}
+
+function renamePresetLocalState(oldName, newName) {
+    // group collapse state is keyed by model path, so only the name-keyed maps move
+    for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
+        const map = loadPresetJsonMap(storageKey);
+        if (!Object.prototype.hasOwnProperty.call(map, oldName)) continue;
+        map[newName] = map[oldName];
+        delete map[oldName];
+        savePresetJsonMap(storageKey, map);
+    }
+}
+
+function buildDuplicatePresetName(name, existingNames) {
+    const taken = existingNames instanceof Set ? existingNames : new Set(existingNames || []);
+    const base = `${name} copy`;
+    if (!taken.has(base)) return base;
+    let suffix = 2;
+    while (taken.has(`${base} ${suffix}`)) suffix++;
+    return `${base} ${suffix}`;
 }
 
 function prunePresetLocalState(existingNames) {
@@ -427,8 +474,9 @@ function buildPresetGroups(presets) {
     }
 
     const query = presetSearchQuery.trim().toLowerCase();
+    const favoritesEmphasized = presetFavoritesMode !== "all";
     const compareEntries = (a, b) => {
-        if (presetFavoritesFirst && a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+        if (favoritesEmphasized && a.favorite !== b.favorite) return a.favorite ? -1 : 1;
         if (presetSortMode === "recent" && b.lastUsed !== a.lastUsed) return b.lastUsed - a.lastUsed;
         if (presetSortMode === "added" && b.created !== a.created) return b.created - a.created;
         return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
@@ -437,6 +485,7 @@ function buildPresetGroups(presets) {
         const entries = group.entries
             .filter((entry) => !query || getPresetSearchText(entry).includes(query))
             .filter((entry) => !presetWarningFilterActive || entry.warnings.length > 0)
+            .filter((entry) => presetFavoritesMode !== "only" || entry.favorite)
             .sort(compareEntries);
         return {
             ...group,
@@ -453,7 +502,7 @@ function buildPresetGroups(presets) {
     groups.sort((a, b) => {
         if (a.key === NO_MODEL_PRESET_GROUP_KEY) return 1;
         if (b.key === NO_MODEL_PRESET_GROUP_KEY) return -1;
-        if (presetFavoritesFirst && a.hasFavorite !== b.hasFavorite) return a.hasFavorite ? -1 : 1;
+        if (favoritesEmphasized && a.hasFavorite !== b.hasFavorite) return a.hasFavorite ? -1 : 1;
         if (presetSortMode !== "name" && b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
         return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
     });
@@ -589,6 +638,8 @@ function renderPresetDetailPanel() {
     const actions = document.createElement("div");
     actions.className = "preset-detail-actions";
     actions.appendChild(createPresetButton("Load Preset", "btn btn-sm btn-primary", () => loadPreset(entry.name)));
+    actions.appendChild(createPresetButton("Duplicate", "btn btn-sm", () => duplicatePreset(entry.name), "Save a copy of this preset without changing current settings"));
+    actions.appendChild(createPresetButton("Rename", "btn btn-sm", () => renamePreset(entry.name), "Rename this preset, keeping its favorite and usage history"));
     actions.appendChild(createPresetButton("Update from Current", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
     actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
     actions.appendChild(createPresetButton("Windows Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows .cmd shortcut for this preset"));
@@ -675,6 +726,8 @@ function renderPresetBulkControls() {
     const deleteButton = document.getElementById("btn-presets-delete-selected");
     const exportButton = document.getElementById("btn-presets-export-selected");
     const clearButton = document.getElementById("btn-presets-select-none");
+    const favoriteButton = document.getElementById("btn-presets-favorite-selected");
+    const unfavoriteButton = document.getElementById("btn-presets-unfavorite-selected");
     const browser = document.getElementById("presets-browser");
     const visibleNames = new Set(getVisiblePresetEntries().map((entry) => entry.name));
     let visibleSelectedCount = 0;
@@ -694,6 +747,12 @@ function renderPresetBulkControls() {
     }
     if (clearButton) {
         clearButton.disabled = selectedPresetNames.size === 0;
+    }
+    if (favoriteButton) {
+        favoriteButton.disabled = selectedPresetNames.size === 0;
+    }
+    if (unfavoriteButton) {
+        unfavoriteButton.disabled = selectedPresetNames.size === 0;
     }
     if (browser) {
         browser.classList.toggle("has-checked", selectedPresetNames.size > 0);
@@ -716,6 +775,12 @@ function renderPresetAuxiliaryPanels() {
 
 function selectPresetEntry(name) {
     selectedPresetName = String(name || "");
+    // searching force-expands groups, so a selection made from search results would be
+    // hidden again once the query is cleared unless its group is expanded for real
+    const entry = findVisiblePresetEntry(selectedPresetName);
+    if (entry && isPresetGroupCollapsed(entry.groupKey)) {
+        setPresetGroupCollapsed(entry.groupKey, false);
+    }
     renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
 }
 
@@ -818,14 +883,18 @@ function renderPresetGroups(container, groups) {
             ? "No presets match your search."
             : presetWarningFilterActive
                 ? "No presets with warnings."
-                : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
+                : presetFavoritesMode === "only"
+                    ? "No favorite presets yet. Star a preset to keep it here."
+                    : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
         container.appendChild(empty);
         renderPresetAuxiliaryPanels();
         return;
     }
 
     // when searching or filtering, force groups open so matches are visible
-    const forceExpanded = Boolean(presetSearchQuery.trim()) || presetWarningFilterActive;
+    const forceExpanded = Boolean(presetSearchQuery.trim())
+        || presetWarningFilterActive
+        || presetFavoritesMode === "only";
 
     for (const group of groups) {
         const groupEl = document.createElement("section");
@@ -1007,6 +1076,16 @@ function initPresetLibraryControls() {
         deleteSelected.addEventListener("click", deleteSelectedPresets);
     }
 
+    const favoriteSelected = document.getElementById("btn-presets-favorite-selected");
+    if (favoriteSelected) {
+        favoriteSelected.addEventListener("click", () => favoriteSelectedPresets(true));
+    }
+
+    const unfavoriteSelected = document.getElementById("btn-presets-unfavorite-selected");
+    if (unfavoriteSelected) {
+        unfavoriteSelected.addEventListener("click", () => favoriteSelectedPresets(false));
+    }
+
     const exportSelected = document.getElementById("btn-presets-export-selected");
     if (exportSelected) {
         exportSelected.addEventListener("click", exportSelectedPresets);
@@ -1028,13 +1107,24 @@ function initPresetLibraryControls() {
         filterWarnings.addEventListener("click", () => setWarningFilter(!presetWarningFilterActive));
     }
     if (favoritesFirst) {
-        favoritesFirst.classList.toggle("active", presetFavoritesFirst);
-        favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesFirst));
+        const favoritesLabels = {
+            all: { text: "★ Favorites", title: "Click to keep favorite presets and model groups above other results" },
+            first: { text: "★ Favorites first", title: "Favorites are sorted first. Click to show only favorites" },
+            only: { text: "★ Favorites only", title: "Showing only favorites. Click to show all presets" },
+        };
+        const renderFavoritesChip = () => {
+            const label = favoritesLabels[presetFavoritesMode] || favoritesLabels.all;
+            favoritesFirst.textContent = label.text;
+            favoritesFirst.title = label.title;
+            favoritesFirst.classList.toggle("active", presetFavoritesMode !== "all");
+            favoritesFirst.classList.toggle("preset-chip-favorite-only", presetFavoritesMode === "only");
+            favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesMode !== "all"));
+        };
+        renderFavoritesChip();
         favoritesFirst.addEventListener("click", () => {
-            presetFavoritesFirst = !presetFavoritesFirst;
-            favoritesFirst.classList.toggle("active", presetFavoritesFirst);
-            favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesFirst));
-            setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, String(presetFavoritesFirst));
+            presetFavoritesMode = nextPresetFavoritesMode(presetFavoritesMode);
+            renderFavoritesChip();
+            setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, presetFavoritesMode);
             loadPresets();
         });
     }
@@ -1097,6 +1187,75 @@ async function updatePreset(name) {
     }
 }
 
+async function duplicatePreset(name) {
+    try {
+        const presets = await fetchPresetEntries();
+        const source = presets.find((preset) => preset.name === name);
+        if (!source) {
+            showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
+            return;
+        }
+        // duplicates the saved preset, not the live Configure state, so the current
+        // launch settings are left untouched
+        const duplicateName = buildDuplicatePresetName(name, new Set(presets.map((preset) => preset.name)));
+        const result = await fetchJson("/api/presets", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: duplicateName, data: normalizePresetData(source.data) }),
+        });
+        if (result.saved) {
+            selectedPresetName = result.name || duplicateName;
+            await loadPresets();
+            showPresetStatus(`Duplicated to "${result.name || duplicateName}"`, "success");
+        }
+    } catch (e) {
+        const message = e && e.message === SENSITIVE_CUSTOM_ARG_MESSAGE
+            ? SENSITIVE_CUSTOM_ARG_MESSAGE
+            : "Failed to duplicate preset";
+        showPresetStatus(message, "error", 5000);
+        console.warn("Failed to duplicate preset", e);
+    }
+}
+
+async function renamePreset(name) {
+    const nextName = await promptAction(
+        "Rename Preset",
+        `Enter a new name for "${name}".`,
+        name,
+        "Rename"
+    );
+    if (nextName === null) return;
+    if (!nextName) {
+        showPresetStatus("Preset name cannot be empty", "error", 3200);
+        return;
+    }
+    if (nextName === name) return;
+
+    try {
+        const result = await fetchJson("/api/presets/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, new_name: nextName }),
+        });
+        if (result.renamed) {
+            const savedName = result.name || nextName;
+            // must run before loadPresets, which prunes local state for unknown names
+            renamePresetLocalState(name, savedName);
+            if (selectedPresetName === name) selectedPresetName = savedName;
+            if (selectedPresetNames.has(name)) {
+                selectedPresetNames.delete(name);
+                selectedPresetNames.add(savedName);
+            }
+            await loadPresets();
+            showPresetStatus(`Renamed to "${savedName}"`, "success");
+        }
+    } catch (e) {
+        const message = e && e.message ? e.message : "Failed to rename preset";
+        showPresetStatus(message, "error", 5000);
+        console.warn("Failed to rename preset", e);
+    }
+}
+
 async function loadPreset(name) {
     try {
         const presets = await fetchPresetEntries();
@@ -1136,6 +1295,29 @@ async function deletePreset(name) {
         showPresetStatus("Failed to delete preset", "error", 3200);
         console.warn("Failed to delete preset", e);
     }
+}
+
+async function favoriteSelectedPresets(favorite) {
+    const names = Array.from(selectedPresetNames);
+    if (names.length === 0) {
+        showPresetStatus("No presets selected", "error", 3200);
+        return;
+    }
+    const changed = setPresetsFavorite(names, favorite);
+    if (!changed) {
+        showPresetStatus(
+            favorite
+                ? `Already favorited (${names.length} selected)`
+                : `No favorites in the selection (${names.length} selected)`,
+            "success"
+        );
+        return;
+    }
+    await loadPresets();
+    showPresetStatus(
+        `${favorite ? "Favorited" : "Unfavorited"} ${changed} preset${changed === 1 ? "" : "s"}`,
+        "success"
+    );
 }
 
 async function deleteSelectedPresets() {

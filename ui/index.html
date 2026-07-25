@@ -1296,6 +1296,12 @@
                         <span id="presets-selection-count" class="presets-selection-count">0 selected</span>
                         <button id="btn-presets-select-all" class="btn btn-sm btn-ghost" type="button">Select All</button>
                         <button id="btn-presets-select-none" class="btn btn-sm btn-ghost" type="button">Clear</button>
+                        <button id="btn-presets-favorite-selected" class="presets-icon-btn" type="button" title="Add selected presets to favorites" aria-label="Add selected presets to favorites">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>
+                        </button>
+                        <button id="btn-presets-unfavorite-selected" class="presets-icon-btn" type="button" title="Remove selected presets from favorites" aria-label="Remove selected presets from favorites">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>
+                        </button>
                         <button id="btn-presets-export-selected" class="btn btn-sm" type="button" title="Export selected presets as a JSON file">Export</button>
                         <button id="btn-presets-delete-selected" class="btn btn-sm btn-danger" type="button">Delete</button>
                     </div>
@@ -1335,6 +1341,18 @@
     </div>
 </div>
 
+<div id="prompt-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="prompt-modal-title">
+    <div class="modal-dialog">
+        <h3 id="prompt-modal-title">Enter a Value</h3>
+        <p id="prompt-modal-message"></p>
+        <input type="text" id="prompt-modal-input" class="prompt-modal-input" aria-labelledby="prompt-modal-title" />
+        <div class="form-row">
+            <button id="prompt-modal-cancel" class="btn">Cancel</button>
+            <button id="prompt-modal-ok" class="btn btn-primary">Confirm</button>
+        </div>
+    </div>
+</div>
+
 <script src="/js/flags/categories.js?v=revamp-1"></script>
 <script src="/js/flags/options.js?v=revamp-1"></script>
 <script src="/js/flags/chat-templates.js?v=revamp-1"></script>
@@ -1343,10 +1361,10 @@
 <script src="/js/theme-ui.js?v=revamp-1"></script>
 <script src="/js/flag-core.js?v=revamp-1"></script>
 <script src="/js/config-flags-ui.js?v=revamp-1"></script>
-<script src="/js/manager.js?v=revamp-2"></script>
-<script src="/js/presets.js?v=revamp-3"></script>
+<script src="/js/manager.js?v=revamp-4"></script>
+<script src="/js/presets.js?v=revamp-6"></script>
 <script src="/js/searchable-select.js?v=searchable-select-1"></script>
-<script src="/js/model-switch-ui.js?v=model-switch-1"></script>
+<script src="/js/model-switch-ui.js?v=model-switch-2"></script>
 <script src="/js/app-data.js?v=revamp-1"></script>
 <script src="/js/output-cursor.js?v=revamp-1"></script>
 <script src="/js/process-lifecycle.js?v=model-switch-1"></script>
@@ -1358,6 +1376,6 @@
 <script src="/js/quick-launch-ui.js?v=revamp-1"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
-<script src="/js/app.js?v=revamp-2"></script>
+<script src="/js/app.js?v=revamp-3"></script>
 </body>
 </html>

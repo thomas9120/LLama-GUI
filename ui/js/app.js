@@ -546,6 +546,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         await restoreRunningState(initStatus);
     }
     await loadStartupPresetFromUrl();
+    clearAppReloadParam();
 });
 
 function getStartupPresetName() {

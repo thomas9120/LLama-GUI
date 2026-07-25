@@ -391,6 +391,18 @@
         return target ? target.id : "";
     }
 
+    function selectActionSlots(views) {
+        const list = Array.isArray(views) ? views : [];
+        const loading = list.find(view => view.state === "loading");
+        if (loading) return [loading.id];
+        const active = list.find(view => view.activeIdentity);
+        if (active) {
+            const alternate = list.find(view => view.id !== active.id && view.actionable);
+            return alternate ? [alternate.id] : [];
+        }
+        return list.filter(view => view.actionable).map(view => view.id);
+    }
+
     function clampSliderProgress(value) {
         const numeric = Number(value);
         if (!Number.isFinite(numeric)) return 0;
@@ -505,7 +517,7 @@
         if (clear) clear.disabled = !current;
     }
 
-    function renderSlot(view, actionSlot, lifecycle) {
+    function renderSlot(view, actionSlots, lifecycle) {
         const slot = byId(`model-switch-slot-${view.id}`);
         const badge = byId(`model-switch-slot-${view.id}-badge`);
         const action = byId(`model-switch-slot-${view.id}-action`);
@@ -522,7 +534,9 @@
             badge.textContent = view.badge;
             badge.dataset.tone = view.tone;
         }
-        const isTarget = actionSlot === view.id;
+        const isTarget = Array.isArray(actionSlots)
+            ? actionSlots.includes(view.id)
+            : actionSlots === view.id;
         if (action) {
             action.textContent = view.state === "loading" ? "Switching…" : `Switch to ${view.label}`;
             action.disabled = Boolean(
@@ -601,8 +615,8 @@
         lastViewState = viewState;
         const lifecycle = viewState.lifecycle || {};
         const runtime = lifecycle.activeRuntime || viewState.status.active_runtime || null;
-        const actionSlot = selectActionSlot(viewState.views, lifecycle);
-        for (const view of viewState.views) renderSlot(view, actionSlot, lifecycle);
+        const actionSlots = selectActionSlots(viewState.views);
+        for (const view of viewState.views) renderSlot(view, actionSlots, lifecycle);
         setText("model-switch-summary", summaryText(viewState.views, lifecycle, runtime));
         renderNotice(viewState.storageStatus, viewState.issues);
         populateSlotSelect("a", viewState.entries, viewState.assignments);
@@ -886,6 +900,7 @@
         refresh,
         buildSlotViews,
         selectActionSlot,
+        selectActionSlots,
         buildSidebarSliderState,
         resolveSidebarDragTarget,
         handleSwitch,

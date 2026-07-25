@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from .. import config
 from ..context import AppContext
+from .subprocess_utils import get_no_window_creationflags
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -578,6 +579,7 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
             cwd=str(ctx.paths.root),
             timeout=10,
             check=False,
+            creationflags=get_no_window_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {"buffers": ["CPU"], "default": "CPU", "error": "Buffer discovery timed out."}
@@ -598,6 +600,7 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
                 cwd=str(ctx.paths.root),
                 timeout=10,
                 check=False,
+                creationflags=get_no_window_creationflags(),
             )
             devices_output = "\n".join(
                 part for part in [devices_completed.stdout, devices_completed.stderr] if part
@@ -694,6 +697,7 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
             cwd=str(ctx.paths.root),
             timeout=30,
             check=False,
+            creationflags=get_no_window_creationflags(),
         )
     except subprocess.TimeoutExpired:
         return {"error": "Memory estimate timed out."}

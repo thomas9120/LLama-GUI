@@ -294,6 +294,41 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         "the latest status must be re-observed after an older long-running observer settles"
     );
 
+    // appReload is a one-shot cache buster; it must not survive into the address bar
+    const replaceCalls = [];
+    context.window.history = {
+        replaceState: (state, title, url) => replaceCalls.push(url),
+    };
+    context.URL = URL;
+
+    const runClear = (href) => {
+        replaceCalls.length = 0;
+        context.window.location = { href };
+        return {
+            cleared: vm.runInContext("clearAppReloadParam()", context),
+            replaced: replaceCalls.slice(),
+        };
+    };
+
+    let result = runClear("http://127.0.0.1:5240/?appReload=1784942368226");
+    assert.equal(result.cleared, true);
+    assert.deepEqual(result.replaced, ["/"], "a lone appReload param must leave a clean root URL");
+
+    result = runClear("http://127.0.0.1:5240/?preset=My%20Preset&appReload=123");
+    assert.equal(result.cleared, true);
+    assert.deepEqual(
+        result.replaced,
+        ["/?preset=My+Preset"],
+        "clearing appReload must preserve other query parameters"
+    );
+
+    result = runClear("http://127.0.0.1:5240/?appReload=123#chat");
+    assert.deepEqual(result.replaced, ["/#chat"], "the hash must survive the cleanup");
+
+    result = runClear("http://127.0.0.1:5240/?preset=Test");
+    assert.equal(result.cleared, false, "a URL without appReload must not be rewritten");
+    assert.deepEqual(result.replaced, [], "no history entry should be replaced when nothing changes");
+
     console.log("manager releases unit tests passed");
 })().catch((err) => {
     console.error(err);

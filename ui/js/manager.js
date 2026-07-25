@@ -647,6 +647,21 @@ function reloadAppWithCacheBust() {
     window.location.replace(url.toString());
 }
 
+function clearAppReloadParam() {
+    // the timestamp only exists to defeat the cache on the reload it triggered; once the
+    // page is up it is dead weight that every later refresh would carry along
+    try {
+        const url = new URL(window.location.href);
+        if (!url.searchParams.has("appReload")) return false;
+        url.searchParams.delete("appReload");
+        window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+        return true;
+    } catch (e) {
+        console.debug("Failed to clear the appReload parameter", e);
+        return false;
+    }
+}
+
 async function waitForServerReady(maxRetries, intervalMs) {
     for (let i = 0; i < maxRetries; i++) {
         try {
@@ -981,6 +996,58 @@ function confirmAction(title, message, confirmText) {
         const onKeydown = (e) => {
             if (e.key === "Escape") finish(false);
             if (e.key === "Enter") finish(true);
+        };
+
+        cancelBtn.addEventListener("click", onCancel);
+        okBtn.addEventListener("click", onConfirm);
+        modal.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKeydown);
+    });
+}
+
+function promptAction(title, message, defaultValue, confirmText) {
+    const modal = document.getElementById("prompt-modal");
+    const titleEl = document.getElementById("prompt-modal-title");
+    const messageEl = document.getElementById("prompt-modal-message");
+    const input = document.getElementById("prompt-modal-input");
+    const cancelBtn = document.getElementById("prompt-modal-cancel");
+    const okBtn = document.getElementById("prompt-modal-ok");
+
+    titleEl.textContent = title || "Enter a Value";
+    messageEl.textContent = message || "";
+    okBtn.textContent = confirmText || "Confirm";
+    input.value = defaultValue === undefined || defaultValue === null ? "" : String(defaultValue);
+
+    modal.classList.remove("hidden");
+    input.focus();
+    input.select();
+
+    return new Promise((resolve) => {
+        const cleanup = () => {
+            modal.classList.add("hidden");
+            cancelBtn.removeEventListener("click", onCancel);
+            okBtn.removeEventListener("click", onConfirm);
+            modal.removeEventListener("click", onBackdrop);
+            document.removeEventListener("keydown", onKeydown);
+        };
+
+        const finish = (value) => {
+            cleanup();
+            resolve(value);
+        };
+
+        // resolves to null on cancel so callers can tell "dismissed" from "cleared the field"
+        const onCancel = () => finish(null);
+        const onConfirm = () => finish(input.value.trim());
+        const onBackdrop = (e) => {
+            if (e.target === modal) finish(null);
+        };
+        const onKeydown = (e) => {
+            if (e.key === "Escape") finish(null);
+            if (e.key === "Enter") {
+                e.preventDefault();
+                finish(input.value.trim());
+            }
         };
 
         cancelBtn.addEventListener("click", onCancel);
