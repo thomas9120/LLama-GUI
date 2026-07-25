@@ -12,6 +12,8 @@
 </div>
 <!-- readme-badges:end -->
 
+<br><br>
+
 Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, and Linux.
 
 Llama GUI provides a browser UI to:
