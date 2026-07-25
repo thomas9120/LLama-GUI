@@ -639,17 +639,41 @@ Frontend tunnel controls, status rendering, URL rendering, copy wiring, start/st
 
 ### How It Works
 
-1. `GET /api/app-update-status` (with `fetch=true`) runs `git fetch --prune origin`, then checks `git rev-list --left-right --count HEAD...origin/<branch>`.
+1. `GET /api/app-update-status` (with `fetch=true`) runs `git fetch origin --prune --prune-tags --tags`, then finds the newest release tag reachable from `origin/<release branch>`.
 2. Dirty git paths are classified as "safe" (ignored directories, cache dirs, data suffixes) or "blocking" (source file changes).
-3. If the local branch is behind origin and has no blocking changes, auto-update is available.
-4. `POST /api/app-update` runs `git pull --ff-only`, then reinstalls `requirements.txt` via pip.
+3. If the local branch is behind that tagged release and has no blocking changes, auto-update is available. Untagged commits after the latest release do not trigger an update.
+4. `POST /api/app-update` fast-forwards the current branch to the release tag, then reinstalls `requirements.txt` via pip.
 5. After success, the server restarts and the frontend reloads with cache busting.
+
+### Release Tag Selection
+
+The release branch is `APP_RELEASE_BRANCH` in `backend/config.py` (default `main`), exposed as `ServerConfig.app_release_branch`. Tags are always looked up on `origin/<release branch>`, never on the checked-out branch, so a user sitting on a development branch is still offered the newest published release.
+
+`find_latest_release_tag()` runs `git for-each-ref --merged=origin/<release branch> --sort=-v:refname 'refs/tags/v[0-9]*'` and keeps the first tag matching `RELEASE_TAG_RE` (`^v\d+\.\d+\.\d+[a-z]?$`).
+
+- Version sort, not date sort. The tags are lightweight, so `--sort=-creatordate` would compare commit dates and misplace a hotfix tagged onto an older commit. Version sort orders `v1.6.3 < v1.6.3b < v1.6.4 < v1.6.10`.
+- The glob drops non-version tags such as `Summer-2026`; the regex drops prerelease tags such as `v1.6.3-rc1` and `v1.6.3-beta`. A single-letter revision suffix (`v1.6.3b`) is a normal release and is kept.
+- `--prune-tags` is required alongside `--prune`; without it a tag deleted upstream stays local and can still be picked as newest.
+
+### Status States
+
+`state` is one of:
+
+| State | Meaning | Auto-update |
+| --- | --- | --- |
+| `up_to_date` | HEAD already contains the release tag (including local commits made after it) | No |
+| `behind` | The release is a strict descendant of HEAD, so `merge --ff-only` can succeed | Yes, unless blocking changes exist |
+| `diverged` | HEAD and the release have both moved; manual merge/rebase required | No |
+| `no_release` | No tag on the release branch matched the release pattern | No |
+| `error` | A git command failed or the upstream branch is missing; `reason` holds the detail | No |
+
+Every failure path sets `state: "error"` and a human-readable `reason`. The frontend keys off `state`, so a path without it would fall through to a generic message and the git error would be lost. `release_tag` and `release_branch` are included on all states past the initial git checks.
 
 When `LLAMA_GUI_SUPERVISED=1`, restart requests exit cleanly with status `75` instead of spawning a detached replacement process. An external launcher or service manager can use that status to relaunch `python server.py`; ordinary shutdowns still exit with status `0`. Standalone launches retain the existing self-restart behavior.
 
 ### Dependency Installation
 
-`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. Called after git pull and exposed as `POST /api/install-deps`.
+`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. Called after the fast-forward to the release tag and exposed as `POST /api/install-deps`.
 
 ### Safe Dirty Path Classification
 

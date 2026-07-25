@@ -85,6 +85,10 @@ WEB_SEARCH_USER_AGENT = (
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
+# Branch that release tags are cut from. Auto-update always compares against
+# this branch's tags, so users sitting on a development branch still see (and
+# can fast-forward to) the newest published release.
+APP_RELEASE_BRANCH = "main"
 
 TUNNEL_LOG_LIMIT = 6000
 PROCESS_OUTPUT_LIMIT = 5000
