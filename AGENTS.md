@@ -45,8 +45,6 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
   File Ownership Reference in this file to locate the right files.
 - Search for existing patterns before writing new code. If a helper, setter,
   or validation function already exists, reuse it.
-- Check `docs/todo.md` for known planned work. If your task overlaps with a
-  TODO item, follow its acceptance criteria.
 
 ### Make Minimal, Focused Changes
 - Change only the files necessary for the task. Avoid "while I'm here" edits
@@ -92,8 +90,8 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
   user-facing text. The `renderMarkdown()` function is the one exception for
   model output; do not add new `innerHTML` usage.
 
-- **Do not add new global functions to `app.js`.** The file already has 80+
-  global functions. New behavior should be namespaced under
+- **Do not add new global functions to `app.js`.** The file already has
+  dozens of global functions. New behavior should be namespaced under
   `window.LlamaGui` or placed in a focused module.
 
 - **Avoid silent error swallowing.** Empty `catch` blocks hide bugs. Use
@@ -192,7 +190,8 @@ If a shared control becomes unreliable, prefer removing the duplicate UI over ke
 ### Adding a New Quick Launch Profile
 
 1. Add an entry to `QUICK_PROFILES` in `ui/js/app-data.js`.
-2. Set `tool`, `flagValues`, `fitLinked`, and `samplerPresetName`.
+2. Set `tool`, `flags` (including `fit`/`fit_target`/`fit_ctx` if the profile
+   uses Auto Fit), and `samplerPresetName`.
 3. Verify applying the profile updates Configure, Chat, and command preview.
 4. Verify the profile summary text is accurate.
 
@@ -276,8 +275,9 @@ The canonical script loading order is in **`docs/directory.md` (Frontend → Scr
 ### Backend
 - Routes return sanitized errors to clients via `sanitize_error()`. The real
   error goes to stderr via `print()`.
-- `_BODY_TOO_LARGE` sentinel from `read_body()` is a three-state return:
-  `dict` (success), `None` (malformed JSON), or sentinel (too large). Check
-  with `is` not `==`.
+- `_BODY_HANDLED` sentinel from `read_body()` is a three-state return:
+  `dict` (success), `None` (malformed JSON), or the sentinel when a response
+  was already sent (oversized body, invalid `Content-Length`, or read
+  timeout). Check with `is` not `==`.
 - Thread daemon threads may be killed mid-operation on process exit. Downloads
   should clean up partial files in `finally` blocks.
