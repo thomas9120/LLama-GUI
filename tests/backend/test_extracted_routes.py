@@ -16,6 +16,8 @@ from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
 from backend.routes import benchmarks, chat, file_picker, git_update, hf_download, install, lifecycle, metrics, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
+# The service layer; `git_update` imported from backend.routes above is the HTTP layer.
+from backend.services import git_update as srv
 from backend.services import lifecycle as lifecycle_service
 from backend.services import llama_manager
 from backend.services import process_manager
@@ -3163,7 +3165,6 @@ class SubprocessWindowFlagTests(unittest.TestCase):
                     self.assertEqual(subprocess_utils.get_no_window_creationflags(), 0)
 
     def test_run_git_hides_the_console_window(self):
-        from backend.services import git_update as srv
 
         with mock.patch.object(srv.subprocess, "run") as runner:
             with mock.patch.object(srv, "get_no_window_creationflags", return_value=0x08000000):
@@ -3214,17 +3215,137 @@ class GitUpdateRouteTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    # --- Test helpers ---
+    #
+    # git_update shells out for everything, so nearly every test needs a stand-in
+    # for run_git plus a fake .git directory. Keeping that in one place means a
+    # change to how a git command is invoked is fixed here rather than in each of
+    # the tests below.
+
+    @staticmethod
+    def proc_result(returncode=0, stdout="", stderr=""):
+        """Stand in for the CompletedProcess that run_git and subprocess return."""
+        return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+    @staticmethod
+    def git_command_key(args):
+        """Name the git command an argument list represents."""
+        if args == ["--version"]:
+            return "version"
+        if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+            return "branch"
+        if args[:3] == ["rev-parse", "--verify", "--quiet"]:
+            return "upstream_exists"
+        if args == ["config", "--get", "remote.origin.url"]:
+            return "remote_url"
+        if args == ["status", "--porcelain=v1", "-z"]:
+            return "status"
+        if args[:1] == ["for-each-ref"]:
+            return "tags"
+        if args[:1] == ["fetch"]:
+            return "fetch"
+        if args[:2] == ["rev-list", "--left-right"]:
+            return "counts"
+        if args[:2] == ["merge", "--ff-only"]:
+            return "merge"
+        return ""
+
+    @classmethod
+    def git_calls(cls, call_log, key):
+        """Every logged invocation of one git command."""
+        return [args for args in call_log if cls.git_command_key(args) == key]
+
+    def git_mock(
+        self,
+        branch="main",
+        tags="v1.2.3\n",
+        dirty="",
+        counts="0\t0",
+        upstream_exists=True,
+        merge_stdout="",
+        overrides=None,
+        call_log=None,
+    ):
+        """Build a run_git stand-in.
+
+        ``counts`` is the raw `rev-list --left-right --count` output, so it reads
+        "<ahead>\t<behind>". ``overrides`` maps a git_command_key name to a
+        proc_result and wins over the defaults; unmatched commands succeed with
+        empty output.
+        """
+        defaults = {
+            "version": self.proc_result(stdout="git 2.40"),
+            "branch": self.proc_result(stdout=branch),
+            "remote_url": self.proc_result(stdout="https://github.com/user/repo.git"),
+            "upstream_exists": self.proc_result(returncode=0 if upstream_exists else 1),
+            "tags": self.proc_result(stdout=tags),
+            "status": self.proc_result(stdout=dirty),
+            "counts": self.proc_result(stdout=counts),
+            "merge": self.proc_result(stdout=merge_stdout),
+            **(overrides or {}),
+        }
+
+        def mock_run(args, cwd):
+            if call_log is not None:
+                call_log.append(args)
+            return defaults.get(self.git_command_key(args), self.proc_result())
+
+        return mock_run
+
+    @contextlib.contextmanager
+    def patched_git(self, **kwargs):
+        """Make the context look like a git checkout and stub run_git.
+
+        Keyword arguments are passed straight through to git_mock.
+        """
+        git_dir = self.ctx.paths.root / ".git"
+        if not git_dir.exists():
+            git_dir.mkdir()
+        with mock.patch.object(srv, "run_git", self.git_mock(**kwargs)) as patched:
+            yield patched
+
+    @contextlib.contextmanager
+    def patched_pip(self, returncode=0, stdout="Successfully installed", stderr=""):
+        with mock.patch.object(srv.subprocess, "run") as mock_pip:
+            mock_pip.return_value = self.proc_result(returncode, stdout, stderr)
+            yield mock_pip
+
+    @contextlib.contextmanager
+    def patched_shortcuts(self, created=True, error=None, message="Shortcut ready"):
+        result = {"created": created}
+        if error is not None:
+            result["error"] = error
+        elif created:
+            result["message"] = message
+        else:
+            result["skipped"] = True
+        with mock.patch.object(
+            srv, "create_windows_shortcuts", return_value=result
+        ) as mock_shortcuts:
+            yield mock_shortcuts
+
+    def write_shortcut_helper(self):
+        """Create the PowerShell helper create_windows_shortcuts() looks for."""
+        shortcut_script = self.ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
+        shortcut_script.parent.mkdir(exist_ok=True)
+        shortcut_script.write_text("# helper\n")
+        return shortcut_script
+
+    def find_release_tag_in(self, stdout, returncode=0, stderr=""):
+        """Run find_latest_release_tag over a canned for-each-ref listing."""
+        with mock.patch.object(srv, "run_git") as mock_run_git:
+            mock_run_git.return_value = self.proc_result(returncode, stdout, stderr)
+            return srv.find_latest_release_tag(self.ctx.paths.root, "origin/main")
+
     # --- Pure function tests ---
 
     def test_normalize_git_path_normalizes_backslashes(self):
-        from backend.services import git_update as srv
         self.assertEqual(srv.normalize_git_path("foo\\bar"), "foo/bar")
         self.assertEqual(srv.normalize_git_path("  foo/bar  "), "foo/bar")
         self.assertEqual(srv.normalize_git_path(""), "")
         self.assertEqual(srv.normalize_git_path(None), "")
 
     def test_parse_git_status_porcelain_z_basic(self):
-        from backend.services import git_update as srv
         output = "M  src/main.py\x00 M modified.txt\x00"
         entries = srv.parse_git_status_porcelain_z(output)
         self.assertEqual(len(entries), 2)
@@ -3232,7 +3353,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(entries[1], {"status": " M", "path": "modified.txt"})
 
     def test_parse_git_status_porcelain_z_rename_detection(self):
-        from backend.services import git_update as srv
         output = "R  new.py\x00old.py\x00"
         entries = srv.parse_git_status_porcelain_z(output)
         self.assertEqual(len(entries), 1)
@@ -3241,7 +3361,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(entries[0]["source_path"], "old.py")
 
     def test_is_safe_dirty_path_known_prefixes(self):
-        from backend.services import git_update as srv
         safe_prefixes = [
             "llama/bin/server.exe",
             "models/model.gguf",
@@ -3256,18 +3375,15 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(srv.is_safe_dirty_path("server.py"))
 
     def test_is_safe_dirty_path_known_exact(self):
-        from backend.services import git_update as srv
         self.assertTrue(srv.is_safe_dirty_path("config.json"))
         self.assertTrue(srv.is_safe_dirty_path(".env"))
         self.assertTrue(srv.is_safe_dirty_path(".env.local"))
 
     def test_is_safe_dirty_path_known_suffixes(self):
-        from backend.services import git_update as srv
         for ext in [".pyc", ".log", ".zip", ".tar.gz", ".tgz", ".bak", ".swp"]:
             self.assertTrue(srv.is_safe_dirty_path(f"file{ext}"), f"Expected safe: file{ext}")
 
     def test_is_safe_dirty_path_blocking(self):
-        from backend.services import git_update as srv
         blocking = [
             "src/lib/helper.py",
             "server.py",
@@ -3282,7 +3398,6 @@ class GitUpdateRouteTests(unittest.TestCase):
             self.assertFalse(srv.is_safe_dirty_path(path), f"Expected blocking: {path}")
 
     def test_classify_git_dirty_paths(self):
-        from backend.services import git_update as srv
         entries = [
             {"status": " M", "path": "server.py"},
             {"status": " M", "path": "models/model.gguf"},
@@ -3295,7 +3410,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(result["blocking_dirty_paths"], ["server.py"])
 
     def test_classify_git_dirty_paths_blocks_unsafe_rename_source(self):
-        from backend.services import git_update as srv
         entries = [
             {"status": "R ", "path": "models/server.py", "source_path": "server.py"},
             {"status": "R ", "path": "models/new.gguf", "source_path": "models/old.gguf"},
@@ -3307,18 +3421,14 @@ class GitUpdateRouteTests(unittest.TestCase):
     # --- install_python_dependencies tests ---
 
     def test_install_deps_no_requirements(self):
-        from backend.services import git_update as srv
         result = srv.install_python_dependencies(self.ctx)
         self.assertFalse(result["installed"])
         self.assertIn("not found", result["message"])
 
     def test_install_deps_subprocess_called(self):
-        from backend.services import git_update as srv
         (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
         with mock.patch.object(srv.subprocess, "run") as mock_run:
-            mock_run.return_value = type("R", (), {
-                "returncode": 0, "stdout": "Successfully installed", "stderr": ""
-            })()
+            mock_run.return_value = self.proc_result(stdout="Successfully installed")
             result = srv.install_python_dependencies(self.ctx)
         self.assertTrue(result["installed"])
         mock_run.assert_called_once()
@@ -3327,32 +3437,28 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertIn("install", args)
 
     def test_install_deps_subprocess_fails(self):
-        from backend.services import git_update as srv
         (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
         with mock.patch.object(srv.subprocess, "run") as mock_run:
-            mock_run.return_value = type("R", (), {
-                "returncode": 1, "stdout": "", "stderr": "ERROR: No matching distribution"
-            })()
+            mock_run.return_value = self.proc_result(
+                returncode=1, stderr="ERROR: No matching distribution"
+            )
             result = srv.install_python_dependencies(self.ctx)
         self.assertFalse(result["installed"])
         self.assertIn("ERROR", result["error"])
 
     def test_create_windows_shortcuts_skips_non_windows(self):
-        from backend.services import git_update as srv
         with mock.patch.object(srv.sys, "platform", "linux"):
             result = srv.create_windows_shortcuts(self.ctx)
         self.assertFalse(result["created"])
         self.assertTrue(result["skipped"])
 
     def test_create_windows_shortcuts_runs_helper_on_windows(self):
-        from backend.services import git_update as srv
-        shortcut_script = self.ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
-        shortcut_script.parent.mkdir()
-        shortcut_script.write_text("# helper\n")
-        with mock.patch.object(srv.sys, "platform", "win32"), mock.patch.object(srv.subprocess, "run") as mock_run:
-            mock_run.return_value = type("R", (), {
-                "returncode": 0, "stdout": "Shortcut ready", "stderr": ""
-            })()
+        shortcut_script = self.write_shortcut_helper()
+        with (
+            mock.patch.object(srv.sys, "platform", "win32"),
+            mock.patch.object(srv.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = self.proc_result(stdout="Shortcut ready")
             result = srv.create_windows_shortcuts(self.ctx)
         self.assertTrue(result["created"])
         args = mock_run.call_args[0][0]
@@ -3360,153 +3466,187 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertIn(str(shortcut_script), args)
 
     def test_create_windows_shortcuts_reports_nonfatal_error(self):
-        from backend.services import git_update as srv
-        shortcut_script = self.ctx.paths.root / "scripts" / "create_windows_shortcuts.ps1"
-        shortcut_script.parent.mkdir()
-        shortcut_script.write_text("# helper\n")
-        with mock.patch.object(srv.sys, "platform", "win32"), mock.patch.object(srv.subprocess, "run") as mock_run:
-            mock_run.return_value = type("R", (), {
-                "returncode": 1, "stdout": "", "stderr": "desktop denied"
-            })()
+        self.write_shortcut_helper()
+        with (
+            mock.patch.object(srv.sys, "platform", "win32"),
+            mock.patch.object(srv.subprocess, "run") as mock_run,
+        ):
+            mock_run.return_value = self.proc_result(returncode=1, stderr="desktop denied")
             result = srv.create_windows_shortcuts(self.ctx)
         self.assertFalse(result["created"])
         self.assertIn("desktop denied", result["error"])
 
+    # --- find_latest_release_tag tests ---
+
+    def test_find_latest_release_tag_uses_version_sort_and_release_glob(self):
+        with mock.patch.object(srv, "run_git") as mock_run_git:
+            mock_run_git.return_value = self.proc_result(stdout="v1.2.3\nv1.2.2\n")
+            result = srv.find_latest_release_tag(self.ctx.paths.root, "origin/main")
+        self.assertEqual(result, {"tag": "v1.2.3", "error": ""})
+        mock_run_git.assert_called_once_with(
+            [
+                "for-each-ref",
+                "--merged=origin/main",
+                "--sort=-v:refname",
+                "--format=%(refname:short)",
+                "refs/tags/v[0-9]*",
+            ],
+            self.ctx.paths.root,
+        )
+
+    def test_find_latest_release_tag_skips_prereleases(self):
+        # Version sort puts prerelease tags above the release they precede, so
+        # they are the first candidates and must be rejected.
+        result = self.find_release_tag_in("v1.6.4-rc1\nv1.6.4-beta\nv1.6.3b\nv1.6.3\n")
+        self.assertEqual(result["tag"], "v1.6.3b")
+
+    def test_find_latest_release_tag_ignores_non_release_names(self):
+        result = self.find_release_tag_in("Summer-2026\nv1.2.3\n")
+        self.assertEqual(result["tag"], "v1.2.3")
+
+    def test_find_latest_release_tag_without_matches(self):
+        result = self.find_release_tag_in("v1.6.3-rc1\n")
+        self.assertEqual(result, {"tag": "", "error": ""})
+
+    def test_find_latest_release_tag_reports_git_error(self):
+        result = self.find_release_tag_in(
+            "", returncode=128, stderr="fatal: malformed object name origin/main"
+        )
+        self.assertEqual(result["tag"], "")
+        self.assertIn("malformed object name", result["error"])
+
+    def test_is_release_tag_accepts_releases_and_rejects_prereleases(self):
+        for tag in ("v1.6.3", "v1.6.3b", "v1.6.10", "v10.0.0", "v1.6.3z"):
+            self.assertTrue(srv.is_release_tag(tag), tag)
+        for tag in (
+            "v1.6.3-rc1",
+            "v1.6.3-beta",
+            "v1.7.0-pre",
+            "v1.6.3bb",
+            "v1.6",
+            "Summer-2026",
+            "1.6.3",
+            "",
+            None,
+        ):
+            self.assertFalse(srv.is_release_tag(tag), tag)
+
     # --- get_app_update_status tests ---
 
     def test_get_status_no_git_repo(self):
-        from backend.services import git_update as srv
         status = srv.get_app_update_status(self.ctx)
         self.assertFalse(status["available"])
         self.assertFalse(status["can_update"])
         self.assertEqual(status["repo_url"], self.ctx.config.app_repo_url)
 
     def test_get_status_git_unavailable(self):
-        from backend.services import git_update as srv
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git") as mock_run_git:
-            mock_run_git.return_value = type("R", (), {
-                "returncode": 1, "stdout": "", "stderr": "git not found"
-            })()
+        with self.patched_git(
+            overrides={"version": self.proc_result(returncode=1, stderr="git not found")}
+        ):
             status = srv.get_app_update_status(self.ctx)
         self.assertFalse(status["available"])
         self.assertFalse(status["can_update"])
 
     def test_get_status_branch_error(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 128, "stdout": "", "stderr": "not a git repository"})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        with self.patched_git(
+            overrides={
+                "branch": self.proc_result(returncode=128, stderr="not a git repository")
+            }
+        ):
             status = srv.get_app_update_status(self.ctx)
         self.assertTrue(status["available"])
         self.assertFalse(status["can_update"])
+        self.assertEqual(status["state"], "error")
         self.assertIn("not a git repository", status["reason"])
 
-    def test_get_status_up_to_date(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t0", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+    def test_get_status_uses_release_branch_not_checked_out_branch(self):
+        call_log = []
+        with self.patched_git(branch="V2", counts="31\t0", call_log=call_log):
             status = srv.get_app_update_status(self.ctx)
-        self.assertTrue(status["available"])
+        self.assertEqual(status["branch"], "V2")
+        self.assertEqual(status["release_branch"], "main")
+        tag_args = self.git_calls(call_log, "tags")
+        self.assertEqual(len(tag_args), 1)
+        self.assertIn("--merged=origin/main", tag_args[0])
+
+    def test_get_status_missing_upstream_branch(self):
+        call_log = []
+        with self.patched_git(upstream_exists=False, call_log=call_log):
+            status = srv.get_app_update_status(self.ctx)
+        self.assertEqual(status["state"], "error")
+        self.assertFalse(status["can_update"])
+        self.assertIn("No upstream branch found at origin/main", status["reason"])
+        # The tag lookup must not run: it would fail with raw git jargon.
+        self.assertEqual(self.git_calls(call_log, "tags"), [])
+
+    def test_get_status_tag_lookup_failure_reports_error_state(self):
+        with self.patched_git(
+            overrides={
+                "tags": self.proc_result(returncode=128, stderr="fatal: bad revision")
+            }
+        ):
+            status = srv.get_app_update_status(self.ctx)
+        self.assertEqual(status["state"], "error")
+        self.assertIn("bad revision", status["reason"])
+
+    def test_get_status_fetch_failure_reports_error_state(self):
+        with self.patched_git(
+            overrides={
+                "fetch": self.proc_result(returncode=128, stderr="fatal: unable to access")
+            }
+        ):
+            status = srv.get_app_update_status(self.ctx, fetch=True)
+        self.assertEqual(status["state"], "error")
+        self.assertFalse(status["can_update"])
+        self.assertIn("unable to access", status["reason"])
+
+    def test_get_status_without_release_tag(self):
+        with self.patched_git(tags=""):
+            status = srv.get_app_update_status(self.ctx)
+        self.assertEqual(status["state"], "no_release")
+        self.assertFalse(status["can_update"])
+        self.assertEqual(status["release_tag"], "")
+        self.assertIn("No tagged release", status["reason"])
+
+    def test_get_status_up_to_date(self):
+        with self.patched_git(counts="0\t0"):
+            status = srv.get_app_update_status(self.ctx)
         self.assertEqual(status["state"], "up_to_date")
         self.assertFalse(status["can_update"])
+        self.assertFalse(status["dirty"])
 
     def test_get_status_behind_no_blocking(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        call_log = []
+        with self.patched_git(counts="0\t3", call_log=call_log):
             status = srv.get_app_update_status(self.ctx, fetch=True)
         self.assertEqual(status["state"], "behind")
         self.assertTrue(status["can_update"])
         self.assertEqual(status["behind"], 3)
+        self.assertEqual(status["release_tag"], "v1.2.3")
+        # --prune-tags is what drops a release withdrawn upstream.
+        self.assertIn(
+            ["fetch", "origin", "--prune", "--prune-tags", "--tags"],
+            call_log,
+        )
 
     def test_get_status_with_blocking_changes(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": " M server.py\x00", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
-            status = srv.get_app_update_status(self.ctx, fetch=True)
+        with self.patched_git(dirty=" M server.py\x00", counts="0\t2"):
+            status = srv.get_app_update_status(self.ctx)
         self.assertEqual(status["state"], "behind")
+        self.assertTrue(status["has_blocking_changes"])
         self.assertFalse(status["can_update"])
         self.assertIn("server.py", status["blocking_dirty_paths"])
 
-    def test_get_status_ahead(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "2\t0", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+    def test_get_status_commits_after_release_are_up_to_date(self):
+        with self.patched_git(counts="2\t0"):
             status = srv.get_app_update_status(self.ctx)
-        self.assertEqual(status["state"], "ahead")
+        self.assertEqual(status["state"], "up_to_date")
         self.assertFalse(status["can_update"])
         self.assertEqual(status["ahead"], 2)
+        self.assertEqual(status["release_tag"], "v1.2.3")
 
     def test_get_status_diverged(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "1\t1", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        with self.patched_git(counts="1\t1"):
             status = srv.get_app_update_status(self.ctx)
         self.assertEqual(status["state"], "diverged")
         self.assertFalse(status["can_update"])
@@ -3514,214 +3654,104 @@ class GitUpdateRouteTests(unittest.TestCase):
     # --- update_app_from_git tests ---
 
     def test_update_unavailable(self):
-        from backend.services import git_update as srv
         result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
         self.assertIn("git repository", result["error"])
 
     def test_update_already_up_to_date(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t0", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        with self.patched_git(counts="0\t0"):
             result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
         self.assertEqual(result["message"], "Already up to date")
 
     def test_update_blocking_changes(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": " M server.py\x00", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t2", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        with self.patched_git(dirty=" M server.py\x00", counts="0\t2"):
             result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
         self.assertIn("Commit or stash first", result["error"])
 
-    def test_update_ahead(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "1\t0", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+    def test_update_commits_after_release_is_already_up_to_date(self):
+        with self.patched_git(counts="1\t0"):
             result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
-        self.assertIn("ahead", result["error"])
+        self.assertEqual(result["message"], "Already up to date")
 
     def test_update_diverged(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "1\t1", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+        with self.patched_git(counts="1\t1"):
             result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
         self.assertIn("diverged", result["error"])
 
-    def test_update_pull_success(self):
-        from backend.services import git_update as srv
+    def test_update_release_success(self):
         call_log = []
-        def mock_run(args, cwd):
-            call_log.append(args)
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["fetch", "origin"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            if args[:2] == ["pull", "--ff-only"]:
-                return type("R", (), {"returncode": 0, "stdout": "Updating abc..def\nFast-forward", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
         with (
-            mock.patch.object(srv, "run_git", mock_run),
-            mock.patch.object(srv.subprocess, "run") as mock_pip,
-            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": True, "message": "Shortcut ready"}) as mock_shortcuts,
+            self.patched_git(
+                counts="0\t3",
+                call_log=call_log,
+                merge_stdout="Updating abc..def\nFast-forward",
+            ),
+            self.patched_pip() as mock_pip,
+            self.patched_shortcuts() as mock_shortcuts,
         ):
-            mock_pip.return_value = type("R", (), {
-                "returncode": 0, "stdout": "Successfully installed", "stderr": ""
-            })()
+            (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
             result = srv.update_app_from_git(self.ctx)
         self.assertTrue(result["updated"])
         self.assertTrue(result["dependencies_installed"])
         self.assertTrue(result["shortcuts_created"])
+        mock_pip.assert_called_once()
         mock_shortcuts.assert_called_once_with(self.ctx)
         self.assertIn("Fast-forward", result["message"])
+        self.assertEqual(result["release_tag"], "v1.2.3")
+        self.assertIn(["merge", "--ff-only", "refs/tags/v1.2.3"], call_log)
 
-    def test_update_pull_success_keeps_shortcut_failure_nonfatal(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["fetch", "origin"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            if args[:2] == ["pull", "--ff-only"]:
-                return type("R", (), {"returncode": 0, "stdout": "Updating abc..def", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+    def test_update_fast_forwards_release_branch_tag_from_other_branch(self):
+        call_log = []
         with (
-            mock.patch.object(srv, "run_git", mock_run),
-            mock.patch.object(srv.subprocess, "run") as mock_pip,
-            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": False, "error": "desktop denied"}),
+            self.patched_git(
+                branch="V2",
+                counts="0\t3",
+                call_log=call_log,
+                merge_stdout="Fast-forward",
+            ),
+            self.patched_shortcuts(created=False),
         ):
-            mock_pip.return_value = type("R", (), {
-                "returncode": 0, "stdout": "Successfully installed", "stderr": ""
-            })()
+            result = srv.update_app_from_git(self.ctx)
+        self.assertTrue(result["updated"])
+        self.assertIn(["merge", "--ff-only", "refs/tags/v1.2.3"], call_log)
+
+    def test_update_release_success_keeps_shortcut_failure_nonfatal(self):
+        with (
+            self.patched_git(counts="0\t3", merge_stdout="Updating abc..def"),
+            self.patched_pip(),
+            self.patched_shortcuts(created=False, error="desktop denied"),
+        ):
+            (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
             result = srv.update_app_from_git(self.ctx)
         self.assertTrue(result["updated"])
         self.assertTrue(result["dependencies_installed"])
         self.assertFalse(result["shortcuts_created"])
         self.assertIn("desktop denied", result["shortcuts_error"])
 
-    def test_update_pull_failure(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["fetch", "origin"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            if args[:2] == ["pull", "--ff-only"]:
-                return type("R", (), {"returncode": 128, "stdout": "", "stderr": "fatal: Not possible to fast-forward"})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        with mock.patch.object(srv, "run_git", mock_run):
+    def test_update_release_failure(self):
+        with self.patched_git(
+            counts="0\t3",
+            overrides={
+                "merge": self.proc_result(
+                    returncode=128, stderr="fatal: Not possible to fast-forward"
+                )
+            },
+        ):
             result = srv.update_app_from_git(self.ctx)
         self.assertFalse(result["updated"])
         self.assertIn("Not possible", result["error"])
 
     def test_update_deps_failure(self):
-        from backend.services import git_update as srv
-        def mock_run(args, cwd):
-            if args == ["--version"]:
-                return type("R", (), {"returncode": 0, "stdout": "git 2.40", "stderr": ""})()
-            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
-                return type("R", (), {"returncode": 0, "stdout": "main", "stderr": ""})()
-            if args == ["config", "--get", "remote.origin.url"]:
-                return type("R", (), {"returncode": 0, "stdout": "https://github.com/user/repo.git", "stderr": ""})()
-            if args == ["status", "--porcelain=v1", "-z"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["fetch", "origin"]:
-                return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-            if args[:2] == ["rev-list", "--left-right"]:
-                return type("R", (), {"returncode": 0, "stdout": "0\t3", "stderr": ""})()
-            if args[:2] == ["pull", "--ff-only"]:
-                return type("R", (), {"returncode": 0, "stdout": "Updating abc..def", "stderr": ""})()
-            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
-        (self.ctx.paths.root / ".git").mkdir()
-        (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
         with (
-            mock.patch.object(srv, "run_git", mock_run),
-            mock.patch.object(srv.subprocess, "run") as mock_pip,
-            mock.patch.object(srv, "create_windows_shortcuts", return_value={"created": True, "message": "Shortcut ready"}) as mock_shortcuts,
+            self.patched_git(counts="0\t3", merge_stdout="Updating abc..def"),
+            self.patched_pip(returncode=1, stderr="ERROR: No matching distribution"),
+            self.patched_shortcuts() as mock_shortcuts,
         ):
-            mock_pip.return_value = type("R", (), {
-                "returncode": 1, "stdout": "", "stderr": "ERROR: No matching distribution"
-            })()
+            (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
             result = srv.update_app_from_git(self.ctx)
         self.assertTrue(result["updated"])
         self.assertFalse(result["dependencies_installed"])
@@ -3743,7 +3773,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(response.payload["repo_url"], self.ctx.config.app_repo_url)
 
     def test_app_update_status_route_handles_error(self):
-        from backend.services import git_update as srv
         with mock.patch.object(
             srv,
             "get_app_update_status",
@@ -3759,7 +3788,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(response.payload["error"], "Internal server error")
 
     def test_app_update_route_returns_error_when_update_fails(self):
-        from backend.services import git_update as srv
         with mock.patch.object(srv, "update_app_from_git", return_value={
             "updated": False,
             "error": "Something went wrong",
@@ -3776,7 +3804,6 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertIn("status", response.payload)
 
     def test_app_update_route_returns_success(self):
-        from backend.services import git_update as srv
         with mock.patch.object(srv, "update_app_from_git", return_value={
             "updated": True,
             "message": "Updated successfully",

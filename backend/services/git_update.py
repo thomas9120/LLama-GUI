@@ -1,5 +1,6 @@
 """Git-based app update helpers."""
 
+import re
 import subprocess
 import sys
 from typing import Any
@@ -7,6 +8,16 @@ from typing import Any
 from ..context import AppContext
 from .subprocess_utils import get_no_window_creationflags
 
+
+# Passed to `git for-each-ref` to skip tags that are obviously not releases
+# (for example "Summer-2026") before they reach the regex below.
+RELEASE_TAG_GLOB = "refs/tags/v[0-9]*"
+
+# A release is "v<major>.<minor>.<patch>" with an optional single-letter revision
+# suffix, so "v1.6.3" and the follow-up "v1.6.3b" both count. Anything carrying a
+# prerelease marker ("v1.6.3-rc1", "v1.6.3-beta", "v1.7.0-pre") is excluded: those
+# must never be handed to users as an automatic update.
+RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+[a-z]?$")
 
 SAFE_DIRTY_PATH_PREFIXES = (
     "llama/",
@@ -128,6 +139,51 @@ def run_git(args, cwd):
     )
 
 
+def remote_ref_exists(base_dir, remote_ref):
+    result = run_git(
+        ["rev-parse", "--verify", "--quiet", f"refs/remotes/{remote_ref}"],
+        base_dir,
+    )
+    return result.returncode == 0
+
+
+def is_release_tag(tag):
+    return bool(RELEASE_TAG_RE.match(str(tag or "").strip()))
+
+
+def find_latest_release_tag(base_dir, upstream_ref):
+    """Return the newest release tag reachable from ``upstream_ref``.
+
+    Tags are sorted with git's version sort rather than by date: these are
+    lightweight tags, so a date sort really compares commit dates, which puts a
+    hotfix tagged onto an older commit in the wrong place. Version sort orders
+    ``v1.6.3 < v1.6.3b < v1.6.4 < v1.6.10`` as intended.
+    """
+    result = run_git(
+        [
+            "for-each-ref",
+            f"--merged={upstream_ref}",
+            "--sort=-v:refname",
+            "--format=%(refname:short)",
+            RELEASE_TAG_GLOB,
+        ],
+        base_dir,
+    )
+    if result.returncode != 0:
+        return {
+            "tag": "",
+            "error": (result.stderr or "Unable to inspect release tags").strip(),
+        }
+
+    # The glob keeps out non-version tags such as "Summer-2026"; the regex is
+    # what rejects prereleases ("v1.6.3-rc1"), which the glob still matches.
+    for line in result.stdout.splitlines():
+        tag = line.strip()
+        if is_release_tag(tag):
+            return {"tag": tag, "error": ""}
+    return {"tag": "", "error": ""}
+
+
 def install_python_dependencies(ctx: AppContext) -> dict[str, Any]:
     requirements_path = ctx.paths.root / "requirements.txt"
     if not requirements_path.exists():
@@ -191,98 +247,144 @@ def create_windows_shortcuts(ctx: AppContext) -> dict[str, Any]:
     }
 
 
+def unavailable_status(reason, repo_url):
+    return {
+        "available": False,
+        "can_update": False,
+        "state": "error",
+        "reason": reason,
+        "repo_url": repo_url,
+    }
+
+
+def error_status(reason, **fields):
+    """Status for a git failure the user has to resolve manually.
+
+    Every non-final return path carries ``state`` so the frontend can key off it
+    and surface ``reason``; without it the UI falls through to a generic message
+    and the actual git error is lost.
+    """
+    return {
+        "available": True,
+        "can_update": False,
+        "state": "error",
+        "reason": reason,
+        **fields,
+    }
+
+
 def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any]:
     base_dir = ctx.paths.root
     repo_url = ctx.config.app_repo_url
 
     if not (base_dir / ".git").exists():
-        return {
-            "available": False,
-            "can_update": False,
-            "reason": "This folder is not a git repository.",
-            "repo_url": repo_url,
-        }
+        return unavailable_status("This folder is not a git repository.", repo_url)
 
     git_version = run_git(["--version"], base_dir)
     if git_version.returncode != 0:
-        return {
-            "available": False,
-            "can_update": False,
-            "reason": "Git is not available on this system.",
-            "repo_url": repo_url,
-        }
+        return unavailable_status("Git is not available on this system.", repo_url)
 
     branch_res = run_git(["rev-parse", "--abbrev-ref", "HEAD"], base_dir)
     if branch_res.returncode != 0:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": (
-                branch_res.stderr or "Unable to read current git branch"
-            ).strip(),
-            "repo_url": repo_url,
-        }
+        return error_status(
+            (branch_res.stderr or "Unable to read current git branch").strip(),
+            repo_url=repo_url,
+        )
     branch = branch_res.stdout.strip()
+
+    # Releases are cut from a single branch, so the comparison is always against
+    # that branch's tags. Using the checked-out branch instead would pin anyone
+    # on a development branch to whatever stale tag it happens to contain.
+    release_branch = (ctx.config.app_release_branch or "").strip() or branch
+    upstream_ref = f"origin/{release_branch}"
 
     remote_res = run_git(["config", "--get", "remote.origin.url"], base_dir)
     origin_url = remote_res.stdout.strip() if remote_res.returncode == 0 else ""
 
+    common = {
+        "repo_url": repo_url,
+        "origin_url": origin_url,
+        "branch": branch,
+        "release_branch": release_branch,
+    }
+
     dirty_res = run_git(["status", "--porcelain=v1", "-z"], base_dir)
     if dirty_res.returncode != 0:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": (dirty_res.stderr or "Unable to inspect git status").strip(),
-            "repo_url": repo_url,
-            "origin_url": origin_url,
-            "branch": branch,
-        }
+        return error_status(
+            (dirty_res.stderr or "Unable to inspect git status").strip(),
+            **common,
+        )
     dirty_entries = parse_git_status_porcelain_z(dirty_res.stdout)
     dirty_info = classify_git_dirty_paths(dirty_entries)
     has_local_changes = bool(dirty_info["dirty_paths"])
     has_blocking_changes = bool(dirty_info["blocking_dirty_paths"])
+    common = {
+        **common,
+        "dirty": has_local_changes,
+        "has_blocking_changes": has_blocking_changes,
+        **dirty_info,
+    }
 
     if fetch:
-        fetch_res = run_git(["fetch", "origin", "--prune"], base_dir)
+        # --prune-tags is what actually drops tags deleted upstream; --prune on
+        # its own only prunes remote-tracking branches, which would leave a
+        # withdrawn release sitting locally as the newest tag.
+        fetch_res = run_git(
+            ["fetch", "origin", "--prune", "--prune-tags", "--tags"],
+            base_dir,
+        )
         if fetch_res.returncode != 0:
-            return {
-                "available": True,
-                "can_update": False,
-                "reason": (fetch_res.stderr or "Failed to fetch from origin").strip(),
-                "repo_url": repo_url,
-                "origin_url": origin_url,
-                "branch": branch,
-                "dirty": has_local_changes,
-                "has_blocking_changes": has_blocking_changes,
-                **dirty_info,
-            }
+            return error_status(
+                (fetch_res.stderr or "Failed to fetch from origin").strip(),
+                **common,
+            )
 
-    upstream_ref = f"origin/{branch}"
-    behind_ahead_res = run_git(
-        ["rev-list", "--left-right", "--count", f"HEAD...{upstream_ref}"],
-        base_dir,
-    )
-    if behind_ahead_res.returncode != 0:
+    # Checked explicitly: `for-each-ref --merged=<missing ref>` fails with a raw
+    # "fatal: malformed object name" that means nothing to a user.
+    if not remote_ref_exists(base_dir, upstream_ref):
+        return error_status(
+            f"No upstream branch found at {upstream_ref}.",
+            **common,
+        )
+
+    release_info = find_latest_release_tag(base_dir, upstream_ref)
+    if release_info["error"]:
+        return error_status(release_info["error"], **common)
+
+    release_tag = release_info["tag"]
+    if not release_tag:
         return {
             "available": True,
             "can_update": False,
-            "reason": f"No upstream branch found at {upstream_ref}.",
-            "repo_url": repo_url,
-            "origin_url": origin_url,
-            "branch": branch,
-            "dirty": has_local_changes,
-            "has_blocking_changes": has_blocking_changes,
-            **dirty_info,
+            "reason": f"No tagged release was found on {upstream_ref}.",
+            **common,
+            "ahead": 0,
+            "behind": 0,
+            "state": "no_release",
+            "release_tag": "",
         }
+
+    release_ref = f"refs/tags/{release_tag}"
+    behind_ahead_res = run_git(
+        ["rev-list", "--left-right", "--count", f"HEAD...{release_ref}"],
+        base_dir,
+    )
+    if behind_ahead_res.returncode != 0:
+        return error_status(
+            f"Unable to compare HEAD with release {release_tag}.",
+            **common,
+            release_tag=release_tag,
+        )
 
     parts = behind_ahead_res.stdout.strip().split()
     ahead = int(parts[0]) if len(parts) > 0 else 0
     behind = int(parts[1]) if len(parts) > 1 else 0
 
-    if ahead > 0 and behind > 0:
+    # "behind" means the release is a strict descendant of HEAD, which is
+    # exactly the condition under which `merge --ff-only` can succeed. Commits
+    # made after the release (behind == 0) count as up to date.
+    if behind > 0 and ahead > 0:
         state = "diverged"
-    elif ahead > 0:
-        state = "ahead"
     elif behind > 0:
         state = "behind"
     else:
@@ -293,15 +395,11 @@ def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any
     return {
         "available": True,
         "can_update": can_update,
-        "repo_url": repo_url,
-        "origin_url": origin_url,
-        "branch": branch,
-        "dirty": has_local_changes,
-        "has_blocking_changes": has_blocking_changes,
-        **dirty_info,
+        **common,
         "ahead": ahead,
         "behind": behind,
         "state": state,
+        "release_tag": release_tag,
     }
 
 
@@ -327,16 +425,10 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
                 "error": "Cannot auto-update with source changes. Commit or stash first." + detail,
                 "status": status,
             }
-        if state == "ahead":
-            return {
-                "updated": False,
-                "error": "Local branch is ahead of origin; not pulling automatically.",
-                "status": status,
-            }
         if state == "diverged":
             return {
                 "updated": False,
-                "error": "Branch has diverged from origin; manual merge/rebase required.",
+                "error": "Branch has diverged from the latest release; manual merge/rebase required.",
                 "status": status,
             }
         return {
@@ -345,11 +437,17 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
             "status": status,
         }
 
-    pull_res = run_git(["pull", "--ff-only", "origin", status["branch"]], base_dir)
-    if pull_res.returncode != 0:
+    release_tag = status["release_tag"]
+    update_res = run_git(
+        ["merge", "--ff-only", f"refs/tags/{release_tag}"],
+        base_dir,
+    )
+    if update_res.returncode != 0:
         return {
             "updated": False,
-            "error": (pull_res.stderr or pull_res.stdout or "git pull failed").strip(),
+            "error": (
+                update_res.stderr or update_res.stdout or "git merge failed"
+            ).strip(),
             "status": get_app_update_status(ctx, fetch=False),
         }
 
@@ -363,7 +461,8 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
             "shortcuts_created": shortcuts_res.get("created", False),
             "shortcuts_error": shortcuts_res.get("error", ""),
             "shortcuts_message": shortcuts_res.get("message", ""),
-            "message": (pull_res.stdout or "Updated successfully").strip(),
+            "release_tag": release_tag,
+            "message": (update_res.stdout or f"Updated to {release_tag}").strip(),
             "status": get_app_update_status(ctx, fetch=False),
         }
 
@@ -375,6 +474,7 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
         "shortcuts_created": shortcuts_res.get("created", False),
         "shortcuts_error": shortcuts_res.get("error", ""),
         "shortcuts_message": shortcuts_res.get("message", ""),
-        "message": (pull_res.stdout or "Updated successfully").strip(),
+        "release_tag": release_tag,
+        "message": (update_res.stdout or f"Updated to {release_tag}").strip(),
         "status": get_app_update_status(ctx, fetch=False),
     }
