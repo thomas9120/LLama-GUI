@@ -197,6 +197,11 @@ assert.deepEqual(Array.from(views, view => view.state), ["standby", "standby"]);
 assert.equal(views[0].model, "alpha-api");
 assert.equal(views[0].gguf, "alpha.gguf");
 assert.equal(api.selectActionSlot(views), "a", "only one initial target action should be selected");
+assert.deepEqual(
+    Array.from(api.selectActionSlots(views)),
+    ["a", "b"],
+    "with no runtime active both standby slots must offer a launch button"
+);
 
 const activeRuntime = {
     tool: "llama-server",
@@ -212,6 +217,11 @@ views = slotViews({
 });
 assert.deepEqual(Array.from(views, view => view.state), ["active", "standby"]);
 assert.equal(api.selectActionSlot(views), "b", "the non-active slot should be the sole switch target");
+assert.deepEqual(
+    Array.from(api.selectActionSlots(views)),
+    ["b"],
+    "an active runtime must leave only the alternate slot actionable"
+);
 
 let sidebarState = api.buildSidebarSliderState(views, { phase: "ready", busy: false }, "a", true);
 assert.equal(sidebarState.activeSlot, "a");
@@ -242,6 +252,7 @@ views = slotViews({
 assert.equal(views[0].state, "active", "the old runtime should not replace the pending target action");
 assert.equal(views[1].state, "loading");
 assert.equal(api.selectActionSlot(views), "b");
+assert.deepEqual(Array.from(api.selectActionSlots(views)), ["b"], "a switch in flight must show only the loading slot");
 
 views = slotViews({
     status: { running: true, active_runtime: { ...activeRuntime, preset_fingerprint: "c".repeat(64) } },
