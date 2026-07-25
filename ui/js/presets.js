@@ -439,13 +439,33 @@ function setPresetGroupCollapsed(groupKey, collapsed) {
     savePresetGroupState(state);
 }
 
-function getPresetSearchText(entry) {
-    return [
+// A preset is findable by what it actually changes, not just by its name and
+// model. Only non-default flags are folded in, so "ctx" returns the presets that
+// tuned the context window rather than every preset that has the flag.
+function buildPresetSearchText(entry) {
+    const parts = [
         entry.name,
         entry.groupKey === NO_MODEL_PRESET_GROUP_KEY ? "no model saved" : entry.groupKey,
         entry.modelLabel,
         entry.toolText,
-    ].join(" ").toLowerCase();
+    ];
+
+    for (const flagId of entry.overrideFlagIds || []) {
+        // Three forms, because none of them subsumes the others: the raw id
+        // matches "ctx" against ctx_size, the label matches "context window",
+        // and the de-underscored id matches "ctx size", which neither of the
+        // other two contains.
+        parts.push(flagId, String(flagId).replace(/_/g, " "), getPresetFlagLabel(flagId));
+    }
+
+    return parts.join(" ").toLowerCase();
+}
+
+// Reads the text precomputed once per render in buildPresetGroups rather than
+// rebuilding it per entry on every keystroke. The fallback keeps the function
+// correct for any entry built outside that path.
+function getPresetSearchText(entry) {
+    return typeof entry.searchText === "string" ? entry.searchText : buildPresetSearchText(entry);
 }
 
 function presetValuesEqual(left, right) {
@@ -498,6 +518,8 @@ function buildPresetGroups(presets) {
             lastUsed: getPresetLastUsed(preset.name),
             favorite: isPresetFavorite(preset.name),
         };
+        // Built once here, not once per entry per keystroke in the filter below.
+        entry.searchText = buildPresetSearchText(entry);
 
         if (!groupsByKey.has(groupKey)) {
             groupsByKey.set(groupKey, {
@@ -569,12 +591,35 @@ function findVisiblePresetEntry(name) {
     return getVisiblePresetEntries().find((entry) => entry.name === name) || null;
 }
 
-function getPresetFlagLabel(flagId) {
-    const flags = Array.isArray(window.FLAGS)
+function getPresetFlagDefinitions() {
+    return Array.isArray(window.FLAGS)
         ? window.FLAGS
         : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
-    const flag = flags.find((entry) => entry && entry.id === flagId);
-    return (flag && flag.label) || flagId.replace(/_/g, " ");
+}
+
+let presetFlagLabelCache = null;
+let presetFlagLabelCacheSource = null;
+
+// This was a linear scan of ~150 definitions per call. Harmless for the handful
+// of chips in the detail panel, but the search text asks for a label per
+// override per preset, which turns it into a five-figure scan on every render
+// of a large library. Cached on the definitions array identity, so a reloaded
+// or replaced FLAGS rebuilds the map instead of serving stale labels.
+function getPresetFlagLabelMap() {
+    const definitions = getPresetFlagDefinitions();
+    if (presetFlagLabelCacheSource !== definitions) {
+        presetFlagLabelCache = new Map(
+            definitions
+                .filter((flag) => flag && flag.id)
+                .map((flag) => [flag.id, flag.label || ""])
+        );
+        presetFlagLabelCacheSource = definitions;
+    }
+    return presetFlagLabelCache;
+}
+
+function getPresetFlagLabel(flagId) {
+    return getPresetFlagLabelMap().get(flagId) || String(flagId).replace(/_/g, " ");
 }
 
 function getNotablePresetSettings(presetData, overrideFlagIds = getNonDefaultPresetFlagIds(presetData)) {
@@ -1704,6 +1749,8 @@ if (window.LlamaGui) {
         getPresetModelFileName,
         getPresetLibrarySummary,
         getPresetHealthMessage,
+        buildPresetSearchText,
+        getPresetFlagLabel,
         formatPresetTimestamp,
         isFullPresetData,
         preparePresetLaunchState,

@@ -545,4 +545,119 @@ assert.equal(formatPresetTimestamp(Date.now()), "Just now");
 assert.equal(formatPresetTimestamp(Date.now() - 5 * 60000), "5m ago");
 assert.equal(formatPresetTimestamp(Date.now() - 3 * 3600000), "3h ago");
 
+// --- Search across override flags (preset-todo item 4) ---------------------
+// Driven through buildPresetGroups with the real flag definitions, so the
+// examples named in the todo are pinned against the shipping flag list rather
+// than a stub that could drift from it.
+// definitions.js reads shared constants from its sibling modules, so the whole
+// set loads in the same order ui/index.html uses.
+const FLAG_SOURCES = [
+    "ui/js/flags/categories.js",
+    "ui/js/flags/options.js",
+    "ui/js/flags/chat-templates.js",
+    "ui/js/flags/definitions.js",
+];
+
+function createSearchContext() {
+    const ctx = {
+        window: {},
+        document: { getElementById: () => null },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: { getItem: () => null, setItem: () => {} },
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
+    vm.createContext(ctx);
+    for (const relativePath of FLAG_SOURCES) {
+        vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), "utf8"), ctx, {
+            filename: relativePath,
+        });
+    }
+    // A top-level `const` in a vm script lives in the shared global lexical
+    // scope, which later scripts see but the context object does not expose.
+    // presets.js therefore resolves FLAGS fine; the test has to ask for it.
+    const flagCount = vm.runInContext("Array.isArray(FLAGS) ? FLAGS.length : -1", ctx);
+    assert.ok(flagCount > 100, `expected the real FLAGS list, got ${flagCount}`);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    return ctx;
+}
+
+const searchContext = createSearchContext();
+searchContext.__presets = [
+    { name: "long-context", data: { model: "a.gguf", flags: { ctx_size: 200000 } } },
+    { name: "speculative", data: { model: "b.gguf", flags: { draft_max: 24 } } },
+    { name: "gpu-tuned", data: { model: "c.gguf", flags: { flash_attn: "on" } } },
+    // Carries ctx_size at its shipping default, so it must not match "ctx".
+    { name: "plain", data: { model: "d.gguf", flags: { ctx_size: 64000 } } },
+];
+assert.equal(
+    searchContext.window.LlamaGui.presets.getPresetLibrarySummary === undefined,
+    false,
+    "sanity: the presets namespace is populated in this context"
+);
+
+function searchNames(query) {
+    vm.runInContext(
+        `presetSearchQuery = ${JSON.stringify(query)}; currentPresetGroups = buildPresetGroups(__presets)`,
+        searchContext
+    );
+    return vm.runInContext("getVisiblePresetEntries().map((e) => e.name).sort()", searchContext).join(",");
+}
+
+// The three examples the todo calls out by name.
+assert.equal(searchNames("ctx"), "long-context", "'ctx' must find the preset that tuned ctx_size");
+assert.equal(searchNames("draft"), "speculative", "'draft' must find the preset that set a draft flag");
+assert.equal(searchNames("flash"), "gpu-tuned", "'flash' must find the preset that set flash_attn");
+
+// Human labels are searchable too, not just raw ids.
+assert.equal(searchNames("flash attention"), "gpu-tuned", "the flag label must be searchable");
+assert.equal(searchNames("context window"), "long-context", "'ctx_size' is labelled Total Context Window");
+// The de-underscored id, which neither the raw id nor the label contains.
+assert.equal(searchNames("ctx size"), "long-context", "an id typed with a space must still match");
+
+// Only non-default flags are folded in, so search returns presets that actually
+// changed a setting rather than every preset that has the flag.
+// "plain" carries ctx_size: 64000, the shipping default, so it holds the flag
+// but did not change it. Matching it would make the search return the whole
+// library for any common flag name.
+assert.equal(
+    searchNames("ctx"),
+    "long-context",
+    "a preset holding a flag at its default must not match that flag name"
+);
+
+// The pre-existing search fields must keep working.
+assert.equal(searchNames("long-context"), "long-context", "name search must still work");
+assert.equal(searchNames("c.gguf"), "gpu-tuned", "model search must still work");
+assert.equal(searchNames("zzz-no-match"), "", "an unmatched query returns nothing");
+
+// The text is precomputed on the entry, not rebuilt per keystroke.
+vm.runInContext("presetSearchQuery = ''; currentPresetGroups = buildPresetGroups(__presets)", searchContext);
+assert.equal(
+    vm.runInContext("typeof getVisiblePresetEntries()[0].searchText", searchContext),
+    "string",
+    "buildPresetGroups must precompute searchText onto each entry"
+);
+// getPresetSearchText must stay correct for an entry built outside that path.
+assert.match(
+    vm.runInContext(
+        "getPresetSearchText({ name: 'Ad Hoc', groupKey: 'x.gguf', modelLabel: 'x.gguf', toolText: 'llama-server', overrideFlagIds: ['ctx_size'] })",
+        searchContext
+    ),
+    /ctx_size/,
+    "an entry without precomputed text must fall back to building it"
+);
+
+// Label lookup is cached on the definitions array identity.
+const flagLabel = searchContext.window.LlamaGui.presets.getPresetFlagLabel;
+assert.equal(flagLabel("ctx_size"), "Total Context Window");
+assert.equal(flagLabel("flash_attn"), "Flash Attention");
+assert.equal(flagLabel("not_a_real_flag"), "not a real flag", "an unknown id degrades to spaced text");
+searchContext.FLAGS = [{ id: "ctx_size", label: "Replaced Label" }];
+assert.equal(
+    flagLabel("ctx_size"),
+    "Replaced Label",
+    "replacing the definitions array must invalidate the label cache"
+);
+
 console.log("presets unit tests passed");
