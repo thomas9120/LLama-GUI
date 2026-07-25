@@ -198,10 +198,45 @@ function applyPresetData(data, options = {}) {
     return prepared;
 }
 
-function getPresetWarnings(presetData) {
+// The set of .gguf names currently in the models/ folder, as cached by
+// refreshModels(). Returns null when the list is unknown so callers can stay
+// silent instead of flagging every preset.
+function getKnownModelNames() {
+    const manager = window.LlamaGui && window.LlamaGui.manager;
+    if (!manager || typeof manager.getKnownModelNames !== "function") return null;
+    const names = manager.getKnownModelNames();
+    // Duck-typed rather than `instanceof Set`, which is false for a Set built in
+    // another realm (the vm-based unit tests, or any future iframe/worker).
+    return names && typeof names.has === "function" && typeof names.size === "number" ? names : null;
+}
+
+// Presets normally store a bare file name, matching what /api/models returns,
+// but getPresetGroupLabel() tolerates path-like values so this does too.
+function getPresetModelFileName(model) {
+    const parts = String(model || "").split(/[\\/]+/).filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : "";
+}
+
+// Deliberately conservative: only report a miss we are confident about. An
+// unknown model list, an empty models/ folder, or a preset with no model saved
+// all stay silent, since a preset for a model held on another machine is
+// legitimate and false warnings would make the Warnings filter useless.
+function isPresetModelMissing(model, knownModelNames = getKnownModelNames()) {
+    if (!knownModelNames || knownModelNames.size === 0) return false;
+    const fileName = getPresetModelFileName(model);
+    if (!fileName) return false;
+    return !knownModelNames.has(fileName.toLowerCase());
+}
+
+function getPresetWarnings(presetData, knownModelNames = getKnownModelNames()) {
     const warnings = [];
     const flags = (presetData && presetData.flags) || {};
     const chatTemplate = flags.chat_template;
+
+    if (isPresetModelMissing(presetData && presetData.model, knownModelNames)) {
+        const fileName = getPresetModelFileName(presetData.model);
+        warnings.push(`Model file "${fileName}" is not in the models folder. Add it back or point this preset at another model before launching.`);
+    }
 
     if (chatTemplate && typeof isSupportedChatTemplateValue === "function" && !isSupportedChatTemplateValue(chatTemplate)) {
         warnings.push(`Uses outdated or unsupported chat template "${chatTemplate}". It will be ignored and Auto from model is safer.`);
@@ -404,13 +439,33 @@ function setPresetGroupCollapsed(groupKey, collapsed) {
     savePresetGroupState(state);
 }
 
-function getPresetSearchText(entry) {
-    return [
+// A preset is findable by what it actually changes, not just by its name and
+// model. Only non-default flags are folded in, so "ctx" returns the presets that
+// tuned the context window rather than every preset that has the flag.
+function buildPresetSearchText(entry) {
+    const parts = [
         entry.name,
         entry.groupKey === NO_MODEL_PRESET_GROUP_KEY ? "no model saved" : entry.groupKey,
         entry.modelLabel,
         entry.toolText,
-    ].join(" ").toLowerCase();
+    ];
+
+    for (const flagId of entry.overrideFlagIds || []) {
+        // Three forms, because none of them subsumes the others: the raw id
+        // matches "ctx" against ctx_size, the label matches "context window",
+        // and the de-underscored id matches "ctx size", which neither of the
+        // other two contains.
+        parts.push(flagId, String(flagId).replace(/_/g, " "), getPresetFlagLabel(flagId));
+    }
+
+    return parts.join(" ").toLowerCase();
+}
+
+// Reads the text precomputed once per render in buildPresetGroups rather than
+// rebuilding it per entry on every keystroke. The fallback keeps the function
+// correct for any entry built outside that path.
+function getPresetSearchText(entry) {
+    return typeof entry.searchText === "string" ? entry.searchText : buildPresetSearchText(entry);
 }
 
 function presetValuesEqual(left, right) {
@@ -440,11 +495,13 @@ function getNonDefaultPresetFlagIds(presetData) {
 
 function buildPresetGroups(presets) {
     const groupsByKey = new Map();
+    // Resolved once per render rather than once per preset.
+    const knownModelNames = getKnownModelNames();
 
     for (const preset of presets) {
         const presetData = normalizePresetData(preset.data);
         const groupKey = getPresetGroupKey(presetData.model);
-        const warnings = getPresetWarnings(presetData);
+        const warnings = getPresetWarnings(presetData, knownModelNames);
         const overrideFlagIds = getNonDefaultPresetFlagIds(presetData);
         const entry = {
             name: preset.name,
@@ -455,11 +512,14 @@ function buildPresetGroups(presets) {
             overrideFlagIds,
             overrideCount: overrideFlagIds.length,
             warnings,
+            modelMissing: isPresetModelMissing(presetData.model, knownModelNames),
             // backend sends epoch seconds; convert to ms to match Date.now()
             created: typeof preset.created === "number" ? preset.created * 1000 : 0,
             lastUsed: getPresetLastUsed(preset.name),
             favorite: isPresetFavorite(preset.name),
         };
+        // Built once here, not once per entry per keystroke in the filter below.
+        entry.searchText = buildPresetSearchText(entry);
 
         if (!groupsByKey.has(groupKey)) {
             groupsByKey.set(groupKey, {
@@ -531,12 +591,35 @@ function findVisiblePresetEntry(name) {
     return getVisiblePresetEntries().find((entry) => entry.name === name) || null;
 }
 
-function getPresetFlagLabel(flagId) {
-    const flags = Array.isArray(window.FLAGS)
+function getPresetFlagDefinitions() {
+    return Array.isArray(window.FLAGS)
         ? window.FLAGS
         : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
-    const flag = flags.find((entry) => entry && entry.id === flagId);
-    return (flag && flag.label) || flagId.replace(/_/g, " ");
+}
+
+let presetFlagLabelCache = null;
+let presetFlagLabelCacheSource = null;
+
+// This was a linear scan of ~150 definitions per call. Harmless for the handful
+// of chips in the detail panel, but the search text asks for a label per
+// override per preset, which turns it into a five-figure scan on every render
+// of a large library. Cached on the definitions array identity, so a reloaded
+// or replaced FLAGS rebuilds the map instead of serving stale labels.
+function getPresetFlagLabelMap() {
+    const definitions = getPresetFlagDefinitions();
+    if (presetFlagLabelCacheSource !== definitions) {
+        presetFlagLabelCache = new Map(
+            definitions
+                .filter((flag) => flag && flag.id)
+                .map((flag) => [flag.id, flag.label || ""])
+        );
+        presetFlagLabelCacheSource = definitions;
+    }
+    return presetFlagLabelCache;
+}
+
+function getPresetFlagLabel(flagId) {
+    return getPresetFlagLabelMap().get(flagId) || String(flagId).replace(/_/g, " ");
 }
 
 function getNotablePresetSettings(presetData, overrideFlagIds = getNonDefaultPresetFlagIds(presetData)) {
@@ -599,6 +682,184 @@ function appendDetailStat(container, label, value, valueClass = "") {
     container.appendChild(stat);
 }
 
+// Same wording as formatHistoryTime() in chat-ui.js, which is closure-private
+// there. Kept as a local copy rather than widening that module's surface.
+function formatPresetTimestamp(ts) {
+    if (!ts) return "";
+    const then = new Date(ts);
+    const diffMin = Math.floor((Date.now() - then.getTime()) / 60000);
+    if (diffMin < 1) return "Just now";
+    if (diffMin < 60) return `${diffMin}m ago`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr}h ago`;
+    return then.toLocaleDateString();
+}
+
+function isPresetFilterActive() {
+    return Boolean(presetSearchQuery.trim()) || presetWarningFilterActive || presetFavoritesMode === "only";
+}
+
+// Describes the presets currently visible rather than every preset on disk, so
+// the numbers always agree with the list beside them and with the count line.
+// Reading currentPresetGroups keeps this free of a second copy of library state.
+function getPresetLibrarySummary() {
+    const entries = getVisiblePresetEntries();
+    const mostRecent = entries.reduce(
+        (best, entry) => (entry.lastUsed && (!best || entry.lastUsed > best.lastUsed) ? entry : best),
+        null
+    );
+    return {
+        presetCount: entries.length,
+        modelCount: currentPresetGroups.length,
+        warningCount: entries.reduce((total, entry) => total + entry.warnings.length, 0),
+        missingModelCount: entries.filter((entry) => entry.modelMissing).length,
+        favoriteCount: entries.filter((entry) => entry.favorite).length,
+        mostRecent,
+        filtered: isPresetFilterActive(),
+        // A zero missing-model count means "none found" only when the model list
+        // actually loaded. With no list it means "not checked", and the two must
+        // not read the same in the summary.
+        modelsChecked: getKnownModelNames() !== null,
+    };
+}
+
+// Health copy must never make a claim the counts underneath it cannot support.
+// Two ways that goes wrong, both producing a false all-clear:
+//   1. A filter narrows the view. Searching past the one preset with a deleted
+//      GGUF would otherwise render "every preset loads cleanly" over hidden rot.
+//   2. The model list never loaded. isPresetModelMissing() stays silent by
+//      design when it has nothing to compare against, so a clean count there
+//      means "not checked", not "checked and fine".
+function getPresetHealthMessage(summary) {
+    // Pointing at a filter that is already applied is dead advice.
+    const review = presetWarningFilterActive ? "" : " Use the Warnings filter to review them.";
+    const scopePrefix = summary.filtered ? "Of the presets shown, " : "";
+
+    if (summary.missingModelCount > 0) {
+        const count = summary.missingModelCount;
+        const subject = count === 1 ? "1 preset points" : `${count} presets point`;
+        return `${scopePrefix}${subject} at a model file that is no longer in the models folder.${review}`;
+    }
+
+    if (summary.warningCount > 0) {
+        const count = summary.warningCount;
+        const subject = `${count} warning${count === 1 ? "" : "s"}`;
+        return summary.filtered
+            ? `${subject} among the presets shown.${review}`
+            : `${subject} across the library.${review}`;
+    }
+
+    // Clean, but model presence was never verified. Report the other warnings
+    // honestly and say plainly which check did not run.
+    if (!summary.modelsChecked) {
+        return summary.filtered
+            ? "No warnings among the presets shown. The model list has not loaded, so model files were not checked."
+            : "No template or launch-argument warnings. The model list has not loaded, so model files were not checked.";
+    }
+
+    return summary.filtered
+        ? "No warnings among the presets shown. Clear the search and filters to check the whole library."
+        : "No warnings. Every preset points at a model that is present and loads cleanly.";
+}
+
+function renderPresetLibrarySummary(panel) {
+    const summary = getPresetLibrarySummary();
+
+    if (summary.presetCount === 0) {
+        const empty = document.createElement("div");
+        empty.className = "preset-detail-empty";
+        empty.appendChild(createPresetIcon(PRESET_ICON_EMPTY));
+
+        const emptyTitle = document.createElement("div");
+        emptyTitle.className = "preset-detail-empty-title";
+        emptyTitle.textContent = summary.filtered ? "No presets match" : "No presets saved yet";
+
+        const emptyText = document.createElement("p");
+        emptyText.textContent = summary.filtered
+            ? "Clear the search or filters to see the rest of the library."
+            : "Save a preset from Configure to keep a launch setup you can return to.";
+
+        empty.appendChild(emptyTitle);
+        empty.appendChild(emptyText);
+        panel.appendChild(empty);
+        return;
+    }
+
+    const kicker = document.createElement("div");
+    kicker.className = "preset-detail-kicker";
+    kicker.textContent = summary.filtered ? "Matching Presets" : "Preset Library";
+
+    const title = document.createElement("div");
+    title.className = "preset-detail-title";
+    title.textContent = `${summary.presetCount} preset${summary.presetCount === 1 ? "" : "s"}`;
+
+    const subtitle = document.createElement("div");
+    subtitle.className = "preset-detail-subtitle";
+    subtitle.textContent = summary.filtered
+        ? "Filtered view. Clear the search and filters to summarize the whole library."
+        : "Select a preset on the left to preview its saved model, tool, warnings, and settings.";
+
+    const stats = document.createElement("div");
+    stats.className = "preset-detail-stats";
+    appendDetailStat(stats, "Models", String(summary.modelCount));
+    appendDetailStat(stats, "Favorites", String(summary.favoriteCount));
+    appendDetailStat(
+        stats,
+        "Warnings",
+        String(summary.warningCount),
+        summary.warningCount ? "warn" : "ok"
+    );
+    // An unchecked count must not render as a green zero, which reads as
+    // "checked, none missing" — the same false all-clear as the health line.
+    let missingModelClass = "";
+    if (summary.modelsChecked) {
+        missingModelClass = summary.missingModelCount ? "warn" : "ok";
+    }
+    appendDetailStat(
+        stats,
+        "Missing Models",
+        summary.modelsChecked ? String(summary.missingModelCount) : "—",
+        missingModelClass
+    );
+
+    panel.appendChild(kicker);
+    panel.appendChild(title);
+    panel.appendChild(subtitle);
+    panel.appendChild(stats);
+
+    const recentTitle = document.createElement("div");
+    recentTitle.className = "preset-detail-section-title";
+    recentTitle.textContent = "Most Recently Used";
+
+    const recent = document.createElement("div");
+    recent.className = "preset-detail-info preset-summary-block";
+    const recentText = document.createElement("span");
+    // textContent, never innerHTML: preset names are user-supplied.
+    recentText.textContent = summary.mostRecent
+        ? `${summary.mostRecent.name} · ${formatPresetTimestamp(summary.mostRecent.lastUsed)}`
+        : "No preset loaded yet on this machine.";
+    recent.appendChild(recentText);
+
+    panel.appendChild(recentTitle);
+    panel.appendChild(recent);
+
+    const healthTitle = document.createElement("div");
+    healthTitle.className = "preset-detail-section-title";
+    // "Library Health" is an absolute claim, and the counts under it are not.
+    healthTitle.textContent = summary.filtered ? "Health Of Presets Shown" : "Library Health";
+
+    const health = document.createElement("div");
+    const needsAttention = summary.warningCount > 0;
+    health.className = needsAttention ? "preset-warning" : "preset-detail-note";
+    health.appendChild(createPresetIcon(needsAttention ? PRESET_ICON_WARNING : PRESET_ICON_CHECK));
+    const healthText = document.createElement("span");
+    healthText.textContent = getPresetHealthMessage(summary);
+    health.appendChild(healthText);
+
+    panel.appendChild(healthTitle);
+    panel.appendChild(health);
+}
+
 function renderPresetDetailPanel() {
     const panel = document.getElementById("preset-detail-panel");
     if (!panel) return;
@@ -606,20 +867,7 @@ function renderPresetDetailPanel() {
 
     const entry = findVisiblePresetEntry(selectedPresetName);
     if (!entry) {
-        const empty = document.createElement("div");
-        empty.className = "preset-detail-empty";
-        empty.appendChild(createPresetIcon(PRESET_ICON_EMPTY));
-
-        const emptyTitle = document.createElement("div");
-        emptyTitle.className = "preset-detail-empty-title";
-        emptyTitle.textContent = "No preset selected";
-
-        const emptyText = document.createElement("p");
-        emptyText.textContent = "Select a preset on the left to preview its saved model, tool, warnings, and notable settings.";
-
-        empty.appendChild(emptyTitle);
-        empty.appendChild(emptyText);
-        panel.appendChild(empty);
+        renderPresetLibrarySummary(panel);
         return;
     }
 
@@ -980,8 +1228,26 @@ function showPresetStatus(message, type = "success", durationMs = 2200) {
     }, durationMs);
 }
 
+// Missing-model warnings are computed at build time from the cached model list,
+// so a model list that changes after the groups were built leaves the badges,
+// the Warnings filter, and the summary stale. loadPresets() already runs on
+// every switch into the tab, which covers the user who arrives afterwards; this
+// covers the two cases where the list moves while the tab is already open:
+// a download finishing in the background, and the startup refreshModels() that
+// resolves after a fast click into Presets.
+//
+// Guarded on the section rather than #presets-list, which is static markup in
+// index.html and therefore always present — testing for it would rebuild on
+// every model refresh, including for users who never open the tab.
+function refreshModelPresence() {
+    const section = document.getElementById("section-presets");
+    if (!section || section.style.display === "none") return;
+    loadPresets();
+}
+
 async function loadPresets() {
     const container = document.getElementById("presets-list");
+    if (!container) return;
     container.textContent = "";
     try {
         const presets = await fetchPresetEntries();
@@ -1516,6 +1782,15 @@ if (window.LlamaGui) {
         findPresetByName,
         normalizePresetData,
         normalizeImportedPresetData,
+        getPresetWarnings,
+        isPresetModelMissing,
+        getPresetModelFileName,
+        getPresetLibrarySummary,
+        getPresetHealthMessage,
+        buildPresetSearchText,
+        getPresetFlagLabel,
+        refreshModelPresence,
+        formatPresetTimestamp,
         isFullPresetData,
         preparePresetLaunchState,
         applyPresetData,

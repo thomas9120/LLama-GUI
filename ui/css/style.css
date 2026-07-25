@@ -2895,6 +2895,27 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .preset-detail-note svg,
 .preset-warning svg { flex-shrink: 0; margin-top: 1px; }
 
+/* Library summary shown when no preset is selected. These lines report state
+   rather than success, so they must not borrow the green .preset-detail-note
+   treatment, which would read as "all good" even while describing a problem. */
+.preset-detail-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    color: var(--fg-muted);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+/* Section bodies in the summary stack directly against the next section title,
+   which only carries a bottom margin of its own. */
+.preset-summary-block { margin-bottom: var(--space-5); }
+
 /* cappuccino theme adjustments */
 :root[data-theme="cappuccino"] .presets-browser,
 :root[data-theme="cappuccino"] .presets-save-bar,

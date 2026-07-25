@@ -1072,6 +1072,27 @@ function openFolder(folder) {
         });
 }
 
+// Lowercased .gguf file names last seen in the models/ folder, shared with any
+// module that needs to know whether a saved model still exists (see the missing
+// model warning in presets.js). `null` means "not known yet" - never fetched, or
+// the fetch failed - which callers must treat differently from a known-empty
+// folder, since an unavailable list is not evidence that a model is gone.
+let knownModelNames = null;
+
+function getKnownModelNames() {
+    return knownModelNames;
+}
+
+// Presets derive their missing-model warnings from the cache above at build
+// time, so whoever changed it has to say so. Kept as a narrow one-way poke
+// rather than a general event bus, matching setAcceptedStatusObserver's scope.
+function notifyModelPresenceChanged() {
+    const presets = window.LlamaGui && window.LlamaGui.presets;
+    if (presets && typeof presets.refreshModelPresence === "function") {
+        presets.refreshModelPresence();
+    }
+}
+
 async function refreshModels() {
     const sel = document.getElementById("model-select");
     if (!sel) return;
@@ -1079,15 +1100,18 @@ async function refreshModels() {
     sel.innerHTML = '<option value="">-- Select Model --</option>';
     try {
         const models = await fetchJson("/api/models");
+        const names = new Set();
         let added = 0;
         for (const m of models) {
             if (!m.name || !String(m.name).toLowerCase().endsWith(".gguf")) continue;
+            names.add(String(m.name).toLowerCase());
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = `${m.name}  (${m.size_mb} MB)`;
             sel.appendChild(opt);
             added++;
         }
+        knownModelNames = names;
         if (added === 0) {
             const opt = document.createElement("option");
             opt.value = "";
@@ -1101,7 +1125,11 @@ async function refreshModels() {
         if (typeof syncQuickLaunchModelOptions === "function") {
             syncQuickLaunchModelOptions();
         }
+        notifyModelPresenceChanged();
     } catch (e) {
+        // Drop the cache rather than keeping a stale one: callers must not read
+        // a failed refresh as proof that a model is missing.
+        knownModelNames = null;
         const opt = document.createElement("option");
         opt.value = "";
         opt.textContent = "Failed to load models";
@@ -1117,6 +1145,10 @@ async function refreshModels() {
         } else {
             console.debug("Failed to refresh model list", e);
         }
+        // The failure path matters as much as the success path: clearing the
+        // cache changes missing-model warnings from "none found" to "not
+        // checked", and the Presets tab has to be told.
+        notifyModelPresenceChanged();
     }
 }
 
@@ -1131,6 +1163,7 @@ if (window.LlamaGui) {
         checkStatus,
         setAcceptedStatusObserver,
         refreshModels,
+        getKnownModelNames,
         checkAppUpdateStatus,
         updateAppFromGitHub,
         stopInstallProgressPolling,
