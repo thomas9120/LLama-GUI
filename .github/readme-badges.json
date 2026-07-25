@@ -1,0 +1,59 @@
+{
+  "align": "center",
+  "separator": "space",
+  "badges": [
+    {
+      "type": "github-release",
+      "repo": "thomas9120/LLama-GUI",
+      "alt": "Latest release",
+      "label": "latest",
+      "color": "2E7D32",
+      "link": "https://github.com/thomas9120/LLama-GUI/releases/latest"
+    },
+    {
+      "type": "github-license",
+      "repo": "thomas9120/LLama-GUI",
+      "alt": "License: GPL-3.0",
+      "label": "license",
+      "color": "blue",
+      "link": "https://github.com/thomas9120/LLama-GUI/blob/main/LICENSE"
+    },
+    {
+      "type": "static",
+      "message": "Windows",
+      "color": "0078D6",
+      "logo": "windows",
+      "logoColor": "white",
+      "alt": "Windows",
+      "link": "#quick-start"
+    },
+    {
+      "type": "static",
+      "message": "macOS",
+      "color": "000000",
+      "logo": "apple",
+      "logoColor": "white",
+      "alt": "macOS",
+      "link": "#quick-start"
+    },
+    {
+      "type": "static",
+      "message": "Linux",
+      "color": "FCC624",
+      "logo": "linux",
+      "logoColor": "black",
+      "alt": "Linux",
+      "link": "#quick-start"
+    },
+    {
+      "type": "static",
+      "label": "Python",
+      "message": "3.9+",
+      "color": "3776AB",
+      "logo": "python",
+      "logoColor": "white",
+      "alt": "Python 3.9 or newer",
+      "link": "#requirements"
+    }
+  ]
+}

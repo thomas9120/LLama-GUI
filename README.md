@@ -4,6 +4,14 @@
   <img src="Llama-GUI%20Logo.png" alt="Llama GUI logo" width="360">
 </p>
 
+<!-- readme-badges:start -->
+<div align="center">
+
+[![Latest release](https://img.shields.io/github/v/release/thomas9120/LLama-GUI?display_name=tag&sort=semver&label=latest&color=2E7D32)](https://github.com/thomas9120/LLama-GUI/releases/latest) [![License: GPL-3.0](https://img.shields.io/github/license/thomas9120/LLama-GUI?label=license&color=blue)](https://github.com/thomas9120/LLama-GUI/blob/main/LICENSE) [![Windows](https://img.shields.io/badge/Windows-0078D6?logo=windows&logoColor=white)](#quick-start) [![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)](#quick-start) [![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)](#quick-start) [![Python 3.9 or newer](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](#requirements)
+
+</div>
+<!-- readme-badges:end -->
+
 Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, and Linux.
 
 Llama GUI provides a browser UI to:
