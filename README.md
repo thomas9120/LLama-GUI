@@ -1,6 +1,6 @@
-# Llama GUI
+<h1 align="center">Llama GUI</h1>
 
-<p align="left">
+<p align="center">
   <img src="Llama-GUI%20Logo.png" alt="Llama GUI logo" width="360">
 </p>
 
