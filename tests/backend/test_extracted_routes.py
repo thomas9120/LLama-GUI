@@ -3086,17 +3086,28 @@ class TunnelRouteTests(unittest.TestCase):
 class SubprocessWindowFlagTests(unittest.TestCase):
     """Helper subprocesses must not flash a console when the server runs detached."""
 
+    # subprocess only defines CREATE_NO_WINDOW on Windows, so the value is spelled out
+    # here and injected below to exercise the win32 branch on every platform
+    CREATE_NO_WINDOW = 0x08000000
+
     def test_creationflags_are_windows_only(self):
         from backend.services import subprocess_utils
 
-        with mock.patch.object(subprocess_utils.sys, "platform", "win32"):
-            self.assertEqual(
-                subprocess_utils.get_no_window_creationflags(),
-                subprocess.CREATE_NO_WINDOW,
-            )
-        for platform_name in ("linux", "darwin"):
-            with mock.patch.object(subprocess_utils.sys, "platform", platform_name):
-                self.assertEqual(subprocess_utils.get_no_window_creationflags(), 0)
+        if hasattr(subprocess, "CREATE_NO_WINDOW"):
+            # pins the literal above against the real constant wherever it exists
+            self.assertEqual(subprocess.CREATE_NO_WINDOW, self.CREATE_NO_WINDOW)
+
+        with mock.patch.object(
+            subprocess_utils.subprocess, "CREATE_NO_WINDOW", self.CREATE_NO_WINDOW, create=True
+        ):
+            with mock.patch.object(subprocess_utils.sys, "platform", "win32"):
+                self.assertEqual(
+                    subprocess_utils.get_no_window_creationflags(),
+                    self.CREATE_NO_WINDOW,
+                )
+            for platform_name in ("linux", "darwin"):
+                with mock.patch.object(subprocess_utils.sys, "platform", platform_name):
+                    self.assertEqual(subprocess_utils.get_no_window_creationflags(), 0)
 
     def test_run_git_hides_the_console_window(self):
         from backend.services import git_update as srv
