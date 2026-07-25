@@ -220,13 +220,14 @@ const PRESET_LAST_USED_STORAGE_KEY = "llama_gui_preset_last_used_v1";
 const PRESET_SORT_STORAGE_KEY = "llama_gui_preset_sort_v1";
 const PRESET_FAVORITES_FIRST_STORAGE_KEY = "llama_gui_preset_favorites_first_v1";
 const PRESET_SORT_MODES = new Set(["name", "recent", "added"]);
+const PRESET_FAVORITES_MODES = ["all", "first", "only"];
 const NO_MODEL_PRESET_GROUP_KEY = "__no_model__";
 
 let presetStatusTimer = null;
 let presetSearchQuery = "";
 let presetWarningFilterActive = false;
 let presetSortMode = loadPresetSortMode();
-let presetFavoritesFirst = loadPresetFavoritesFirst();
+let presetFavoritesMode = loadPresetFavoritesMode();
 let currentPresetGroups = [];
 let selectedPresetName = "";
 let selectedPresetNames = new Set();
@@ -269,9 +270,17 @@ function loadPresetSortMode() {
     return PRESET_SORT_MODES.has(stored) ? stored : "name";
 }
 
-function loadPresetFavoritesFirst() {
+function loadPresetFavoritesMode() {
     const stored = getPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY);
-    return stored === null ? true : stored !== "false";
+    if (stored === null) return "first";
+    if (PRESET_FAVORITES_MODES.includes(stored)) return stored;
+    // migrate the pre-tri-state boolean values
+    return stored === "false" ? "all" : "first";
+}
+
+function nextPresetFavoritesMode(mode) {
+    const index = PRESET_FAVORITES_MODES.indexOf(mode);
+    return PRESET_FAVORITES_MODES[(index + 1) % PRESET_FAVORITES_MODES.length];
 }
 
 function isPresetFavorite(name) {
@@ -427,8 +436,9 @@ function buildPresetGroups(presets) {
     }
 
     const query = presetSearchQuery.trim().toLowerCase();
+    const favoritesEmphasized = presetFavoritesMode !== "all";
     const compareEntries = (a, b) => {
-        if (presetFavoritesFirst && a.favorite !== b.favorite) return a.favorite ? -1 : 1;
+        if (favoritesEmphasized && a.favorite !== b.favorite) return a.favorite ? -1 : 1;
         if (presetSortMode === "recent" && b.lastUsed !== a.lastUsed) return b.lastUsed - a.lastUsed;
         if (presetSortMode === "added" && b.created !== a.created) return b.created - a.created;
         return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
@@ -437,6 +447,7 @@ function buildPresetGroups(presets) {
         const entries = group.entries
             .filter((entry) => !query || getPresetSearchText(entry).includes(query))
             .filter((entry) => !presetWarningFilterActive || entry.warnings.length > 0)
+            .filter((entry) => presetFavoritesMode !== "only" || entry.favorite)
             .sort(compareEntries);
         return {
             ...group,
@@ -453,7 +464,7 @@ function buildPresetGroups(presets) {
     groups.sort((a, b) => {
         if (a.key === NO_MODEL_PRESET_GROUP_KEY) return 1;
         if (b.key === NO_MODEL_PRESET_GROUP_KEY) return -1;
-        if (presetFavoritesFirst && a.hasFavorite !== b.hasFavorite) return a.hasFavorite ? -1 : 1;
+        if (favoritesEmphasized && a.hasFavorite !== b.hasFavorite) return a.hasFavorite ? -1 : 1;
         if (presetSortMode !== "name" && b.sortValue !== a.sortValue) return b.sortValue - a.sortValue;
         return a.label.localeCompare(b.label, undefined, { sensitivity: "base" });
     });
@@ -716,6 +727,12 @@ function renderPresetAuxiliaryPanels() {
 
 function selectPresetEntry(name) {
     selectedPresetName = String(name || "");
+    // searching force-expands groups, so a selection made from search results would be
+    // hidden again once the query is cleared unless its group is expanded for real
+    const entry = findVisiblePresetEntry(selectedPresetName);
+    if (entry && isPresetGroupCollapsed(entry.groupKey)) {
+        setPresetGroupCollapsed(entry.groupKey, false);
+    }
     renderPresetGroups(document.getElementById("presets-list"), currentPresetGroups);
 }
 
@@ -818,14 +835,18 @@ function renderPresetGroups(container, groups) {
             ? "No presets match your search."
             : presetWarningFilterActive
                 ? "No presets with warnings."
-                : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
+                : presetFavoritesMode === "only"
+                    ? "No favorite presets yet. Star a preset to keep it here."
+                    : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
         container.appendChild(empty);
         renderPresetAuxiliaryPanels();
         return;
     }
 
     // when searching or filtering, force groups open so matches are visible
-    const forceExpanded = Boolean(presetSearchQuery.trim()) || presetWarningFilterActive;
+    const forceExpanded = Boolean(presetSearchQuery.trim())
+        || presetWarningFilterActive
+        || presetFavoritesMode === "only";
 
     for (const group of groups) {
         const groupEl = document.createElement("section");
@@ -1028,13 +1049,24 @@ function initPresetLibraryControls() {
         filterWarnings.addEventListener("click", () => setWarningFilter(!presetWarningFilterActive));
     }
     if (favoritesFirst) {
-        favoritesFirst.classList.toggle("active", presetFavoritesFirst);
-        favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesFirst));
+        const favoritesLabels = {
+            all: { text: "★ Favorites", title: "Click to keep favorite presets and model groups above other results" },
+            first: { text: "★ Favorites first", title: "Favorites are sorted first. Click to show only favorites" },
+            only: { text: "★ Favorites only", title: "Showing only favorites. Click to show all presets" },
+        };
+        const renderFavoritesChip = () => {
+            const label = favoritesLabels[presetFavoritesMode] || favoritesLabels.all;
+            favoritesFirst.textContent = label.text;
+            favoritesFirst.title = label.title;
+            favoritesFirst.classList.toggle("active", presetFavoritesMode !== "all");
+            favoritesFirst.classList.toggle("preset-chip-favorite-only", presetFavoritesMode === "only");
+            favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesMode !== "all"));
+        };
+        renderFavoritesChip();
         favoritesFirst.addEventListener("click", () => {
-            presetFavoritesFirst = !presetFavoritesFirst;
-            favoritesFirst.classList.toggle("active", presetFavoritesFirst);
-            favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesFirst));
-            setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, String(presetFavoritesFirst));
+            presetFavoritesMode = nextPresetFavoritesMode(presetFavoritesMode);
+            renderFavoritesChip();
+            setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, presetFavoritesMode);
             loadPresets();
         });
     }

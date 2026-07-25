@@ -2318,13 +2318,17 @@ input[type="range"].sampler-range::-moz-range-thumb {
     display: grid;
     grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
     gap: var(--space-4);
-    align-items: start;
+    align-items: stretch;
     width: 100%;
     max-width: 1480px;
+    /* definite height so the browser list scrolls internally instead of growing the page */
+    height: max(460px, calc(100vh - 216px));
 }
 
 /* ── Left column: preset browser ── */
 .presets-browser {
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-md);
     background: var(--bg-surface);
@@ -2334,6 +2338,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 .presets-browser-toolbar {
     display: grid;
+    flex: none;
     grid-template-columns: minmax(120px, 1fr) minmax(96px, 120px) 30px 30px;
     align-items: center;
     gap: var(--space-2);
@@ -2392,6 +2397,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 .presets-filters {
     display: flex;
+    flex: none;
     align-items: center;
     gap: 6px;
     padding: 9px var(--space-3);
@@ -2452,6 +2458,14 @@ input[type="range"].sampler-range::-moz-range-thumb {
     border-color: var(--yellow-border);
 }
 
+/* favorites-only is a filter, not just a sort, so it reads stronger than "first" */
+.preset-chip.preset-chip-favorite-only.active {
+    background: var(--yellow);
+    color: var(--bg-base);
+    border-color: var(--yellow);
+    font-weight: 600;
+}
+
 .presets-count-line {
     margin-left: auto;
     font-size: 11px;
@@ -2460,8 +2474,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 }
 
 .presets-browser-list {
-    max-height: calc(100vh - 330px);
-    min-height: 320px;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
 }
 
@@ -2608,7 +2622,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 }
 
 .preset-item.selected .preset-name { color: var(--fg-bright); }
-.preset-meta { font-size: 10.5px; color: var(--fg-faint); }
+/* muted, not faint: at 10.5px the faint token lands near 2.6:1 on the surface background */
+.preset-meta { font-size: 10.5px; color: var(--fg-muted); }
 
 .preset-item-favorite { box-shadow: inset 2px 0 0 var(--yellow); }
 
@@ -2659,6 +2674,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
 /* bulk actions remain visible so selection capabilities are discoverable */
 .presets-bulk-bar {
     display: flex;
+    flex: none;
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
@@ -2693,6 +2709,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
     background: var(--bg-surface);
     padding: var(--space-5);
     min-height: 380px;
+    overflow-y: auto;
 }
 
 .preset-detail-empty {
@@ -3985,9 +4002,9 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 }
 
 @media (max-width: 1100px) {
-    .presets-workspace { grid-template-columns: 1fr; }
-    .preset-detail-panel { position: static; min-height: 0; }
-    .presets-browser-list { max-height: 50vh; }
+    .presets-workspace { grid-template-columns: 1fr; height: auto; }
+    .preset-detail-panel { position: static; min-height: 0; overflow-y: visible; }
+    .presets-browser-list { flex: none; min-height: 0; max-height: 50vh; }
 }
 
 @media (max-width: 900px) {

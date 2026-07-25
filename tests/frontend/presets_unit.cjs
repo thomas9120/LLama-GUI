@@ -173,4 +173,90 @@ assert.equal(applied[2][0], "flags");
 assert.equal(applied[2][1].api_key, "session-secret");
 assert.equal(applied[2][1].ctx_size, 4096);
 
+// favorites tri-state: needs a working storage, unlike the blocked-storage context above
+function createStoredContext(initialStorage = {}) {
+    const store = { ...initialStorage };
+    const favoritesContext = {
+        window: {},
+        document: { getElementById: () => null },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: {
+            getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+            setItem: (key, value) => { store[key] = String(value); },
+        },
+        FLAGS: [],
+    };
+    favoritesContext.window = favoritesContext;
+    favoritesContext.window.LlamaGui = {};
+    vm.createContext(favoritesContext);
+    vm.runInContext(source, favoritesContext, { filename: "presets.js" });
+    return favoritesContext;
+}
+
+const FAVORITES_KEY = "llama_gui_preset_favorites_first_v1";
+
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext()),
+    "first",
+    "favorites emphasis should default to sorting favorites first"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "true" })),
+    "first",
+    "the legacy true value must migrate to first"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "false" })),
+    "all",
+    "the legacy false value must migrate to all"
+);
+assert.equal(
+    vm.runInContext("presetFavoritesMode", createStoredContext({ [FAVORITES_KEY]: "only" })),
+    "only",
+    "a stored tri-state value must load unchanged"
+);
+
+const cycleContext = createStoredContext();
+assert.equal(
+    JSON.stringify(vm.runInContext(
+        "['all','first','only'].map(nextPresetFavoritesMode)",
+        cycleContext
+    )),
+    JSON.stringify(["first", "only", "all"]),
+    "the favorites chip must cycle all - first - only"
+);
+
+const filterContext = createStoredContext({
+    [FAVORITES_KEY]: "only",
+    llama_gui_preset_favorites_v1: JSON.stringify({ "Starred Preset": true }),
+});
+const favoriteOnlyGroups = vm.runInContext(`
+    buildPresetGroups([
+        { name: "Starred Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Plain Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Other Model Preset", data: { tool: "llama-server", model: "b.gguf", flags: {} } },
+    ]).map(group => group.entries.map(entry => entry.name))
+`, filterContext);
+assert.equal(
+    JSON.stringify(favoriteOnlyGroups),
+    JSON.stringify([["Starred Preset"]]),
+    "favorites-only must drop unstarred presets and their now-empty groups"
+);
+
+const emphasisContext = createStoredContext({
+    [FAVORITES_KEY]: "first",
+    llama_gui_preset_favorites_v1: JSON.stringify({ "Starred Preset": true }),
+});
+const favoriteFirstGroups = vm.runInContext(`
+    buildPresetGroups([
+        { name: "Plain Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+        { name: "Starred Preset", data: { tool: "llama-server", model: "a.gguf", flags: {} } },
+    ]).map(group => group.entries.map(entry => entry.name))
+`, emphasisContext);
+assert.equal(
+    JSON.stringify(favoriteFirstGroups),
+    JSON.stringify([["Starred Preset", "Plain Preset"]]),
+    "favorites-first must sort without filtering"
+);
+
 console.log("presets unit tests passed");
