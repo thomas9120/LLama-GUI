@@ -65,14 +65,21 @@ Fast Node tests:
 - `sampler_presets_unit.cjs`: sampler preset storage fallback, normalization, applying defaults, and built-in/custom preset shape.
 - `hf_download_ui_unit.cjs`: Hugging Face downloader UI helper behavior, request payloads, duplicate overwrite retry, and completion handling.
 - `api_tab_unit.cjs`: API endpoint host/port fallback, active-runtime endpoint/model preference, API-key snippet rendering, llama.cpp-compatible CSV parsing, active-auth status, and bearer-header selection.
-- `presets_unit.cjs`: preset storage failure fallback, non-default override calculation, imported preset normalization, stale flag filtering, and sensitive Custom Launch Args rejection.
+- `presets_unit.cjs`: preset storage failure fallback, non-default override calculation, imported preset normalization, stale flag filtering, sensitive Custom Launch Args rejection, bulk favorite write batching, missing-model detection, library summary scoping, health copy under filters and an unchecked model list, and search across overridden flag names and labels.
+- `preset_roving_focus_unit.cjs`: the preset list focus sequence, skipping rows in collapsed groups, roving `tabindex` bookkeeping including each row's inner controls, clamped Up/Down and Home/End movement, restoring position across a re-render, and syncing the roving position when focus arrives by click or programmatic `focus()`.
+- `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, and the presets-tab notification firing on both the success and failure paths.
+- `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering.
+- `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, and color-scheme hints.
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
+- `llama_flags_supported_unit.cjs`: compares exposed GUI flags against the installed `llama-server` / `llama-cli` help output. Skips with a message when neither binary is present, so a pass here does not imply the check ran.
 - `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:
 
-- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, API authentication, API snippets, remote tunnel UI, sampler presets, custom launch args, and the sidebar Model Switcher's rendered drag/keyboard guards.
+- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, API authentication, API snippets, remote tunnel UI, sampler presets, custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, and the Presets browser's roving keyboard focus.
+
+When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 
 Use fast Node tests for focused debugging. Use the Playwright smoke test when a change affects real DOM wiring, mirrored controls, tab sync, command preview rendering, or launch blocking behavior.
 

@@ -198,10 +198,16 @@ async function main() {
                 return;
             }
             if (pathName === "/api/presets") {
+                // Two model groups so the roving focus check below can cross a
+                // group boundary and prove collapsed rows are skipped.
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify([]),
+                    body: JSON.stringify([
+                        { name: "smoke-alpha", data: { tool: "llama-server", model: "smoke-model.gguf", flags: {} }, created: 1 },
+                        { name: "smoke-beta", data: { tool: "llama-server", model: "smoke-model.gguf", flags: {} }, created: 2 },
+                        { name: "smoke-gamma", data: { tool: "llama-server", model: "other-model.gguf", flags: {} }, created: 3 },
+                    ]),
                 });
                 return;
             }
@@ -950,6 +956,131 @@ async function main() {
         await page.keyboard.press("Enter");
         await page.waitForFunction(() => window.__sidebarSwitchCalls === 2);
         await page.waitForFunction(() => document.querySelector("#sidebar-model-switcher-slider")?.getAttribute("aria-valuenow") === "0");
+        // --- Presets: roving arrow-key focus -------------------------------
+        // Only a real browser can prove the tab order, which is the whole point
+        // of the change: the list must be one stop to enter, not one per row.
+        await selectSection(page, "presets");
+        await page.waitForSelector("#presets-list .preset-group-header");
+
+        const listState = () => page.evaluate(() => {
+            const list = document.getElementById("presets-list");
+            const items = Array.from(list.querySelectorAll(".preset-group-header, .preset-item"));
+            const visible = items.filter((el) => el.offsetParent !== null);
+            return {
+                tabbable: visible.filter((el) => el.tabIndex === 0).length,
+                // Anything inside the list still reachable by Tab.
+                tabbableDescendants: Array.from(list.querySelectorAll("input, button"))
+                    .filter((el) => el.tabIndex === 0 && el.offsetParent !== null).length,
+                focusKey: document.activeElement
+                    && (document.activeElement.getAttribute("data-preset-name")
+                        || document.activeElement.getAttribute("data-group-key")),
+            };
+        });
+
+        // Groups collapse by default, so only headers are focusable at first.
+        let state = await listState();
+        assert.equal(state.tabbable, 1, "the whole preset list must be a single tab stop");
+
+        // Read the rendered order rather than assuming it: groups sort by label,
+        // so the mock's models do not appear in the order they were declared.
+        const headerKeys = await page.evaluate(() => Array.from(
+            document.querySelectorAll("#presets-list .preset-group-header")
+        ).map((el) => el.getAttribute("data-group-key")));
+        assert.equal(headerKeys.length, 2, "the mock presets should render two model groups");
+
+        await page.locator("#presets-list .preset-group-header").first().focus();
+        await page.keyboard.press("ArrowDown");
+        state = await listState();
+        assert.equal(
+            state.focusKey,
+            headerKeys[1],
+            "with groups collapsed, ArrowDown must skip hidden rows and land on the next header"
+        );
+
+        // Expanding a group brings its rows into the sequence.
+        await page.locator("#presets-list .preset-group-header").first().focus();
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => {
+            const group = document.querySelector("#presets-list .preset-group");
+            return group && !group.classList.contains("collapsed");
+        });
+        const firstRowName = await page.evaluate(() => {
+            const group = document.querySelector("#presets-list .preset-group");
+            const row = group && group.querySelector(".preset-item");
+            return row && row.getAttribute("data-preset-name");
+        });
+
+        await page.locator("#presets-list .preset-group-header").first().focus();
+        await page.keyboard.press("ArrowDown");
+        state = await listState();
+        assert.equal(
+            state.focusKey,
+            firstRowName,
+            "ArrowDown into an expanded group must land on its first row"
+        );
+        assert.equal(state.tabbable, 1, "still exactly one item in the tab order after moving");
+        assert.equal(
+            state.tabbableDescendants,
+            3,
+            "only the focused row's checkbox, favorite, and Load button stay tabbable"
+        );
+
+        // Enter selects without collapsing the roving state.
+        await page.keyboard.press("Enter");
+        await page.waitForFunction(() => document.querySelector("#presets-list .preset-item.selected") !== null);
+        state = await listState();
+        assert.equal(
+            state.focusKey,
+            firstRowName,
+            "focus must survive the re-render that selecting a preset triggers"
+        );
+
+        // A mouse click must also move the roving position, or the next arrow
+        // key would jump back to wherever the keyboard last was.
+        //
+        // Only the first group was expanded above, so expand the second too:
+        // rows in a collapsed group are display:none and cannot be clicked.
+        await page.locator("#presets-list .preset-group-header").nth(1).click();
+        await page.waitForFunction(() => Array.from(
+            document.querySelectorAll("#presets-list .preset-group")
+        ).every((group) => !group.classList.contains("collapsed")));
+
+        const otherRow = await page.evaluate(() => {
+            const rows = Array.from(document.querySelectorAll("#presets-list .preset-item"))
+                .filter((el) => el.offsetParent !== null);
+            const row = rows[rows.length - 1];
+            return row && row.getAttribute("data-preset-name");
+        });
+        assert.ok(
+            otherRow && otherRow !== firstRowName,
+            `expected a second visible row to click, got ${otherRow}`
+        );
+
+        await page.click(`#presets-list .preset-item[data-preset-name="${otherRow}"]`);
+        state = await listState();
+        assert.equal(state.focusKey, otherRow, "clicking a row moves the roving position to it");
+
+        // And the next arrow key must step from the clicked row specifically.
+        // Asserting the exact predecessor matters: a looser check still passes
+        // while the roving key is stale, which is the bug this guards.
+        const expectedPrevious = await page.evaluate((current) => {
+            const items = Array.from(document.querySelectorAll(
+                "#presets-list .preset-group-header, #presets-list .preset-item"
+            )).filter((el) => el.offsetParent !== null);
+            const index = items.findIndex((el) => el.getAttribute("data-preset-name") === current);
+            const previous = index > 0 ? items[index - 1] : null;
+            return previous
+                && (previous.getAttribute("data-preset-name") || previous.getAttribute("data-group-key"));
+        }, otherRow);
+
+        await page.keyboard.press("ArrowUp");
+        state = await listState();
+        assert.equal(
+            state.focusKey,
+            expectedPrevious,
+            "ArrowUp must step back from the clicked row, not from where the keyboard last was"
+        );
+
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
