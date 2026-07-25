@@ -92,39 +92,46 @@ def start_update(request, response, ctx):
     if process_manager.is_process_running(ctx):
         response.error("Stop running process first", 400)
         return
-    with ctx.state.install_lock:
-        if ctx.state.install_in_progress:
-            response.error("Installation already in progress", 409)
-            return
-        ctx.state.install_in_progress = True
+    # Cheap early reject so a duplicate request fails fast instead of spending
+    # a GitHub round trip (and rate-limit quota) only to be refused below.
+    # This read is advisory; the authoritative check-and-set is under the lock.
+    if ctx.state.install_in_progress:
+        response.error("Installation already in progress", 409)
+        return
+
+    # The release lookup runs before the install slot is claimed: holding
+    # install_in_progress across a slow network call would make unrelated
+    # requests fail with a 409 for the whole duration of the lookup.
     try:
         backend_spec = ctx.services.backend_specs[backend]
         repo_api = llama_manager.resolve_repo_api(backend_spec, ctx)
         releases = llama_manager.get_releases(ctx, repo_api)
         latest = releases[0]["tag_name"] if releases else None
-        if latest and latest != tag:
+    except Exception as e:
+        response.error(sanitize_error(e, 500), 500)
+        return
 
-            def _update(latest_tag, backend_name):
-                try:
-                    llama_manager.install_release(
-                        ctx, latest_tag, backend_name, ctx.services.backend_specs
-                    )
-                finally:
-                    with ctx.state.install_lock:
-                        ctx.state.install_in_progress = False
+    if not latest or latest == tag:
+        response.json({"status": "already_latest"})
+        return
 
-            threading.Thread(
-                target=_update, args=(latest, backend), daemon=True
-            ).start()
-            response.json({"status": "started", "from": tag, "to": latest})
-        else:
+    with ctx.state.install_lock:
+        if ctx.state.install_in_progress:
+            response.error("Installation already in progress", 409)
+            return
+        ctx.state.install_in_progress = True
+
+    def _update(latest_tag, backend_name):
+        try:
+            llama_manager.install_release(
+                ctx, latest_tag, backend_name, ctx.services.backend_specs
+            )
+        finally:
             with ctx.state.install_lock:
                 ctx.state.install_in_progress = False
-            response.json({"status": "already_latest"})
-    except Exception as e:
-        with ctx.state.install_lock:
-            ctx.state.install_in_progress = False
-        response.error(sanitize_error(e, 500), 500)
+
+    threading.Thread(target=_update, args=(latest, backend), daemon=True).start()
+    response.json({"status": "started", "from": tag, "to": latest})
 
 
 def activate_custom(request, response, ctx):

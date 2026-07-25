@@ -27,10 +27,17 @@ SAFE_DIRTY_PATH_PREFIXES = (
 
 SAFE_DIRTY_PATHS = {
     "config.json",
+    ".env",
     ".DS_Store",
     "Thumbs.db",
     "desktop.ini",
 }
+
+# Filename prefixes (as opposed to the directory prefixes above), for families
+# of local files like ".env.local". Keep these specific enough that they cannot
+# swallow unrelated neighbours: ".env." must not be loosened to ".env", which
+# would also match ".envrc".
+SAFE_DIRTY_FILE_PREFIXES = (".env.",)
 
 SAFE_DIRTY_SUFFIXES = (
     ".pyc",
@@ -83,7 +90,7 @@ def is_safe_dirty_path(path):
         return False
     if path in SAFE_DIRTY_PATHS:
         return True
-    if path.startswith(".env"):
+    if any(path.startswith(prefix) for prefix in SAFE_DIRTY_FILE_PREFIXES):
         return True
     if any(path.startswith(prefix) for prefix in SAFE_DIRTY_PATH_PREFIXES):
         return True
