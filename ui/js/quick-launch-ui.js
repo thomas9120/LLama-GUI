@@ -21,7 +21,10 @@
     let saveSamplerPresetStore = () => {};
     let normalizeSamplerPresetValues = (values) => values || {};
     let collectSamplerValues = () => ({});
+    let renameSamplerPreset = () => ({ ok: false, reason: "missing" });
+    let getSamplerRenameMessage = () => "Failed to rename sampler preset.";
     let confirmAction = async () => false;
+    let promptAction = async () => null;
     let hasLaunchModelArg = () => false;
 
     let quickLaunchFitCtxLinked = true;
@@ -48,7 +51,10 @@
         saveSamplerPresetStore = options.saveSamplerPresetStore || saveSamplerPresetStore;
         normalizeSamplerPresetValues = options.normalizeSamplerPresetValues || normalizeSamplerPresetValues;
         collectSamplerValues = options.collectSamplerValues || collectSamplerValues;
+        renameSamplerPreset = options.renameSamplerPreset || renameSamplerPreset;
+        getSamplerRenameMessage = options.getSamplerRenameMessage || getSamplerRenameMessage;
         confirmAction = options.confirmAction || confirmAction;
+        promptAction = options.promptAction || promptAction;
         hasLaunchModelArg = options.hasLaunchModelArg || hasLaunchModelArg;
     }
 
@@ -91,11 +97,13 @@
         return getAllSamplerPresets().find((entry) => entry.source === source && entry.name === name) || null;
     }
 
-    function refreshSamplerPresetSelect() {
+    // `preferredValue` keeps the selection when the current name is about to disappear,
+    // e.g. after a rename made from the Configure tab.
+    function refreshSamplerPresetSelect(preferredValue) {
         const select = document.getElementById("quick-sampler-select");
         if (!select) return;
 
-        const previous = select.value;
+        const previous = preferredValue || select.value;
         const entries = getAllSamplerPresets();
         const builtins = entries.filter((entry) => entry.source === "builtin");
         const customs = entries.filter((entry) => entry.source === "custom");
@@ -687,6 +695,33 @@
             configFlagsUi.renderFlags();
             const samplerSelect = document.getElementById("quick-sampler-select");
             if (samplerSelect) samplerSelect.value = `custom|${name}`;
+        });
+
+        on("btn-quick-sampler-rename", "click", async () => {
+            const selected = getSelectedSamplerEntry();
+            if (!selected) return;
+            if (selected.source !== "custom") {
+                alert(getSamplerRenameMessage("builtin"));
+                return;
+            }
+
+            // resolves to null on cancel, so an empty string still means "cleared the field"
+            const nextName = await promptAction(
+                "Rename Sampler Preset",
+                `Enter a new name for "${selected.name}".`,
+                selected.name,
+                "Rename"
+            );
+            if (nextName === null || nextName === undefined) return;
+
+            const result = renameSamplerPreset(selected.name, nextName);
+            if (!result.ok) {
+                alert(getSamplerRenameMessage(result.reason));
+                return;
+            }
+
+            refreshSamplerPresetSelect(`custom|${result.name}`);
+            configFlagsUi.renderFlags();
         });
 
         on("btn-quick-sampler-delete", "click", async () => {

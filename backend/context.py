@@ -34,6 +34,7 @@ class ServerConfig:
     llama_port: int = config.LLAMA_PORT
     github_api: str = config.GITHUB_API
     app_repo_url: str = config.APP_REPO_URL
+    app_release_branch: str = config.APP_RELEASE_BRANCH
 
 
 def _missing_service(*args: Any, **kwargs: Any) -> Any:

@@ -43,7 +43,7 @@ Compares exposed GUI flags against installed `llama-server` and `llama-cli` help
 npm run test:frontend
 ```
 
-Runs the Playwright smoke test for browser-level shared-state sync.
+Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
 ```powershell
 python -m unittest discover tests -v
@@ -77,7 +77,7 @@ Fast Node tests:
 
 Browser smoke test:
 
-- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, API authentication, API snippets, remote tunnel UI, sampler presets, custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, and the Presets browser's roving keyboard focus.
+- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, and the Presets browser's roving keyboard focus.
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 

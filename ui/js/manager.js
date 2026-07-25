@@ -838,28 +838,38 @@ function describeAppUpdateStatus(status) {
     const blockingPaths = formatPaths(status.blocking_dirty_paths);
     const safePaths = formatPaths(status.safe_dirty_paths);
     const branch = status.branch ? `branch ${status.branch}` : "current branch";
+    const release = status.release_tag ? `release ${status.release_tag}` : "latest release";
+    const behindCount = status.behind || 0;
+    const behindNote = behindCount
+        ? ` You are ${behindCount} commit${behindCount === 1 ? "" : "s"} behind it.`
+        : "";
 
+    // The backend never reports "ahead" as a state: commits made after the
+    // latest release are reported as up_to_date, since there is nothing to
+    // fast-forward to.
+    if (status.state === "error") {
+        return status.reason || "Unable to determine app update status.";
+    }
     if (status.state === "up_to_date") {
         const safeNote = safePaths ? ` Local app data is present and ignored for updates: ${safePaths}.` : "";
-        return `Llama GUI is up to date on ${branch}.${safeNote}`;
+        return `Llama GUI already includes the ${release} on ${branch}.${safeNote}`;
     }
     if (status.state === "behind") {
-        const n = status.behind || 0;
         if (status.has_blocking_changes) {
             const detail = blockingPaths ? ` Blocking paths: ${blockingPaths}.` : "";
-            return `Update available (${n} commit${n === 1 ? "" : "s"} behind), but source changes must be committed or stashed first.${detail}`;
+            return `${release} is available, but source changes must be committed or stashed first.${behindNote}${detail}`;
         }
         if (status.dirty) {
             const detail = safePaths ? ` Safe local app data will be left alone: ${safePaths}.` : "";
-            return `Update available: ${n} commit${n === 1 ? "" : "s"} behind origin.${detail}`;
+            return `${release} is available.${behindNote}${detail}`;
         }
-        return `Update available: ${n} commit${n === 1 ? "" : "s"} behind origin.`;
-    }
-    if (status.state === "ahead") {
-        return "Local branch is ahead of origin; auto-update is disabled.";
+        return `${release} is available.${behindNote}`;
     }
     if (status.state === "diverged") {
-        return "Local and remote branches diverged; update manually with git.";
+        return `Local branch and ${release} diverged; update manually with git.`;
+    }
+    if (status.state === "no_release") {
+        return status.reason || `No tagged release was found for ${branch}.`;
     }
     if (status.has_blocking_changes) {
         const detail = blockingPaths ? ` Blocking paths: ${blockingPaths}.` : "";
@@ -882,8 +892,10 @@ function renderAppUpdateStatus(status) {
         type = "success";
     } else if (status.state === "behind") {
         type = status.can_update ? "info" : "error";
-    } else if (status.state === "ahead" || status.state === "diverged") {
+    } else if (status.state === "diverged" || status.state === "error") {
         type = "error";
+    } else if (status.state === "no_release") {
+        type = "warning";
     }
 
     showAppUpdateStatus(type, msg);
@@ -891,7 +903,9 @@ function renderAppUpdateStatus(status) {
     const updateBtn = document.getElementById("btn-update-app");
     if (updateBtn && status) {
         updateBtn.disabled = !status.can_update;
-        updateBtn.title = status.can_update ? "Pull latest changes from GitHub" : msg;
+        updateBtn.title = status.can_update
+            ? `Install ${status.release_tag ? `release ${status.release_tag}` : "latest release"}`
+            : msg;
     }
 }
 
@@ -914,12 +928,12 @@ async function updateAppFromGitHub() {
 
     const ok = await confirmAction(
         "Update Llama GUI",
-        "Pull latest changes from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.",
+        `Install ${status.release_tag ? `release ${status.release_tag}` : "the latest release"} from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.`,
         "Update"
     );
     if (!ok) return;
 
-    showAppUpdateStatus("info", "Pulling latest changes from GitHub...");
+    showAppUpdateStatus("info", `Installing ${status.release_tag ? `release ${status.release_tag}` : "the latest release"} from GitHub...`);
     try {
         const result = await fetchJson("/api/app-update", { method: "POST" });
         if (result.updated) {

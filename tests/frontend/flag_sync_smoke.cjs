@@ -626,11 +626,108 @@ async function main() {
         await page.fill("#config-search", "presence");
         await page.waitForSelector("#flag-presence_penalty", { state: "visible" });
         await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.4");
+
+        // --- Configure sampler preset: sticky selection + rename ------------
+        // Only a real browser can prove these: renderFlags() destroys and rebuilds
+        // the sampler panel, so the <select> the assertions run against is a
+        // different element than the one that was clicked.
+        const configSamplerSelect = ".sampler-presets select";
+        await page.selectOption(configSamplerSelect, "custom|Smoke Sampler");
+        await page.dispatchEvent(configSamplerSelect, "change");
+        // "Smoke Sampler" sorts last, so a reset would fall back to a built-in
+        // and this check would be meaningless if it happened to sort first.
+        assert.equal(
+            await page.$$eval(`${configSamplerSelect} option`, (options) => options[1]?.value),
+            "builtin|Balanced",
+            "the sampler dropdown must not already be on the preset under test"
+        );
+
+        // Tag the current element so the wait proves a rebuild actually happened,
+        // rather than passing because the search never re-rendered.
+        await page.evaluate((selector) => {
+            document.querySelector(selector).dataset.smokeRebuildTag = "1";
+        }, configSamplerSelect);
+        await page.fill("#config-search", "penalty");
+        await page.waitForFunction(
+            (selector) => {
+                const select = document.querySelector(selector);
+                return select && select.dataset.smokeRebuildTag !== "1";
+            },
+            configSamplerSelect
+        );
+        assert.equal(
+            await page.inputValue(configSamplerSelect),
+            "custom|Smoke Sampler",
+            "the Configure sampler selection must survive a panel rebuild"
+        );
+
+        await page.locator(".sampler-presets button", { hasText: "Rename" }).click();
+        await page.waitForSelector("#prompt-modal:not(.hidden)");
+        await page.fill("#prompt-modal-input", "Renamed Smoke Sampler");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => {
+            const raw = localStorage.getItem("llama_gui_sampler_presets_v1");
+            if (!raw) return false;
+            const store = JSON.parse(raw);
+            return Object.prototype.hasOwnProperty.call(store, "Renamed Smoke Sampler")
+                && !Object.prototype.hasOwnProperty.call(store, "Smoke Sampler");
+        });
+        assert.equal(
+            await page.inputValue(configSamplerSelect),
+            "custom|Renamed Smoke Sampler",
+            "Configure must follow the renamed preset"
+        );
+        // The mirrored Quick Launch dropdown must follow too, not fall back to
+        // the placeholder because the old value string vanished. Read it through
+        // evaluate: that section is hidden while Configure is showing.
+        assert.equal(
+            await page.evaluate(() => document.querySelector("#quick-sampler-select")?.value),
+            "custom|Renamed Smoke Sampler",
+            "Quick Launch must follow a rename made from Configure"
+        );
+
+        // A built-in is not renameable, and the attempt must not disturb the store.
+        await page.selectOption(configSamplerSelect, "builtin|Balanced");
+        await page.dispatchEvent(configSamplerSelect, "change");
+        page.once("dialog", (dialog) => dialog.accept());
+        await page.locator(".sampler-presets button", { hasText: "Rename" }).click();
+        assert.equal(
+            await page.evaluate(() => document.querySelector("#prompt-modal")?.classList.contains("hidden")),
+            true,
+            "renaming a built-in must be refused before the prompt opens"
+        );
+        assert.deepEqual(
+            await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
+            ["Renamed Smoke Sampler"],
+            "a refused rename must leave the sampler store untouched"
+        );
+
+        // A rename made from Quick Launch must carry the Configure panel's
+        // remembered selection too (the reverse direction of the check above).
+        await page.selectOption(configSamplerSelect, "custom|Renamed Smoke Sampler");
+        await page.dispatchEvent(configSamplerSelect, "change");
         await selectSection(page, "quick-launch");
-        await page.selectOption("#quick-sampler-select", "custom|Smoke Sampler");
+        await page.selectOption("#quick-sampler-select", "custom|Renamed Smoke Sampler");
+        await page.click("#btn-quick-sampler-rename");
+        await page.waitForSelector("#prompt-modal:not(.hidden)");
+        await page.fill("#prompt-modal-input", "Renamed Again Sampler");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => {
+            const raw = localStorage.getItem("llama_gui_sampler_presets_v1");
+            return raw && Object.prototype.hasOwnProperty.call(JSON.parse(raw), "Renamed Again Sampler");
+        });
+        await selectSection(page, "configure");
+        assert.equal(
+            await page.inputValue(configSamplerSelect),
+            "custom|Renamed Again Sampler",
+            "Configure must follow a rename made from Quick Launch"
+        );
+
+        await selectSection(page, "quick-launch");
+        await page.selectOption("#quick-sampler-select", "custom|Renamed Again Sampler");
         const deletePromise = page.waitForFunction(() => {
             const raw = localStorage.getItem("llama_gui_sampler_presets_v1");
-            return raw && !Object.prototype.hasOwnProperty.call(JSON.parse(raw), "Smoke Sampler");
+            return raw && !Object.prototype.hasOwnProperty.call(JSON.parse(raw), "Renamed Again Sampler");
         });
         await page.click("#btn-quick-sampler-delete");
         await page.click("#confirm-modal-ok");

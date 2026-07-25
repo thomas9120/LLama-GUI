@@ -125,4 +125,102 @@ assertJsonEqual(
     "all sampler presets should expose a stable normalized shape for consumers"
 );
 
+// --- renameSamplerPreset ---
+
+const setStore = (store) => {
+    storedValue = JSON.stringify(store);
+};
+
+setStore({ "My Sampler": { temperature: 0.33, ctx_size: 9999 } });
+let renameResult = samplerPresets.renameSamplerPreset("My Sampler", "  Renamed Sampler  ");
+assertJsonEqual(renameResult, { ok: true, name: "Renamed Sampler" }, "renaming a custom preset should trim and succeed");
+assertJsonEqual(
+    samplerPresets.loadSamplerPresetStore(),
+    { "Renamed Sampler": { temperature: 0.33, ctx_size: 9999 } },
+    "rename should move stored values verbatim under the new key"
+);
+
+setStore({ "My Sampler": { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("Balanced", "Anything"),
+    { ok: false, reason: "builtin" },
+    "built-in sampler presets should not be renameable"
+);
+
+setStore({ Balanced: { temperature: 0.33 } });
+renameResult = samplerPresets.renameSamplerPreset("Balanced", "Renamed Balanced");
+assertJsonEqual(
+    renameResult,
+    { ok: true, name: "Renamed Balanced" },
+    "a custom preset that shadows a built-in name should be renameable"
+);
+assertJsonEqual(
+    samplerPresets.loadSamplerPresetStore(),
+    { "Renamed Balanced": { temperature: 0.33 } },
+    "renaming a shadowing custom preset should move the custom entry"
+);
+
+setStore({ Balanced: { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("Balanced", "BALANCED"),
+    { ok: false, reason: "taken" },
+    "re-casing a shadowing custom preset must not preserve a built-in collision"
+);
+
+setStore({ "My Sampler": { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("Nope", "Anything"),
+    { ok: false, reason: "missing" },
+    "renaming an unknown sampler preset should report missing"
+);
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("Nope", "Nope"),
+    { ok: false, reason: "missing" },
+    "an identical target should not make a missing preset look successful"
+);
+
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("My Sampler", "   "),
+    { ok: false, reason: "empty" },
+    "a whitespace-only sampler preset name should be rejected"
+);
+
+setStore({ "My Sampler": { temperature: 0.33 }, Other: { temperature: 0.5 } });
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("My Sampler", "other"),
+    { ok: false, reason: "taken" },
+    "a case-insensitive collision with another custom preset should be rejected"
+);
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("My Sampler", "balanced"),
+    { ok: false, reason: "taken" },
+    "a case-insensitive collision with a built-in preset should be rejected"
+);
+
+setStore({ "my sampler": { temperature: 0.33 } });
+renameResult = samplerPresets.renameSamplerPreset("my sampler", "My Sampler");
+assertJsonEqual(renameResult, { ok: true, name: "My Sampler" }, "re-casing a preset's own name should be allowed");
+assertJsonEqual(
+    samplerPresets.loadSamplerPresetStore(),
+    { "My Sampler": { temperature: 0.33 } },
+    "a case-only rename should replace the old key"
+);
+
+setStore({ "My Sampler": { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.renameSamplerPreset("My Sampler", "My Sampler"),
+    { ok: true, name: "My Sampler" },
+    "renaming to the identical name should be a no-op success"
+);
+
+assert.equal(
+    samplerPresets.getSamplerRenameMessage("builtin"),
+    "Built-in sampler presets cannot be renamed.",
+    "rename messages should be resolvable by reason"
+);
+assert.ok(
+    samplerPresets.getSamplerRenameMessage("something-else"),
+    "an unknown rename reason should still produce a message"
+);
+
 console.log("sampler presets unit tests passed");
