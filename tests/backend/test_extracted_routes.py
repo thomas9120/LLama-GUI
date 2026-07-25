@@ -2868,6 +2868,59 @@ class InstallRouteTests(unittest.TestCase):
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
 
+    def test_update_blocks_when_already_in_progress_without_calling_github(self):
+        with self.ctx.state.install_lock:
+            self.ctx.state.install_in_progress = True
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases") as gr:
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 409)
+        self.assertIn("Installation already in progress", response.payload["error"])
+        # The early reject must happen before the release lookup so a duplicate
+        # request costs no GitHub rate-limit quota.
+        gr.assert_not_called()
+
+    def test_update_reports_release_lookup_failure_without_claiming_slot(self):
+        response = DummyResponse()
+        immediate_thread = self.run_route_threads_immediately()
+        with (
+            mock.patch.object(install.threading, "Thread", immediate_thread),
+            mock.patch.object(
+                llama_manager, "get_releases", side_effect=RuntimeError("network down")
+            ),
+        ):
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 500)
+        self.assertFalse(self.ctx.state.install_in_progress)
+        self.assertEqual(immediate_thread.instances, [])
+
+    def test_update_leaves_slot_free_when_already_latest(self):
+        fake_releases = [
+            {
+                "tag_name": "b1",
+                "name": "b1 release",
+                "published_at": "2024-01-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=fake_releases):
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.payload["status"], "already_latest")
+        self.assertFalse(self.ctx.state.install_in_progress)
+
     def test_get_releases_uses_backend_repo_api_for_lemonade(self):
         self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
             "label": "ROCm 7 gfx110X (Lemonade)",
@@ -3221,6 +3274,9 @@ class GitUpdateRouteTests(unittest.TestCase):
             "ui/js/app.js",
             "README.md",
             ".github/workflows/ci.yml",
+            # Must NOT match the loose ".env" prefix: only ".env" / ".env.*" are safe.
+            ".envrc",
+            ".environment_notes.md",
         ]
         for path in blocking:
             self.assertFalse(srv.is_safe_dirty_path(path), f"Expected blocking: {path}")

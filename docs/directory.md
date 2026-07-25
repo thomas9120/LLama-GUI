@@ -32,7 +32,7 @@
 | `backend/` | Python package: HTTP server, routes, services, state |
 | `ui/` | Static frontend: `index.html`, `js/`, `css/`, `templates/` |
 | `ui/js/flags/` | Ordered pure-data modules for flag definitions |
-| `ui/templates/` | 14 bundled Jinja chat template files |
+| `ui/templates/` | 15 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
 | `llama/` | Downloaded `llama.cpp` binaries at runtime |
@@ -318,6 +318,7 @@ Files under `ui/templates/`:
 - `alpaca.jinja`
 - `chatml-nonthinking.jinja`
 - `deepseek-v31-nonthinking.jinja`
+- `deepseek-v4.jinja`
 - `gemma4.jinja`
 - `gemma4-e2b-e4b.jinja`
 - `gemma4-e2b-e4b-nothink.jinja`
@@ -330,7 +331,9 @@ Files under `ui/templates/`:
 - `seed-oss-nonthinking.jinja`
 - `openai-harmony-nonthinking.jinja`
 
-These use a small generic Jinja message loop with preset-specific start/end tokens. Used for non-thinking variants, renamed presets that don't map cleanly to a single built-in, and special tag formats not represented by built-ins.
+Most use a small generic Jinja message loop with preset-specific start/end tokens. Used for non-thinking variants, renamed presets that don't map cleanly to a single built-in, and special tag formats not represented by built-ins.
+
+`deepseek-v4.jinja` is the exception: it is a verbatim copy of upstream `models/templates/deepseek-ai-DeepSeek-V4.jinja` (llama.cpp PR `ggml-org/llama.cpp#24162`, build `b9840`). There is no `deepseek4` built-in template name; `llama.cpp` detects V4 from the template body and routes it through its DeepSeek V3.2/V4 parser. Thinking is off unless `enable_thinking` is set at runtime. Re-sync this file from upstream rather than hand-editing it.
 
 ### Built-In Mappings
 
