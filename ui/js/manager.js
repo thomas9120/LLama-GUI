@@ -1083,6 +1083,16 @@ function getKnownModelNames() {
     return knownModelNames;
 }
 
+// Presets derive their missing-model warnings from the cache above at build
+// time, so whoever changed it has to say so. Kept as a narrow one-way poke
+// rather than a general event bus, matching setAcceptedStatusObserver's scope.
+function notifyModelPresenceChanged() {
+    const presets = window.LlamaGui && window.LlamaGui.presets;
+    if (presets && typeof presets.refreshModelPresence === "function") {
+        presets.refreshModelPresence();
+    }
+}
+
 async function refreshModels() {
     const sel = document.getElementById("model-select");
     if (!sel) return;
@@ -1115,6 +1125,7 @@ async function refreshModels() {
         if (typeof syncQuickLaunchModelOptions === "function") {
             syncQuickLaunchModelOptions();
         }
+        notifyModelPresenceChanged();
     } catch (e) {
         // Drop the cache rather than keeping a stale one: callers must not read
         // a failed refresh as proof that a model is missing.
@@ -1134,6 +1145,10 @@ async function refreshModels() {
         } else {
             console.debug("Failed to refresh model list", e);
         }
+        // The failure path matters as much as the success path: clearing the
+        // cache changes missing-model warnings from "none found" to "not
+        // checked", and the Presets tab has to be told.
+        notifyModelPresenceChanged();
     }
 }
 

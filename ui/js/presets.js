@@ -716,14 +716,20 @@ function getPresetLibrarySummary() {
         favoriteCount: entries.filter((entry) => entry.favorite).length,
         mostRecent,
         filtered: isPresetFilterActive(),
+        // A zero missing-model count means "none found" only when the model list
+        // actually loaded. With no list it means "not checked", and the two must
+        // not read the same in the summary.
+        modelsChecked: getKnownModelNames() !== null,
     };
 }
 
-// The summary counts only visible presets, so health copy must never make an
-// absolute claim about the library while a filter is narrowing the view. The
-// dangerous case is a filtered-but-clean view: searching past a preset with a
-// deleted GGUF would otherwise render a green "every preset loads cleanly"
-// all-clear while the rot is simply hidden behind the query.
+// Health copy must never make a claim the counts underneath it cannot support.
+// Two ways that goes wrong, both producing a false all-clear:
+//   1. A filter narrows the view. Searching past the one preset with a deleted
+//      GGUF would otherwise render "every preset loads cleanly" over hidden rot.
+//   2. The model list never loaded. isPresetModelMissing() stays silent by
+//      design when it has nothing to compare against, so a clean count there
+//      means "not checked", not "checked and fine".
 function getPresetHealthMessage(summary) {
     // Pointing at a filter that is already applied is dead advice.
     const review = presetWarningFilterActive ? "" : " Use the Warnings filter to review them.";
@@ -741,6 +747,14 @@ function getPresetHealthMessage(summary) {
         return summary.filtered
             ? `${subject} among the presets shown.${review}`
             : `${subject} across the library.${review}`;
+    }
+
+    // Clean, but model presence was never verified. Report the other warnings
+    // honestly and say plainly which check did not run.
+    if (!summary.modelsChecked) {
+        return summary.filtered
+            ? "No warnings among the presets shown. The model list has not loaded, so model files were not checked."
+            : "No template or launch-argument warnings. The model list has not loaded, so model files were not checked.";
     }
 
     return summary.filtered
@@ -795,11 +809,17 @@ function renderPresetLibrarySummary(panel) {
         String(summary.warningCount),
         summary.warningCount ? "warn" : "ok"
     );
+    // An unchecked count must not render as a green zero, which reads as
+    // "checked, none missing" — the same false all-clear as the health line.
+    let missingModelClass = "";
+    if (summary.modelsChecked) {
+        missingModelClass = summary.missingModelCount ? "warn" : "ok";
+    }
     appendDetailStat(
         stats,
         "Missing Models",
-        String(summary.missingModelCount),
-        summary.missingModelCount ? "warn" : "ok"
+        summary.modelsChecked ? String(summary.missingModelCount) : "—",
+        missingModelClass
     );
 
     panel.appendChild(kicker);
@@ -1208,8 +1228,26 @@ function showPresetStatus(message, type = "success", durationMs = 2200) {
     }, durationMs);
 }
 
+// Missing-model warnings are computed at build time from the cached model list,
+// so a model list that changes after the groups were built leaves the badges,
+// the Warnings filter, and the summary stale. loadPresets() already runs on
+// every switch into the tab, which covers the user who arrives afterwards; this
+// covers the two cases where the list moves while the tab is already open:
+// a download finishing in the background, and the startup refreshModels() that
+// resolves after a fast click into Presets.
+//
+// Guarded on the section rather than #presets-list, which is static markup in
+// index.html and therefore always present — testing for it would rebuild on
+// every model refresh, including for users who never open the tab.
+function refreshModelPresence() {
+    const section = document.getElementById("section-presets");
+    if (!section || section.style.display === "none") return;
+    loadPresets();
+}
+
 async function loadPresets() {
     const container = document.getElementById("presets-list");
+    if (!container) return;
     container.textContent = "";
     try {
         const presets = await fetchPresetEntries();
@@ -1751,6 +1789,7 @@ if (window.LlamaGui) {
         getPresetHealthMessage,
         buildPresetSearchText,
         getPresetFlagLabel,
+        refreshModelPresence,
         formatPresetTimestamp,
         isFullPresetData,
         preparePresetLaunchState,

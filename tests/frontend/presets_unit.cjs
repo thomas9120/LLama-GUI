@@ -529,6 +529,33 @@ assert.doesNotMatch(
     "advice to apply the already-active filter is dead advice"
 );
 
+// A clean count means "none found" only when the model list actually loaded.
+// With no list it means "not checked", and claiming every model is present is
+// the same false all-clear as the filtered case above.
+const uncheckedContext = createModelContext(null);
+uncheckedContext.__presets = [
+    { name: "a", data: { model: "deleted-1.gguf", flags: {} } },
+    { name: "b", data: { model: "deleted-2.gguf", flags: {} } },
+];
+vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", uncheckedContext);
+const uncheckedSummary = vm.runInContext("getPresetLibrarySummary()", uncheckedContext);
+assert.equal(uncheckedSummary.modelsChecked, false, "a null model cache means presence was not checked");
+assert.equal(uncheckedSummary.missingModelCount, 0, "and the count stays silent, as designed");
+
+const uncheckedMessage = vm.runInContext("getPresetHealthMessage(getPresetLibrarySummary())", uncheckedContext);
+assert.doesNotMatch(
+    uncheckedMessage,
+    /model that is present/,
+    "an unloaded model list must not produce an all-clear about model presence"
+);
+assert.match(uncheckedMessage, /not checked/, "it must say plainly which check did not run");
+
+// The same applies under a filter, where both caveats are in play at once.
+vm.runInContext("presetSearchQuery = 'a'; currentPresetGroups = buildPresetGroups(__presets)", uncheckedContext);
+const uncheckedFiltered = vm.runInContext("getPresetHealthMessage(getPresetLibrarySummary())", uncheckedContext);
+assert.match(uncheckedFiltered, /presets shown/, "the filtered scope is still stated");
+assert.match(uncheckedFiltered, /not checked/, "and so is the skipped model check");
+
 // Unfiltered and clean is the one case allowed to speak for the whole library.
 const cleanContext = createModelContext(new Set(["kept.gguf"]));
 cleanContext.__presets = [{ name: "alpha", data: { model: "kept.gguf", flags: {} } }];
@@ -659,5 +686,41 @@ assert.equal(
     "Replaced Label",
     "replacing the definitions array must invalidate the label cache"
 );
+
+// --- refreshModelPresence guard (PR #231 follow-up) ------------------------
+// Rebuilds only while the Presets tab is actually on screen. The guard keys on
+// #section-presets, because #presets-list is static markup in index.html and is
+// present even for a user who has never opened the tab.
+function createPresenceContext(sectionDisplay) {
+    const section = sectionDisplay === null ? null : { style: { display: sectionDisplay } };
+    const ctx = {
+        window: {},
+        document: {
+            getElementById: (id) => (id === "section-presets" ? section : null),
+        },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: { getItem: () => null, setItem: () => {} },
+        FLAGS: [],
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    // Count rebuilds without performing one; loadPresets would hit the network.
+    vm.runInContext("__rebuilds = 0; loadPresets = () => { __rebuilds++; }", ctx);
+    return ctx;
+}
+
+const visibleTab = createPresenceContext("");
+vm.runInContext("refreshModelPresence()", visibleTab);
+assert.equal(visibleTab.__rebuilds, 1, "a visible Presets tab must rebuild when the model list changes");
+
+const hiddenTab = createPresenceContext("none");
+vm.runInContext("refreshModelPresence()", hiddenTab);
+assert.equal(hiddenTab.__rebuilds, 0, "a hidden Presets tab must not fetch presets on every model refresh");
+
+const noSection = createPresenceContext(null);
+vm.runInContext("refreshModelPresence()", noSection);
+assert.equal(noSection.__rebuilds, 0, "a missing section must be safe rather than throwing");
 
 console.log("presets unit tests passed");
