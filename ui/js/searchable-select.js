@@ -72,6 +72,8 @@
         search.type = "text";
         search.className = "ss-search";
         search.placeholder = searchPlaceholder;
+        search.autocomplete = "off";
+        search.spellcheck = false;
         search.setAttribute("role", "combobox");
         search.setAttribute("aria-autocomplete", "list");
         search.setAttribute("aria-expanded", "false");

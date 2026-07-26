@@ -690,18 +690,44 @@
         }
     }
 
+    function supportsSensitiveTextMasking() {
+        return Boolean(
+            window.CSS
+            && typeof window.CSS.supports === "function"
+            && window.CSS.supports("-webkit-text-security", "disc")
+        );
+    }
+
+    function setSensitiveTextInputRevealed(input, revealed) {
+        if (!input) return;
+        if (input.dataset.sensitiveMaskMode === "css") {
+            input.type = "text";
+            input.classList.toggle("sensitive-input-masked", !revealed);
+            return;
+        }
+        input.classList.remove("sensitive-input-masked");
+        input.type = revealed ? "text" : "password";
+    }
+
+    function initializeSensitiveTextInput(input) {
+        if (!input) return false;
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.dataset.sensitiveMaskMode = supportsSensitiveTextMasking() ? "css" : "password";
+        setSensitiveTextInputRevealed(input, false);
+        return true;
+    }
+
     function createSensitiveTextInput(f, options = {}) {
         const control = document.createElement("div");
         control.className = "sensitive-input-control";
 
         const textField = document.createElement("input");
-        textField.type = "password";
         textField.id = options.inputId || ("flag-" + f.id);
         textField.dataset.flagId = f.id;
         textField.dataset.flagType = "text";
         textField.dataset.sensitiveInput = "true";
-        textField.autocomplete = "new-password";
-        textField.spellcheck = false;
+        initializeSensitiveTextInput(textField);
         textField.placeholder = f.placeholder || "Leave blank for no authentication";
         textField.value = getFlagValues()[f.id] || "";
         textField.addEventListener("input", () => {
@@ -718,8 +744,10 @@
         showButton.textContent = "Show";
         showButton.dataset.sensitiveRequiresValue = "true";
         showButton.addEventListener("click", () => {
-            const isHidden = textField.type === "password";
-            textField.type = isHidden ? "text" : "password";
+            const isHidden = textField.dataset.sensitiveMaskMode === "css"
+                ? textField.classList.contains("sensitive-input-masked")
+                : textField.type === "password";
+            setSensitiveTextInputRevealed(textField, isHidden);
             showButton.textContent = isHidden ? "Hide" : "Show";
             showButton.setAttribute("aria-pressed", String(isHidden));
         });
@@ -948,6 +976,7 @@
         renderFlags,
         restoreFlagInputs,
         normalizeMultiEnumValue,
+        initializeSensitiveTextInput,
         createSensitiveTextInput,
         syncSensitiveTextInput,
     };

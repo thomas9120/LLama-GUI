@@ -464,8 +464,48 @@ async function main() {
 
         await page.fill("#config-search", "api key");
         await page.waitForSelector("#flag-api_key", { state: "visible" });
+        const passwordManagerHints = await page.evaluate(() => {
+            const fieldState = (id) => {
+                const input = document.getElementById(id);
+                return {
+                    type: input?.type || "",
+                    autocomplete: input?.autocomplete || "",
+                    maskMode: input?.dataset.sensitiveMaskMode || "",
+                    masked: Boolean(input?.classList.contains("sensitive-input-masked")),
+                    textSecurity: input ? getComputedStyle(input).webkitTextSecurity : "",
+                };
+            };
+            return {
+                cssMasking: Boolean(window.CSS?.supports?.("-webkit-text-security", "disc")),
+                searchAutocompletes: Array.from(document.querySelectorAll(".ss-search"))
+                    .map((input) => input.autocomplete),
+                fields: ["flag-api_key", "quick-api-key", "hf-token-input"].map(fieldState),
+            };
+        });
+        assert.ok(passwordManagerHints.searchAutocompletes.length > 0);
+        assert.ok(passwordManagerHints.searchAutocompletes.every((value) => value === "off"));
+        for (const field of passwordManagerHints.fields) {
+            assert.equal(field.autocomplete, "off");
+            assert.equal(field.maskMode, passwordManagerHints.cssMasking ? "css" : "password");
+            assert.equal(field.type, passwordManagerHints.cssMasking ? "text" : "password");
+            assert.equal(field.masked, passwordManagerHints.cssMasking);
+            if (passwordManagerHints.cssMasking) assert.equal(field.textSecurity, "disc");
+        }
         await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Generate" }).click();
         assert.match(await page.inputValue("#flag-api_key"), /^[A-Za-z0-9_-]{43}$/);
+        const showApiKey = page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Show" });
+        await showApiKey.click();
+        assert.equal(await page.locator("#flag-api_key").getAttribute("type"), "text");
+        assert.equal(await page.locator("#flag-api_key").evaluate((input) => input.classList.contains("sensitive-input-masked")), false);
+        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Hide" }).click();
+        assert.equal(
+            await page.locator("#flag-api_key").getAttribute("type"),
+            passwordManagerHints.cssMasking ? "text" : "password"
+        );
+        assert.equal(
+            await page.locator("#flag-api_key").evaluate((input) => input.classList.contains("sensitive-input-masked")),
+            passwordManagerHints.cssMasking
+        );
         await page.fill("#flag-api_key", "first-secret, second-secret");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().api_key === "first-secret, second-secret");
         const protectedPreview = await page.textContent("#command-preview-text");
