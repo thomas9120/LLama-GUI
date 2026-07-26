@@ -45,6 +45,7 @@ from backend.http import (
 from backend.routing import Router
 from backend.routes import chat as chat_routes
 from backend.routes import benchmarks as benchmarks_routes
+from backend.routes import external_server as external_server_routes
 from backend.routes import file_picker as file_picker_routes
 from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
@@ -840,6 +841,7 @@ API_ROUTER = (
     .add("GET", "/api/download-progress", install_routes.get_download_progress)
     .add("GET", "/api/hf/download-status", hf_download_routes.get_download_status)
     .add("GET", "/api/remote-tunnel/status", tunnel_routes.get_status)
+    .add("GET", "/api/chat/target", external_server_routes.get_target)
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/llama/slots", metrics_routes.get_slots)
     .add("GET", "/api/models", models_routes.list_models)
@@ -848,6 +850,8 @@ API_ROUTER = (
     .add("POST", "/api/web-search", search_routes.search)
     .add("POST", "/api/benchmark/wikitext2", benchmarks_routes.ensure_wikitext2)
     .add("POST", "/api/chat/completions", chat_routes.completions)
+    .add("POST", "/api/chat/target", external_server_routes.connect)
+    .add("DELETE", "/api/chat/target", external_server_routes.disconnect)
     .add("POST", "/api/remote-tunnel/start", tunnel_routes.start)
     .add("POST", "/api/remote-tunnel/stop", tunnel_routes.stop)
     .add("POST", "/api/hf/repo-files", hf_download_routes.list_repo_files)

@@ -153,13 +153,24 @@
         return text.replace(/\n/g, " ").slice(0, 60);
     }
 
+    function getExternalTarget() {
+        const latestStatus = getLatestStatus ? getLatestStatus() : null;
+        const target = latestStatus && latestStatus.external_chat_target;
+        return target && target.connected ? target : null;
+    }
+
     function isServerRunning() {
         const lifecycle = getLifecycleSnapshot ? getLifecycleSnapshot() : null;
         if (lifecycle && lifecycle.activeRuntime && lifecycle.activeRuntime.tool === "llama-server") {
             return lifecycle.ready === true;
         }
         const latestStatus = getLatestStatus ? getLatestStatus() : null;
-        return !!(latestStatus && latestStatus.running && latestStatus.active_process_tool === "llama-server");
+        if (latestStatus && latestStatus.running && latestStatus.active_process_tool === "llama-server") {
+            return true;
+        }
+        // A llama-server registered on the API tab is just as good a chat target
+        // as one this GUI launched.
+        return Boolean(getExternalTarget());
     }
 
     function updateChatAvailability(isRunning) {
@@ -181,11 +192,11 @@
                 ? "Type a message..."
                 : isLoading
                     ? "Waiting for the model to finish loading..."
-                    : "Start llama-server to chat...";
+                    : "Start llama-server, or connect to a running one on the API tab...";
         }
         if (sendBtn) {
             sendBtn.disabled = !canSend;
-            sendBtn.title = isRunning ? "" : "Start llama-server before sending chat messages.";
+            sendBtn.title = isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
         }
         if (note) {
             note.classList.toggle("hidden", Boolean(isRunning));
@@ -193,7 +204,7 @@
             if (message) {
                 message.textContent = isLoading
                     ? "llama-server is loading the selected model. Chat will unlock when it is ready."
-                    : "Start llama-server before sending chat messages.";
+                    : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
             }
         }
     }

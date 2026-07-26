@@ -100,6 +100,9 @@ async function main() {
         const activateCustomRequests = [];
         let statusRunning = false;
         let activeProcessTool = "";
+        let externalChatTarget = null;
+        let rememberedTarget = null;
+        const externalTargetRequests = [];
         let installedBackend = "cpu";
         let chatResponseMode = "ok";
 
@@ -157,6 +160,48 @@ async function main() {
                 });
                 return;
             }
+            if (pathName === "/api/chat/target") {
+                const method = route.request().method();
+                const requested = method === "POST" ? JSON.parse(route.request().postData() || "{}") : null;
+                externalTargetRequests.push({ method, body: requested });
+                if (method === "POST" && requested.restore) {
+                    if (rememberedTarget && !rememberedTarget.api_key_required) {
+                        externalChatTarget = {
+                            connected: true,
+                            host: rememberedTarget.host,
+                            port: rememberedTarget.port,
+                            label: rememberedTarget.label || "",
+                            api_key_configured: false,
+                        };
+                    }
+                } else if (method === "POST") {
+                    externalChatTarget = {
+                        connected: true,
+                        host: requested.host,
+                        port: Number(requested.port),
+                        label: requested.label || "",
+                        api_key_configured: Boolean(requested.api_key),
+                    };
+                    rememberedTarget = {
+                        host: requested.host,
+                        port: Number(requested.port),
+                        label: requested.label || "",
+                        api_key_required: Boolean(requested.api_key),
+                    };
+                } else if (method === "DELETE") {
+                    externalChatTarget = null;
+                    rememberedTarget = null;
+                }
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        external_chat_target: externalChatTarget,
+                        remembered_target: rememberedTarget,
+                    }),
+                });
+                return;
+            }
             if (pathName === "/api/status") {
                 await route.fulfill({
                     status: 200,
@@ -165,6 +210,7 @@ async function main() {
                         installed: true,
                         running: statusRunning,
                         active_process_tool: activeProcessTool,
+                        external_chat_target: externalChatTarget,
                         backend: installedBackend,
                         tag: installedBackend === "custom" ? "custom" : "smoke",
                         available_backends: [
@@ -392,6 +438,31 @@ async function main() {
         assert.equal(await page.inputValue("#flag-ctx_size"), "12345");
 
         await selectSection(page, "configure");
+        await page.fill("#config-search", "sampling");
+        await page.waitForFunction(() => {
+            const headers = Array.from(document.querySelectorAll(
+                '.accordion[data-category-id="sampling"] .flag-submenu-header'
+            ));
+            return headers.length > 0 && headers.every((header) => header.classList.contains("open"));
+        });
+        await page.selectOption("#tool-select", "llama-cli");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-cli");
+        await page.waitForFunction(() => {
+            const headers = Array.from(document.querySelectorAll(
+                '.accordion[data-category-id="sampling"] .flag-submenu-header'
+            ));
+            return headers.length > 0 && headers.every((header) => header.classList.contains("open"));
+        });
+        await page.click("#btn-clear-search");
+        await page.waitForFunction(() => document.querySelector("#config-search")?.value === "");
+        assert.equal(
+            await page.locator(".flag-submenu-header.open").count(),
+            0,
+            "clearing search after a tool change must not restore submenu state from the previous tool"
+        );
+        await page.selectOption("#tool-select", "llama-server");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-server");
+
         await page.fill("#config-search", "gpu layers");
         await page.waitForSelector("#flag-gpu_layers", { state: "visible" });
         await page.fill("#flag-gpu_layers", "7");
@@ -439,8 +510,48 @@ async function main() {
 
         await page.fill("#config-search", "api key");
         await page.waitForSelector("#flag-api_key", { state: "visible" });
+        const passwordManagerHints = await page.evaluate(() => {
+            const fieldState = (id) => {
+                const input = document.getElementById(id);
+                return {
+                    type: input?.type || "",
+                    autocomplete: input?.autocomplete || "",
+                    maskMode: input?.dataset.sensitiveMaskMode || "",
+                    masked: Boolean(input?.classList.contains("sensitive-input-masked")),
+                    textSecurity: input ? getComputedStyle(input).webkitTextSecurity : "",
+                };
+            };
+            return {
+                cssMasking: Boolean(window.CSS?.supports?.("-webkit-text-security", "disc")),
+                searchAutocompletes: Array.from(document.querySelectorAll(".ss-search"))
+                    .map((input) => input.autocomplete),
+                fields: ["flag-api_key", "quick-api-key", "hf-token-input"].map(fieldState),
+            };
+        });
+        assert.ok(passwordManagerHints.searchAutocompletes.length > 0);
+        assert.ok(passwordManagerHints.searchAutocompletes.every((value) => value === "off"));
+        for (const field of passwordManagerHints.fields) {
+            assert.equal(field.autocomplete, "off");
+            assert.equal(field.maskMode, passwordManagerHints.cssMasking ? "css" : "password");
+            assert.equal(field.type, passwordManagerHints.cssMasking ? "text" : "password");
+            assert.equal(field.masked, passwordManagerHints.cssMasking);
+            if (passwordManagerHints.cssMasking) assert.equal(field.textSecurity, "disc");
+        }
         await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Generate" }).click();
         assert.match(await page.inputValue("#flag-api_key"), /^[A-Za-z0-9_-]{43}$/);
+        const showApiKey = page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Show" });
+        await showApiKey.click();
+        assert.equal(await page.locator("#flag-api_key").getAttribute("type"), "text");
+        assert.equal(await page.locator("#flag-api_key").evaluate((input) => input.classList.contains("sensitive-input-masked")), false);
+        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Hide" }).click();
+        assert.equal(
+            await page.locator("#flag-api_key").getAttribute("type"),
+            passwordManagerHints.cssMasking ? "text" : "password"
+        );
+        assert.equal(
+            await page.locator("#flag-api_key").evaluate((input) => input.classList.contains("sensitive-input-masked")),
+            passwordManagerHints.cssMasking
+        );
         await page.fill("#flag-api_key", "first-secret, second-secret");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().api_key === "first-secret, second-secret");
         const protectedPreview = await page.textContent("#command-preview-text");
@@ -785,6 +896,88 @@ async function main() {
         assert.ok(tunnelStates.running.badgeClasses.includes("running"));
         assert.equal(tunnelStates.error.status, "Tunnel failed");
         assert.ok(tunnelStates.error.badgeClasses.includes("error"));
+
+        // Connecting to a llama-server this GUI did not launch must unlock Chat
+        // on its own, with no process running.
+        statusRunning = false;
+        activeProcessTool = "";
+        await page.evaluate(() => refreshRuntimeStatusPanels());
+        assert.equal(await page.textContent("#external-server-badge"), "Not connected");
+        assert.equal(
+            await page.locator("#external-server-summary").evaluate((el) => el.classList.contains("hidden")),
+            true
+        );
+
+        await page.fill("#external-server-host", "127.0.0.1");
+        await page.fill("#external-server-port", "9001");
+        await page.fill("#external-server-key", "external-secret");
+        await page.click("#btn-connect-external-server");
+        await page.waitForFunction(
+            () => document.querySelector("#external-server-badge")?.textContent === "Connected"
+        );
+        assert.deepEqual(externalTargetRequests.at(-1), {
+            method: "POST",
+            body: { host: "127.0.0.1", port: "9001", api_key: "external-secret" },
+        });
+        assert.equal(await page.textContent("#external-server-target"), "127.0.0.1:9001");
+        assert.equal(
+            await page.locator("#btn-disconnect-external-server").evaluate((el) => el.classList.contains("hidden")),
+            false
+        );
+        assert.match(await page.textContent("#api-status-note"), /started outside this GUI/);
+
+        await selectSection(page, "chat");
+        await page.waitForFunction(() => document.querySelector("#chat-input")?.disabled === false);
+        assert.equal(await page.locator("#btn-chat-send").isDisabled(), false);
+
+        await selectSection(page, "api");
+        await page.click("#btn-disconnect-external-server");
+        await page.waitForFunction(
+            () => document.querySelector("#external-server-badge")?.textContent === "Not connected"
+        );
+        assert.equal(externalTargetRequests.at(-1).method, "DELETE");
+        assert.equal(await page.inputValue("#external-server-key"), "");
+        assert.equal(rememberedTarget, null, "disconnecting must also forget the saved address");
+
+        await selectSection(page, "chat");
+        await page.waitForFunction(() => document.querySelector("#chat-input")?.disabled === true);
+        await selectSection(page, "api");
+
+        // A keyless address saved by an earlier session reconnects by itself.
+        rememberedTarget = { host: "127.0.0.1", port: 9002, label: "Saved", api_key_required: false };
+        await page.fill("#external-server-host", "");
+        await page.fill("#external-server-port", "");
+        await page.evaluate(() => window.LlamaGui.externalServerUi.restore());
+        await page.waitForFunction(
+            () => document.querySelector("#external-server-badge")?.textContent === "Connected"
+        );
+        assert.deepEqual(externalTargetRequests.at(-1), { method: "POST", body: { restore: true } });
+        assert.equal(await page.inputValue("#external-server-host"), "127.0.0.1");
+        assert.equal(await page.inputValue("#external-server-port"), "9002");
+        assert.equal(
+            await page.textContent("#external-server-note"),
+            "Reconnected to Saved (127.0.0.1:9002)."
+        );
+
+        // One that needed a key is prefilled and explained, never auto-connected.
+        externalChatTarget = null;
+        rememberedTarget = { host: "127.0.0.1", port: 9003, label: "", api_key_required: true };
+        await page.evaluate(() => refreshRuntimeStatusPanels());
+        const requestsBeforeKeyedRestore = externalTargetRequests.length;
+        await page.evaluate(() => window.LlamaGui.externalServerUi.restore());
+        assert.equal(
+            externalTargetRequests.length,
+            requestsBeforeKeyedRestore + 1,
+            "a key-protected address must only be read, never reconnected"
+        );
+        assert.equal(externalTargetRequests.at(-1).method, "GET");
+        assert.equal(await page.inputValue("#external-server-port"), "9003");
+        assert.equal(
+            await page.textContent("#external-server-note"),
+            "Re-enter the API key for 127.0.0.1:9003 to reconnect."
+        );
+        assert.equal(await page.textContent("#external-server-badge"), "Not connected");
+        rememberedTarget = null;
 
         await selectSection(page, "configure");
         await page.selectOption("#model-select", "");

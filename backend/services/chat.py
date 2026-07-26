@@ -9,13 +9,44 @@ from typing import Any, Mapping, Sequence
 from backend import config
 
 
+def get_message_text(content: Any) -> str:
+    """Normalize message content to text: strings pass through, OpenAI-style
+    content arrays contribute the text of their ``{"type": "text"}`` parts."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, Mapping) and part.get("type") == "text"
+        )
+    return ""
+
+
 def get_latest_user_message(messages: Sequence[Mapping[str, Any]]) -> str:
     for msg in reversed(messages or []):
         if msg.get("role") == "user":
-            content = msg.get("content", "")
-            if isinstance(content, str):
-                return content.strip()
+            # Keep walking back when a message carries no text of its own (an
+            # image-only turn, say) so the newest text the user typed wins.
+            text = get_message_text(msg.get("content", "")).strip()
+            if text:
+                return text
     return ""
+
+
+def merge_system_context(content: Any, context: str) -> Any:
+    """Fold web-search context into an existing system message.
+
+    Returns the merged content, or ``None`` when ``content`` has a shape we
+    cannot merge without discarding it (the caller then adds a separate system
+    message instead of overwriting this one).
+    """
+    if isinstance(content, str):
+        return f"{content.rstrip()}\n\n{context}".strip()
+    if isinstance(content, list):
+        # Append rather than flatten so image/audio parts survive the merge.
+        return [*content, {"type": "text", "text": context}]
+    return None
 
 
 def build_search_queries(user_text: Any) -> list[str]:

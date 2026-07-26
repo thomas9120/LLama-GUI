@@ -14,8 +14,9 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import benchmarks, chat, file_picker, git_update, hf_download, install, lifecycle, metrics, models, presets, process, search, status, tunnel
+from backend.routes import benchmarks, chat, external_server, file_picker, git_update, hf_download, install, lifecycle, metrics, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
+from backend.services import external_server as external_server_service
 # The service layer; `git_update` imported from backend.routes above is the HTTP layer.
 from backend.services import git_update as srv
 from backend.services import lifecycle as lifecycle_service
@@ -84,8 +85,9 @@ class FakeBinaryUpstream:
 
 
 class FakeHealthUpstream:
-    def __init__(self, status):
+    def __init__(self, status, body=b'{"status":"ok"}'):
         self.status = status
+        self.body = body
 
     def __enter__(self):
         return self
@@ -95,6 +97,9 @@ class FakeHealthUpstream:
 
     def getcode(self):
         return self.status
+
+    def read(self, amount=None):
+        return self.body
 
 
 def make_context(root):
@@ -117,6 +122,42 @@ def make_context(root):
         ),
         config=ServerConfig(llama_host="127.0.0.1", llama_port=8080),
     )
+
+
+def configure_status_services(ctx):
+    """Minimum service wiring for /api/status to render without errors."""
+    ctx.services = BackendServices(
+        backend_specs={"cpu": {"label": "CPU"}},
+        binary_suffix=".exe",
+        current_arch="x64",
+        current_platform="win32",
+        find_tool_executable=lambda tool: ctx.paths.llama_bin / f"{tool}.exe",
+        get_platform_label=lambda: "Windows",
+        get_runtime_files=lambda: [],
+        get_tool_filename=lambda tool: f"{tool}.exe",
+        is_process_running=lambda: False,
+        llama_tools=["llama-cli", "llama-server"],
+        load_config=lambda: {"tag": "b1", "backend": "cpu"},
+    )
+    return ctx.services
+
+
+def register_external_server(ctx, host="127.0.0.1", port=9001, api_key=""):
+    ctx.services.set_llama_api_target = mock.Mock(return_value={})
+    return external_server_service.connect(ctx, host, port, api_key, probe_target=False)
+
+
+def activate_llama_runtime(ctx, host="127.0.0.1", port=8080, tool="llama-server"):
+    ctx.state.process = mock.Mock()
+    ctx.state.process.poll.return_value = None
+    ctx.state.active_process_tool = tool
+    ctx.state.active_llama_api_keys = ("launch-secret",)
+    ctx.state.active_runtime = {
+        "generation": 4,
+        "tool": tool,
+        "host": host,
+        "port": port,
+    }
 
 
 class ExtractedRouteTests(unittest.TestCase):
@@ -2361,10 +2402,11 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_chat_route_streams_error_for_invalid_port(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
+            activate_llama_runtime(ctx, port=70000)
             response = DummySseResponse()
 
             chat.completions(
-                Request("POST", "/api/chat/completions", "", {}, body={"messages": [], "port": 70000}),
+                Request("POST", "/api/chat/completions", "", {}, body={"messages": []}),
                 response,
                 ctx,
             )
@@ -2387,16 +2429,7 @@ class ExtractedRouteTests(unittest.TestCase):
             )
 
             captured = {}
-            ctx.state.process = mock.Mock()
-            ctx.state.process.poll.return_value = None
-            ctx.state.active_process_tool = "llama-server"
-            ctx.state.active_llama_api_keys = ("launch-secret",)
-            ctx.state.active_runtime = {
-                "generation": 4,
-                "tool": "llama-server",
-                "host": "127.0.0.2",
-                "port": 8124,
-            }
+            activate_llama_runtime(ctx, host="127.0.0.2", port=8124)
 
             def fake_urlopen(req, timeout):
                 captured["authorization"] = req.get_header("Authorization")
@@ -2425,11 +2458,14 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("data: [DONE]", payload)
             self.assertTrue(response.handler.close_connection)
             self.assertEqual(captured["authorization"], "Bearer launch-secret")
-            get_chat_url.assert_called_once_with(ctx.state.active_runtime)
+            get_chat_url.assert_called_once_with(
+                {"host": "127.0.0.2", "port": 8124, "source": "runtime"}
+            )
 
     def test_chat_route_injects_web_search_context_into_system_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
             response = DummySseResponse()
             captured = {}
 
@@ -2487,6 +2523,7 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_chat_route_uses_configured_web_search_result_count(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
             response = DummySseResponse()
             captured = {}
             results = [
@@ -2543,6 +2580,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ]
 
             def run_with_count(value):
+                activate_llama_runtime(ctx)
                 response = DummySseResponse()
                 with mock.patch.object(
                     chat.web_search,
@@ -2577,6 +2615,228 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(run_with_count(0), (1, 1))
             self.assertEqual(run_with_count(99), (10, 10))
             self.assertEqual(run_with_count("invalid"), (5, 5))
+
+    def test_chat_route_refuses_before_web_search_without_active_llama_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummySseResponse()
+
+            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen, mock.patch.object(
+                chat.web_search,
+                "web_search",
+            ) as search:
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "web_search": True,
+                            "messages": [{"role": "user", "content": "Hello"}],
+                            "host": "127.0.0.1",
+                            "port": 9999,
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            response.handler.wfile.seek(0)
+            payload = response.handler.wfile.read().decode("utf-8")
+            self.assertEqual(response.status, 200)
+            self.assertIn("Start llama-server first", payload)
+            self.assertIn("data: [DONE]", payload)
+            search.assert_not_called()
+            urlopen.assert_not_called()
+
+    def test_chat_route_refuses_when_active_runtime_is_not_llama_server(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx, tool="llama-cli")
+            response = DummySseResponse()
+
+            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen:
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "messages": [{"role": "user", "content": "Hello"}],
+                            "host": "127.0.0.1",
+                            "port": 9999,
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            response.handler.wfile.seek(0)
+            payload = response.handler.wfile.read().decode("utf-8")
+            self.assertIn("Start llama-server first", payload)
+            self.assertIn("data: [DONE]", payload)
+            urlopen.assert_not_called()
+
+    def test_chat_route_web_search_preserves_array_system_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
+            response = DummySseResponse()
+            captured = {}
+
+            def fake_urlopen(req, timeout):
+                captured["body"] = json.loads(req.data.decode("utf-8"))
+                return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+            with mock.patch.object(
+                chat.web_search,
+                "web_search",
+                return_value={
+                    "ok": True,
+                    "results": [
+                        {
+                            "title": "Fresh Result",
+                            "url": "https://example.com/fresh",
+                            "snippet": "Fresh snippet",
+                        }
+                    ],
+                },
+            ), mock.patch.object(
+                chat.web_search,
+                "fetch_page_text",
+                return_value={"ok": True, "text": "Fresh page text"},
+            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "web_search": True,
+                            "messages": [
+                                {
+                                    "role": "system",
+                                    "content": [
+                                        {"type": "text", "text": "Alpha instructions."},
+                                        {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+                                        {"type": "text", "text": "Beta instructions."},
+                                    ],
+                                },
+                                {"role": "user", "content": "What changed?"},
+                            ],
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            response.handler.wfile.seek(0)
+            payload = response.handler.wfile.read().decode("utf-8")
+            self.assertNotIn('"error"', payload)
+            system_message = captured["body"]["messages"][0]
+            self.assertEqual(system_message["role"], "system")
+            self.assertIsInstance(system_message["content"], list)
+            self.assertEqual(system_message["content"][:3], [
+                {"type": "text", "text": "Alpha instructions."},
+                {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+                {"type": "text", "text": "Beta instructions."},
+            ])
+            self.assertEqual(system_message["content"][-1]["type"], "text")
+            self.assertIn("Fresh page text", system_message["content"][-1]["text"])
+
+    def test_chat_route_web_search_keeps_unmergeable_system_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
+            response = DummySseResponse()
+            captured = {}
+
+            def fake_urlopen(req, timeout):
+                captured["body"] = json.loads(req.data.decode("utf-8"))
+                return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+            with mock.patch.object(
+                chat.web_search,
+                "web_search",
+                return_value={
+                    "ok": True,
+                    "results": [
+                        {
+                            "title": "Fresh Result",
+                            "url": "https://example.com/fresh",
+                            "snippet": "Fresh snippet",
+                        }
+                    ],
+                },
+            ), mock.patch.object(
+                chat.web_search,
+                "fetch_page_text",
+                return_value={"ok": True, "text": "Fresh page text"},
+            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "web_search": True,
+                            "messages": [
+                                {"role": "system", "content": {"unexpected": "shape"}},
+                                {"role": "user", "content": "What changed?"},
+                            ],
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            proxied = captured["body"]["messages"]
+            self.assertEqual(proxied[0]["role"], "system")
+            self.assertIn("Fresh page text", proxied[0]["content"])
+            self.assertEqual(proxied[1], {"role": "system", "content": {"unexpected": "shape"}})
+
+    def test_chat_route_web_search_errors_when_latest_user_turn_has_no_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
+            response = DummySseResponse()
+
+            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen, mock.patch.object(
+                chat.web_search,
+                "web_search",
+            ) as search:
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={
+                            "web_search": True,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+                                    ],
+                                },
+                            ],
+                        },
+                    ),
+                    response,
+                    ctx,
+                )
+
+            response.handler.wfile.seek(0)
+            payload = response.handler.wfile.read().decode("utf-8")
+            self.assertIn("Add a text question", payload)
+            self.assertIn("data: [DONE]", payload)
+            search.assert_not_called()
+            urlopen.assert_not_called()
 
     def test_file_picker_route_uses_model_filters_for_model_purpose(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3002,6 +3262,311 @@ class InstallRouteTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.payload["status"], "started")
         gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
+
+
+class ExternalServerRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.ctx = make_context(self.tmp.name)
+        self.ctx.services.set_llama_api_target = mock.Mock(return_value={})
+        self.config_store = {"tag": "b1"}
+
+        def save_config(config_data):
+            self.config_store.clear()
+            self.config_store.update(config_data)
+
+        self.ctx.services.load_config = lambda: dict(self.config_store)
+        self.ctx.services.save_config = save_config
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def post(self, body):
+        response = DummyResponse()
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthUpstream(200),
+        ):
+            external_server.connect(
+                Request("POST", "/api/chat/target", "", {}, body=body), response, self.ctx
+            )
+        return response
+
+    def test_get_returns_null_when_nothing_is_registered(self):
+        response = DummyResponse()
+
+        external_server.get_target(Request("GET", "/api/chat/target", "", {}), response, self.ctx)
+
+        self.assertEqual(response.status, 200)
+        self.assertIsNone(response.payload["external_chat_target"])
+
+    def test_connect_registers_and_get_reports_the_target(self):
+        connect_response = self.post({"host": "127.0.0.1", "port": 9001, "label": "Manual"})
+
+        self.assertEqual(connect_response.status, 200)
+        target = connect_response.payload["external_chat_target"]
+        self.assertEqual(target["host"], "127.0.0.1")
+        self.assertEqual(target["port"], 9001)
+        self.assertEqual(target["label"], "Manual")
+        self.assertEqual(target["probe_status"], 200)
+
+        get_response = DummyResponse()
+        external_server.get_target(
+            Request("GET", "/api/chat/target", "", {}), get_response, self.ctx
+        )
+        self.assertEqual(get_response.payload["external_chat_target"]["port"], 9001)
+
+    def test_connect_never_echoes_the_api_key(self):
+        response = self.post({"host": "127.0.0.1", "port": 9001, "api_key": "top-secret"})
+
+        self.assertNotIn("top-secret", json.dumps(response.payload))
+        self.assertTrue(response.payload["external_chat_target"]["api_key_configured"])
+
+    def test_connect_rejects_a_remote_host_with_400(self):
+        response = self.post({"host": "203.0.113.10", "port": 9001})
+
+        self.assertEqual(response.status, 400)
+        self.assertIsNone(external_server_service.get_target(self.ctx))
+
+    def test_connect_rejects_an_invalid_port_with_400(self):
+        response = self.post({"host": "127.0.0.1", "port": 70000})
+
+        self.assertEqual(response.status, 400)
+        self.assertIn("port", response.payload["error"].lower())
+
+    def test_connect_reports_an_unreachable_address_with_502(self):
+        response = DummyResponse()
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ):
+            external_server.connect(
+                Request("POST", "/api/chat/target", "", {}, body={"host": "127.0.0.1", "port": 9001}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 502)
+        self.assertIn("No server answered", response.payload["error"])
+        self.assertIsNone(external_server_service.get_target(self.ctx))
+
+    def test_disconnect_clears_the_target(self):
+        self.post({"host": "127.0.0.1", "port": 9001, "api_key": "top-secret"})
+        response = DummyResponse()
+
+        external_server.disconnect(
+            Request("DELETE", "/api/chat/target", "", {}), response, self.ctx
+        )
+
+        self.assertEqual(response.status, 200)
+        self.assertIsNone(response.payload["external_chat_target"])
+        self.assertIsNone(external_server_service.get_target(self.ctx))
+        self.assertEqual(self.ctx.state.external_chat_api_key, "")
+
+    def test_get_reports_the_remembered_address_after_a_disconnect_free_restart(self):
+        self.config_store["external_chat_target"] = {
+            "host": "127.0.0.1",
+            "port": 9001,
+            "label": "Box",
+            "api_key_required": True,
+        }
+        response = DummyResponse()
+
+        external_server.get_target(Request("GET", "/api/chat/target", "", {}), response, self.ctx)
+
+        self.assertIsNone(response.payload["external_chat_target"])
+        self.assertEqual(response.payload["remembered_target"]["port"], 9001)
+        self.assertTrue(response.payload["remembered_target"]["api_key_required"])
+
+    def test_restore_reconnects_a_keyless_remembered_address(self):
+        self.config_store["external_chat_target"] = {
+            "host": "127.0.0.1",
+            "port": 9001,
+            "label": "Box",
+            "api_key_required": False,
+        }
+        response = DummyResponse()
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthUpstream(200),
+        ):
+            external_server.connect(
+                Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["external_chat_target"]["port"], 9001)
+        self.assertEqual(external_server_service.get_target(self.ctx)["port"], 9001)
+
+    def test_restore_does_nothing_when_the_address_needed_a_key(self):
+        self.config_store["external_chat_target"] = {
+            "host": "127.0.0.1",
+            "port": 9001,
+            "api_key_required": True,
+        }
+        response = DummyResponse()
+
+        with mock.patch.object(external_server_service.urllib.request, "urlopen") as urlopen:
+            external_server.connect(
+                Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
+                response,
+                self.ctx,
+            )
+
+        urlopen.assert_not_called()
+        self.assertEqual(response.status, 200)
+        self.assertIsNone(response.payload["external_chat_target"])
+        self.assertEqual(response.payload["remembered_target"]["port"], 9001)
+
+    def test_restore_reports_a_port_taken_by_something_else(self):
+        self.config_store["external_chat_target"] = {
+            "host": "127.0.0.1",
+            "port": 9001,
+            "api_key_required": False,
+        }
+        response = DummyResponse()
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthUpstream(200, b"<html>some other dev server</html>"),
+        ):
+            external_server.connect(
+                Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 502)
+        self.assertIn("does not look like llama-server", response.payload["error"])
+        self.assertIsNone(external_server_service.get_target(self.ctx))
+
+    def test_disconnect_forgets_the_remembered_address(self):
+        self.post({"host": "127.0.0.1", "port": 9001})
+        self.assertIn("external_chat_target", self.config_store)
+        response = DummyResponse()
+
+        external_server.disconnect(
+            Request("DELETE", "/api/chat/target", "", {}), response, self.ctx
+        )
+
+        self.assertNotIn("external_chat_target", self.config_store)
+        self.assertIsNone(response.payload["remembered_target"])
+
+    def test_chat_route_proxies_to_a_registered_external_server(self):
+        register_external_server(self.ctx, host="127.0.0.1", port=9001, api_key="external-key")
+        response = DummySseResponse()
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["url"] = req.full_url
+            captured["authorization"] = req.get_header("Authorization")
+            return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+        with mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            chat.completions(
+                Request(
+                    "POST",
+                    "/api/chat/completions",
+                    "",
+                    {"Authorization": "Bearer caller-key"},
+                    body={"messages": [{"role": "user", "content": "Hello"}]},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:9001/v1/chat/completions")
+        self.assertEqual(captured["authorization"], "Bearer external-key")
+
+    def test_chat_route_prefers_a_launched_runtime_over_the_registered_target(self):
+        register_external_server(self.ctx, host="127.0.0.1", port=9001)
+        activate_llama_runtime(self.ctx, host="127.0.0.1", port=8124)
+        response = DummySseResponse()
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["url"] = req.full_url
+            return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+        with mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            chat.completions(
+                Request(
+                    "POST",
+                    "/api/chat/completions",
+                    "",
+                    {},
+                    body={"messages": [{"role": "user", "content": "Hello"}]},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:8124/v1/chat/completions")
+
+    def test_chat_route_still_ignores_a_target_supplied_in_the_body(self):
+        response = DummySseResponse()
+
+        with mock.patch.object(chat.urllib.request, "urlopen") as urlopen:
+            chat.completions(
+                Request(
+                    "POST",
+                    "/api/chat/completions",
+                    "",
+                    {},
+                    body={
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "host": "127.0.0.1",
+                        "port": 9001,
+                    },
+                ),
+                response,
+                self.ctx,
+            )
+
+        response.handler.wfile.seek(0)
+        payload = response.handler.wfile.read().decode("utf-8")
+        self.assertIn("Start llama-server first", payload)
+        urlopen.assert_not_called()
+
+    def test_metrics_route_uses_the_registered_target(self):
+        register_external_server(self.ctx, host="127.0.0.1", port=9001, api_key="external-key")
+        captured = {}
+
+        def fake_metrics(host, port, authorization):
+            captured["args"] = (host, port, authorization)
+            return "llama_metric 1", ""
+
+        self.ctx.services.get_local_llama_metrics = fake_metrics
+        response = DummyResponse()
+
+        metrics.get_metrics(
+            Request("GET", "/api/llama/metrics", "", {"Authorization": "Bearer caller-key"}),
+            response,
+            self.ctx,
+        )
+
+        self.assertEqual(captured["args"], ("127.0.0.1", 9001, "Bearer external-key"))
+        self.assertEqual(response.text_payload, "llama_metric 1")
+
+    def test_status_route_publishes_the_target_without_the_key(self):
+        register_external_server(self.ctx, host="127.0.0.1", port=9001, api_key="top-secret")
+        configure_status_services(self.ctx)
+        response = DummyResponse()
+
+        status.get_status(Request("GET", "/api/status", "", {}), response, self.ctx)
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["external_chat_target"]["port"], 9001)
+        self.assertTrue(response.payload["external_chat_target"]["api_key_configured"])
+        self.assertNotIn("top-secret", json.dumps(response.payload))
 
 
 class TunnelRouteTests(unittest.TestCase):
