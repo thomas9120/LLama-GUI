@@ -29,6 +29,12 @@ def completions(request, response, ctx):
     response.sse_headers()
     writer = SseWriter(response.handler.wfile)
     try:
+        active_runtime = process_manager.get_active_runtime_snapshot(ctx)
+        if not active_runtime or active_runtime.get("tool") != "llama-server":
+            writer.write({"error": {"message": "Start llama-server first, then send chat requests."}})
+            writer.write("[DONE]")
+            return
+
         messages = list(body.get("messages") or [])
         proxied_messages = messages
 
@@ -76,7 +82,7 @@ def completions(request, response, ctx):
                     proxied_messages.append(
                         {
                             "role": "system",
-                            "content": f"{msg.get('content', '').rstrip()}\n\n{context}".strip(),
+                            "content": f"{chat_service.get_message_text(msg.get('content', '')).rstrip()}\n\n{context}".strip(),
                         }
                     )
                     inserted_context = True
@@ -99,9 +105,7 @@ def completions(request, response, ctx):
         proxy_body.pop("port", None)
         proxy_body.pop("web_search_max_results", None)
 
-        active_runtime = process_manager.get_active_runtime_snapshot(ctx)
-        target = active_runtime if active_runtime and active_runtime.get("tool") == "llama-server" else body
-        api_url = chat_service.get_local_chat_api_url(target)
+        api_url = chat_service.get_local_chat_api_url(active_runtime)
         headers = {"Content-Type": "application/json"}
         authorization = process_manager.get_active_llama_authorization(
             ctx,

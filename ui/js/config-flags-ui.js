@@ -3,6 +3,7 @@
 
     let openCategories = new Set();
     let openSubmenus = new Set();
+    let savedOpenSubmenus = null;
     let configSearchQuery = "";
     let dependencies = {};
     let tensorBufferTypesPromise = null;
@@ -33,6 +34,21 @@
         return getFlagsByCategory(getCurrentTool());
     }
 
+    function openMatchingSearchSections() {
+        const groups = getGroups();
+        openCategories = new Set(Object.keys(groups));
+        openSubmenus = new Set();
+        for (const [catId, group] of Object.entries(groups)) {
+            const categoryMatches = group.name.toLowerCase().includes(configSearchQuery);
+            for (const flag of group.flags) {
+                const submenu = String(flag.submenu || "").trim();
+                if (submenu && (categoryMatches || flagMatchesSearch(flag, configSearchQuery))) {
+                    openSubmenus.add(`${catId}::${submenu}`);
+                }
+            }
+        }
+    }
+
     function initConfigControls() {
         const search = document.getElementById("config-search");
         if (!search) return;
@@ -40,14 +56,25 @@
         const clearSearch = () => {
             search.value = "";
             configSearchQuery = "";
+            if (savedOpenSubmenus !== null) {
+                openSubmenus = savedOpenSubmenus;
+                savedOpenSubmenus = null;
+            }
             renderFlags();
             search.focus();
         };
 
         search.addEventListener("input", dependencies.debounce(() => {
+            const previousQuery = configSearchQuery;
             configSearchQuery = search.value.trim().toLowerCase();
             if (configSearchQuery) {
-                openCategories = new Set(Object.keys(getGroups()));
+                if (!previousQuery) {
+                    savedOpenSubmenus = openSubmenus;
+                }
+                openMatchingSearchSections();
+            } else if (previousQuery && savedOpenSubmenus !== null) {
+                openSubmenus = savedOpenSubmenus;
+                savedOpenSubmenus = null;
             }
             renderFlags();
         }, 200));
@@ -92,6 +119,11 @@
     function resetOpenCategories() {
         openCategories.clear();
         openSubmenus.clear();
+        savedOpenSubmenus = null;
+        if (configSearchQuery) {
+            savedOpenSubmenus = new Set();
+            openMatchingSearchSections();
+        }
     }
 
     function flagMatchesSearch(flag, query) {

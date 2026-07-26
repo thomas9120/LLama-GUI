@@ -373,7 +373,11 @@ function renamePresetLocalState(oldName, newName) {
 }
 
 function buildDuplicatePresetName(name, existingNames) {
-    const taken = existingNames instanceof Set ? existingNames : new Set(existingNames || []);
+    // Duck-typed rather than `instanceof Set`, which is false for a Set built in
+    // another realm (the vm-based unit tests, or any future iframe/worker).
+    const taken = existingNames && typeof existingNames.has === "function" && typeof existingNames.size === "number"
+        ? existingNames
+        : new Set(Array.isArray(existingNames) ? existingNames : []);
     const base = `${name} copy`;
     if (!taken.has(base)) return base;
     let suffix = 2;

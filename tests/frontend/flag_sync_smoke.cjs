@@ -392,6 +392,31 @@ async function main() {
         assert.equal(await page.inputValue("#flag-ctx_size"), "12345");
 
         await selectSection(page, "configure");
+        await page.fill("#config-search", "sampling");
+        await page.waitForFunction(() => {
+            const headers = Array.from(document.querySelectorAll(
+                '.accordion[data-category-id="sampling"] .flag-submenu-header'
+            ));
+            return headers.length > 0 && headers.every((header) => header.classList.contains("open"));
+        });
+        await page.selectOption("#tool-select", "llama-cli");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-cli");
+        await page.waitForFunction(() => {
+            const headers = Array.from(document.querySelectorAll(
+                '.accordion[data-category-id="sampling"] .flag-submenu-header'
+            ));
+            return headers.length > 0 && headers.every((header) => header.classList.contains("open"));
+        });
+        await page.click("#btn-clear-search");
+        await page.waitForFunction(() => document.querySelector("#config-search")?.value === "");
+        assert.equal(
+            await page.locator(".flag-submenu-header.open").count(),
+            0,
+            "clearing search after a tool change must not restore submenu state from the previous tool"
+        );
+        await page.selectOption("#tool-select", "llama-server");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-server");
+
         await page.fill("#config-search", "gpu layers");
         await page.waitForSelector("#flag-gpu_layers", { state: "visible" });
         await page.fill("#flag-gpu_layers", "7");
