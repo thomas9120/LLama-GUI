@@ -12,6 +12,12 @@
 </div>
 <!-- readme-badges:end -->
 
+<p align="center">
+  <a href="https://www.buymeacoffee.com/thomas9120">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy me a coffee" width="174" height="48">
+  </a>
+</p>
+
 <br><br>
 
 Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, and Linux.

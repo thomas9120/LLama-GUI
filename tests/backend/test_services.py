@@ -1752,7 +1752,7 @@ class GetLatestUserMessageTests(unittest.TestCase):
 
         self.assertEqual(chat_service.get_latest_user_message(messages), "")
 
-    def test_skips_non_string_content(self):
+    def test_joins_text_parts_of_array_content(self):
         messages = [
             {"role": "user", "content": [{"type": "text", "text": "image question"}]},
             {"role": "user", "content": "text question"},
@@ -1760,9 +1760,24 @@ class GetLatestUserMessageTests(unittest.TestCase):
 
         self.assertEqual(chat_service.get_latest_user_message(messages), "text question")
 
-    def test_only_non_string_content_returns_empty(self):
+    def test_latest_array_content_beats_older_string_content(self):
         messages = [
-            {"role": "user", "content": [{"type": "text", "text": "only images"}]},
+            {"role": "user", "content": "text question"},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "first part"},
+                    {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+                    {"type": "text", "text": "second part"},
+                ],
+            },
+        ]
+
+        self.assertEqual(chat_service.get_latest_user_message(messages), "first part\nsecond part")
+
+    def test_array_content_without_text_parts_returns_empty(self):
+        messages = [
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/x.png"}}]},
         ]
 
         self.assertEqual(chat_service.get_latest_user_message(messages), "")
@@ -1771,6 +1786,25 @@ class GetLatestUserMessageTests(unittest.TestCase):
         messages = [{"role": "user"}]
 
         self.assertEqual(chat_service.get_latest_user_message(messages), "")
+
+
+class GetMessageTextTests(unittest.TestCase):
+    def test_string_content_passes_through(self):
+        self.assertEqual(chat_service.get_message_text("  hello  "), "  hello  ")
+
+    def test_joins_text_parts_and_ignores_other_parts(self):
+        content = [
+            {"type": "text", "text": "alpha"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+            {"type": "text", "text": "beta"},
+        ]
+
+        self.assertEqual(chat_service.get_message_text(content), "alpha\nbeta")
+
+    def test_non_string_non_list_content_returns_empty(self):
+        self.assertEqual(chat_service.get_message_text(None), "")
+        self.assertEqual(chat_service.get_message_text({"type": "text", "text": "x"}), "")
+        self.assertEqual(chat_service.get_message_text(42), "")
 
 
 class GetLocalProxyHostTests(unittest.TestCase):

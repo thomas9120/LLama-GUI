@@ -9,12 +9,26 @@ from typing import Any, Mapping, Sequence
 from backend import config
 
 
+def get_message_text(content: Any) -> str:
+    """Normalize message content to text: strings pass through, OpenAI-style
+    content arrays contribute the text of their ``{"type": "text"}`` parts."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(
+            str(part.get("text") or "")
+            for part in content
+            if isinstance(part, Mapping) and part.get("type") == "text"
+        )
+    return ""
+
+
 def get_latest_user_message(messages: Sequence[Mapping[str, Any]]) -> str:
     for msg in reversed(messages or []):
         if msg.get("role") == "user":
             content = msg.get("content", "")
-            if isinstance(content, str):
-                return content.strip()
+            if isinstance(content, (str, list)):
+                return get_message_text(content).strip()
     return ""
 
 

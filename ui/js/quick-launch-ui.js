@@ -577,6 +577,7 @@
                 searchPlaceholder: "Search models...",
             });
         }
+        configFlagsUi.initializeSensitiveTextInput(document.getElementById("hf-token-input"));
         hfDownloadUi.init();
 
         const quickApiKeyHost = document.getElementById("quick-api-key-control");

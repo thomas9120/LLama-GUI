@@ -2440,6 +2440,10 @@ input[type="range"].sampler-range::-moz-range-thumb {
     width: 100%;
 }
 
+.sensitive-input-masked {
+    -webkit-text-security: disc;
+}
+
 .sensitive-input-actions {
     display: flex;
     flex-wrap: wrap;
