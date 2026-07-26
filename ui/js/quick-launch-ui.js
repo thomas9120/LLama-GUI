@@ -565,6 +565,10 @@
             if (el) el.addEventListener(event, handler);
         };
 
+        // Runs first: the markup ships this field as type="password", and until
+        // it is upgraded a stored token would be readable if anything below throws.
+        configFlagsUi.initializeSensitiveTextInput(document.getElementById("hf-token-input"));
+
         populateTemplatePackOptions();
         populateProfileOptions();
         refreshSamplerPresetSelect();
@@ -577,7 +581,6 @@
                 searchPlaceholder: "Search models...",
             });
         }
-        configFlagsUi.initializeSensitiveTextInput(document.getElementById("hf-token-input"));
         hfDownloadUi.init();
 
         const quickApiKeyHost = document.getElementById("quick-api-key-control");

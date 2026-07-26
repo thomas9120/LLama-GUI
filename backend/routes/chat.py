@@ -9,7 +9,7 @@ import urllib.request
 from backend import config
 from backend.http import SseWriter, sanitize_sse_error
 from backend.services import chat as chat_service
-from backend.services import process_manager
+from backend.services import external_server
 from backend.services import web_search
 
 
@@ -29,9 +29,19 @@ def completions(request, response, ctx):
     response.sse_headers()
     writer = SseWriter(response.handler.wfile)
     try:
-        active_runtime = process_manager.get_active_runtime_snapshot(ctx)
-        if not active_runtime or active_runtime.get("tool") != "llama-server":
-            writer.write({"error": {"message": "Start llama-server first, then send chat requests."}})
+        # The destination is server-side state -- a launched llama-server, or one
+        # the operator registered on the API tab. It is never read from `body`,
+        # so a caller cannot point this proxy somewhere of their choosing.
+        target = external_server.resolve_llama_target(ctx)
+        if not target:
+            writer.write(
+                {
+                    "error": {
+                        "message": "Start llama-server first, or connect to a running server "
+                        "from the API tab, then send chat requests."
+                    }
+                }
+            )
             writer.write("[DONE]")
             return
 
@@ -42,6 +52,10 @@ def completions(request, response, ctx):
             max_results = get_web_search_result_count(body)
             latest_user = chat_service.get_latest_user_message(messages)
             queries = chat_service.build_search_queries(latest_user)
+            if not queries:
+                writer.write({"error": {"message": "Add a text question to search the web for."}})
+                writer.write("[DONE]")
+                return
             all_results = []
             fetched_pages = {}
 
@@ -78,13 +92,13 @@ def completions(request, response, ctx):
             proxied_messages = []
             inserted_context = False
             for msg in messages:
-                if msg.get("role") == "system" and not inserted_context:
-                    proxied_messages.append(
-                        {
-                            "role": "system",
-                            "content": f"{chat_service.get_message_text(msg.get('content', '')).rstrip()}\n\n{context}".strip(),
-                        }
-                    )
+                merged = (
+                    chat_service.merge_system_context(msg.get("content", ""), context)
+                    if msg.get("role") == "system" and not inserted_context
+                    else None
+                )
+                if merged is not None:
+                    proxied_messages.append({"role": "system", "content": merged})
                     inserted_context = True
                 else:
                     proxied_messages.append(
@@ -105,10 +119,11 @@ def completions(request, response, ctx):
         proxy_body.pop("port", None)
         proxy_body.pop("web_search_max_results", None)
 
-        api_url = chat_service.get_local_chat_api_url(active_runtime)
+        api_url = chat_service.get_local_chat_api_url(target)
         headers = {"Content-Type": "application/json"}
-        authorization = process_manager.get_active_llama_authorization(
+        authorization = external_server.resolve_llama_authorization(
             ctx,
+            target,
             request.headers.get("Authorization", ""),
         )
         if authorization:

@@ -200,11 +200,11 @@ Throughput (`llama-bench`) and perplexity (`llama-perplexity`) from Current Conf
 
 ### API
 
-OpenAI-compatible endpoint overview and copy-ready snippets (cURL, Python, JavaScript). Opt-in **Remote Access** starts a Cloudflare tunnel for the Llama GUI control panel only after **Start Tunnel**.
+OpenAI-compatible endpoint overview and copy-ready snippets (cURL, Python, JavaScript). **Connect to a Running Server** points Chat, metrics, and the built-in proxy at a `llama-server` you started yourself — local addresses only, and health-checked before it is accepted. The address is remembered between sessions and reconnects on its own next time you open the GUI; **the API key never is**, so a key-protected server is prefilled and asks only for the key. **Disconnect** forgets the address entirely. Opt-in **Remote Access** starts a Cloudflare tunnel for the Llama GUI control panel only after **Start Tunnel**.
 
 ### Chat
 
-Talks to running `llama-server` via `/v1/chat/completions` with streaming Markdown, Focus mode, history/settings panels, system prompt, shared sampler controls, undo/regenerate/clear, code copy buttons, and collapsed reasoning when the server streams it.
+Talks to a running `llama-server` — one launched here, or one registered on the API tab — via `/v1/chat/completions` with streaming Markdown, Focus mode, history/settings panels, system prompt, shared sampler controls, undo/regenerate/clear, code copy buttons, and collapsed reasoning when the server streams it.
 
 **Web Search** (optional): no API key. The local server searches (free `ddgs`), fetches public pages, injects graded source context, and shows source chips under answers. History is not polluted with raw search text. Leave off for fully local chat. See [Security Notes](#security-notes) for fetch limits.
 
@@ -288,6 +288,8 @@ Copy recent errors from **Output** in Configure. Retry a minimal setup (`CPU`, o
 - Optional llama-server **API Key** in Quick Launch/Configure adds `--api-key`; leave blank for open-access. Built-in Chat and stats proxies use the key when set; previews, output, presets, and exports redact/omit it. The key protects llama-server endpoints only — not the Llama GUI management UI — and may be visible to same-user process inspection (CLI argument).
 - `LLAMA_GUI_HOST=0.0.0.0` is for trusted networks / VPN / authenticated reverse proxies only. Hostname access needs `LLAMA_GUI_ALLOWED_HOSTS`.
 - Cloudflare tunnel is opt-in and does not auto-start. Anyone with the tunnel URL can control the running session until you stop it.
+- The chat and metrics proxies only ever target a `llama-server` this GUI launched or one registered through the API tab; the destination is never taken from the chat request itself. Registration accepts loopback and this machine's own interfaces only — but, like the rest of the control panel, the registration endpoint is available to anyone who can reach the GUI, so a tunnel visitor can re-point the proxy at another port on the host machine.
+- A registered server's API key is held in memory for the session, never written to `config.json` and never included in any API response. Only the address is remembered between sessions, and it is re-registered on startup only when no key was needed and the port still answers as `llama-server` — so a port taken over by some other local service is refused rather than silently proxied to.
 - Be careful with `--ui-mcp-proxy` and high-risk `--tools`.
 - Web Search only fetches `http`/`https`, blocks private/loopback/link-local/multicast/reserved addresses, caps redirects, and limits fetch size and injected context.
 

@@ -81,6 +81,7 @@
 | Route | Endpoints |
 |-------|-----------|
 | `chat.py` | `/api/chat/completions` — SSE proxy with web search |
+| `external_server.py` | `/api/chat/target` — register (POST), read (GET), or clear (DELETE) an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session |
 | `benchmarks.py` | `/api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `/api/launch`, `/api/launch/preflight`, `/api/presets/fingerprint`, `/api/llama/health`, generation-bound `/api/stop`, `/api/output`, `/api/send-input`, `/api/cleanup-llama` |
 | `install.py` | `/api/releases`, `/api/install`, `/api/update`, `/api/download-progress` |
@@ -107,6 +108,7 @@
 | `git_update.py` | Git fetch/pull/status, safe dirty path classification |
 | `lifecycle.py` | Server shutdown, restart, cleanup |
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
+| `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics and slots HTTP fetching |
 | `file_picker.py` | Native tkinter file dialog |
 
@@ -146,10 +148,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 14. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
 15. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
 16. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
-17. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-18. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-19. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-20. `app.js` — main orchestration (wires everything together)
+17. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
+18. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
+19. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+20. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+21. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -179,6 +182,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/api-tab.js` | `window.LlamaGui.apiTab` | API tab endpoint/snippet data, base URL and authorization helpers, and rendering; reads shared state through injected `flagCore` |
 | `ui/js/hf-download-ui.js` | `window.LlamaGui.hfDownloadUi` | Quick Launch Hugging Face downloader controls, status rendering, progress polling, cancel handling, and completion flow; receives shared utilities and `flagCore` from `app.js` |
 | `ui/js/remote-tunnel-ui.js` | `window.LlamaGui.remoteTunnelUi` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling; receives shared utilities and endpoint helpers from `app.js` |
+| `ui/js/external-server-ui.js` | `window.LlamaGui.externalServerUi` | API tab controls for registering a llama-server started outside this GUI: connect/disconnect actions, target rendering, and the status refresh that unlocks Chat; receives `fetchJson` and status helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, and status badge updates; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
@@ -195,7 +199,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
 4. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
 5. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
-6. **API**: View and interact with the `llama.cpp` API endpoints, start/stop Cloudflare tunnel.
+6. **API**: View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
 7. **Presets**: Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
 
 ---
@@ -551,9 +555,33 @@ The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface th
 
 The backend proxies `/api/chat/completions` to `llama-server`'s `/v1/chat/completions` endpoint:
 1. Frontend sends POST with messages, sampler params, and optional web_search flag.
-2. Backend optionally performs web search via DuckDuckGo, fetches result pages, injects context into the system prompt.
-3. Backend proxies the request to `llama-server` and streams the SSE response back to the frontend.
-4. Frontend renders markdown and tracks source citations.
+2. Backend resolves the destination from its own state — see [Chat Proxy Target](#chat-proxy-target) — and refuses the request when there is none.
+3. Backend optionally performs web search via DuckDuckGo, fetches result pages, injects context into the system prompt.
+4. Backend proxies the request to the resolved target and streams the SSE response back to the frontend.
+5. Frontend renders markdown and tracks source citations.
+
+### Chat Proxy Target
+
+`external_server.resolve_llama_target()` picks the destination for both the chat proxy and the metrics/slots proxies, in order:
+
+1. A `llama-server` this GUI launched (`ctx.state.active_runtime`).
+2. A `llama-server` the operator registered through `POST /api/chat/target` (API tab → "Connect to a Running Server").
+
+The destination is never read from the chat request body, so a `/api/chat/completions` caller cannot redirect their own request. Changing the target requires the separate `POST /api/chat/target`, which — like every other `/api/` route — is gated only by the origin check, so anyone who can reach the GUI (including over the remote tunnel) can re-register it. The enforced boundary is the address policy, not the caller: registration runs through the same local-address check as the metrics proxy (`chat.get_local_proxy_host`), so only loopback and this machine's own interfaces are accepted, and it is probed with a `GET /health` before being accepted.
+
+The live registration is session-scoped. Its API key is held in `ctx.state.external_chat_api_key`, deliberately outside the `external_chat_target` dict that `/api/status` publishes, so the key is never serialized to a client. A launched server's key still takes precedence for a launched runtime.
+
+#### Remembering a target
+
+`connect()` saves the *address* — host, port, label, and an `api_key_required` flag — under `external_chat_target` in `config.json`. The key itself is never written to disk. `disconnect()` removes the entry, because disconnecting is the operator saying they do not want this target.
+
+On load, `externalServerUi.restore()` reads `GET /api/chat/target`, which returns both the live target and the remembered one:
+
+- Already registered → adopt it and prefill the form.
+- Remembered, no key needed → `POST {"restore": true}`, which calls `reconnect_remembered()`.
+- Remembered, key needed → prefill the address and ask for the key. Never auto-connects, since the key was never stored and the attempt could only produce a target that cannot authenticate.
+
+An unattended restore passes `require_identified=True`, so the `/health` response must actually look like llama.cpp's (`{"status": ...}` or `{"error": {...}}`). If another local service has taken the port since the last session, the restore is refused instead of silently proxying chat to it. A hand-driven connect stays permissive — there the user chose the address, and an unusual status is useful feedback rather than a reason to refuse.
 
 ### Web Search
 
