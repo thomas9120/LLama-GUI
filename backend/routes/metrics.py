@@ -2,14 +2,15 @@
 
 import urllib.parse
 
-from backend.services import process_manager
+from backend.services import external_server
 
 
 def _get_metrics_target(ctx, query):
-    runtime = process_manager.get_active_runtime_snapshot(ctx)
-    if runtime and runtime.get("tool") == "llama-server":
-        return runtime.get("host"), runtime.get("port")
+    target = external_server.resolve_llama_target(ctx)
+    if target:
+        return target, target.get("host"), target.get("port")
     return (
+        None,
         (query.get("host") or [ctx.config.llama_host])[0],
         (query.get("port") or [str(ctx.config.llama_port)])[0],
     )
@@ -17,12 +18,13 @@ def _get_metrics_target(ctx, query):
 
 def get_metrics(request, response, ctx):
     query = urllib.parse.parse_qs(request.query)
-    host, port = _get_metrics_target(ctx, query)
+    target, host, port = _get_metrics_target(ctx, query)
     metrics_text, error = ctx.services.get_local_llama_metrics(
         host,
         port,
-        process_manager.get_active_llama_authorization(
+        external_server.resolve_llama_authorization(
             ctx,
+            target,
             request.headers.get("Authorization", ""),
         ),
     )
@@ -34,12 +36,13 @@ def get_metrics(request, response, ctx):
 
 def get_slots(request, response, ctx):
     query = urllib.parse.parse_qs(request.query)
-    host, port = _get_metrics_target(ctx, query)
+    target, host, port = _get_metrics_target(ctx, query)
     slots_text, error = ctx.services.get_local_llama_slots(
         host,
         port,
-        process_manager.get_active_llama_authorization(
+        external_server.resolve_llama_authorization(
             ctx,
+            target,
             request.headers.get("Authorization", ""),
         ),
     )

@@ -2042,6 +2042,10 @@ input[type="range"].sampler-range::-moz-range-thumb {
     font-size: 12px;
 }
 
+.api-status-note.error { border-color: var(--red-border); background: var(--red-subtle); color: var(--red); }
+.api-status-note.warning { border-color: var(--yellow-border); background: var(--yellow-subtle); color: var(--yellow); }
+.api-status-note:empty { display: none; }
+
 .remote-access-panel { border-top: 1px solid var(--border); padding-top: var(--space-4); margin-top: var(--space-4); }
 .remote-access-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .remote-access-header h3 { margin-bottom: var(--space-1); }

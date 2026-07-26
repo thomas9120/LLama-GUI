@@ -60,6 +60,12 @@ remoteTunnelUi.configure({
     copyText,
     getServerEndpointConfig,
 });
+const externalServerUi = window.LlamaGui.externalServerUi;
+externalServerUi.configure({
+    fetchJson,
+    getLatestStatus: () => latestStatus,
+    refreshStatus: refreshRuntimeStatusPanels,
+});
 const hfDownloadUi = window.LlamaGui.hfDownloadUi;
 hfDownloadUi.configure({
     flagCore,
@@ -500,6 +506,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initInstallButtons();
     initApiTab();
     remoteTunnelUi.init();
+    externalServerUi.init();
     initPresetImport();
     initPresetLibraryControls();
     initQuickLaunch();
@@ -609,6 +616,7 @@ function switchTab(tabId) {
         Promise.resolve(refreshRuntimeStatusPanels()).finally(() => {
             updateApiEndpoints();
             remoteTunnelUi.refreshStatus();
+            externalServerUi.refresh();
         });
     }
 }

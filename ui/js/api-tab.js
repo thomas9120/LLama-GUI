@@ -189,8 +189,17 @@
             : null;
     }
 
+    function getExternalServerTarget() {
+        const status = getLatestStatus();
+        const target = status && status.external_chat_target;
+        return target && target.connected ? target : null;
+    }
+
     function getServerEndpointConfig() {
-        const runtime = getActiveServerRuntime();
+        // A launched llama-server wins, then a server the user registered, then
+        // whatever the Configure tab is currently set up to launch. This mirrors
+        // how the backend resolves its own proxy target.
+        const runtime = getActiveServerRuntime() || getExternalServerTarget();
         const values = flagCore.getFlagValues();
         const host = String((runtime && runtime.host) || values.host || "127.0.0.1").trim() || "127.0.0.1";
         const parsedPort = Number((runtime && runtime.port) || values.port);
@@ -288,6 +297,7 @@
             && lifecycle.activeRuntime.tool === "llama-server"
             && (lifecycle.phase === "starting" || lifecycle.phase === "loading")
         );
+        const externalTarget = getExternalServerTarget();
         const values = flagCore.getFlagValues();
         const pendingHasApiKey = String(values.api_key ?? "").length > 0;
         const hasActiveAuthStatus = isRunning
@@ -295,7 +305,9 @@
             && typeof latestStatus.api_auth_configured === "boolean";
         const hasApiKey = hasActiveAuthStatus
             ? latestStatus.api_auth_configured
-            : pendingHasApiKey;
+            : externalTarget
+                ? externalTarget.api_key_configured
+                : pendingHasApiKey;
         const modeText = flagCore.getCurrentTool() === "llama-server"
             ? "Tool mode is set to llama-server."
             : "Tool mode is set to llama-cli. Switch to llama-server to expose HTTP endpoints.";
@@ -303,6 +315,8 @@
             ? "Server process is running but the model is still loading; endpoints are temporarily unavailable."
             : isRunning
             ? "Server process appears to be ready."
+            : externalTarget
+            ? "Connected to a llama-server started outside this GUI."
             : "Server process is not running right now.";
         const authText = hasApiKey
             ? "API key is configured. Use `Authorization: Bearer <key>` in clients."
@@ -393,6 +407,7 @@
         parseApiKeyCsv,
         getConfiguredApiKeys,
         getApiAuthorizationHeaders,
+        getExternalServerTarget,
         updateEndpoints,
     };
 })();

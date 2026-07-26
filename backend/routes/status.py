@@ -4,6 +4,7 @@ import os
 
 from ..http import sanitize_error
 from ..config import LLAMA_HOST, LLAMA_PORT
+from ..services import external_server
 from ..services import process_manager
 
 
@@ -54,6 +55,7 @@ def get_status(request, response, ctx):
                 "api_auth_configured": process_status["api_auth_configured"],
                 "last_exit_code": process_status["last_exit_code"],
                 "api_target": api_target,
+                "external_chat_target": external_server.get_target(ctx),
                 "platform": services.current_platform,
                 "platform_label": services.get_platform_label(),
                 "arch": services.current_arch,

@@ -37,6 +37,21 @@ def default_llama_api_target() -> dict[str, Any]:
     return {"host": config.LLAMA_HOST, "port": config.LLAMA_PORT}
 
 
+def default_external_chat_target() -> dict[str, Any]:
+    """Public description of an externally started llama-server.
+
+    Deliberately free of credentials: this dict is handed out through
+    ``/api/status``, so the registered API key lives in its own state field.
+    """
+    return {
+        "connected": False,
+        "host": "",
+        "port": 0,
+        "label": "",
+        "api_key_configured": False,
+    }
+
+
 class AtomicDict:
     """Small lock-protected dict wrapper used for status snapshots.
 
@@ -108,6 +123,19 @@ class ServerState:
         default_factory=lambda: AtomicDict(default_llama_api_target())
     )
     llama_api_target_lock: threading.Lock = field(default_factory=threading.Lock)
+
+    # A llama-server the operator started outside this GUI. Session-scoped: the
+    # key never reaches disk, so it cannot outlive the process. Only the address
+    # is remembered (in `config.json`), and an unattended restore re-probes it
+    # first so a port taken over by another local service is refused rather than
+    # silently proxied to -- see `services/external_server.reconnect_remembered`.
+    # The key is kept out of `external_chat_target` because that dict is
+    # published through the status API.
+    external_chat_target: AtomicDict = field(
+        default_factory=lambda: AtomicDict(default_external_chat_target())
+    )
+    external_chat_api_key: str = ""
+    external_chat_target_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def clear_runtime_health_cache(self) -> None:
         with self.runtime_health_lock:

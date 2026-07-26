@@ -580,7 +580,7 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="hf-token-input">Token</label>
-                                <input type="text" id="hf-token-input" class="sensitive-input-masked" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                                <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" spellcheck="false" />
                             </div>
                         </div>
                         <div class="form-row">
@@ -813,7 +813,7 @@
                     </div>
                     <div class="chat-input-area">
                         <div class="chat-no-server-note" id="chat-no-server-note" role="status">
-                            <span>Start llama-server before sending chat messages.</span>
+                            <span>Start llama-server, or connect to a running one on the API tab, before sending chat messages.</span>
                             <button class="btn btn-xs" id="btn-chat-open-quick-launch" type="button">Open Quick Launch</button>
                         </div>
                         <div class="chat-input-row">
@@ -944,6 +944,39 @@
                 </div>
 
                 <div id="api-status-note" class="api-status-note"></div>
+
+                <div class="section remote-access-panel">
+                    <div class="remote-access-header">
+                        <div>
+                            <h3>Connect to a Running Server</h3>
+                            <p class="api-intro">Point Chat, metrics, and this proxy at a llama-server you started yourself. Local addresses only.</p>
+                        </div>
+                        <div id="external-server-badge" class="remote-tunnel-badge">Not connected</div>
+                    </div>
+                    <div id="external-server-summary" class="api-base-row hidden">
+                        <span class="api-base-label">Target</span>
+                        <span id="external-server-target" class="server-link"></span>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label" for="external-server-host">Host</label>
+                            <input type="text" id="external-server-host" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="external-server-port">Port</label>
+                            <input type="number" id="external-server-port" min="1" max="65535" value="8080" placeholder="8080" autocomplete="off" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="external-server-key">API Key</label>
+                            <input type="password" id="external-server-key" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                        </div>
+                    </div>
+                    <div id="external-server-note" class="api-status-note"></div>
+                    <div class="form-row">
+                        <button id="btn-connect-external-server" class="btn btn-primary" type="button">Connect</button>
+                        <button id="btn-disconnect-external-server" class="btn btn-danger hidden" type="button">Disconnect</button>
+                    </div>
+                </div>
 
                 <div class="section remote-access-panel">
                     <div class="remote-access-header">
@@ -1374,6 +1407,7 @@
 <script src="/js/api-tab.js?v=revamp-1"></script>
 <script src="/js/hf-download-ui.js?v=revamp-1"></script>
 <script src="/js/remote-tunnel-ui.js?v=revamp-1"></script>
+<script src="/js/external-server-ui.js?v=revamp-1"></script>
 <script src="/js/quick-launch-ui.js?v=revamp-2"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>

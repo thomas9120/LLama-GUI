@@ -75,6 +75,7 @@ const expectedNamespaces = [
     "apiTab",
     "hfDownloadUi",
     "remoteTunnelUi",
+    "externalServerUi",
     "samplerPresets",
     "benchmarkUi",
     "presets",

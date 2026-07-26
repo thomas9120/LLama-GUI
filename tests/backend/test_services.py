@@ -17,6 +17,7 @@ from unittest import mock
 from backend import config
 from backend.context import AppContext, AppPaths, ServerConfig
 from backend.services import chat as chat_service
+from backend.services import external_server as external_server_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_service
 from backend.services import llama_manager
@@ -1782,6 +1783,23 @@ class GetLatestUserMessageTests(unittest.TestCase):
 
         self.assertEqual(chat_service.get_latest_user_message(messages), "")
 
+    def test_falls_back_to_older_text_when_latest_turn_has_no_text(self):
+        messages = [
+            {"role": "user", "content": "text question"},
+            {"role": "assistant", "content": "Sure."},
+            {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/x.png"}}]},
+        ]
+
+        self.assertEqual(chat_service.get_latest_user_message(messages), "text question")
+
+    def test_falls_back_past_blank_string_content(self):
+        messages = [
+            {"role": "user", "content": "text question"},
+            {"role": "user", "content": "   "},
+        ]
+
+        self.assertEqual(chat_service.get_latest_user_message(messages), "text question")
+
     def test_missing_content_key_returns_empty(self):
         messages = [{"role": "user"}]
 
@@ -1805,6 +1823,410 @@ class GetMessageTextTests(unittest.TestCase):
         self.assertEqual(chat_service.get_message_text(None), "")
         self.assertEqual(chat_service.get_message_text({"type": "text", "text": "x"}), "")
         self.assertEqual(chat_service.get_message_text(42), "")
+
+
+class MergeSystemContextTests(unittest.TestCase):
+    def test_string_content_is_appended_to(self):
+        self.assertEqual(
+            chat_service.merge_system_context("Be brief.  ", "CONTEXT"),
+            "Be brief.\n\nCONTEXT",
+        )
+
+    def test_blank_string_content_yields_context_only(self):
+        self.assertEqual(chat_service.merge_system_context("", "CONTEXT"), "CONTEXT")
+
+    def test_array_content_keeps_non_text_parts(self):
+        content = [
+            {"type": "text", "text": "Alpha"},
+            {"type": "image_url", "image_url": {"url": "https://example.com/x.png"}},
+        ]
+
+        merged = chat_service.merge_system_context(content, "CONTEXT")
+
+        self.assertEqual(merged, [*content, {"type": "text", "text": "CONTEXT"}])
+        self.assertEqual(len(content), 2, "source content must not be mutated")
+
+    def test_unmergeable_content_returns_none(self):
+        self.assertIsNone(chat_service.merge_system_context(None, "CONTEXT"))
+        self.assertIsNone(chat_service.merge_system_context({"a": 1}, "CONTEXT"))
+        self.assertIsNone(chat_service.merge_system_context(42, "CONTEXT"))
+
+
+class FakeHealthResponse:
+    def __init__(self, status, body=b'{"status":"ok"}'):
+        self.status = status
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def getcode(self):
+        return self.status
+
+    def read(self, amount=None):
+        return self.body
+
+
+class ExternalServerServiceTests(unittest.TestCase):
+    def make_context(self, saved=None):
+        ctx = AppContext()
+        ctx.services.set_llama_api_target = mock.Mock(return_value={})
+        store = {"tag": "b1", "backend": "cpu"}
+        if saved is not None:
+            store["external_chat_target"] = saved
+
+        def save_config(config_data):
+            store.clear()
+            store.update(config_data)
+
+        ctx.services.load_config = lambda: dict(store)
+        ctx.services.save_config = save_config
+        self.config_store = store
+        return ctx
+
+    def connect(self, ctx, host="127.0.0.1", port=8080, api_key="", label=""):
+        return external_server_service.connect(
+            ctx, host, port, api_key, label, probe_target=False
+        )
+
+    def test_no_target_registered_by_default(self):
+        ctx = self.make_context()
+
+        self.assertIsNone(external_server_service.get_target(ctx))
+        self.assertEqual(external_server_service.get_authorization(ctx), "")
+        self.assertIsNone(external_server_service.resolve_llama_target(ctx))
+
+    def test_connect_registers_target_and_aligns_v1_proxy(self):
+        ctx = self.make_context()
+
+        target = self.connect(ctx, host="127.0.0.1", port=9001, label="  Workstation  ")
+
+        self.assertEqual(target["host"], "127.0.0.1")
+        self.assertEqual(target["port"], 9001)
+        self.assertEqual(target["label"], "Workstation")
+        self.assertFalse(target["api_key_configured"])
+        self.assertEqual(
+            external_server_service.resolve_llama_target(ctx),
+            {"host": "127.0.0.1", "port": 9001, "source": "external"},
+        )
+        ctx.services.set_llama_api_target.assert_called_once_with("127.0.0.1", 9001)
+
+    def test_published_target_never_contains_the_api_key(self):
+        ctx = self.make_context()
+
+        target = self.connect(ctx, api_key="secret-key")
+
+        self.assertTrue(target["api_key_configured"])
+        self.assertNotIn("secret-key", json.dumps(target))
+        self.assertNotIn("secret-key", json.dumps(external_server_service.get_target(ctx)))
+        self.assertEqual(external_server_service.get_authorization(ctx), "Bearer secret-key")
+
+    def test_connect_rejects_non_local_host(self):
+        ctx = self.make_context()
+
+        with self.assertRaises(ValueError):
+            self.connect(ctx, host="203.0.113.10")
+
+        self.assertIsNone(external_server_service.get_target(ctx))
+
+    def test_connect_rejects_invalid_ports(self):
+        ctx = self.make_context()
+
+        for port in (0, 70000, -1, "not-a-port", None, True):
+            with self.subTest(port=port), self.assertRaises(ValueError):
+                self.connect(ctx, port=port)
+
+    def test_connect_rejects_header_breaking_api_keys(self):
+        ctx = self.make_context()
+
+        # "ünicode" is intentionally absent: latin-1 encodes it, so http.client
+        # can send it and there is no reason to reject it.
+        for api_key in ("bad\r\nX-Injected: 1", "bad\nkey", "tab\tkey", "key-键"):
+            with self.subTest(api_key=api_key), self.assertRaises(ValueError):
+                self.connect(ctx, api_key=api_key)
+
+        with self.assertRaises(ValueError):
+            self.connect(ctx, api_key="k" * (external_server_service.MAX_API_KEY_LENGTH + 1))
+
+    def test_connect_normalizes_wildcard_host_to_the_loopback_address(self):
+        ctx = self.make_context()
+
+        target = self.connect(ctx, host="0.0.0.0")
+
+        self.assertEqual(target["host"], config.LLAMA_HOST)
+
+    def test_disconnect_clears_target_and_key(self):
+        ctx = self.make_context()
+        self.connect(ctx, api_key="secret-key")
+
+        external_server_service.disconnect(ctx)
+
+        self.assertIsNone(external_server_service.get_target(ctx))
+        self.assertEqual(external_server_service.get_authorization(ctx), "")
+        self.assertEqual(ctx.state.external_chat_api_key, "")
+        ctx.services.set_llama_api_target.assert_called_with(None, None)
+
+    def test_connect_leaves_the_v1_proxy_on_a_winning_runtime(self):
+        # A launched llama-server still wins in `resolve_llama_target`, so
+        # registering must not point /v1 somewhere chat and metrics won't go.
+        ctx = self.make_context()
+        ctx.state.process = FakeLaunchedProcess(returncode=None)
+        ctx.state.active_process_tool = "llama-server"
+        ctx.state.active_runtime = {"tool": "llama-server", "host": "127.0.0.1", "port": 8080}
+
+        self.connect(ctx, port=9001)
+
+        ctx.services.set_llama_api_target.assert_called_once_with("127.0.0.1", 8080)
+
+    def test_disconnect_hands_the_v1_proxy_back_to_a_running_runtime(self):
+        ctx = self.make_context()
+        ctx.state.process = FakeLaunchedProcess(returncode=None)
+        ctx.state.active_process_tool = "llama-server"
+        ctx.state.active_runtime = {"tool": "llama-server", "host": "127.0.0.1", "port": 8080}
+        self.connect(ctx, port=9001)
+
+        external_server_service.disconnect(ctx)
+
+        ctx.services.set_llama_api_target.assert_called_with("127.0.0.1", 8080)
+
+    def test_launched_runtime_wins_over_a_registered_target(self):
+        ctx = self.make_context()
+        self.connect(ctx, port=9001)
+        ctx.state.process = FakeLaunchedProcess(returncode=None)
+        ctx.state.active_process_tool = "llama-server"
+        ctx.state.active_llama_api_keys = ("launch-secret",)
+        ctx.state.active_runtime = {"tool": "llama-server", "host": "127.0.0.1", "port": 8080}
+
+        target = external_server_service.resolve_llama_target(ctx)
+
+        self.assertEqual(target, {"host": "127.0.0.1", "port": 8080, "source": "runtime"})
+        self.assertEqual(
+            external_server_service.resolve_llama_authorization(ctx, target),
+            "Bearer launch-secret",
+        )
+
+    def test_non_server_runtime_falls_through_to_the_registered_target(self):
+        ctx = self.make_context()
+        self.connect(ctx, port=9001)
+        ctx.state.process = FakeLaunchedProcess(returncode=None)
+        ctx.state.active_process_tool = "llama-cli"
+        ctx.state.active_runtime = {"tool": "llama-cli", "host": "127.0.0.1", "port": 8080}
+
+        self.assertEqual(
+            external_server_service.resolve_llama_target(ctx),
+            {"host": "127.0.0.1", "port": 9001, "source": "external"},
+        )
+
+    def test_external_authorization_uses_the_stored_key_over_the_caller_header(self):
+        ctx = self.make_context()
+        self.connect(ctx, api_key="stored-key")
+        target = external_server_service.resolve_llama_target(ctx)
+
+        self.assertEqual(
+            external_server_service.resolve_llama_authorization(ctx, target, "Bearer caller-key"),
+            "Bearer stored-key",
+        )
+
+    def test_external_authorization_falls_back_when_no_key_was_stored(self):
+        ctx = self.make_context()
+        self.connect(ctx)
+        target = external_server_service.resolve_llama_target(ctx)
+
+        self.assertEqual(
+            external_server_service.resolve_llama_authorization(ctx, target, "Bearer caller-key"),
+            "Bearer caller-key",
+        )
+
+    def test_connect_probes_the_target_and_reports_a_rejected_key(self):
+        ctx = self.make_context()
+        error = urllib.error.HTTPError(
+            "http://127.0.0.1:9001/health", 401, "Unauthorized", Message(), None
+        )
+
+        with mock.patch.object(
+            external_server_service.urllib.request, "urlopen", side_effect=error
+        ):
+            target = external_server_service.connect(ctx, "127.0.0.1", 9001, "wrong-key")
+
+        self.assertEqual(target["probe_status"], 401)
+        self.assertIn("rejected the API key", target["warning"])
+        self.assertIsNotNone(external_server_service.get_target(ctx))
+
+    def test_connect_sends_the_api_key_with_the_probe(self):
+        ctx = self.make_context()
+        captured = {}
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            return FakeHealthResponse(200)
+
+        with mock.patch.object(
+            external_server_service.urllib.request, "urlopen", side_effect=fake_urlopen
+        ):
+            target = external_server_service.connect(ctx, "127.0.0.1", 9001, "probe-key")
+
+        self.assertEqual(captured["url"], "http://127.0.0.1:9001/health")
+        self.assertEqual(captured["authorization"], "Bearer probe-key")
+        self.assertEqual(target["probe_status"], 200)
+        self.assertEqual(target["warning"], "")
+
+    def test_connect_refuses_an_address_that_does_not_answer(self):
+        ctx = self.make_context()
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ), self.assertRaises(external_server_service.ExternalServerUnreachable):
+            external_server_service.connect(ctx, "127.0.0.1", 9001)
+
+        self.assertIsNone(external_server_service.get_target(ctx))
+
+    def test_connect_survives_an_unconfigured_v1_proxy_service(self):
+        ctx = AppContext()
+
+        target = self.connect(ctx, port=9001)
+
+        self.assertEqual(target["port"], 9001)
+        self.assertIsNotNone(external_server_service.get_target(ctx))
+
+    def test_connect_remembers_the_address_but_never_the_key(self):
+        ctx = self.make_context()
+
+        self.connect(ctx, host="127.0.0.1", port=9001, api_key="secret-key", label="Workstation")
+
+        saved = self.config_store["external_chat_target"]
+        self.assertEqual(
+            saved,
+            {"host": "127.0.0.1", "port": 9001, "label": "Workstation", "api_key_required": True},
+        )
+        self.assertNotIn("secret-key", json.dumps(self.config_store))
+        self.assertEqual(self.config_store["tag"], "b1", "unrelated config must survive the write")
+
+    def test_connect_without_a_key_records_that_none_is_required(self):
+        ctx = self.make_context()
+
+        self.connect(ctx, port=9001)
+
+        self.assertFalse(self.config_store["external_chat_target"]["api_key_required"])
+
+    def test_disconnect_forgets_the_saved_address(self):
+        ctx = self.make_context()
+        self.connect(ctx, port=9001)
+
+        external_server_service.disconnect(ctx)
+
+        self.assertNotIn("external_chat_target", self.config_store)
+        self.assertIsNone(external_server_service.get_remembered_target(ctx))
+
+    def test_remembered_target_reads_back_a_saved_entry(self):
+        ctx = self.make_context(
+            saved={"host": "127.0.0.1", "port": 9001, "label": "Box", "api_key_required": True}
+        )
+
+        self.assertEqual(
+            external_server_service.get_remembered_target(ctx),
+            {"host": "127.0.0.1", "port": 9001, "label": "Box", "api_key_required": True},
+        )
+
+    def test_remembered_target_ignores_unusable_entries(self):
+        for saved in (
+            {"host": "203.0.113.10", "port": 9001},
+            {"host": "127.0.0.1", "port": 70000},
+            {"host": "127.0.0.1"},
+            "not-a-mapping",
+            None,
+        ):
+            with self.subTest(saved=saved):
+                ctx = self.make_context(saved=saved)
+                self.assertIsNone(external_server_service.get_remembered_target(ctx))
+
+    def test_remembered_target_survives_an_unconfigured_config_service(self):
+        self.assertIsNone(external_server_service.get_remembered_target(AppContext()))
+
+    def test_reconnect_restores_a_keyless_address(self):
+        ctx = self.make_context(
+            saved={"host": "127.0.0.1", "port": 9001, "label": "Box", "api_key_required": False}
+        )
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthResponse(200),
+        ):
+            target = external_server_service.reconnect_remembered(ctx)
+
+        self.assertEqual(target["host"], "127.0.0.1")
+        self.assertEqual(target["port"], 9001)
+        self.assertEqual(target["label"], "Box")
+        self.assertIsNotNone(external_server_service.get_target(ctx))
+
+    def test_reconnect_skips_an_address_that_needed_a_key(self):
+        ctx = self.make_context(
+            saved={"host": "127.0.0.1", "port": 9001, "api_key_required": True}
+        )
+
+        with mock.patch.object(external_server_service.urllib.request, "urlopen") as urlopen:
+            self.assertIsNone(external_server_service.reconnect_remembered(ctx))
+
+        urlopen.assert_not_called()
+        self.assertIsNone(external_server_service.get_target(ctx))
+
+    def test_reconnect_returns_none_when_nothing_was_saved(self):
+        ctx = self.make_context()
+
+        self.assertIsNone(external_server_service.reconnect_remembered(ctx))
+
+    def test_reconnect_refuses_a_port_taken_by_something_else(self):
+        ctx = self.make_context(
+            saved={"host": "127.0.0.1", "port": 9001, "api_key_required": False}
+        )
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
+        ), self.assertRaises(external_server_service.ExternalServerUnreachable):
+            external_server_service.reconnect_remembered(ctx)
+
+        self.assertIsNone(external_server_service.get_target(ctx))
+
+    def test_manual_connect_stays_permissive_about_an_unrecognized_body(self):
+        ctx = self.make_context()
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "urlopen",
+            return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
+        ):
+            target = external_server_service.connect(ctx, "127.0.0.1", 9001)
+
+        self.assertFalse(target["identified"])
+        self.assertIsNotNone(external_server_service.get_target(ctx))
+
+    def test_probe_identifies_llama_server_health_responses(self):
+        cases = {
+            b'{"status":"ok"}': True,
+            b'{"error":{"code":503,"message":"Loading model"}}': True,
+            b'{"ok":true}': False,
+            b"<html></html>": False,
+            b"": False,
+            b"[]": False,
+        }
+        for body, expected in cases.items():
+            with self.subTest(body=body):
+                with mock.patch.object(
+                    external_server_service.urllib.request,
+                    "urlopen",
+                    return_value=FakeHealthResponse(200, body),
+                ):
+                    result = external_server_service.probe("127.0.0.1", 9001)
+                self.assertEqual(result["identified"], expected)
+                self.assertEqual(result["status"], 200)
 
 
 class GetLocalProxyHostTests(unittest.TestCase):
