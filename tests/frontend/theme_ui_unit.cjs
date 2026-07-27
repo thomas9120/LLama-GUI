@@ -431,6 +431,9 @@ function run(storedTheme) {
         ["--red", "--red-subtle"],
         ["--yellow", "--yellow-subtle"],
         ["--favorite", "--favorite-subtle"],
+        // Cyan is normal-size text in code blocks and chat emphasis, not only
+        // a decorative icon color, so it belongs at the AA text floor too.
+        ["--cyan", "--cyan-subtle"],
     ];
     // --fg-faint is the one tier deliberately held to the 3:1 floor rather
     // than AA: raising it to 4.5 would collapse it into --fg-muted and the
@@ -453,6 +456,15 @@ function run(storedTheme) {
             ["bg-raised", resolve("--bg-raised", decls)[0]],
             ["bg-elevated", resolve("--bg-elevated", decls)[0]],
         ];
+        // Preset rows draw translucent favourite washes over --panel-wash.
+        // Composite both layers over the base rather than validating their
+        // foregrounds against an optimistic opaque surface.
+        const [panelRgb, panelAlpha] = resolve("--panel-wash", decls);
+        const panelBackground = composite(panelRgb, panelAlpha, resolve("--bg-base", decls)[0]);
+        const favoriteStateBackgrounds = ["--favorite-wash", "--favorite-wash-hover"].map(token => {
+            const [washRgb, washAlpha] = resolve(token, decls);
+            return [token.slice(2), composite(washRgb, washAlpha, panelBackground)];
+        });
 
         const check = (token, floor, extra = []) => {
             const fg = resolve(token, decls)[0];
@@ -464,7 +476,7 @@ function run(storedTheme) {
             }
         };
 
-        for (const [token, floor] of neutrals) check(token, floor);
+        for (const [token, floor] of neutrals) check(token, floor, favoriteStateBackgrounds);
         for (const [text, subtle] of families) {
             const [subRgb, subAlpha] = resolve(subtle, decls);
             check(text, AA, [["own chip", composite(subRgb, subAlpha, surface)]]);

@@ -81,9 +81,9 @@ Fast Node tests:
 - `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering.
 - `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, unknown-theme normalization, and registry-driven color-scheme hints (asserted for every entry in `THEMES`, so a new theme with the wrong `scheme` fails here). Also covers the sidebar theme menu against a DOM stub: rendering one row per registry entry, `aria-checked`/roving `tabindex`, arrow-key wrapping, Home/End, Escape returning focus to the trigger, and outside-click dismissal. Asserts every `THEMES` entry has a matching palette block in `tokens.css`, so a theme cannot be offered in the menu while rendering as the fallback. Also enforces contrast floors for every theme, which is what makes adding a theme safe rather than merely cheap:
 
-  - AA (4.5:1) for `--fg`, `--fg-muted`, the five semantic colors (`--accent-text`, `--green`, `--red`, `--yellow`, `--favorite`) and `--red-fg`.
+  - AA (4.5:1) for `--fg`, `--fg-muted`, the six semantic text colors (`--accent-text`, `--green`, `--red`, `--yellow`, `--favorite`, `--cyan`) and `--red-fg`.
   - 3:1 for `--fg-faint` (non-essential text, deliberately below AA so it stays a distinct tier from `--fg-muted`) and for the fill-only `-solid` tokens.
-  - Measured against `--bg-surface`, `--bg-raised` and `--bg-elevated` — text lands on all three — plus each semantic color's own `-subtle` chip, which is its worst background and is what let ten AA failures ship unnoticed.
+  - Measured against `--bg-surface`, `--bg-raised` and `--bg-elevated` — text lands on all three — plus each semantic color's own `-subtle` chip and the composited favourite-row rest/hover washes.
   - Two usage invariants that keep the lower floors honest: `--yellow-solid`/`--favorite-solid` must never appear as a `color:`, and placeholder text must never use `--fg-faint`.
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.

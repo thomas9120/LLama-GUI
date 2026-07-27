@@ -230,8 +230,9 @@ behaviour.
 Derived `rgba()` values (`-subtle`, `-border`, `-subtle-hover`,
 `--favorite-wash*`, `--yellow-glow`) were updated to track their base color.
 
-**A test now enforces the rule** for every family in every theme, against
-surface, `--bg-raised` and the family's own chip. It is mutation-verified:
+**A test now enforces the rule** for every text-bearing family in every
+theme, including `--cyan`, against surface, `--bg-raised`, `--bg-elevated`
+and the family's own chip. It is mutation-verified:
 reverting any of the eleven values above fails it with the offending
 theme, token, background and ratio. This is the check that makes adding a
 theme safe rather than merely cheap.
@@ -559,7 +560,9 @@ and one registry entry.
 
    Derived rather than eyeballed: each theme's inset scale was solved to
    match Tokyo's perceptual depth steps against its own surface, and
-   `--favorite-wash` was sized against its own hover step.
+   `--favorite-wash` was sized against its own hover step. Follow-up review
+   also composites the rest and hover washes in the contrast test, so their
+   visual hierarchy cannot lower row text below its assigned floor.
 
    Two things the mockup did not anticipate:
 
