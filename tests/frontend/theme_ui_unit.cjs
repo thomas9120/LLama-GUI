@@ -75,13 +75,49 @@ function runWithStoredTheme(storedTheme) {
 }
 
 {
+    // The default theme sets its attribute like any other; it is not "the
+    // absent case" any more.
     const { buttons, context, documentElement, meta } = runWithStoredTheme(undefined);
     context.window.LlamaGui.themeUi.init();
 
-    assert.equal(documentElement.dataset.theme, undefined);
+    assert.equal(documentElement.dataset.theme, "tokyo");
     assert.equal(meta.attributes.content, "dark light");
     assert.equal(buttons[0].attributes["aria-pressed"], "true");
     assert.equal(buttons[1].attributes["aria-pressed"], "false");
+}
+
+{
+    // An unrecognised stored theme normalises to the default rather than
+    // being written through to the attribute.
+    const { context, documentElement } = runWithStoredTheme("no-such-theme");
+    context.window.LlamaGui.themeUi.init();
+
+    assert.equal(documentElement.dataset.theme, "tokyo");
+}
+
+{
+    // The color-scheme hint is driven by the registry, not by a hardcoded
+    // theme name. This is the regression the registry exists to prevent: a
+    // new light theme that keeps reporting "dark light" makes the browser
+    // style native controls and scrollbars for the wrong polarity.
+    const { context, meta } = runWithStoredTheme(undefined);
+    const themeUi = context.window.LlamaGui.themeUi;
+    const themes = themeUi.getThemes();
+
+    assert.ok(themes.length >= 2, "registry should list every shipped theme");
+    for (const theme of themes) {
+        assert.ok(theme.id && theme.label, `theme ${theme.id} needs an id and label`);
+        assert.ok(
+            theme.scheme === "light" || theme.scheme === "dark",
+            `theme ${theme.id} needs an explicit light/dark scheme`
+        );
+        themeUi.applyTheme(theme.id);
+        assert.equal(
+            meta.attributes.content,
+            theme.scheme === "light" ? "light dark" : "dark light",
+            `theme ${theme.id} reported the wrong color-scheme hint`
+        );
+    }
 }
 
 {

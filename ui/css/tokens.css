@@ -1,4 +1,38 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   Structural tokens. Not part of any palette — identical in every theme.
+   ───────────────────────────────────────────────────────────────────────── */
 :root {
+    --radius-xs: 4px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+
+    --font: 'Inter', system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
+
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --space-6: 24px;
+
+    --ease-fast: 0.12s ease;
+    --ease-med: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --sidebar-w: 220px;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Palettes. One block per theme, and a theme is nothing but its block —
+   no [data-theme=…] selectors exist anywhere else in the CSS.
+
+   Tokyo is listed under the bare :root as well as its own attribute so it
+   doubles as the fallback when no (or an unrecognised) data-theme is set,
+   without the palette being written out twice.
+   ───────────────────────────────────────────────────────────────────────── */
+:root,
+:root[data-theme="tokyo"] {
     color-scheme: dark;
     --bg-base: #0f111a;
     --bg-surface: #161824;
@@ -11,8 +45,16 @@
     --fg-faint: #555a74;
     --accent: #6c9bff;
     --accent-hover: #85aeff;
+    /* --accent is the FILL. --accent-text is the same role applied to text
+       and icons, and light themes must diverge: their accent is a dark
+       neutral that sits within ~1.1:1 of --fg, so accent-as-text would be
+       indistinguishable from body copy. Dark themes keep them identical. */
+    --accent-text: var(--accent);
     --accent-subtle: rgba(108, 155, 255, 0.12);
     --accent-border: rgba(108, 155, 255, 0.28);
+    /* Text/icons sitting ON an --accent or --magenta fill. */
+    --on-accent: #0a0e1a;
+    --on-magenta: #0a0e1a;
     --green: #6ee08a;
     --green-subtle: rgba(110, 224, 138, 0.12);
     --green-border: rgba(110, 224, 138, 0.28);
@@ -20,6 +62,12 @@
     --red-subtle: rgba(255, 107, 138, 0.12);
     --red-border: rgba(255, 107, 138, 0.28);
     --yellow: #f0c75e;
+    /* The inverse of the --accent/--accent-text split: --yellow is tuned to
+       stay readable as warning text at 10-12px, which on a light theme
+       means a muted brown-gold. The four sites that use it as a *fill*
+       (favourite bar, warn dot, favourites-only chip) need chroma instead,
+       or they read as just another brown line. */
+    --yellow-solid: var(--yellow);
     --yellow-subtle: rgba(240, 199, 94, 0.12);
     --yellow-border: rgba(240, 199, 94, 0.28);
     --cyan: #5cc8f0;
@@ -65,11 +113,6 @@
     --body-gradient-top: transparent;
     --body-gradient-bottom: transparent;
 
-    --radius-xs: 4px;
-    --radius-sm: 6px;
-    --radius-md: 10px;
-    --radius-lg: 14px;
-
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
     --shadow-md: 0 4px 12px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.15);
     --shadow-lg: 0 12px 36px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
@@ -78,21 +121,6 @@
     --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
     /* Floating slider thumb. */
     --shadow-knob: 0 2px 6px rgba(0, 0, 0, 0.30);
-
-    --font: 'Inter', system-ui, -apple-system, sans-serif;
-    --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
-
-    --space-1: 4px;
-    --space-2: 8px;
-    --space-3: 12px;
-    --space-4: 16px;
-    --space-5: 20px;
-    --space-6: 24px;
-
-    --ease-fast: 0.12s ease;
-    --ease-med: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-
-    --sidebar-w: 220px;
 }
 
 :root[data-theme="cappuccino"] {
@@ -108,8 +136,12 @@
     --fg-faint: #a88d81;
     --accent: #4b3832;
     --accent-hover: #3d2e29;
+    /* Copper, not the near-black fill: #4b3832 sits 1.10:1 from --fg. */
+    --accent-text: #a8622c;
     --accent-subtle: rgba(75, 56, 50, 0.12);
     --accent-border: rgba(75, 56, 50, 0.28);
+    --on-accent: #fffaf2;
+    --on-magenta: #fffaf2;
     --green: #66784f;
     --green-subtle: rgba(102, 120, 79, 0.14);
     --green-border: rgba(102, 120, 79, 0.32);
@@ -117,6 +149,10 @@
     --red-subtle: rgba(162, 79, 73, 0.12);
     --red-border: rgba(162, 79, 73, 0.28);
     --yellow: #9b733d;
+    /* 3.49:1 on the cream surface, clearing the 3:1 UI-component floor,
+       with ~1.6x the saturation of --yellow (0.71 vs 0.44) — that chroma
+       gap is what makes it read as gold rather than brown. */
+    --yellow-solid: #b8791f;
     --yellow-subtle: rgba(190, 155, 123, 0.22);
     --yellow-border: rgba(190, 155, 123, 0.48);
     --cyan: #5b7295;
