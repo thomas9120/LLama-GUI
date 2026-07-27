@@ -47,7 +47,9 @@
 
     /* Hairline highlight on a raised strip (code-block headers). */
     --overlay-raised: rgba(255, 255, 255, 0.03);
-    /* Sweep highlight travelling across a progress bar. */
+    /* Sweep highlight travelling across a progress bar. Deliberately not
+       overridden per theme: the bar is filled with --accent, which is dark
+       in every theme, so white reads correctly on all of them. */
     --shimmer: rgba(255, 255, 255, 0.15);
     /* Full-viewport dim behind a modal. */
     --scrim: rgba(0, 0, 0, 0.6);
@@ -72,6 +74,10 @@
     --shadow-md: 0 4px 12px rgba(0,0,0,0.25), 0 1px 3px rgba(0,0,0,0.15);
     --shadow-lg: 0 12px 36px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2);
     --shadow-accent: 0 2px 12px rgba(108, 155, 255, 0.25);
+    /* Recessed inner shadow (model-switcher track). */
+    --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+    /* Floating slider thumb. */
+    --shadow-knob: 0 2px 6px rgba(0, 0, 0, 0.30);
 
     --font: 'Inter', system-ui, -apple-system, sans-serif;
     --mono: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
@@ -114,18 +120,40 @@
     --yellow-subtle: rgba(190, 155, 123, 0.22);
     --yellow-border: rgba(190, 155, 123, 0.48);
     --cyan: #5b7295;
+    --cyan-subtle: rgba(91, 114, 149, 0.14);
+    --cyan-border: rgba(91, 114, 149, 0.32);
     --magenta: #8b6547;
+    --magenta-subtle: rgba(139, 101, 71, 0.14);
+    --magenta-border: rgba(139, 101, 71, 0.32);
+    --accent-wash: rgba(75, 56, 50, 0.06);
+    --accent-subtle-hover: rgba(75, 56, 50, 0.18);
+    --red-subtle-hover: rgba(162, 79, 73, 0.2);
     --border: rgba(93, 57, 50, 0.14);
     --border-strong: rgba(93, 57, 50, 0.24);
 
-    /* Only the tokens that genuinely differ from :root are listed here. The
-       inset scale, --overlay-raised, --shimmer, --scrim and --red-fg are
-       still inherited from :root and are wrong for a light theme; they get
-       Cappuccino values in the follow-up pass. */
+    /* Insets tint toward the theme's own brown, never pure black, or panels
+       read as grey holes punched in the cream. Alphas are ~1.8x the value
+       that would match Tokyo's perceptual depth (dL*) exactly: strict parity
+       lands the whole four-step scale between 0.02 and 0.05, where rounding
+       noise swamps the steps. */
+    --inset-xs: rgba(93, 57, 50, 0.03);
+    --inset-sm: rgba(93, 57, 50, 0.05);
+    --inset-md: rgba(93, 57, 50, 0.07);
+    --inset-lg: rgba(93, 57, 50, 0.10);
+
+    /* A light theme has no headroom to lighten past --bg-surface, so the
+       raised strip works by washing the inset back out rather than by adding
+       white to an already-bright surface. Hence 0.40 against Tokyo's 0.03. */
+    --overlay-raised: rgba(255, 255, 255, 0.40);
+    --scrim: rgba(75, 43, 33, 0.45);
+    --red-fg: #8f4038;
     --yellow-glow: rgba(155, 115, 61, 0.5);
     --panel-wash: rgba(255, 250, 242, 0.68);
     --body-gradient-top: rgba(255, 250, 242, 0.78);
     --body-gradient-bottom: rgba(255, 244, 230, 0.96);
+
+    --shadow-inset: inset 0 1px 2px rgba(87, 54, 40, 0.10);
+    --shadow-knob: 0 2px 6px rgba(87, 54, 40, 0.20);
 
     --shadow-sm: 0 1px 2px rgba(75, 43, 33, 0.08);
     --shadow-md: 0 10px 26px rgba(87, 54, 40, 0.13), 0 2px 7px rgba(87, 54, 40, 0.08);

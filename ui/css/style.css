@@ -307,7 +307,7 @@ body.chat-focus-mode .sidebar {
     border: 1px solid var(--accent-border);
     border-radius: 999px;
     background: var(--bg-elevated);
-    box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+    box-shadow: var(--shadow-inset);
 }
 
 .sidebar-model-switcher-track::before {
@@ -327,7 +327,7 @@ body.chat-focus-mode .sidebar {
     border: 2px solid var(--fg-bright);
     border-radius: 50%;
     background: var(--accent);
-    box-shadow: 0 2px 7px rgba(0, 0, 0, 0.32);
+    box-shadow: var(--shadow-knob);
     cursor: grab;
     transition: left 150ms ease, transform var(--ease-fast), box-shadow var(--ease-fast);
 }
@@ -1240,8 +1240,11 @@ input[type="range"].sampler-range::-moz-range-thumb {
     width: 14px;
     height: 14px;
     border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.35);
-    border-top-color: #fff;
+    /* Rest of the ring stays transparent so the arc inherits the button's
+       own text color — the old white ring was wrong on any theme whose
+       primary button has dark text. */
+    border: 2px solid transparent;
+    border-top-color: currentColor;
     animation: quick-spin 0.8s linear infinite;
     vertical-align: -2px;
     margin-right: 6px;
@@ -3997,7 +4000,7 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-faint); }
     background: var(--accent);
     border: 2px solid var(--bg-surface);
     cursor: pointer;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    box-shadow: var(--shadow-knob);
     transition: background var(--ease-fast);
 }
 
