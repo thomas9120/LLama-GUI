@@ -315,21 +315,41 @@ function run(storedTheme) {
 
 {
     // Choosing a row applies and persists the theme, closes the menu, and
-    // returns focus to the trigger.
+    // returns focus to the trigger. Addressed by id rather than index, so
+    // reordering or adding registry entries does not break this.
     const t = run(undefined);
     t.themeUi.init();
     const items = t.items();
+    const themes = t.themeUi.getThemes();
+
+    const target = themes[themes.length - 1];
+    const targetItem = items.find(item => item.dataset.themeOption === target.id);
+    const otherItem = items.find(item => item.dataset.themeOption !== target.id);
 
     fire(t.trigger, "click");
-    fire(items[1], "click");
+    fire(targetItem, "click");
 
-    assert.equal(t.documentElement.dataset.theme, "cappuccino");
-    assert.equal(t.storage.get("llama_gui_theme"), "cappuccino");
-    assert.equal(items[1].getAttribute("aria-checked"), "true");
-    assert.equal(items[0].getAttribute("aria-checked"), "false");
+    assert.equal(t.documentElement.dataset.theme, target.id);
+    assert.equal(t.storage.get("llama_gui_theme"), target.id);
+    assert.equal(targetItem.getAttribute("aria-checked"), "true");
+    assert.equal(otherItem.getAttribute("aria-checked"), "false");
     assert.equal(t.list.hidden, true);
     assert.equal(t.state.focused, t.trigger);
-    assert.equal(t.currentLabel.textContent, "Cappuccino");
+    assert.equal(t.currentLabel.textContent, target.label);
+}
+
+{
+    // Every registry entry must have a palette block in tokens.css, or the
+    // menu offers a theme that renders as the fallback.
+    const fs = require("node:fs");
+    const css = fs.readFileSync(path.join(ROOT, "ui", "css", "tokens.css"), "utf8");
+    const t = run(undefined);
+    for (const theme of t.themeUi.getThemes()) {
+        assert.ok(
+            css.includes(`[data-theme="${theme.id}"]`),
+            `theme ${theme.id} is in the registry but has no palette block`
+        );
+    }
 }
 
 {
@@ -345,6 +365,159 @@ function run(storedTheme) {
     fire(t.trigger, "click");
     t.document.listeners.click.forEach(h => h({ target: t.items()[0] }));
     assert.equal(t.list.hidden, false, "click inside the menu leaves it open");
+}
+
+{
+    // Contrast floor for semantic colors, in every theme.
+    //
+    // The subtle/border alphas were originally picked for how the *fill*
+    // looked, and the same hue was then reused as text on top of that fill,
+    // with nothing checking the pair. That shipped ten AA failures across
+    // three themes at once. The chip -- not the bare surface -- is the worst
+    // background these colors land on, so it is what they must be sized
+    // against.
+    const fs = require("node:fs");
+    const css = fs.readFileSync(path.join(ROOT, "ui", "css", "tokens.css"), "utf8");
+
+    const blockFor = (id) => {
+        // Tokyo's palette is shared with the bare :root so it doubles as the
+        // no-JS fallback; match either selector, and stay agnostic about line
+        // endings so this does not depend on the checkout's CRLF setting.
+        const selector = new RegExp(`:root\\[data-theme="${id}"\\]\\s*\\{`);
+        const match = selector.exec(css);
+        assert.ok(match, `no palette block for ${id}`);
+        const rest = css.slice(match.index);
+        return rest.slice(0, rest.search(/\r?\n\}/));
+    };
+
+    const declarations = (block) => {
+        const out = {};
+        for (const [, k, v] of block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) out[k] = v.trim();
+        return out;
+    };
+
+    const toLinear = (c) => {
+        const s = c / 255;
+        return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    };
+    const luminance = ([r, g, b]) => 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+    const contrast = (a, b) => {
+        const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (hi + 0.05) / (lo + 0.05);
+    };
+    const composite = (fg, alpha, bg) => fg.map((c, i) => alpha * c + (1 - alpha) * bg[i]);
+
+    // Resolves a token to [r,g,b] plus alpha, following var() indirection.
+    const resolve = (name, decls) => {
+        let value = decls[name];
+        assert.ok(value, `token ${name} is not defined`);
+        while (value.startsWith("var(")) {
+            value = decls[value.slice(4, value.indexOf(")"))];
+        }
+        if (value.startsWith("#")) {
+            const h = value.slice(1);
+            return [[0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)), 1];
+        }
+        const parts = value.match(/rgba?\(([^)]+)\)/)[1].split(",").map(s => parseFloat(s.trim()));
+        return [parts.slice(0, 3), parts.length > 3 ? parts[3] : 1];
+    };
+
+    const tokyo = declarations(blockFor("tokyo"));
+    const AA = 4.5;      // WCAG 1.4.3, normal-size text
+    const UI = 3.0;      // WCAG 1.4.11, non-text and non-essential text
+    const families = [
+        ["--accent-text", "--accent-subtle"],
+        ["--green", "--green-subtle"],
+        ["--red", "--red-subtle"],
+        ["--yellow", "--yellow-subtle"],
+        ["--favorite", "--favorite-subtle"],
+    ];
+    // --fg-faint is the one tier deliberately held to the 3:1 floor rather
+    // than AA: raising it to 4.5 would collapse it into --fg-muted and the
+    // design would lose a tier. Anything that carries meaning must not use
+    // it -- placeholders were moved off it for exactly this reason.
+    const neutrals = [["--fg", AA], ["--fg-muted", AA], ["--fg-faint", UI]];
+    // These are fills only, so 3:1 is the right floor. The assertion below
+    // that they are never used as `color:` is what keeps that true.
+    const solids = ["--yellow-solid", "--favorite-solid"];
+
+    const failures = [];
+    const t = run(undefined);
+    for (const theme of t.themeUi.getThemes()) {
+        const decls = Object.assign({}, tokyo, declarations(blockFor(theme.id)));
+        const surface = resolve("--bg-surface", decls)[0];
+        // Text lands on all three of these, not just the surface: raised for
+        // panels and list rows, elevated for dropdowns and .badge-dim.
+        const backgrounds = [
+            ["surface", surface],
+            ["bg-raised", resolve("--bg-raised", decls)[0]],
+            ["bg-elevated", resolve("--bg-elevated", decls)[0]],
+        ];
+
+        const check = (token, floor, extra = []) => {
+            const fg = resolve(token, decls)[0];
+            for (const [label, bg] of backgrounds.concat(extra)) {
+                const ratio = contrast(fg, bg);
+                if (ratio < floor) {
+                    failures.push(`${theme.id} ${token} on ${label}: ${ratio.toFixed(2)} (need ${floor})`);
+                }
+            }
+        };
+
+        for (const [token, floor] of neutrals) check(token, floor);
+        for (const [text, subtle] of families) {
+            const [subRgb, subAlpha] = resolve(subtle, decls);
+            check(text, AA, [["own chip", composite(subRgb, subAlpha, surface)]]);
+        }
+
+        // --red-fg exists only to be read on a --red-subtle fill, so the chip
+        // is the only background that matters for it.
+        {
+            const [subRgb, subAlpha] = resolve("--red-subtle", decls);
+            const chip = composite(subRgb, subAlpha, surface);
+            const ratio = contrast(resolve("--red-fg", decls)[0], chip);
+            if (ratio < AA) {
+                failures.push(`${theme.id} --red-fg on red-subtle chip: ${ratio.toFixed(2)} (need ${AA})`);
+            }
+        }
+        // Fills, and only ever drawn inside the Presets browser, which sits on
+        // --panel-wash and row backgrounds -- never on an elevated surface.
+        for (const token of solids) {
+            const fg = resolve(token, decls)[0];
+            for (const [label, bg] of backgrounds.slice(0, 2)) {
+                const ratio = contrast(fg, bg);
+                if (ratio < UI) failures.push(`${theme.id} ${token} on ${label}: ${ratio.toFixed(2)} (need ${UI})`);
+            }
+        }
+    }
+    assert.deepEqual(failures, [], `contrast floors violated:\n  ${failures.join("\n  ")}`);
+}
+
+{
+    // The -solid tokens are held to 3:1, not 4.5:1, because they are fills.
+    // If one ever becomes a text color that floor is wrong, so pin the
+    // invariant rather than trusting it.
+    const fs = require("node:fs");
+    const style = fs.readFileSync(path.join(ROOT, "ui", "css", "style.css"), "utf8");
+    for (const token of ["--yellow-solid", "--favorite-solid"]) {
+        const asText = new RegExp(`(^|[^-\\w])color:\\s*var\\(${token}\\)`, "m");
+        assert.ok(
+            !asText.test(style),
+            `${token} is a fill token held to the 3:1 floor and must not be used as a text color`
+        );
+    }
+
+    // --fg-faint is the only text tier below AA, so it is reserved for
+    // genuinely non-essential text and decorative fills. Placeholders are
+    // content -- WCAG 1.4.3 applies to them -- so they must sit on a tier
+    // that clears AA.
+    const placeholders = style
+        .split(/\r?\n/)
+        .filter(line => /::placeholder|\.ss-placeholder/.test(line) && line.includes("--fg-faint"));
+    assert.deepEqual(
+        placeholders, [],
+        `placeholder text must not use --fg-faint (below AA):\n  ${placeholders.join("\n  ")}`
+    );
 }
 
 console.log("theme-ui unit checks passed");

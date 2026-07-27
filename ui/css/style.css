@@ -738,7 +738,9 @@ input:focus, select:focus, textarea:focus {
     box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 
-input::placeholder { color: var(--fg-faint); }
+/* Placeholder text is content, not decoration: WCAG 1.4.3 applies, so it
+   sits on --fg-muted (AA) rather than the 3:1 --fg-faint tier. */
+input::placeholder { color: var(--fg-muted); }
 input[type="text"],
 input[type="password"] { flex: 1; min-width: 150px; }
 input[type="number"] { width: 100px; }
@@ -792,7 +794,7 @@ select.ss-native {
     white-space: nowrap;
 }
 
-.ss-button-label.ss-placeholder { color: var(--fg-faint); }
+.ss-button-label.ss-placeholder { color: var(--fg-muted); }
 
 .ss-button-arrow { color: var(--fg-muted); font-size: 10px; flex: none; }
 
@@ -3670,7 +3672,7 @@ textarea.chat-input:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-subtle);
 }
-textarea.chat-input::placeholder { color: var(--fg-faint); }
+textarea.chat-input::placeholder { color: var(--fg-muted); }
 textarea.chat-input:disabled {
     opacity: 0.72;
     cursor: not-allowed;
@@ -3965,7 +3967,7 @@ textarea.sidebar-system-prompt {
 }
 
 textarea.sidebar-system-prompt:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
-textarea.sidebar-system-prompt::placeholder { color: var(--fg-faint); }
+textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
 
 .sidebar-char-count {
     font-size: 10px;
