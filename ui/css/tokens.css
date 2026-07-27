@@ -23,9 +23,45 @@
     --yellow-subtle: rgba(240, 199, 94, 0.12);
     --yellow-border: rgba(240, 199, 94, 0.28);
     --cyan: #5cc8f0;
+    --cyan-subtle: rgba(92, 200, 240, 0.12);
+    --cyan-border: rgba(92, 200, 240, 0.28);
     --magenta: #b48efa;
+    --magenta-subtle: rgba(180, 142, 250, 0.12);
+    --magenta-border: rgba(180, 142, 250, 0.28);
+    /* Faint accent wash behind card headers. */
+    --accent-wash: rgba(108, 155, 255, 0.06);
+    /* Hover states one step stronger than the matching -subtle token. */
+    --accent-subtle-hover: rgba(108, 155, 255, 0.18);
+    --red-subtle-hover: rgba(255, 107, 138, 0.2);
     --border: rgba(255, 255, 255, 0.06);
     --border-strong: rgba(255, 255, 255, 0.10);
+
+    /* Recessed surfaces, darker than whatever they sit on. Four depth steps,
+       xs (barely sunken) through lg (inline code, the deepest well). Themes
+       whose surfaces are light must tint these toward their own dark hue
+       rather than pure black, or panels read as grey holes. */
+    --inset-xs: rgba(0, 0, 0, 0.08);
+    --inset-sm: rgba(0, 0, 0, 0.15);
+    --inset-md: rgba(0, 0, 0, 0.22);
+    --inset-lg: rgba(0, 0, 0, 0.30);
+
+    /* Hairline highlight on a raised strip (code-block headers). */
+    --overlay-raised: rgba(255, 255, 255, 0.03);
+    /* Sweep highlight travelling across a progress bar. */
+    --shimmer: rgba(255, 255, 255, 0.15);
+    /* Full-viewport dim behind a modal. */
+    --scrim: rgba(0, 0, 0, 0.6);
+    /* Error text sitting on --red-subtle. */
+    --red-fg: #ffb8c5;
+    /* Glow around the preset warning dot; tracks --yellow. */
+    --yellow-glow: rgba(240, 199, 94, 0.5);
+    /* Translucent wash for the Presets browser, save bar and detail panel. */
+    --panel-wash: var(--bg-surface);
+
+    /* Optional gradient laid over --bg-base on <body>. Transparent stops
+       mean "no wash", which is how the dark themes render. */
+    --body-gradient-top: transparent;
+    --body-gradient-bottom: transparent;
 
     --radius-xs: 4px;
     --radius-sm: 6px;
@@ -81,6 +117,15 @@
     --magenta: #8b6547;
     --border: rgba(93, 57, 50, 0.14);
     --border-strong: rgba(93, 57, 50, 0.24);
+
+    /* Only the tokens that genuinely differ from :root are listed here. The
+       inset scale, --overlay-raised, --shimmer, --scrim and --red-fg are
+       still inherited from :root and are wrong for a light theme; they get
+       Cappuccino values in the follow-up pass. */
+    --yellow-glow: rgba(155, 115, 61, 0.5);
+    --panel-wash: rgba(255, 250, 242, 0.68);
+    --body-gradient-top: rgba(255, 250, 242, 0.78);
+    --body-gradient-bottom: rgba(255, 244, 230, 0.96);
 
     --shadow-sm: 0 1px 2px rgba(75, 43, 33, 0.08);
     --shadow-md: 0 10px 26px rgba(87, 54, 40, 0.13), 0 2px 7px rgba(87, 54, 40, 0.08);
