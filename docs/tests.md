@@ -49,7 +49,16 @@ Runs the Playwright smoke test for browser-level shared-state sync. This is also
 python -m unittest discover tests -v
 ```
 
-Runs the backend unittest suite.
+Runs the backend unittest suite. No install needed — `unittest` is in the standard library.
+
+```powershell
+.venv\Scripts\python.exe -m pytest tests/backend -q
+```
+
+Optional alternative runner (`pip install pytest`). It collects the same
+`unittest` classes and reports the same pass count, but adds `-k` filtering,
+`-x` fail-fast, and surfaces subtests individually — useful when iterating on
+one failure. Not required by CI or by any test.
 
 ## Frontend Tests
 
@@ -70,7 +79,12 @@ Fast Node tests:
 - `preset_roving_focus_unit.cjs`: the preset list focus sequence, skipping rows in collapsed groups, roving `tabindex` bookkeeping including each row's inner controls, clamped Up/Down and Home/End movement, restoring position across a re-render, and syncing the roving position when focus arrives by click or programmatic `focus()`.
 - `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, and the presets-tab notification firing on both the success and failure paths.
 - `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering.
-- `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, unknown-theme normalization, and registry-driven color-scheme hints (asserted for every entry in `THEMES`, so a new theme with the wrong `scheme` fails here).
+- `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, unknown-theme normalization, and registry-driven color-scheme hints (asserted for every entry in `THEMES`, so a new theme with the wrong `scheme` fails here). Also covers the sidebar theme menu against a DOM stub: rendering one row per registry entry, `aria-checked`/roving `tabindex`, arrow-key wrapping, Home/End, Escape returning focus to the trigger, and outside-click dismissal. Asserts every `THEMES` entry has a matching palette block in `tokens.css`, so a theme cannot be offered in the menu while rendering as the fallback. Also enforces contrast floors for every theme, which is what makes adding a theme safe rather than merely cheap:
+
+  - AA (4.5:1) for `--fg`, `--fg-muted`, the six semantic text colors (`--accent-text`, `--green`, `--red`, `--yellow`, `--favorite`, `--cyan`) and `--red-fg`.
+  - 3:1 for `--fg-faint` (non-essential text, deliberately below AA so it stays a distinct tier from `--fg-muted`) and for the fill-only `-solid` tokens.
+  - Measured against `--bg-surface`, `--bg-raised` and `--bg-elevated` — text lands on all three — plus each semantic color's own `-subtle` chip and the composited favourite-row rest/hover washes.
+  - Two usage invariants that keep the lower floors honest: `--yellow-solid`/`--favorite-solid` must never appear as a `color:`, and placeholder text must never use `--fg-faint`.
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
 - `llama_flags_supported_unit.cjs`: compares exposed GUI flags against the installed `llama-server` / `llama-cli` help output. Skips with a message when neither binary is present, so a pass here does not imply the check ran.
