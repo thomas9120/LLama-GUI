@@ -147,15 +147,15 @@
                 </div>
                 <div class="sidebar-model-switcher-status" id="sidebar-model-switcher-status" aria-live="polite">Launch a slot in Quick Launch first</div>
             </section>
-            <div class="theme-switcher" aria-label="Theme">
-                <button class="theme-switcher-btn active" type="button" data-theme-option="tokyo" aria-pressed="true" title="Use Tokyo dark theme">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 7.5A9 9 0 1 1 12 3Z"/></svg></span>
-                    Tokyo
+            <!-- The list is built by theme-ui.js from its THEMES registry, so
+                 adding a theme needs no markup change here. -->
+            <div class="theme-menu" id="theme-menu">
+                <button class="theme-menu-trigger" id="theme-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="theme-menu-list" title="Change theme">
+                    <span class="theme-menu-swatch" id="theme-menu-current-swatch" aria-hidden="true"></span>
+                    <span class="theme-menu-current" id="theme-menu-current">Theme</span>
+                    <span class="icon icon-sm theme-menu-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                 </button>
-                <button class="theme-switcher-btn" type="button" data-theme-option="cappuccino" aria-pressed="false" title="Use Cappuccino light theme">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M17 8h1a4 4 0 0 1 0 8h-1"/><path d="M3 8h14v6a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/><path d="M6 2v3"/><path d="M10 2v3"/><path d="M14 2v3"/></svg></span>
-                    Cappuccino
-                </button>
+                <ul class="theme-menu-list" id="theme-menu-list" role="menu" aria-label="Theme" hidden></ul>
             </div>
             <div class="sidebar-status" id="sidebar-status" style="display:none;">
                 <span class="status-dot"></span>

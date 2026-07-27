@@ -42,7 +42,7 @@
     --fg: #c8cef5;
     --fg-muted: #8b91b0;
     --fg-bright: #eaecf8;
-    --fg-faint: #555a74;
+    --fg-faint: #6a7090;
     --accent: #6c9bff;
     --accent-hover: #85aeff;
     /* --accent is the FILL. --accent-text is the same role applied to text
@@ -61,15 +61,31 @@
     --red: #ff6b8a;
     --red-subtle: rgba(255, 107, 138, 0.12);
     --red-border: rgba(255, 107, 138, 0.28);
+    /* --yellow is WARNING only. It is tuned to stay readable as warning text
+       at 10-12px, which on a light theme means a muted brown-gold; the sites
+       that use it as a *fill* (warn dot) need chroma instead, hence
+       --yellow-solid. */
     --yellow: #f0c75e;
-    /* The inverse of the --accent/--accent-text split: --yellow is tuned to
-       stay readable as warning text at 10-12px, which on a light theme
-       means a muted brown-gold. The four sites that use it as a *fill*
-       (favourite bar, warn dot, favourites-only chip) need chroma instead,
-       or they read as just another brown line. */
     --yellow-solid: var(--yellow);
     --yellow-subtle: rgba(240, 199, 94, 0.12);
     --yellow-border: rgba(240, 199, 94, 0.28);
+
+    /* Favourite markers. Deliberately outside the warm ramp: green -> yellow
+       -> red is the severity scale, and "the user starred this" is not a
+       severity. Sharing gold with warnings made the favourite bar and the
+       warn dot the same color, and the two Presets filter chips byte-for-byte
+       identical. Every usable orange sits only 9-16 degrees of hue from the
+       warning yellow (and crowds --red on light themes); this is 142. */
+    --favorite: #b48efa;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(180, 142, 250, 0.12);
+    --favorite-border: rgba(180, 142, 250, 0.28);
+    /* Row wash, much lighter than --favorite-subtle. A favourited row is a
+       resting state and must stay quieter than hover, or the list inverts its
+       own interaction hierarchy. Sized against the hover step: rest ~0.7x,
+       hovering a favourite ~1.8x, so the row still visibly lifts. */
+    --favorite-wash: rgba(180, 142, 250, 0.036);
+    --favorite-wash-hover: rgba(180, 142, 250, 0.095);
     --cyan: #5cc8f0;
     --cyan-subtle: rgba(92, 200, 240, 0.12);
     --cyan-border: rgba(92, 200, 240, 0.28);
@@ -95,9 +111,10 @@
 
     /* Hairline highlight on a raised strip (code-block headers). */
     --overlay-raised: rgba(255, 255, 255, 0.03);
-    /* Sweep highlight travelling across a progress bar. Deliberately not
-       overridden per theme: the bar is filled with --accent, which is dark
-       in every theme, so white reads correctly on all of them. */
+    /* Sweep highlight travelling across a progress bar, which is filled with
+       --accent. White works wherever the accent is dark; a theme with a light
+       accent must flip this to a dark sweep (Graphite does — white lands at
+       2.3:1 on its copper, black at 9.1:1). */
     --shimmer: rgba(255, 255, 255, 0.15);
     /* Full-viewport dim behind a modal. */
     --scrim: rgba(0, 0, 0, 0.6);
@@ -131,39 +148,54 @@
     --bg-elevated: #f0ddc6;
     --bg-hover: #ead2b6;
     --fg: #5d3932;
-    --fg-muted: #7e665d;
+    --fg-muted: #745e56;
     --fg-bright: #31201c;
-    --fg-faint: #a88d81;
+    --fg-faint: #987769;
     --accent: #4b3832;
     --accent-hover: #3d2e29;
     /* Copper, not the near-black fill: #4b3832 sits 1.10:1 from --fg. */
-    --accent-text: #a8622c;
+    --accent-text: #905426;
     --accent-subtle: rgba(75, 56, 50, 0.12);
     --accent-border: rgba(75, 56, 50, 0.28);
     --on-accent: #fffaf2;
     --on-magenta: #fffaf2;
-    --green: #66784f;
-    --green-subtle: rgba(102, 120, 79, 0.14);
-    --green-border: rgba(102, 120, 79, 0.32);
-    --red: #a24f49;
-    --red-subtle: rgba(162, 79, 73, 0.12);
-    --red-border: rgba(162, 79, 73, 0.28);
-    --yellow: #9b733d;
+    --green: #596844;
+    --green-subtle: rgba(89, 104, 68, 0.14);
+    --green-border: rgba(89, 104, 68, 0.32);
+    --red: #9a4b46;
+    --red-subtle: rgba(154, 75, 70, 0.12);
+    --red-border: rgba(154, 75, 70, 0.28);
+    /* Warning text at 10-12px, so it is sized for the worst background it
+       lands on — its own --yellow-subtle chip, not the bare surface. 5.34:1
+       on the surface, 4.69 on --bg-raised, 4.62 on the chip. The tint drops
+       to 0.18 to buy the chip case; at the old 0.22 no gold dark enough to
+       clear AA still read as gold rather than brown. */
+    --yellow: #7e5d2d;
     /* 3.49:1 on the cream surface, clearing the 3:1 UI-component floor,
-       with ~1.6x the saturation of --yellow (0.71 vs 0.44) — that chroma
-       gap is what makes it read as gold rather than brown. */
+       with ~1.5x the saturation of --yellow — that chroma gap is what makes
+       it read as gold rather than brown. */
     --yellow-solid: #b8791f;
-    --yellow-subtle: rgba(190, 155, 123, 0.22);
+    --yellow-subtle: rgba(190, 155, 123, 0.18);
     --yellow-border: rgba(190, 155, 123, 0.48);
-    --cyan: #5b7295;
-    --cyan-subtle: rgba(91, 114, 149, 0.14);
-    --cyan-border: rgba(91, 114, 149, 0.32);
+
+    /* Plum: 6.69:1 on cream, 76 degrees of hue from the warning gold and 45
+       from --red, so it stays legible as a distinct signal inside a palette
+       that is otherwise entirely warm browns. */
+    --favorite: #7a4a6b;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(122, 74, 107, 0.14);
+    --favorite-border: rgba(122, 74, 107, 0.32);
+    --favorite-wash: rgba(122, 74, 107, 0.063);
+    --favorite-wash-hover: rgba(122, 74, 107, 0.161);
+    --cyan: #4f6382;
+    --cyan-subtle: rgba(79, 99, 130, 0.14);
+    --cyan-border: rgba(79, 99, 130, 0.32);
     --magenta: #8b6547;
     --magenta-subtle: rgba(139, 101, 71, 0.14);
     --magenta-border: rgba(139, 101, 71, 0.32);
     --accent-wash: rgba(75, 56, 50, 0.06);
     --accent-subtle-hover: rgba(75, 56, 50, 0.18);
-    --red-subtle-hover: rgba(162, 79, 73, 0.2);
+    --red-subtle-hover: rgba(154, 75, 70, 0.2);
     --border: rgba(93, 57, 50, 0.14);
     --border-strong: rgba(93, 57, 50, 0.24);
 
@@ -183,7 +215,7 @@
     --overlay-raised: rgba(255, 255, 255, 0.40);
     --scrim: rgba(75, 43, 33, 0.45);
     --red-fg: #8f4038;
-    --yellow-glow: rgba(155, 115, 61, 0.5);
+    --yellow-glow: rgba(126, 93, 45, 0.5);
     --panel-wash: rgba(255, 250, 242, 0.68);
     --body-gradient-top: rgba(255, 250, 242, 0.78);
     --body-gradient-bottom: rgba(255, 244, 230, 0.96);
@@ -195,6 +227,154 @@
     --shadow-md: 0 10px 26px rgba(87, 54, 40, 0.13), 0 2px 7px rgba(87, 54, 40, 0.08);
     --shadow-lg: 0 18px 44px rgba(87, 54, 40, 0.16), 0 4px 12px rgba(87, 54, 40, 0.10);
     --shadow-accent: 0 8px 18px rgba(75, 56, 50, 0.20);
+}
+
+/* Graphite — a neutral mid-tone between Tokyo and Cappuccino. Medium-gray
+   surfaces, warm off-white text, copper accent.
+
+   Two things differ from a normal dark theme. The surface ramp is widened to
+   ~5-6% luminance per step because at mid-gray both the steps and the drop
+   shadows lose contrast, and --border is roughly doubled because a white
+   overlay loses contrast as the base lightens. */
+:root[data-theme="graphite"] {
+    color-scheme: dark;
+    --bg-base: #2e3136;
+    --bg-surface: #383b41;
+    --bg-raised: #43464d;
+    --bg-elevated: #4e5158;
+    --bg-hover: #585c64;
+    --fg: #e3e2de;
+    --fg-muted: #c5c4c1;
+    --fg-bright: #f4f3ef;
+    --fg-faint: #a0a19c;
+    --accent: #d9a05b;
+    --accent-hover: #e7b678;
+    /* Brighter than the --accent fill: as text it has to clear AA on the
+       --accent-subtle chip, which the fill colour does not. */
+    --accent-text: #e5bd8e;
+    --accent-subtle: rgba(217, 160, 91, 0.14);
+    --accent-border: rgba(217, 160, 91, 0.34);
+    --on-accent: #2b2118;
+    --on-magenta: #2b2118;
+    --green: #aacf96;
+    --green-subtle: rgba(170, 207, 150, 0.14);
+    --green-border: rgba(170, 207, 150, 0.32);
+    --red: #f5b4aa;
+    --red-subtle: rgba(245, 180, 170, 0.14);
+    --red-border: rgba(245, 180, 170, 0.32);
+    /* Brightened from #d9b45c: on a mid-tone surface the --yellow-subtle chip
+       sits *lighter* than the surface, so warning text loses contrast exactly
+       where it is most used. 6.43 / 5.41 / 4.78 on surface, raised and chip. */
+    --yellow: #e2c072;
+    --yellow-solid: var(--yellow);
+    --yellow-subtle: rgba(217, 180, 92, 0.14);
+    --yellow-border: rgba(217, 180, 92, 0.32);
+    --favorite: #cebde9;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(206, 189, 233, 0.14);
+    --favorite-border: rgba(206, 189, 233, 0.32);
+    --favorite-wash: rgba(206, 189, 233, 0.069);
+    --favorite-wash-hover: rgba(206, 189, 233, 0.16);
+    --cyan: #9dcfd1;
+    --cyan-subtle: rgba(157, 207, 209, 0.14);
+    --cyan-border: rgba(157, 207, 209, 0.32);
+    --magenta: #c1a6d6;
+    --magenta-subtle: rgba(193, 166, 214, 0.14);
+    --magenta-border: rgba(193, 166, 214, 0.32);
+    --accent-wash: rgba(217, 160, 91, 0.06);
+    --accent-subtle-hover: rgba(217, 160, 91, 0.20);
+    --red-subtle-hover: rgba(245, 180, 170, 0.22);
+    --border: rgba(255, 255, 255, 0.13);
+    --border-strong: rgba(255, 255, 255, 0.20);
+
+    --inset-xs: rgba(0, 0, 0, 0.038);
+    --inset-sm: rgba(0, 0, 0, 0.069);
+    --inset-md: rgba(0, 0, 0, 0.098);
+    --inset-lg: rgba(0, 0, 0, 0.128);
+    --overlay-raised: rgba(255, 255, 255, 0.04);
+    /* Flipped to a dark sweep: white sits at only 2.3:1 on the copper accent
+       that fills the progress bar, black at 9.1:1. */
+    --shimmer: rgba(0, 0, 0, 0.22);
+    --red-fg: #ffc2b2;
+    --yellow-glow: rgba(217, 180, 92, 0.5);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.22);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.20), 0 1px 3px rgba(0, 0, 0, 0.12);
+    --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.16);
+    --shadow-accent: 0 2px 12px rgba(217, 160, 91, 0.22);
+    --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.16);
+    --shadow-knob: 0 2px 6px rgba(0, 0, 0, 0.26);
+}
+
+/* Mint — Linux Mint inspired. Pale seafoam surfaces, near-black accent.
+   --accent is the fill only; --accent-text carries the green, because the
+   near-black sits 1.08:1 from --fg and would vanish as text. */
+:root[data-theme="mint"] {
+    color-scheme: light;
+    --bg-base: #e3f0e9;
+    --bg-surface: #f1f9f4;
+    --bg-raised: #d4e7dc;
+    --bg-elevated: #c6dcd0;
+    --bg-hover: #b6d1c2;
+    --fg: #1e2b24;
+    --fg-muted: #4c6055;
+    --fg-bright: #0c1510;
+    --fg-faint: #687d72;
+    --accent: #1a2420;
+    --accent-hover: #2c3a34;
+    --accent-text: #276947;
+    --accent-subtle: rgba(26, 36, 32, 0.10);
+    --accent-border: rgba(26, 36, 32, 0.26);
+    --on-accent: #e9f5ee;
+    --on-magenta: #e9f5ee;
+    --green: #306848;
+    --green-subtle: rgba(48, 104, 72, 0.14);
+    --green-border: rgba(48, 104, 72, 0.32);
+    --red: #97443a;
+    --red-subtle: rgba(151, 68, 58, 0.12);
+    --red-border: rgba(151, 68, 58, 0.28);
+    /* Same sizing rule as Cappuccino: measured against its own chip, not the
+       bare surface. 5.83 / 4.83 / 4.75 on surface, --bg-raised and chip. */
+    --yellow: #725a25;
+    --yellow-solid: #a8761a;
+    --yellow-subtle: rgba(160, 134, 60, 0.20);
+    --yellow-border: rgba(160, 134, 60, 0.44);
+    --favorite: #7a4a8c;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(122, 74, 140, 0.14);
+    --favorite-border: rgba(122, 74, 140, 0.32);
+    --favorite-wash: rgba(122, 74, 140, 0.092);
+    --favorite-wash-hover: rgba(122, 74, 140, 0.205);
+    --cyan: #34635c;
+    --cyan-subtle: rgba(52, 99, 92, 0.14);
+    --cyan-border: rgba(52, 99, 92, 0.32);
+    --magenta: #7a5a8c;
+    --magenta-subtle: rgba(122, 90, 140, 0.14);
+    --magenta-border: rgba(122, 90, 140, 0.32);
+    --accent-wash: rgba(26, 36, 32, 0.05);
+    --accent-subtle-hover: rgba(26, 36, 32, 0.16);
+    --red-subtle-hover: rgba(151, 68, 58, 0.2);
+    --border: rgba(18, 32, 26, 0.14);
+    --border-strong: rgba(18, 32, 26, 0.24);
+
+    /* Tinted toward the theme's own dark green, never pure black. */
+    --inset-xs: rgba(30, 43, 36, 0.025);
+    --inset-sm: rgba(30, 43, 36, 0.045);
+    --inset-md: rgba(30, 43, 36, 0.065);
+    --inset-lg: rgba(30, 43, 36, 0.085);
+    /* Washes the inset back out; a light theme has no headroom to lighten
+       past --bg-surface. */
+    --overlay-raised: rgba(255, 255, 255, 0.46);
+    --scrim: rgba(18, 32, 26, 0.45);
+    --red-fg: #8f3f35;
+    --yellow-glow: rgba(114, 90, 37, 0.5);
+
+    --shadow-sm: 0 1px 2px rgba(23, 43, 34, 0.08);
+    --shadow-md: 0 10px 26px rgba(23, 43, 34, 0.13), 0 2px 7px rgba(23, 43, 34, 0.08);
+    --shadow-lg: 0 18px 44px rgba(23, 43, 34, 0.16), 0 4px 12px rgba(23, 43, 34, 0.10);
+    --shadow-accent: 0 8px 18px rgba(26, 36, 32, 0.22);
+    --shadow-inset: inset 0 1px 2px rgba(23, 43, 34, 0.10);
+    --shadow-knob: 0 2px 6px rgba(23, 43, 34, 0.20);
 }
 
 @media (prefers-reduced-motion: reduce) {

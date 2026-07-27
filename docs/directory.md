@@ -133,7 +133,7 @@ Routes use a declarative dispatch table. Routes receive `(request, response, ctx
 The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
-2. `theme-ui.js` — persisted theme selection and switcher state (`window.LlamaGui.themeUi`)
+2. `theme-ui.js` — theme registry, persisted selection, and the sidebar theme menu (`window.LlamaGui.themeUi`)
 3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
 4. `config-flags-ui.js` — Configure tab rendering
 5. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
@@ -167,7 +167,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/flags/options.js` | (data) | Shared enum option lists (`CACHE_TYPE_OPTIONS`, etc.) |
 | `ui/js/flags/chat-templates.js` | (data) | `BUILTIN_CHAT_TEMPLATES`, `CHAT_TEMPLATE_PRESETS`, preset helpers |
 | `ui/js/flags/helpers.js` | (data) | `getFlagsForTool()`, `getFlagsByCategory()`, speculative helpers |
-| `ui/js/theme-ui.js` | `window.LlamaGui.themeUi` | `THEMES` registry (the single source of truth for shipped themes), preference persistence, root theme attribute application, color-scheme hints, and switcher button state |
+| `ui/js/theme-ui.js` | `window.LlamaGui.themeUi` | `THEMES` registry (the single source of truth for shipped themes), preference persistence, root theme attribute application, color-scheme hints, and the sidebar theme menu — rendered from the registry, with roving arrow-key focus |
 | `ui/js/flag-core.js` | `window.LlamaGui.flagCore` | Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
@@ -188,6 +188,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared template helpers, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Stylesheet and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
+| `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
 | `ui/templates/` | — | Bundled Jinja chat template files for Kobold-style presets |
 
 ---

@@ -114,8 +114,8 @@ assert.match(
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?role="slider"/);
 assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?aria-disabled="true"/);
 assert.ok(
-    indexHtml.indexOf('id="sidebar-model-switcher"') < indexHtml.indexOf('class="theme-switcher"'),
-    "the compact model slider should sit above the theme switcher"
+    indexHtml.indexOf('id="sidebar-model-switcher"') < indexHtml.indexOf('class="theme-menu"'),
+    "the compact model slider should sit above the theme menu"
 );
 const sidebarSwitcherMarkup = indexHtml.match(/<section class="sidebar-model-switcher"[\s\S]*?<\/section>/)?.[0] || "";
 assert.doesNotMatch(sidebarSwitcherMarkup, /<svg/, "the sidebar switch thumb should not contain an icon");
