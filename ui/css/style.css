@@ -374,50 +374,97 @@ body.chat-focus-mode .sidebar {
     color: var(--accent-text);
 }
 
-.theme-switcher {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 3px;
-    padding: 3px;
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
+/* One trigger plus a pop-up list, so each new theme costs a row in the menu
+   rather than a column in the sidebar. */
+.theme-menu { position: relative; }
+
+.theme-menu-trigger {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    min-height: 30px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
     background: var(--bg-raised);
+    color: var(--fg-muted);
+    font-family: var(--font);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--ease-fast), border-color var(--ease-fast), color var(--ease-fast);
 }
 
-.theme-switcher-btn {
+.theme-menu-trigger:hover { color: var(--fg); background: var(--bg-hover); }
+
+.theme-menu-trigger[aria-expanded="true"] {
+    color: var(--fg);
+    border-color: var(--accent-border);
+}
+
+.theme-menu-current {
+    flex: 1;
     min-width: 0;
-    min-height: 30px;
-    padding: var(--space-1) var(--space-2);
-    border: 1px solid transparent;
-    border-radius: var(--radius-xs);
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.theme-menu-chevron { transition: transform var(--ease-fast); }
+.theme-menu-trigger[aria-expanded="true"] .theme-menu-chevron { transform: rotate(180deg); }
+
+.theme-menu-list {
+    position: absolute;
+    bottom: calc(100% + var(--space-2));
+    left: 0;
+    right: 0;
+    margin: 0;
+    padding: var(--space-1);
+    list-style: none;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 40;
+}
+
+.theme-menu-list[hidden] { display: none; }
+
+.theme-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
     background: transparent;
     color: var(--fg-muted);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-1);
     font-family: var(--font);
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background var(--ease-fast), border-color var(--ease-fast), color var(--ease-fast), box-shadow var(--ease-fast);
+    text-align: left;
+    transition: background var(--ease-fast), color var(--ease-fast);
 }
 
-.theme-switcher-btn:hover {
-    color: var(--fg);
-    background: var(--bg-elevated);
+.theme-menu-item:hover { background: var(--bg-hover); color: var(--fg); }
+.theme-menu-item.active { color: var(--accent-text); }
+
+.theme-menu-swatch {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1px solid var(--border-strong);
+    flex-shrink: 0;
 }
 
-.theme-switcher-btn.active {
-    color: var(--fg-bright);
-    background: var(--accent-subtle);
-    border-color: var(--accent-border);
-    box-shadow: var(--shadow-sm);
-}
-
-.theme-switcher-btn.active .icon {
-    color: var(--accent-text);
-}
+.theme-menu-label { flex: 1; min-width: 0; }
+.theme-menu-hint { font-size: 10px; color: var(--fg-faint); }
+.theme-menu-check { visibility: hidden; }
+.theme-menu-item.active .theme-menu-check { visibility: visible; }
 
 .sidebar-status {
     display: flex;
@@ -643,7 +690,8 @@ body.chat-focus-mode .main-content {
 .btn:focus-visible,
 .nav-item:focus-visible,
 .presets-icon-btn:focus-visible,
-.theme-switcher-btn:focus-visible,
+.theme-menu-trigger:focus-visible,
+.theme-menu-item:focus-visible,
 .btn-toggle-sidebar:focus-visible,
 .btn-sidebar-open:focus-visible,
 .preset-chip:focus-visible,
@@ -2454,16 +2502,16 @@ input[type="range"].sampler-range::-moz-range-thumb {
 }
 
 .preset-chip.preset-chip-favorite.active {
-    background: var(--yellow-subtle);
-    color: var(--yellow);
-    border-color: var(--yellow-border);
+    background: var(--favorite-subtle);
+    color: var(--favorite);
+    border-color: var(--favorite-border);
 }
 
 /* favorites-only is a filter, not just a sort, so it reads stronger than "first" */
 .preset-chip.preset-chip-favorite-only.active {
-    background: var(--yellow-solid);
+    background: var(--favorite-solid);
     color: var(--bg-base);
-    border-color: var(--yellow-solid);
+    border-color: var(--favorite-solid);
     font-weight: 600;
 }
 
@@ -2634,12 +2682,12 @@ input[type="range"].sampler-range::-moz-range-thumb {
 /* muted, not faint: at 10.5px the faint token lands near 2.6:1 on the surface background */
 .preset-meta { font-size: 10.5px; color: var(--fg-muted); }
 
-.preset-item-favorite { box-shadow: inset 2px 0 0 var(--yellow-solid); }
+.preset-item-favorite { box-shadow: inset 2px 0 0 var(--favorite-solid); }
 
 .preset-favorite-btn.active {
-    color: var(--yellow);
-    border-color: var(--yellow-border);
-    background: var(--yellow-subtle);
+    color: var(--favorite);
+    border-color: var(--favorite-border);
+    background: var(--favorite-subtle);
 }
 
 .preset-row-favorite {
@@ -2660,8 +2708,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .preset-row-favorite:hover,
 .preset-row-favorite:focus-visible,
 .preset-row-favorite.active {
-    color: var(--yellow);
-    background: var(--yellow-subtle);
+    color: var(--favorite);
+    background: var(--favorite-subtle);
 }
 
 .preset-row-warn {
@@ -2729,8 +2777,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 /* the favorite toggles read as stars, matching the per-row control */
 .presets-bulk-bar .presets-icon-btn:not(:disabled):hover {
-    color: var(--yellow);
-    border-color: var(--yellow-border);
+    color: var(--favorite);
+    border-color: var(--favorite-border);
 }
 
 /* ── Right column: detail pane ── */

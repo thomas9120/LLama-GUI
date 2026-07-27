@@ -61,15 +61,25 @@
     --red: #ff6b8a;
     --red-subtle: rgba(255, 107, 138, 0.12);
     --red-border: rgba(255, 107, 138, 0.28);
+    /* --yellow is WARNING only. It is tuned to stay readable as warning text
+       at 10-12px, which on a light theme means a muted brown-gold; the sites
+       that use it as a *fill* (warn dot) need chroma instead, hence
+       --yellow-solid. */
     --yellow: #f0c75e;
-    /* The inverse of the --accent/--accent-text split: --yellow is tuned to
-       stay readable as warning text at 10-12px, which on a light theme
-       means a muted brown-gold. The four sites that use it as a *fill*
-       (favourite bar, warn dot, favourites-only chip) need chroma instead,
-       or they read as just another brown line. */
     --yellow-solid: var(--yellow);
     --yellow-subtle: rgba(240, 199, 94, 0.12);
     --yellow-border: rgba(240, 199, 94, 0.28);
+
+    /* Favourite markers. Deliberately outside the warm ramp: green -> yellow
+       -> red is the severity scale, and "the user starred this" is not a
+       severity. Sharing gold with warnings made the favourite bar and the
+       warn dot the same color, and the two Presets filter chips byte-for-byte
+       identical. Every usable orange sits only 9-16 degrees of hue from the
+       warning yellow (and crowds --red on light themes); this is 142. */
+    --favorite: #b48efa;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(180, 142, 250, 0.12);
+    --favorite-border: rgba(180, 142, 250, 0.28);
     --cyan: #5cc8f0;
     --cyan-subtle: rgba(92, 200, 240, 0.12);
     --cyan-border: rgba(92, 200, 240, 0.28);
@@ -155,6 +165,14 @@
     --yellow-solid: #b8791f;
     --yellow-subtle: rgba(190, 155, 123, 0.22);
     --yellow-border: rgba(190, 155, 123, 0.48);
+
+    /* Plum: 6.69:1 on cream, 76 degrees of hue from the warning gold and 45
+       from --red, so it stays legible as a distinct signal inside a palette
+       that is otherwise entirely warm browns. */
+    --favorite: #7a4a6b;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(122, 74, 107, 0.14);
+    --favorite-border: rgba(122, 74, 107, 0.32);
     --cyan: #5b7295;
     --cyan-subtle: rgba(91, 114, 149, 0.14);
     --cyan-border: rgba(91, 114, 149, 0.32);

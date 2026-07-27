@@ -1057,7 +1057,7 @@ async function main() {
         await selectSection(page, "quick-launch");
         const initialSidebarSlider = await page.evaluate(() => {
             const panel = document.querySelector("#sidebar-model-switcher");
-            const theme = document.querySelector(".theme-switcher");
+            const theme = document.querySelector(".theme-menu");
             const slider = document.querySelector("#sidebar-model-switcher-slider");
             const panelBox = panel.getBoundingClientRect();
             const themeBox = theme.getBoundingClientRect();
