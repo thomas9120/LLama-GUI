@@ -10,14 +10,24 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <script>
+        // Applies the stored theme before first paint, so switching themes
+        // doesn't flash the default one. Must stay inline and blocking, which
+        // means it cannot wait for theme-ui.js and its THEMES registry.
+        //
+        // Rather than duplicate the theme list here (a second source of truth
+        // that would silently rot), the stored value is only shape-checked and
+        // written through. An unrecognised name matches no palette block and
+        // falls back to the bare :root palette, which is Tokyo; theme-ui.js
+        // then normalises the attribute once it loads.
         (function () {
+            var theme = "tokyo";
             try {
-                if (localStorage.getItem("llama_gui_theme") === "cappuccino") {
-                    document.documentElement.dataset.theme = "cappuccino";
-                }
+                var stored = localStorage.getItem("llama_gui_theme");
+                if (stored && /^[a-z][a-z0-9-]*$/.test(stored)) theme = stored;
             } catch (e) {
                 console.debug("Failed to apply stored theme before paint", e);
             }
+            document.documentElement.dataset.theme = theme;
         })();
     </script>
     <link rel="stylesheet" href="/css/tokens.css">
