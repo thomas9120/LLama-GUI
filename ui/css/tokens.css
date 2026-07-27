@@ -80,6 +80,12 @@
     --favorite-solid: var(--favorite);
     --favorite-subtle: rgba(180, 142, 250, 0.12);
     --favorite-border: rgba(180, 142, 250, 0.28);
+    /* Row wash, much lighter than --favorite-subtle. A favourited row is a
+       resting state and must stay quieter than hover, or the list inverts its
+       own interaction hierarchy. Sized against the hover step: rest ~0.7x,
+       hovering a favourite ~1.8x, so the row still visibly lifts. */
+    --favorite-wash: rgba(180, 142, 250, 0.036);
+    --favorite-wash-hover: rgba(180, 142, 250, 0.095);
     --cyan: #5cc8f0;
     --cyan-subtle: rgba(92, 200, 240, 0.12);
     --cyan-border: rgba(92, 200, 240, 0.28);
@@ -173,6 +179,8 @@
     --favorite-solid: var(--favorite);
     --favorite-subtle: rgba(122, 74, 107, 0.14);
     --favorite-border: rgba(122, 74, 107, 0.32);
+    --favorite-wash: rgba(122, 74, 107, 0.063);
+    --favorite-wash-hover: rgba(122, 74, 107, 0.161);
     --cyan: #5b7295;
     --cyan-subtle: rgba(91, 114, 149, 0.14);
     --cyan-border: rgba(91, 114, 149, 0.32);

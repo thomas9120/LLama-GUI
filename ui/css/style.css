@@ -2682,7 +2682,19 @@ input[type="range"].sampler-range::-moz-range-thumb {
 /* muted, not faint: at 10.5px the faint token lands near 2.6:1 on the surface background */
 .preset-meta { font-size: 10.5px; color: var(--fg-muted); }
 
-.preset-item-favorite { box-shadow: inset 2px 0 0 var(--favorite-solid); }
+/* A 2px sliver at the far-left edge was too peripheral to catch while
+   scanning names down a dense list, so the whole row carries a wash too.
+   At 0,1,0 this loses to both :hover and .selected (0,2,0), so neither
+   state is masked. */
+.preset-item-favorite {
+    box-shadow: inset 3px 0 0 var(--favorite-solid);
+    background: var(--favorite-wash);
+}
+
+/* Without this, hovering a favourite would swap the wash for --bg-raised and
+   the row would go flatter than it was at rest. :not(.selected) keeps the
+   selected state winning outright. */
+.preset-item-favorite:hover:not(.selected) { background: var(--favorite-wash-hover); }
 
 .preset-favorite-btn.active {
     color: var(--favorite);
