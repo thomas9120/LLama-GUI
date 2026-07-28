@@ -1179,6 +1179,20 @@ def launch_process(
         process = None
         generation = None
         try:
+            startupinfo = None
+            creationflags = 0
+            if sys.platform == "win32":
+                # Hide the runtime's console window via STARTUPINFO (SW_HIDE)
+                # rather than CREATE_NO_WINDOW. CREATE_NO_WINDOW severs the
+                # console entirely, which would stop CTRL_BREAK_EVENT from
+                # reaching a console-attached parent's child and break the
+                # graceful stop path. CREATE_NEW_PROCESS_GROUP is kept for that
+                # signalling; a console-less parent (pythonw/detached) relies on
+                # the OSError-to-kill() fallback in _request_graceful_stop.
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                startupinfo.wShowWindow = subprocess.SW_HIDE
+                creationflags = subprocess.CREATE_NEW_PROCESS_GROUP
             process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
@@ -1187,9 +1201,8 @@ def launch_process(
                 text=True,
                 env=env,
                 cwd=str(ctx.paths.root),
-                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP
-                if sys.platform == "win32"
-                else 0,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
             )
             ctx.state.process = process
             with ctx.state.output_buffer_lock:
@@ -1250,13 +1263,37 @@ def launch_process(
             return {"error": redact_sensitive_text(e, args)}
 
 
-def _stop_process_locked(ctx: AppContext) -> bool:
-    process = ctx.state.process
-    if process is not None and process.poll() is None:
+def _request_graceful_stop(process) -> bool:
+    """Ask the process to shut down gracefully.
+
+    Returns False when the signal could not be delivered. On Windows the GUI
+    often runs under pythonw.exe (or a detached restart handoff) with no
+    console, so ``CTRL_BREAK_EVENT`` raises ``OSError`` ("The handle is
+    invalid"); the caller must then fall back to killing the process instead of
+    leaving it running.
+    """
+    try:
         if sys.platform == "win32":
             process.send_signal(signal.CTRL_BREAK_EVENT)
         else:
             process.terminate()
+        return True
+    except Exception as exc:
+        print(f"[process] graceful stop signal failed: {exc}", file=sys.stderr)
+        return False
+
+
+def _stop_process_locked(ctx: AppContext) -> bool:
+    process = ctx.state.process
+    if process is not None and process.poll() is None:
+        if not _request_graceful_stop(process):
+            try:
+                process.kill()
+            except Exception as exc:
+                print(
+                    f"[process] force kill after failed stop signal errored: {exc}",
+                    file=sys.stderr,
+                )
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:

@@ -3769,6 +3769,107 @@ class SubprocessWindowFlagTests(unittest.TestCase):
         self.assertGreaterEqual(len(found), 6, f"probe scan found too few call sites: {found}")
         self.assertEqual(missing, [], f"subprocess.run without creationflags: {missing}")
 
+    def test_launch_process_hides_console_window(self):
+        """The long-running llama.cpp runtime must not flash a console window.
+
+        The window is hidden via STARTUPINFO (SW_HIDE) rather than
+        CREATE_NO_WINDOW, so the child keeps its console association and a
+        console-attached parent can still deliver CTRL_BREAK_EVENT. The only
+        creation flag is CREATE_NEW_PROCESS_GROUP.
+        """
+        create_new_process_group = 0x00000200
+        starf_useshowwindow = 0x00000001
+        sw_hide = 0x00000000
+
+        class FakeStartupinfo:
+            def __init__(self):
+                self.dwFlags = 0
+                self.wShowWindow = None
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            executable = ctx.paths.llama_bin / "llama-server"
+            executable.write_text("binary")
+            executable.chmod(0o755)
+            ctx.services = BackendServices(
+                current_platform="linux",
+                find_tool_executable=lambda tool: executable,
+                get_tool_filename=lambda tool: tool,
+                load_config=lambda: {},
+                set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
+                get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
+            )
+            fake_process = mock.Mock()
+            fake_process.pid = 4242
+            fake_process.stdout = io.StringIO()
+            fake_process.stderr = io.StringIO()
+            fake_process.poll.return_value = None
+
+            class FakeThread:
+                def __init__(self, **kwargs):
+                    pass
+
+                def start(self):
+                    pass
+
+            with mock.patch.object(
+                process_manager.subprocess, "Popen", return_value=fake_process
+            ) as mock_popen, mock.patch.object(
+                process_manager.threading, "Thread", FakeThread
+            ), mock.patch.object(
+                process_manager.sys, "platform", "win32"
+            ), mock.patch.object(
+                process_manager.subprocess,
+                "CREATE_NEW_PROCESS_GROUP",
+                create_new_process_group,
+                create=True,
+            ), mock.patch.object(
+                process_manager.subprocess, "STARTUPINFO", FakeStartupinfo, create=True
+            ), mock.patch.object(
+                process_manager.subprocess,
+                "STARTF_USESHOWWINDOW",
+                starf_useshowwindow,
+                create=True,
+            ), mock.patch.object(
+                process_manager.subprocess, "SW_HIDE", sw_hide, create=True
+            ):
+                process_manager.launch_process(ctx, "llama-server", ["-m=models/gemma.gguf"])
+
+            kwargs = mock_popen.call_args.kwargs
+            # 1) startupinfo requests SW_HIDE
+            startupinfo = kwargs["startupinfo"]
+            self.assertIsInstance(startupinfo, FakeStartupinfo)
+            self.assertTrue(
+                startupinfo.dwFlags & starf_useshowwindow,
+                "STARTF_USESHOWWINDOW not set",
+            )
+            self.assertEqual(startupinfo.wShowWindow, sw_hide, "window not hidden")
+            # 2) creationflags is exactly CREATE_NEW_PROCESS_GROUP (no CREATE_NO_WINDOW)
+            self.assertEqual(kwargs["creationflags"], create_new_process_group)
+
+    def test_stop_process_falls_back_to_kill_when_signal_fails(self):
+        """When the console-less parent cannot deliver CTRL_BREAK the process
+        must still be killed rather than left running."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            process = mock.Mock()
+            # alive on entry, dead once killed
+            process.poll.side_effect = [None, 0, 0]
+            process.send_signal.side_effect = OSError(6, "The handle is invalid")
+            ctx.state.process = process
+
+            with mock.patch.object(process_manager.sys, "platform", "win32"), \
+                    mock.patch.object(
+                        process_manager.signal, "CTRL_BREAK_EVENT", 1, create=True
+                    ):
+                stopped = process_manager._stop_process_locked(ctx)
+
+            process.send_signal.assert_called_once()
+            process.kill.assert_called_once()
+            self.assertTrue(stopped)
+            self.assertIsNone(ctx.state.process)
+
 
 class GitUpdateRouteTests(unittest.TestCase):
     """Tests for backend/services/git_update.py and backend/routes/git_update.py."""
