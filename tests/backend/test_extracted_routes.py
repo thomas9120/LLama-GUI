@@ -4608,5 +4608,77 @@ class LifecycleTests(unittest.TestCase):
         mock_of.assert_called_once_with(self.ctx.paths.models)
 
 
+class WebProxyTests(unittest.TestCase):
+    """Proxy support honoring HTTP(S)_PROXY / NO_PROXY."""
+
+    def test_host_bypasses_proxy_matches_no_proxy_suffixes(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_NO_PROXY", ("example.com", "10.corp")):
+            self.assertTrue(web_search.host_bypasses_proxy("example.com"))
+            self.assertTrue(web_search.host_bypasses_proxy("api.example.com"))
+            self.assertTrue(web_search.host_bypasses_proxy("host.10.corp"))
+            self.assertFalse(web_search.host_bypasses_proxy("example.org"))
+            self.assertFalse(web_search.host_bypasses_proxy(""))
+        with mock.patch.object(web_search.config, "WEB_SEARCH_NO_PROXY", ("*",)):
+            self.assertTrue(web_search.host_bypasses_proxy("anything.test"))
+
+    def test_open_validated_url_routes_through_proxy(self):
+        parsed = web_search.urllib.parse.urlparse("https://example.com/page")
+        with mock.patch.object(web_search.config, "WEB_SEARCH_PROXY", "http://127.0.0.1:3128"), mock.patch.object(
+            web_search.config, "WEB_SEARCH_NO_PROXY", ()
+        ), mock.patch.object(
+            web_search, "_open_via_proxy", return_value=(200, "OK", Message(), b"ok")
+        ) as via_proxy:
+            status, _, _, raw = web_search._open_validated_url(parsed, [], 10, None)
+        self.assertEqual((status, raw), (200, b"ok"))
+        via_proxy.assert_called_once()
+        self.assertEqual(via_proxy.call_args.args[4], "http://127.0.0.1:3128")
+
+    def test_open_validated_url_direct_for_no_proxy_host(self):
+        parsed = web_search.urllib.parse.urlparse("https://intranet.corp/page")
+        addresses = [(web_search.socket.AF_INET, web_search.socket.SOCK_STREAM, 6, "", ("10.0.0.5", 443))]
+        fake_conn = mock.Mock()
+        fake_conn.getresponse.return_value = mock.Mock(status=200, reason="OK", headers=Message())
+        fake_conn.getresponse.return_value.read.return_value = b"direct"
+        with mock.patch.object(web_search.config, "WEB_SEARCH_PROXY", "http://127.0.0.1:3128"), mock.patch.object(
+            web_search.config, "WEB_SEARCH_NO_PROXY", ("corp",)
+        ), mock.patch.object(
+            web_search, "_open_via_proxy"
+        ) as via_proxy, mock.patch.object(
+            web_search, "_PinnedHTTPSConnection", return_value=fake_conn
+        ):
+            status, _, _, raw = web_search._open_validated_url(parsed, addresses, 10, None)
+        self.assertEqual((status, raw), (200, b"direct"))
+        via_proxy.assert_not_called()
+        fake_conn.request.assert_called_once()
+
+    def test_fetch_page_text_tolerates_dns_failure_when_proxied(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_PROXY", "http://127.0.0.1:3128"), mock.patch.object(
+            web_search.config, "WEB_SEARCH_NO_PROXY", ()
+        ), mock.patch.object(
+            web_search,
+            "resolve_public_addresses",
+            return_value=(None, "Failed to resolve host: getaddrinfo failed"),
+        ), mock.patch.object(
+            web_search, "_open_validated_url", return_value=(200, "OK", Message(), b"<html>hi</html>")
+        ) as open_url:
+            result = web_search.fetch_page_text("https://example.com")
+        self.assertTrue(result["ok"])
+        open_url.assert_called_once()
+        self.assertEqual(open_url.call_args.args[1], [])
+
+    def test_fetch_page_text_still_blocks_private_ip_when_proxied(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_PROXY", "http://127.0.0.1:3128"), mock.patch.object(
+            web_search.config, "WEB_SEARCH_NO_PROXY", ()
+        ), mock.patch.object(
+            web_search,
+            "resolve_public_addresses",
+            return_value=(None, "Blocked: refusing to fetch non-public address 10.0.0.5."),
+        ), mock.patch.object(web_search, "_open_validated_url") as open_url:
+            result = web_search.fetch_page_text("https://sneaky.example.com")
+        self.assertFalse(result["ok"])
+        self.assertIn("non-public address", result["error"])
+        open_url.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

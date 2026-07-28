@@ -184,15 +184,82 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
+def _split_proxy(proxy_url: Any) -> tuple[Optional[str], Optional[int]]:
+    value = str(proxy_url or "").strip()
+    if not value:
+        return None, None
+    if "://" not in value:
+        value = "http://" + value
+    parsed = urllib.parse.urlparse(value)
+    if not parsed.hostname:
+        return None, None
+    return parsed.hostname, parsed.port or 3128
+
+
+def host_bypasses_proxy(hostname: Any) -> bool:
+    """True when the host should be reached directly (matches NO_PROXY)."""
+    host = str(hostname or "").strip().lower().rstrip(".")
+    if not host:
+        return False
+    for suffix in config.WEB_SEARCH_NO_PROXY:
+        if suffix == "*" or host == suffix or host.endswith("." + suffix):
+            return True
+    return False
+
+
+def _request_headers() -> dict[str, str]:
+    return {
+        "User-Agent": config.WEB_SEARCH_USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.2",
+    }
+
+
+def _open_via_proxy(
+    parsed: urllib.parse.ParseResult,
+    port: int,
+    timeout: float,
+    ssl_context: Optional[Any],
+    proxy_url: str,
+) -> tuple[int, str, Any, bytes]:
+    proxy_host, proxy_port = _split_proxy(proxy_url)
+    if not proxy_host:
+        raise OSError(f"Invalid proxy URL: {proxy_url!r}")
+    if parsed.scheme == "https":
+        connection = http.client.HTTPSConnection(
+            proxy_host, proxy_port, timeout=timeout, context=ssl_context
+        )
+        connection.set_tunnel(parsed.hostname, port)
+        target = urllib.parse.urlunparse(("", "", parsed.path or "/", parsed.params, parsed.query, ""))
+    else:
+        connection = http.client.HTTPConnection(proxy_host, proxy_port, timeout=timeout)
+        target = urllib.parse.urlunparse(
+            (parsed.scheme, parsed.netloc, parsed.path or "/", parsed.params, parsed.query, "")
+        )
+    try:
+        connection.request("GET", target, headers=_request_headers())
+        response = connection.getresponse()
+        raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
+        return response.status, response.reason, response.headers, raw
+    finally:
+        connection.close()
+
+
 def _open_validated_url(
     parsed: urllib.parse.ParseResult,
     addresses: list[Any],
     timeout: float,
     ssl_context: Optional[Any],
 ) -> tuple[int, str, Any, bytes]:
-    # Connects directly to the pre-validated addresses (no system proxy
-    # support): routing through a proxy would bypass the SSRF IP pinning.
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    proxy_url = config.WEB_SEARCH_PROXY or None
+    if proxy_url and not host_bypasses_proxy(parsed.hostname):
+        # Reach the host through the configured proxy. The caller has already
+        # verified (via resolve_public_addresses) that the host resolves to a
+        # public address, so this does not widen the SSRF surface; the proxy
+        # performs its own name resolution for the tunnelled connection.
+        return _open_via_proxy(parsed, port, timeout, ssl_context, proxy_url)
+    # No proxy (or a NO_PROXY host): connect directly to the pre-validated,
+    # pinned addresses so the SSRF IP check cannot be bypassed.
     connection_class = _PinnedHTTPSConnection if parsed.scheme == "https" else _PinnedHTTPConnection
     if parsed.scheme == "https":
         connection = connection_class(parsed.hostname, port, addresses, timeout, ssl_context)
@@ -200,14 +267,7 @@ def _open_validated_url(
         connection = connection_class(parsed.hostname, port, addresses, timeout)
     target = urllib.parse.urlunparse(("", "", parsed.path or "/", parsed.params, parsed.query, ""))
     try:
-        connection.request(
-            "GET",
-            target,
-            headers={
-                "User-Agent": config.WEB_SEARCH_USER_AGENT,
-                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.2",
-            },
-        )
+        connection.request("GET", target, headers=_request_headers())
         response = connection.getresponse()
         raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
         return response.status, response.reason, response.headers, raw
@@ -233,7 +293,14 @@ def fetch_page_text(
         port = parsed.port or (443 if parsed.scheme == "https" else 80)
         addresses, reason = resolve_public_addresses(parsed.hostname, port)
         if addresses is None:
-            return {"ok": False, "error": reason}
+            # A private-address SSRF block is always fatal. A plain resolution
+            # failure is tolerated when the host will be reached through the
+            # proxy, since the proxy performs its own DNS (the local machine may
+            # have no direct public resolver).
+            proxied = bool(config.WEB_SEARCH_PROXY) and not host_bypasses_proxy(parsed.hostname)
+            if reason.startswith("Blocked:") or not proxied:
+                return {"ok": False, "error": reason}
+            addresses = []
 
         try:
             status, status_reason, headers, raw = _open_validated_url(

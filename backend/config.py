@@ -83,6 +83,38 @@ WEB_SEARCH_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 )
 
+
+def _first_nonempty_env(*names: str) -> str:
+    for name in names:
+        value = os.environ.get(name)
+        if value and value.strip():
+            return value.strip()
+    return ""
+
+
+def _parse_host_suffixes(value: object) -> tuple[str, ...]:
+    hosts: list[str] = []
+    for raw in str(value or "").replace(";", ",").split(","):
+        host = raw.strip().lower().lstrip("*").strip(".")
+        if host and host not in hosts:
+            hosts.append(host)
+    return tuple(hosts)
+
+
+# Upstream proxy used to reach the internet for web search/fetch. Defaults to the
+# standard HTTP(S)_PROXY environment variables (e.g. a corporate proxy), matching
+# how other tools discover a proxy. Set LLAMA_GUI_WEB_PROXY to override, or "" to
+# disable proxy usage entirely.
+WEB_SEARCH_PROXY = _first_nonempty_env(
+    "LLAMA_GUI_WEB_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"
+)
+
+# Host suffixes that bypass the proxy and are fetched directly, taken from the
+# standard NO_PROXY environment variable (LLAMA_GUI_WEB_NO_PROXY overrides).
+WEB_SEARCH_NO_PROXY = _parse_host_suffixes(
+    _first_nonempty_env("LLAMA_GUI_WEB_NO_PROXY", "NO_PROXY", "no_proxy")
+)
+
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
 # Branch that release tags are cut from. Auto-update always compares against
