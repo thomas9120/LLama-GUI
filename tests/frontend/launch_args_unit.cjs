@@ -425,6 +425,13 @@ function launchResult() {
         flags: {},
     })`, context);
     assert.match(absolute.error, /Invalid model filename/);
+
+    const windowsAbsolute = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "C:/models/model.gguf",
+        flags: {},
+    })`, context);
+    assert.match(windowsAbsolute.error, /Invalid model filename/);
 }
 
 console.log("launch args unit tests passed");

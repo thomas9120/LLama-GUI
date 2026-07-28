@@ -37,6 +37,13 @@ vm.runInContext(flagCoreSource, context, { filename: "ui/js/flag-core.js" });
 vm.runInContext(source, context, { filename: "ui/js/benchmark-ui.js" });
 
 const adapter = context.window.LlamaGui.benchmarkUi;
+context.window.LlamaGui.presets = {
+    resolvePresetModelName: (model, candidates) => (
+        model === "nested.gguf" && candidates.includes("vendor/nested.gguf")
+            ? "vendor/nested.gguf"
+            : model
+    ),
+};
 
 const flags = [
     { id: "ctx_size", flag: "-c", type: "int", label: "Context" },
@@ -97,6 +104,15 @@ function flat(result) {
     });
     assert.equal(nested.error, null);
     assert.ok(flat(nested).includes("models/vendor/nested.gguf"));
+
+    const legacyPreset = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { sourceType: "preset", model: "nested.gguf", flags: {} },
+        modelCandidates: ["vendor/nested.gguf"],
+    });
+    assert.equal(legacyPreset.error, null);
+    assert.ok(flat(legacyPreset).includes("models/vendor/nested.gguf"));
 
     const escaped = adapter.buildBenchmarkArgs({
         benchmarkType: "bench",

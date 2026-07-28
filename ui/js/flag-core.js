@@ -109,7 +109,12 @@
     // configure(), so a missing configure() call can never disable the check.
     function normalizeModelRelPath(modelName) {
         const name = String(modelName || "").trim().replace(/\\/g, "/");
-        if (!name || name.startsWith("/") || !name.toLowerCase().endsWith(".gguf")) return "";
+        if (
+            !name
+            || name.startsWith("/")
+            || /^[A-Za-z]:/.test(name)
+            || !name.toLowerCase().endsWith(".gguf")
+        ) return "";
         const parts = name.split("/");
         if (parts.some((part) => !part || part === "." || part === "..")) return "";
         return parts.join("/");

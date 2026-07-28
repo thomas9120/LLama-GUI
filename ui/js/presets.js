@@ -147,8 +147,7 @@ function applyPresetModel(modelName) {
     // back to the raw value keeps the "(missing)" marker for a genuine miss, and
     // for an ambiguous basename that getPresetWarnings() also flags.
     const options = Array.from(modelSelect.options);
-    const match = matchKnownModelName(target, options.map((option) => option.value));
-    const resolved = match.status === "found" ? match.name : target;
+    const resolved = resolvePresetModelName(target, options.map((option) => option.value));
 
     if (!options.some(o => o.value === resolved)) {
         const opt = document.createElement("option");
@@ -188,7 +187,7 @@ function preparePresetLaunchState(data, options = {}) {
     }
     return {
         tool: normalized.tool,
-        model: normalized.model,
+        model: resolvePresetModelName(normalized.model),
         flags,
     };
 }
@@ -228,12 +227,12 @@ function getPresetModelFileName(model) {
 // Match a saved preset model against a list of models/-relative names, which is
 // what /api/models now reports. Presets written before models/ gained subfolders
 // store a bare file name, so a bare name also matches a nested file's basename -
-// but only when exactly one folder holds that name. Two matches are reported as
-// ambiguous rather than resolved, because guessing between them would quietly
-// launch the wrong weights.
+// but only when exactly one folder holds that name. Legacy absolute paths get the
+// same compatibility fallback. Explicit relative paths must match exactly so a
+// stale path cannot silently select different weights from another folder.
 //
-// Shared with applyPresetModel() on purpose: if the two disagreed, a preset could
-// report healthy while the dropdown showed it as missing and the launch failed.
+// Shared by presence checks and every preset launch path: if they disagreed, a
+// preset could report healthy while the dropdown or launch used another value.
 // Returns the matched name in its original spelling, since the launch needs the
 // exact case even though the cached list is lowercased.
 function matchKnownModelName(model, candidates) {
@@ -249,6 +248,9 @@ function matchKnownModelName(model, candidates) {
     const exact = names.find((name) => name.toLowerCase() === lower);
     if (exact) return { status: "found", name: exact };
 
+    const canMatchBasename = !raw.includes("/") || raw.startsWith("/") || /^[A-Za-z]:\//.test(raw);
+    if (!canMatchBasename) return { status: "missing", name: "" };
+
     const fileName = getPresetModelFileName(raw).toLowerCase();
     if (!fileName) return { status: "missing", name: "" };
     const sameFileName = names.filter(
@@ -257,6 +259,18 @@ function matchKnownModelName(model, candidates) {
     if (sameFileName.length === 1) return { status: "found", name: sameFileName[0] };
     if (sameFileName.length > 1) return { status: "ambiguous", name: "" };
     return { status: "missing", name: "" };
+}
+
+function getModelSelectCandidateNames() {
+    if (typeof document === "undefined") return [];
+    const select = document.getElementById("model-select");
+    return select ? Array.from(select.options).map((option) => option.value).filter(Boolean) : [];
+}
+
+function resolvePresetModelName(model, candidates = getModelSelectCandidateNames()) {
+    const target = String(model || "");
+    const match = matchKnownModelName(target, candidates);
+    return match.status === "found" ? match.name : target;
 }
 
 // Deliberately conservative: only report a problem we are confident about. An
@@ -271,7 +285,7 @@ function getPresetModelIssue(model, knownModelNames = getKnownModelNames()) {
 }
 
 function isPresetModelMissing(model, knownModelNames = getKnownModelNames()) {
-    return Boolean(getPresetModelIssue(model, knownModelNames));
+    return getPresetModelIssue(model, knownModelNames) === "missing";
 }
 
 function getPresetWarnings(presetData, knownModelNames = getKnownModelNames()) {
@@ -2026,6 +2040,7 @@ if (window.LlamaGui) {
         isPresetModelMissing,
         getPresetModelIssue,
         matchKnownModelName,
+        resolvePresetModelName,
         applyPresetModel,
         getPresetModelFileName,
         getPresetLibrarySummary,

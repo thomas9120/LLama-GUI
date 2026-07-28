@@ -138,6 +138,10 @@
         return { tool: null, model: "", flags: data };
     }
 
+    function getModelName(model) {
+        return typeof model === "string" ? model : (model && (model.name || model.filename)) || "";
+    }
+
     function cloneFlags(values) {
         const copy = {};
         for (const [key, value] of Object.entries(values || {})) {
@@ -245,7 +249,11 @@
         const tool = benchmarkType === "perplexity" ? "llama-perplexity" : "llama-bench";
         const flags = cloneFlags(source.flags || {});
         const defaultFlags = options.defaultFlags || {};
-        const model = String(source.model || "").trim();
+        const resolvePresetModelName = root.presets && root.presets.resolvePresetModelName;
+        const resolvedModel = source.sourceType === "preset" && typeof resolvePresetModelName === "function"
+            ? resolvePresetModelName(source.model, options.modelCandidates || [])
+            : source.model;
+        const model = String(resolvedModel || "").trim();
         const allFlags = options.flags || [];
         const args = [];
         const applied = [];
@@ -532,6 +540,7 @@
     function getBuildOptions() {
         return {
             source: getSourceSnapshot(),
+            modelCandidates: cachedModels.map(getModelName).filter(Boolean),
             benchmarkType: getSelectedBenchmarkType(),
             flags: getFlags(),
             defaultFlags: getDefaultFlagValues(),
@@ -683,14 +692,14 @@
         empty.textContent = "-- Select Model --";
         select.appendChild(empty);
         for (const model of cachedModels) {
-            const name = typeof model === "string" ? model : (model.name || model.filename || "");
+            const name = getModelName(model);
             if (!name) continue;
             const opt = document.createElement("option");
             opt.value = name;
             opt.textContent = name;
             select.appendChild(opt);
         }
-        if (current && cachedModels.some((model) => (typeof model === "string" ? model : model.name) === current)) {
+        if (current && cachedModels.some((model) => getModelName(model) === current)) {
             select.value = current;
         }
         renderCommand();

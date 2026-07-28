@@ -513,9 +513,9 @@ Select All, Clear, `★ Favorite`, `☆ Unfavorite`, Export, Delete. Favorite/un
 - An outdated or unsupported chat template.
 - Custom launch args, which may override UI controls.
 
-Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full `models/`-relative path first (case-insensitive), then falls back to the file name, since presets saved before `models/` gained subfolders store a bare name. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights.
+Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full `models/`-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
 
-`applyPresetModel()` resolves through the same function so the two cannot disagree. It matches against the live `#model-select` options rather than the cache, because only the options carry the exact spelling the launch needs; an unresolved value is selected as-is and marked `(missing)` in the dropdown, matching what the preset warns about. When these drifted apart, a preset could report healthy while its launch emitted a path that did not exist.
+`resolvePresetModelName()` is shared by normal preset loads, Model Switcher launch preparation, and saved-preset benchmarks so every path uses the same nested filename. It matches against live model options or the benchmark model list because those carry the exact spelling the launch needs; an unresolved value is selected as-is and marked `(missing)` in the dropdown, matching what the preset warns about. When these drifted apart, a preset could report healthy while its launch emitted a path that did not exist.
 
 Detection is deliberately conservative: an unknown list, an empty models folder, and a preset with no model all stay silent, because a preset for a model kept on another machine is legitimate.
 

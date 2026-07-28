@@ -448,8 +448,8 @@ assert.equal(
 const ambiguousModels = createModelContext(new Set(["vendor-a/dup.gguf", "vendor-b/dup.gguf"]));
 assert.equal(
     isMissing(ambiguousModels, "dup.gguf"),
-    true,
-    "a basename held by two subfolders must not be treated as resolved"
+    false,
+    "an ambiguous basename must warn without inflating the missing-model count"
 );
 assert.equal(
     ambiguousModels.window.LlamaGui.presets.getPresetModelIssue("dup.gguf"),
@@ -466,6 +466,12 @@ assert.equal(
     ambiguousModels.window.LlamaGui.presets.getPresetModelIssue("vendor-a/dup.gguf"),
     "",
     "the full relative path stays unambiguous"
+);
+const staleExplicitPath = createModelContext(new Set(["vendor-b/dup.gguf"]));
+assert.equal(
+    staleExplicitPath.window.LlamaGui.presets.getPresetModelIssue("vendor-a/dup.gguf"),
+    "missing",
+    "an explicit relative path must not fall back to a different folder"
 );
 
 // --- applyPresetModel must agree with the warning ---------------------------
@@ -492,7 +498,11 @@ function createSelectContext(optionValues, knownModelNames) {
     ctx.window = ctx;
     ctx.window.LlamaGui = {
         manager: { getKnownModelNames: () => knownModelNames },
-        flagCore: { setSelectedModelValue: (value) => selected.push(value) },
+        flagCore: {
+            setSelectedModelValue: (value) => selected.push(value),
+            buildEffectiveFlagValues: (values) => ({ ...values }),
+            getFlagValues: () => ({}),
+        },
     };
     vm.createContext(ctx);
     vm.runInContext(source, ctx, { filename: "presets.js" });
@@ -513,6 +523,15 @@ function createSelectContext(optionValues, knownModelNames) {
         false,
         "the warning must agree that the resolved model is present"
     );
+    assert.equal(
+        ctx.window.LlamaGui.presets.preparePresetLaunchState({
+            tool: "llama-server",
+            model: "nested.gguf",
+            flags: {},
+        }).model,
+        "vendor/nested.gguf",
+        "Model Switcher launch preparation must use the same resolved path"
+    );
 
     ctx.window.LlamaGui.presets.applyPresetModel("vendor/nested.gguf");
     assert.equal(select.value, "vendor/nested.gguf", "an exact relative path must select the same option");
@@ -532,9 +551,18 @@ function createSelectContext(optionValues, knownModelNames) {
     assert.equal(select.options.at(-1).textContent, "dup.gguf  (missing)", "it must be marked in the dropdown");
     assert.equal(
         ctx.window.LlamaGui.presets.isPresetModelMissing("dup.gguf"),
-        true,
-        "and the preset must warn to match the dropdown"
+        false,
+        "ambiguity is a warning, not a missing file"
     );
+}
+
+{
+    const known = new Set(["vendor-b/dup.gguf"]);
+    const { ctx, select } = createSelectContext(["", "vendor-b/dup.gguf"], known);
+
+    ctx.window.LlamaGui.presets.applyPresetModel("vendor-a/dup.gguf");
+    assert.equal(select.value, "vendor-a/dup.gguf", "a stale explicit path must not select another folder");
+    assert.equal(select.options.at(-1).textContent, "vendor-a/dup.gguf  (missing)");
 }
 
 {
@@ -571,6 +599,13 @@ assert.equal(summary.missingModelCount, 1, "only the preset pointing at gone.ggu
 assert.equal(summary.warningCount, 2, "one missing model plus one custom-args preset");
 assert.equal(summary.filtered, false, "no search or filter is active");
 assert.equal(summary.mostRecent, null, "an unused library has no most-recent preset");
+
+const ambiguousSummaryContext = createModelContext(new Set(["vendor-a/dup.gguf", "vendor-b/dup.gguf"]));
+ambiguousSummaryContext.__presets = [{ name: "ambiguous", data: { model: "dup.gguf", flags: {} } }];
+vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", ambiguousSummaryContext);
+const ambiguousSummary = vm.runInContext("getPresetLibrarySummary()", ambiguousSummaryContext);
+assert.equal(ambiguousSummary.warningCount, 1, "an ambiguous legacy name remains actionable");
+assert.equal(ambiguousSummary.missingModelCount, 0, "existing ambiguous files are not missing");
 
 // A filtered view must report what is visible, not the whole library, or the
 // summary would contradict the list and the count line next to it.
