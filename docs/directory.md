@@ -36,7 +36,7 @@
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
 | `llama/` | Downloaded `llama.cpp` binaries at runtime |
-| `models/` | User model files (.gguf) |
+| `models/` | User model files (.gguf), in any subfolder; `models/mmproj/` is reserved for projectors |
 | `presets/` | Saved launcher preset JSON files |
 | `tools/` | Auto-downloaded `cloudflared` binary |
 | `scripts/` | `create_windows_shortcuts.ps1` |
@@ -86,7 +86,7 @@
 | `process.py` | `/api/launch`, `/api/launch/preflight`, `/api/presets/fingerprint`, `/api/llama/health`, generation-bound `/api/stop`, `/api/output`, `/api/send-input`, `/api/cleanup-llama` |
 | `install.py` | `/api/releases`, `/api/install`, `/api/update`, `/api/download-progress` |
 | `metrics.py` | `/api/llama/metrics`, `/api/llama/slots` — Prometheus proxy |
-| `models.py` | `/api/models` — list GGUF files |
+| `models.py` | `/api/models` — list GGUF files recursively as `models/`-relative names |
 | `presets.py` | `/api/presets` CRUD + shortcut export |
 | `hf_download.py` | `/api/hf/repo-files`, `/api/hf/download`, `/api/hf/download-status`, `/api/hf/download-cancel` |
 | `tunnel.py` | `/api/remote-tunnel/start`, `/api/remote-tunnel/stop`, `/api/remote-tunnel/status` |
@@ -256,8 +256,10 @@ A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to co
 3. Skip speculative flags when not enabled.
 4. Build `[flag, value]` pairs.
 5. Parse + append custom args.
-6. Append model path as `-m models/<name>`.
+6. Append model path as `-m models/<name>` (relative path under `models/`, including subfolders; `mmproj/` is excluded from discovery).
 7. Return `{ args, error, warnings }`.
+
+`<name>` is checked by `flagCore.normalizeModelRelPath()`, which rejects absolute paths, `.`/`..` segments, empty segments, and anything not ending in `.gguf`. It is exported on the `flagCore` API and reused by `benchmark-ui.js` rather than restated, so the launch and benchmark `-m` values cannot drift apart; `benchmark-ui` fails closed if the export is missing. It stays in `flag-core.js` rather than being injected through `configure()`, so a missing `configure()` call can never disable the check.
 
 ### llama.cpp Compatibility
 
@@ -511,7 +513,11 @@ Select All, Clear, `★ Favorite`, `☆ Unfavorite`, Export, Delete. Favorite/un
 - An outdated or unsupported chat template.
 - Custom launch args, which may override UI controls.
 
-Missing-model detection compares each preset's model basename against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. It is deliberately conservative: an unknown list, an empty models folder, and a preset with no model all stay silent, because a preset for a model kept on another machine is legitimate.
+Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full `models/`-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
+
+`resolvePresetModelName()` is shared by normal preset loads, Model Switcher launch preparation, and saved-preset benchmarks so every path uses the same nested filename. It matches against live model options or the benchmark model list because those carry the exact spelling the launch needs; an unresolved value is selected as-is and marked `(missing)` in the dropdown, matching what the preset warns about. When these drifted apart, a preset could report healthy while its launch emitted a path that did not exist.
+
+Detection is deliberately conservative: an unknown list, an empty models folder, and a preset with no model all stay silent, because a preset for a model kept on another machine is legitimate.
 
 `null` from that cache means "not known yet" and must stay distinct from a known-empty folder. The summary surfaces this as `modelsChecked`; when false, the Missing Models stat renders `—` and the health line says the check did not run rather than giving a false all-clear.
 
@@ -634,10 +640,16 @@ Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, a
 4. "Download" starts the download with progress bar.
 5. On completion, the model is auto-selected in the model dropdown and command preview updates.
 
+### Download Layout
+
+- Models land in `models/<slug>/<file>.gguf`, projectors in `models/mmproj/<slug>/<file>.gguf`, where `<slug>` is `slugify_repo_id(repo_id)`.
+- `model_name` in the status payload is the `models/`-relative path (`<slug>/<file>.gguf`), so it matches `/api/models` and `applyPresetModel()` can select it directly.
+- The slug is not injective: only `/` is substituted, so `owner/my_model` and `owner_my/model` share a folder. Accepted deliberately — an injective scheme would rename every existing download folder, and a shared folder is harmless because files keep their own names and a same-name clash hits the overwrite prompt below.
+
 ### Safety
 
 - Repo IDs, revisions, and filenames are validated with strict regex and path traversal checks.
-- Only `.gguf` files can be downloaded.
+- Only `.gguf` files can be downloaded. The path-flag file picker offers the same GGUF-only filter (plus "All files"); llama.cpp dropped the legacy ggml `.bin` formats.
 - mmproj files must contain `mmproj`, `clip`, or `projector` in the stem.
 - Duplicate downloads detect existing files and prompt for overwrite confirmation.
 - Partial downloads are cleaned up on error/cancellation.
@@ -885,7 +897,7 @@ Returns `{"selected": bool, "path": string}`.
 
 ### File Type Filters
 
-- Model files (purpose: model, model_draft, mmproj, model_vocoder): `*.gguf`, `*.bin`
+- Model files (purpose: model, model_draft, mmproj, model_vocoder): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
 - Other paths (grammar file, log file, etc.): `*.*`
 
 ---

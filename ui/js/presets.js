@@ -141,16 +141,23 @@ function applyPresetModel(modelName) {
         return;
     }
 
-    const existingOption = Array.from(modelSelect.options).find(o => o.value === target);
-    if (!existingOption) {
+    // Resolve against the live options rather than the cached name set: only the
+    // options carry the exact spelling, and a preset saved before models/ gained
+    // subfolders stores a bare name that now lives at "<folder>/<name>". Falling
+    // back to the raw value keeps the "(missing)" marker for a genuine miss, and
+    // for an ambiguous basename that getPresetWarnings() also flags.
+    const options = Array.from(modelSelect.options);
+    const resolved = resolvePresetModelName(target, options.map((option) => option.value));
+
+    if (!options.some(o => o.value === resolved)) {
         const opt = document.createElement("option");
-        opt.value = target;
-        opt.textContent = `${target}  (missing)`;
+        opt.value = resolved;
+        opt.textContent = `${resolved}  (missing)`;
         modelSelect.appendChild(opt);
     }
 
-    modelSelect.value = target;
-    if (flagCore) flagCore.setSelectedModelValue(target);
+    modelSelect.value = resolved;
+    if (flagCore) flagCore.setSelectedModelValue(resolved);
     if (typeof syncQuickLaunchModelOptions === "function") {
         syncQuickLaunchModelOptions();
     }
@@ -180,7 +187,7 @@ function preparePresetLaunchState(data, options = {}) {
     }
     return {
         tool: normalized.tool,
-        model: normalized.model,
+        model: resolvePresetModelName(normalized.model),
         flags,
     };
 }
@@ -217,15 +224,68 @@ function getPresetModelFileName(model) {
     return parts.length ? parts[parts.length - 1] : "";
 }
 
-// Deliberately conservative: only report a miss we are confident about. An
+// Match a saved preset model against a list of models/-relative names, which is
+// what /api/models now reports. Presets written before models/ gained subfolders
+// store a bare file name, so a bare name also matches a nested file's basename -
+// but only when exactly one folder holds that name. Legacy absolute paths get the
+// same compatibility fallback. Explicit relative paths must match exactly so a
+// stale path cannot silently select different weights from another folder.
+//
+// Shared by presence checks and every preset launch path: if they disagreed, a
+// preset could report healthy while the dropdown or launch used another value.
+// Returns the matched name in its original spelling, since the launch needs the
+// exact case even though the cached list is lowercased.
+function matchKnownModelName(model, candidates) {
+    const raw = String(model || "").trim().replace(/\\/g, "/");
+    if (!raw) return { status: "empty", name: "" };
+
+    const names = [];
+    for (const entry of candidates || []) {
+        if (typeof entry === "string" && entry) names.push(entry);
+    }
+
+    const lower = raw.toLowerCase();
+    const exact = names.find((name) => name.toLowerCase() === lower);
+    if (exact) return { status: "found", name: exact };
+
+    const canMatchBasename = !raw.includes("/") || raw.startsWith("/") || /^[A-Za-z]:\//.test(raw);
+    if (!canMatchBasename) return { status: "missing", name: "" };
+
+    const fileName = getPresetModelFileName(raw).toLowerCase();
+    if (!fileName) return { status: "missing", name: "" };
+    const sameFileName = names.filter(
+        (name) => getPresetModelFileName(name).toLowerCase() === fileName
+    );
+    if (sameFileName.length === 1) return { status: "found", name: sameFileName[0] };
+    if (sameFileName.length > 1) return { status: "ambiguous", name: "" };
+    return { status: "missing", name: "" };
+}
+
+function getModelSelectCandidateNames() {
+    if (typeof document === "undefined") return [];
+    const select = document.getElementById("model-select");
+    return select ? Array.from(select.options).map((option) => option.value).filter(Boolean) : [];
+}
+
+function resolvePresetModelName(model, candidates = getModelSelectCandidateNames()) {
+    const target = String(model || "");
+    const match = matchKnownModelName(target, candidates);
+    return match.status === "found" ? match.name : target;
+}
+
+// Deliberately conservative: only report a problem we are confident about. An
 // unknown model list, an empty models/ folder, or a preset with no model saved
 // all stay silent, since a preset for a model held on another machine is
 // legitimate and false warnings would make the Warnings filter useless.
+// Returns "" (no problem), "missing", or "ambiguous".
+function getPresetModelIssue(model, knownModelNames = getKnownModelNames()) {
+    if (!knownModelNames || knownModelNames.size === 0) return "";
+    const match = matchKnownModelName(model, knownModelNames);
+    return match.status === "missing" || match.status === "ambiguous" ? match.status : "";
+}
+
 function isPresetModelMissing(model, knownModelNames = getKnownModelNames()) {
-    if (!knownModelNames || knownModelNames.size === 0) return false;
-    const fileName = getPresetModelFileName(model);
-    if (!fileName) return false;
-    return !knownModelNames.has(fileName.toLowerCase());
+    return getPresetModelIssue(model, knownModelNames) === "missing";
 }
 
 function getPresetWarnings(presetData, knownModelNames = getKnownModelNames()) {
@@ -233,9 +293,13 @@ function getPresetWarnings(presetData, knownModelNames = getKnownModelNames()) {
     const flags = (presetData && presetData.flags) || {};
     const chatTemplate = flags.chat_template;
 
-    if (isPresetModelMissing(presetData && presetData.model, knownModelNames)) {
+    const modelIssue = getPresetModelIssue(presetData && presetData.model, knownModelNames);
+    if (modelIssue === "missing") {
         const fileName = getPresetModelFileName(presetData.model);
         warnings.push(`Model file "${fileName}" is not in the models folder. Add it back or point this preset at another model before launching.`);
+    } else if (modelIssue === "ambiguous") {
+        const fileName = getPresetModelFileName(presetData.model);
+        warnings.push(`Model file "${fileName}" is in more than one models subfolder, so this preset cannot say which one it means. Re-pick the model to save its full path.`);
     }
 
     if (chatTemplate && typeof isSupportedChatTemplateValue === "function" && !isSupportedChatTemplateValue(chatTemplate)) {
@@ -1974,6 +2038,10 @@ if (window.LlamaGui) {
         normalizeImportedPresetData,
         getPresetWarnings,
         isPresetModelMissing,
+        getPresetModelIssue,
+        matchKnownModelName,
+        resolvePresetModelName,
+        applyPresetModel,
         getPresetModelFileName,
         getPresetLibrarySummary,
         getPresetHealthMessage,

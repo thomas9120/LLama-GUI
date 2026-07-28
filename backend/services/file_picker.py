@@ -99,22 +99,27 @@ def select_file_in_native_dialog(
         root.destroy()
 
 
+# `purpose` is the flag id (see getPathPickerRequest in ui/js/app.js). "model" has
+# no path flag today - the main model is a dropdown over models/ - but it is kept
+# here so a future model path flag gets the models/ folder and filter by default.
+MODEL_FILE_PURPOSES = frozenset({"model", "model_draft", "mmproj", "model_vocoder"})
+
+
 def get_select_file_options(ctx: AppContext, purpose: Any, title: Any) -> tuple[str, Path, FileTypes]:
     normalized_purpose = str(purpose or "").strip().lower()
     normalized_title = str(title or "Select File").strip() or "Select File"
 
-    initial_dir = (
-        ctx.paths.models
-        if normalized_purpose in {"model", "model_draft", "mmproj", "model_vocoder"}
-        else ctx.paths.root
-    )
+    is_model_file = normalized_purpose in MODEL_FILE_PURPOSES
+    initial_dir = ctx.paths.models if is_model_file else ctx.paths.root
 
     filetypes: FileTypes = [("All files", "*.*")]
-    if normalized_purpose in {"model", "model_draft", "mmproj", "model_vocoder"}:
+    if is_model_file:
+        # GGUF only, matching every other model path check in the app: llama.cpp
+        # dropped the legacy ggml .bin formats, and validate_hf_filename and the
+        # UI's normalizeModelRelPath both reject .bin. "All files" stays as the
+        # escape hatch for anything unusual.
         filetypes = [
-            ("Model files", "*.gguf *.bin"),
             ("GGUF files", "*.gguf"),
-            ("BIN files", "*.bin"),
             ("All files", "*.*"),
         ]
 

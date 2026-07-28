@@ -138,6 +138,10 @@
         return { tool: null, model: "", flags: data };
     }
 
+    function getModelName(model) {
+        return typeof model === "string" ? model : (model && (model.name || model.filename)) || "";
+    }
+
     function cloneFlags(values) {
         const copy = {};
         for (const [key, value] of Object.entries(values || {})) {
@@ -245,18 +249,30 @@
         const tool = benchmarkType === "perplexity" ? "llama-perplexity" : "llama-bench";
         const flags = cloneFlags(source.flags || {});
         const defaultFlags = options.defaultFlags || {};
-        const model = String(source.model || "").trim();
+        const resolvePresetModelName = root.presets && root.presets.resolvePresetModelName;
+        const resolvedModel = source.sourceType === "preset" && typeof resolvePresetModelName === "function"
+            ? resolvePresetModelName(source.model, options.modelCandidates || [])
+            : source.model;
+        const model = String(resolvedModel || "").trim();
         const allFlags = options.flags || [];
         const args = [];
         const applied = [];
         const excluded = [];
 
         if (model) {
-            if (model.includes("..") || model.includes("/") || model.includes("\\")) {
+            // Reuse flag-core's validator rather than restating the rules, so the
+            // benchmark and launch paths cannot drift apart. Missing means the
+            // module failed to load: fail closed instead of skipping the check.
+            const normalize = root.flagCore && root.flagCore.normalizeModelRelPath;
+            if (typeof normalize !== "function") {
+                return { tool, args, applied, excluded, error: "Model path validation is unavailable." };
+            }
+            const modelPath = normalize(model);
+            if (!modelPath) {
                 return { tool, args, applied, excluded, error: "Invalid model filename." };
             }
-            args.push(["-m", "models/" + model]);
-            applied.push({ label: "Model", value: model });
+            args.push(["-m", "models/" + modelPath]);
+            applied.push({ label: "Model", value: modelPath });
         }
 
         if (benchmarkType === "perplexity" && !hasSelectedModelArg(args)) {
@@ -524,6 +540,7 @@
     function getBuildOptions() {
         return {
             source: getSourceSnapshot(),
+            modelCandidates: cachedModels.map(getModelName).filter(Boolean),
             benchmarkType: getSelectedBenchmarkType(),
             flags: getFlags(),
             defaultFlags: getDefaultFlagValues(),
@@ -675,14 +692,14 @@
         empty.textContent = "-- Select Model --";
         select.appendChild(empty);
         for (const model of cachedModels) {
-            const name = typeof model === "string" ? model : (model.name || model.filename || "");
+            const name = getModelName(model);
             if (!name) continue;
             const opt = document.createElement("option");
             opt.value = name;
             opt.textContent = name;
             select.appendChild(opt);
         }
-        if (current && cachedModels.some((model) => (typeof model === "string" ? model : model.name) === current)) {
+        if (current && cachedModels.some((model) => getModelName(model) === current)) {
             select.value = current;
         }
         renderCommand();

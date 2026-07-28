@@ -401,4 +401,37 @@ function launchResult() {
     assert.match(unsupported.error, /Unsupported/);
 }
 
+{
+    const nested = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "vendor/nested.gguf",
+        flags: {},
+    })`, context);
+    assert.equal(nested.error, null);
+    const nestedFlat = nested.args.flat().map(String);
+    assert.ok(nestedFlat.includes("-m"));
+    assert.ok(nestedFlat.includes("models/vendor/nested.gguf"));
+
+    const escaped = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "../secret.gguf",
+        flags: {},
+    })`, context);
+    assert.match(escaped.error, /Invalid model filename/);
+
+    const absolute = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "/tmp/model.gguf",
+        flags: {},
+    })`, context);
+    assert.match(absolute.error, /Invalid model filename/);
+
+    const windowsAbsolute = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "C:/models/model.gguf",
+        flags: {},
+    })`, context);
+    assert.match(windowsAbsolute.error, /Invalid model filename/);
+}
+
 console.log("launch args unit tests passed");
