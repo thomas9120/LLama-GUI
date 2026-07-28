@@ -79,6 +79,40 @@ function validateOptions(flag, addError, addWarning) {
     }
 }
 
+// Cross-checks flag.submenu against each category's optional submenuOrder hint, so a typo
+// in either place fails loudly instead of silently creating an extra unordered submenu.
+// Categories without submenuOrder are skipped: the hint is opt-in.
+function validateSubmenuOrder(flags, categories, addError) {
+    const usedByCategory = new Map();
+    for (const flag of flags) {
+        if (!flag || typeof flag !== "object") continue;
+        const submenu = typeof flag.submenu === "string" ? flag.submenu.trim() : "";
+        if (!submenu) continue;
+        if (!usedByCategory.has(flag.category)) usedByCategory.set(flag.category, new Set());
+        usedByCategory.get(flag.category).add(submenu);
+    }
+
+    for (const category of categories || []) {
+        if (!category || !Array.isArray(category.submenuOrder)) continue;
+        const declared = new Set(category.submenuOrder);
+        const used = usedByCategory.get(category.id) || new Set();
+
+        if (declared.size !== category.submenuOrder.length) {
+            addError(`Category "${category.id}" has duplicate names in submenuOrder.`);
+        }
+        for (const name of used) {
+            if (!declared.has(name)) {
+                addError(`Submenu "${name}" in category "${category.id}" is missing from submenuOrder.`);
+            }
+        }
+        for (const name of declared) {
+            if (!used.has(name)) {
+                addError(`Category "${category.id}" lists unused submenu "${name}" in submenuOrder.`);
+            }
+        }
+    }
+}
+
 function validateFlags(flags, categories) {
     const errors = [];
     const warnings = [];
@@ -153,6 +187,8 @@ function validateFlags(flags, categories) {
         }
     }
 
+    validateSubmenuOrder(flags, categories, addError);
+
     return { errors, warnings };
 }
 
@@ -198,10 +234,60 @@ assert.deepEqual(validateFlags(current.flags, current.categories), {
     ],
 });
 
+// Configure keeps exactly these six sampling flags at the top level; every other sampling
+// flag lives in a submenu. See docs/design-docs/V2-planning-log.md item 2.
+{
+    const SAMPLING_TOP_LEVEL = new Set([
+        "temperature",
+        "top_k",
+        "top_p",
+        "min_p",
+        "repeat_penalty",
+        "presence_penalty",
+    ]);
+
+    const samplingFlags = current.flags.filter((flag) => flag.category === "sampling");
+    const topLevel = samplingFlags
+        .filter((flag) => !hasText(flag.submenu))
+        .map((flag) => flag.id);
+
+    assert.deepEqual(
+        new Set(topLevel),
+        SAMPLING_TOP_LEVEL,
+        `sampling top-level flags drifted; got: ${topLevel.join(", ")}`
+    );
+    assert.equal(
+        samplingFlags.length - topLevel.length,
+        20,
+        "expected 20 sampling flags to be grouped into submenus"
+    );
+}
+
 assert.deepEqual(validateFlags(null, []), {
     errors: ["FLAGS must be an array."],
     warnings: [],
 });
+
+{
+    const categories = [{ id: "server", submenuOrder: ["Alpha", "Beta"] }];
+    const result = validateFlags(
+        [
+            makeFlag({ submenu: "Alpha" }),
+            makeFlag({ id: "second", flag: "--second", submenu: "Gamma" }),
+        ],
+        categories
+    );
+    assertIncludes(result.errors, 'Submenu "Gamma" in category "server" is missing from submenuOrder.');
+    assertIncludes(result.errors, 'Category "server" lists unused submenu "Beta" in submenuOrder.');
+}
+
+{
+    const result = validateFlags(
+        [makeFlag({ submenu: "Alpha" })],
+        [{ id: "server", submenuOrder: ["Alpha", "Alpha"] }]
+    );
+    assertIncludes(result.errors, 'Category "server" has duplicate names in submenuOrder.');
+}
 
 {
     const result = validateFlags(

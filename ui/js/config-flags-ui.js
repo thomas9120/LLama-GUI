@@ -257,7 +257,7 @@
                 body.appendChild(createFlagRow(f));
             }
 
-            for (const [submenuName, submenuFlags] of submenuMap.entries()) {
+            for (const [submenuName, submenuFlags] of sortSubmenus(submenuMap, group.submenuOrder)) {
                 body.appendChild(createSubmenuBlock(catId, submenuName, submenuFlags));
             }
 
@@ -275,6 +275,20 @@
 
         restoreFlagInputs();
         dependencies.refreshQuickLaunchUI();
+    }
+
+    // Orders submenu blocks by the category's optional submenuOrder hint. Names not listed
+    // there keep their definition order and sort after every listed name.
+    function sortSubmenus(submenuMap, submenuOrder) {
+        const entries = Array.from(submenuMap.entries());
+        if (!Array.isArray(submenuOrder) || submenuOrder.length === 0) return entries;
+
+        const rank = new Map(submenuOrder.map((name, index) => [name, index]));
+        const unlisted = submenuOrder.length;
+        return entries
+            .map((entry, index) => ({ entry, index, rank: rank.has(entry[0]) ? rank.get(entry[0]) : unlisted }))
+            .sort((a, b) => (a.rank - b.rank) || (a.index - b.index))
+            .map(item => item.entry);
     }
 
     function createSubmenuBlock(categoryId, submenuName, submenuFlags) {
