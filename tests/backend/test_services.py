@@ -2616,5 +2616,75 @@ class WebSearchDirectTests(unittest.TestCase):
         self.assertIn("network down", result["error"])
 
 
+class AutoMmprojTests(unittest.TestCase):
+    def test_normalize_model_key_matches_quant_and_mmproj_variants(self):
+        self.assertEqual(
+            process_manager._normalize_model_key("Nemotron-3-Nano-Omni-30B-A3B-Reasoning-Q4_K_M.gguf"),
+            process_manager._normalize_model_key("mmproj-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-BF16.gguf"),
+        )
+        self.assertEqual(
+            process_manager._normalize_model_key("Qwen3.6-35B-A3B-Q4_K_M.gguf"),
+            process_manager._normalize_model_key("mmproj-Qwen3.6-35B-A3B-BF16.gguf"),
+        )
+
+    def test_find_matching_mmproj_matches_companion_and_avoids_false_positive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            (models / "Nemotron-Omni-30B-Q4_K_M.gguf").write_bytes(b"x")
+            companion = mmproj_dir / "mmproj-Nemotron-Omni-30B-BF16.gguf"
+            companion.write_bytes(b"y")
+            (mmproj_dir / "mmproj-Qwen3-BF16.gguf").write_bytes(b"z")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir):
+                self.assertEqual(
+                    process_manager.find_matching_mmproj(
+                        ctx, str(models / "Nemotron-Omni-30B-Q4_K_M.gguf")
+                    ),
+                    companion,
+                )
+                (models / "LFM2-24B-Q4_K_M.gguf").write_bytes(b"x")
+                self.assertIsNone(
+                    process_manager.find_matching_mmproj(ctx, str(models / "LFM2-24B-Q4_K_M.gguf"))
+                )
+
+    def test_compute_auto_mmproj_args_and_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            (models / "Vis-30B-Q4_K_M.gguf").write_bytes(b"x")
+            companion = mmproj_dir / "mmproj-Vis-30B-BF16.gguf"
+            companion.write_bytes(b"y")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            base = ["-m", str(models / "Vis-30B-Q4_K_M.gguf")]
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir), mock.patch.object(
+                process_manager.config, "AUTO_MMPROJ_ENABLED", True
+            ):
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", base),
+                    ["-mm", str(companion)],
+                )
+                # explicit mmproj, --no-mmproj, and non-vision tools are respected
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", base + ["-mm", "x.gguf"]),
+                    [],
+                )
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", base + ["--no-mmproj"]),
+                    [],
+                )
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-cli-bench", base), []
+                )
+            with mock.patch.object(process_manager.config, "AUTO_MMPROJ_ENABLED", False):
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", ["-m", "x"]), []
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -29,6 +29,13 @@ _MODEL_VALUE_FLAGS = ("-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url")
 _LOCAL_MODEL_VALUE_FLAGS = ("-m", "--model")
 _REMOTE_MODEL_VALUE_FLAGS = ("-hf", "--hf-repo", "-mu", "--model-url")
 _ALIAS_VALUE_FLAGS = ("-a", "--alias")
+_MMPROJ_FLAGS = ("-mm", "--mmproj", "--mmproj-url", "--no-mmproj")
+# Quantization / precision tokens stripped when correlating a model file with
+# its mmproj companion (e.g. "...-Q4_K_M" vs "mmproj-...-BF16").
+_QUANT_TOKEN_RE = re.compile(
+    r"(?i)(?:^|[-_.])(?:q\d+(?:_k)?(?:_[sml])?|iq\d+[a-z0-9_]*|f16|f32|bf16|fp16|fp8|mxfp4|q\d_\d)(?=$|[-_.])"
+)
+_MODEL_SHARD_RE = re.compile(r"-\d{5}-of-\d{5}$")
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SENSITIVE_CUSTOM_ARG_RE = re.compile(r"(?<![A-Za-z0-9_-])--api-key(?=$|[=\s])")
 _HEALTH_TIMEOUT_SECONDS = 2
@@ -1152,6 +1159,106 @@ def preflight_launch(
     }
 
 
+def _normalize_model_key(name: str) -> str:
+    """Reduce a model/mmproj filename to a comparable core key.
+
+    Drops the extension, shard suffix, a leading "mmproj" marker, and
+    quantization/precision tokens, then keeps only alphanumerics. This lets
+    "Nemotron-...-Q4_K_M.gguf" match "mmproj-Nemotron-...-BF16.gguf".
+    """
+    stem = str(name)
+    if stem.lower().endswith(".gguf"):
+        stem = stem[: -len(".gguf")]
+    stem = _MODEL_SHARD_RE.sub("", stem)
+    # Repeatedly strip quant tokens (they can appear more than once).
+    while True:
+        new_stem = _QUANT_TOKEN_RE.sub("", stem)
+        if new_stem == stem:
+            break
+        stem = new_stem
+    key = re.sub(r"[^a-z0-9]", "", stem.lower())
+    if key.startswith("mmproj"):
+        key = key[len("mmproj"):]
+    return key
+
+
+def _iter_mmproj_candidates(ctx: AppContext) -> list[Path]:
+    candidates: list[Path] = []
+    search_dirs = [config.MMPROJ_DIR, ctx.paths.models, ctx.paths.models / "mmproj"]
+    seen_dirs: set[Path] = set()
+    for directory in search_dirs:
+        try:
+            resolved = directory.resolve()
+        except Exception:
+            resolved = directory
+        if resolved in seen_dirs or not directory.exists():
+            continue
+        seen_dirs.add(resolved)
+        for path in directory.glob("*.gguf"):
+            if path.is_file() and "mmproj" in path.name.lower():
+                candidates.append(path)
+    return candidates
+
+
+def find_matching_mmproj(ctx: AppContext, model_path: str) -> Optional[Path]:
+    """Find an mmproj file whose name correlates with the given model file."""
+    model_key = _normalize_model_key(Path(model_path).name)
+    if not model_key:
+        return None
+    best: Optional[Path] = None
+    best_score = 0
+    for candidate in _iter_mmproj_candidates(ctx):
+        cand_key = _normalize_model_key(candidate.name)
+        if not cand_key:
+            continue
+        if cand_key == model_key:
+            return candidate
+        if cand_key in model_key or model_key in cand_key:
+            score = min(len(cand_key), len(model_key))
+            if score > best_score:
+                best, best_score = candidate, score
+    # Require a substantial overlap to avoid spurious matches.
+    if best is not None and best_score >= 8:
+        return best
+    return None
+
+
+def compute_auto_mmproj_args(
+    ctx: AppContext, tool: str, flat_launch_args: list[str]
+) -> list[str]:
+    """Return ["-mm", <path>] to add for a vision model, or [] when not needed."""
+    if not config.AUTO_MMPROJ_ENABLED:
+        return []
+    if tool not in {"llama-server", "llama-cli", "llama-mtmd-cli"}:
+        return []
+    # Respect an explicit user choice (mmproj already set, or disabled).
+    for arg in flat_launch_args:
+        base = arg.split("=", 1)[0]
+        if base in _MMPROJ_FLAGS:
+            return []
+    # Only local model files can be correlated with a local mmproj.
+    model_path: Optional[str] = None
+    i = 0
+    while i < len(flat_launch_args):
+        arg = flat_launch_args[i]
+        if arg in _LOCAL_MODEL_VALUE_FLAGS and i + 1 < len(flat_launch_args):
+            model_path = flat_launch_args[i + 1]
+            break
+        if arg.startswith("-m=") or arg.startswith("--model="):
+            model_path = arg.split("=", 1)[1]
+            break
+        i += 1
+    if not model_path:
+        return []
+    resolved_model = model_path
+    if not os.path.isabs(resolved_model):
+        resolved_model = str((ctx.paths.root / resolved_model))
+    match = find_matching_mmproj(ctx, resolved_model)
+    if match is None:
+        return []
+    return ["-mm", str(match)]
+
+
 def launch_process(
     ctx: AppContext,
     tool: str,
@@ -1172,6 +1279,13 @@ def launch_process(
             return {"error": environment_error}
 
         flat_launch_args = flatten_launch_args(args_list)
+        auto_mmproj_args = compute_auto_mmproj_args(ctx, tool, flat_launch_args)
+        if auto_mmproj_args:
+            flat_launch_args = [*flat_launch_args, *auto_mmproj_args]
+            print(
+                f"[process] vision enabled: auto-added mmproj {auto_mmproj_args[-1]}",
+                file=sys.stderr,
+            )
         args = [str(exe_path), *flat_launch_args]
         launch_api_keys = parse_launch_api_keys(flat_launch_args) if tool == "llama-server" else ()
         env = _build_process_env(ctx)

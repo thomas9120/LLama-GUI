@@ -17,6 +17,7 @@ LLAMA_CUSTOM_DIR = LLAMA_DIR / "custom"
 LLAMA_CUSTOM_BIN_DIR = LLAMA_CUSTOM_DIR / "bin"
 LLAMA_CUSTOM_GRAMMARS_DIR = LLAMA_CUSTOM_DIR / "grammars"
 MODELS_DIR = ROOT_DIR / "models"
+MMPROJ_DIR = MODELS_DIR / "mmproj"
 PRESETS_DIR = ROOT_DIR / "presets"
 CONFIG_FILE = ROOT_DIR / "config.json"
 UI_DIR = ROOT_DIR / "ui"
@@ -82,6 +83,12 @@ WEB_SEARCH_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 )
+
+# Automatically pass a matching mmproj (multimodal projector) to llama-server so
+# vision models "just work". When enabled, launching a model that has a matching
+# mmproj file in models/mmproj/ (or models/) adds "-mm <path>" unless the user
+# already specified an mmproj or --no-mmproj.
+AUTO_MMPROJ_ENABLED = parse_bool_env(os.environ.get("LLAMA_GUI_AUTO_MMPROJ", "1"))
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
