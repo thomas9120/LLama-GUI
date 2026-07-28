@@ -3,6 +3,8 @@
 Lets the assistant ingest a file the user references by path in a chat message
 (for example an exported CV). Plain-text formats are read directly; PDF and DOCX
 are supported when the optional pypdf / python-docx packages are installed.
+Images are read with on-device OCR (winocr on Windows, or cross-platform
+RapidOCR) when one of those optional packages is installed.
 """
 
 import re
@@ -104,15 +106,78 @@ def _read_docx(path: Path) -> tuple[bool, str]:
         return False, f"Failed to read DOCX: {exc}"
 
 
-def _read_image_text(path: Path) -> tuple[bool, str]:
-    """Extract text from an image.
+def _ocr_result_text(result: Any) -> str:
+    text = getattr(result, "text", None)
+    if text is None and isinstance(result, dict):
+        text = result.get("text")
+    return (text or "").strip()
 
-    Reading text from an image needs OCR, which is not included here; return a
-    helpful message so the user knows to export the content as text/PDF instead.
+
+def _read_image_ocr_winocr(path: Path) -> tuple[bool, str]:
+    """Windows on-device OCR (Windows.Media.Ocr via winocr).
+
+    Returns (False, "") to signal "backend unavailable" so the caller can try the
+    next backend; a non-empty error string means the backend was present but
+    failed.
     """
+    try:
+        import winocr
+        from PIL import Image
+    except Exception:
+        return False, ""
+    try:
+        with Image.open(str(path)) as img:
+            image = img.convert("RGB")
+            result = winocr.recognize_pil_sync(image, config.WEB_OCR_LANG)
+        return True, _ocr_result_text(result)
+    except Exception as exc:
+        return False, f"OCR failed: {exc}"
+
+
+def _read_image_ocr_rapidocr(path: Path) -> tuple[bool, str]:
+    """Cross-platform OCR via rapidocr-onnxruntime (Windows/Linux/macOS)."""
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+    except Exception:
+        return False, ""
+    try:
+        engine = RapidOCR()
+        result, _ = engine(str(path))
+        text = "\n".join(str(line[1]) for line in (result or []))
+        return True, text.strip()
+    except Exception as exc:
+        return False, f"OCR failed: {exc}"
+
+
+# OCR backends in preference order: Windows OCR first (fast, no download on
+# Windows), then cross-platform RapidOCR.
+_OCR_BACKENDS = (_read_image_ocr_winocr, _read_image_ocr_rapidocr)
+
+
+def _read_image_text(path: Path) -> tuple[bool, str]:
+    """Extract text from an image using on-device OCR.
+
+    Tries each OCR backend in turn; keeps image content on the machine (no
+    cloud), which matters for confidential files.
+    """
+    if not config.WEB_OCR_ENABLED:
+        return False, (
+            f"{path.suffix} is an image and OCR is disabled. Export the content as "
+            "PDF/text, or enable OCR (LLAMA_GUI_WEB_OCR=1)."
+        )
+    errors = []
+    for backend in _OCR_BACKENDS:
+        ok, text = backend(path)
+        if ok:
+            return True, text
+        if text:
+            errors.append(text)
+    if errors:
+        return False, errors[0]
     return False, (
-        f"{path.suffix} is an image; reading text from images requires OCR, "
-        "which is not available in this build. Export the content as PDF or text."
+        f"{path.suffix} is an image, but no OCR backend is installed. Install "
+        "rapidocr-onnxruntime (cross-platform) or winocr + pillow (Windows) to "
+        "read text from images."
     )
 
 

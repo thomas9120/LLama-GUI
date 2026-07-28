@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -4654,13 +4655,16 @@ class LocalFilesTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertIn("too large", result["error"])
 
-    def test_read_local_file_image_reports_needs_ocr(self):
+    def test_read_local_file_image_uses_ocr(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = Path(tmp) / "shot.png"
             p.write_bytes(b"\x89PNG\r\n\x1a\n fake")
-            result = local_files.read_local_file(str(p))
-        self.assertFalse(result["ok"])
-        self.assertIn("requires OCR", result["error"])
+            with mock.patch.object(
+                local_files, "_OCR_BACKENDS", (lambda path: (True, "OCR TEXT"),)
+            ):
+                result = local_files.read_local_file(str(p))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "OCR TEXT")
 
     def test_read_local_file_unsupported_type(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4763,6 +4767,75 @@ class ChatDirectContentRouteTests(unittest.TestCase):
         ws.assert_not_called()
         system_message = captured["body"]["messages"][0]
         self.assertIn("PAGE BODY", system_message["content"])
+
+
+class OcrImageTests(unittest.TestCase):
+    def _image(self, tmp):
+        p = Path(tmp) / "shot.png"
+        p.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+        return p
+
+    def test_ocr_disabled_returns_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            with mock.patch.object(local_files.config, "WEB_OCR_ENABLED", False):
+                result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("OCR is disabled", result["error"])
+
+    def test_ocr_no_backend_returns_install_hint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            with mock.patch.object(local_files.config, "WEB_OCR_ENABLED", True), \
+                    mock.patch.object(local_files, "_OCR_BACKENDS", (lambda path: (False, ""),)):
+                result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("no OCR backend is installed", result["error"])
+
+    def test_ocr_uses_first_successful_backend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            with mock.patch.object(local_files.config, "WEB_OCR_ENABLED", True), \
+                    mock.patch.object(local_files, "_OCR_BACKENDS", (lambda path: (True, "AAA"),)):
+                result = local_files.read_local_file(str(p))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "AAA")
+
+    def test_ocr_falls_back_to_next_backend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            backends = (lambda path: (False, ""), lambda path: (True, "BBB"))
+            with mock.patch.object(local_files.config, "WEB_OCR_ENABLED", True), \
+                    mock.patch.object(local_files, "_OCR_BACKENDS", backends):
+                result = local_files.read_local_file(str(p))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "BBB")
+
+    def test_ocr_surfaces_backend_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            backends = (lambda path: (False, "OCR failed: boom"), lambda path: (False, ""))
+            with mock.patch.object(local_files.config, "WEB_OCR_ENABLED", True), \
+                    mock.patch.object(local_files, "_OCR_BACKENDS", backends):
+                result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("OCR failed: boom", result["error"])
+
+    def test_winocr_backend_signals_unavailable_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            with mock.patch.dict(sys.modules, {"winocr": None}):
+                ok, text = local_files._read_image_ocr_winocr(p)
+        self.assertFalse(ok)
+        self.assertEqual(text, "")
+
+    def test_rapidocr_backend_signals_unavailable_when_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._image(tmp)
+            with mock.patch.dict(sys.modules, {"rapidocr_onnxruntime": None}):
+                ok, text = local_files._read_image_ocr_rapidocr(p)
+        self.assertFalse(ok)
+        self.assertEqual(text, "")
 
 
 if __name__ == "__main__":

@@ -94,6 +94,12 @@ WEB_FILE_TEXT_SUFFIXES = (
 WEB_FILE_IMAGE_SUFFIXES = (
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff",
 )
+# On-device OCR for images/screenshots. Tried in order: Windows OCR (winocr) as a
+# fast no-download option on Windows, then cross-platform RapidOCR
+# (rapidocr-onnxruntime). Both are optional and imported lazily; image content
+# stays on the machine (no cloud), which matters for confidential files.
+WEB_OCR_ENABLED = parse_bool_env(os.environ.get("LLAMA_GUI_WEB_OCR", "1"))
+WEB_OCR_LANG = os.environ.get("LLAMA_GUI_WEB_OCR_LANG", "en").strip() or "en"
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
