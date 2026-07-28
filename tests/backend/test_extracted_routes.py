@@ -3,6 +3,7 @@ import hashlib
 import io
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import urllib.error
@@ -22,6 +23,7 @@ from backend.services import git_update as srv
 from backend.services import lifecycle as lifecycle_service
 from backend.services import llama_manager
 from backend.services import process_manager
+from backend.services import web_render
 from backend.services import web_search
 
 
@@ -2351,17 +2353,17 @@ class ExtractedRouteTests(unittest.TestCase):
             response = DummyResponse()
 
             with mock.patch.object(
-                web_search,
-                "fetch_page_text",
+                web_render,
+                "fetch_page_smart",
                 return_value={"ok": True, "url": "https://example.com", "text": "Example"},
-            ) as fetch_page_text:
+            ) as fetch_page_smart:
                 search.search(
                     Request("POST", "/api/web-search", "", {}, body={"url": "https://example.com"}),
                     response,
                     ctx,
                 )
 
-            fetch_page_text.assert_called_once_with("https://example.com", ssl_context=ctx.services.ssl_context)
+            fetch_page_smart.assert_called_once_with("https://example.com", ssl_context=ctx.services.ssl_context)
             self.assertEqual(response.payload["text"], "Example")
 
     def test_chat_search_context_includes_sources(self):
@@ -4606,6 +4608,90 @@ class LifecycleTests(unittest.TestCase):
             )
         self.assertEqual(self.response.payload, {"opened": True})
         mock_of.assert_called_once_with(self.ctx.paths.models)
+
+
+class WebRenderTests(unittest.TestCase):
+    def test_is_available_returns_bool(self):
+        self.assertIsInstance(web_render.is_available(), bool)
+
+    def test_fetch_page_smart_passthrough_when_disabled(self):
+        plain = {"ok": True, "text": "hi"}
+        with mock.patch.object(web_render.config, "WEB_RENDER_ENABLED", False), \
+                mock.patch.object(web_render.web_search, "fetch_page_text", return_value=plain) as ft, \
+                mock.patch.object(web_render, "render_page") as rp:
+            result = web_render.fetch_page_smart("https://example.com")
+        self.assertEqual(result, plain)
+        ft.assert_called_once()
+        rp.assert_not_called()
+
+    def test_fetch_page_smart_passthrough_when_unavailable(self):
+        plain = {"ok": True, "text": "hi"}
+        with mock.patch.object(web_render.config, "WEB_RENDER_ENABLED", True), \
+                mock.patch.object(web_render, "is_available", return_value=False), \
+                mock.patch.object(web_render.web_search, "fetch_page_text", return_value=plain) as ft, \
+                mock.patch.object(web_render, "render_page") as rp:
+            result = web_render.fetch_page_smart("https://example.com")
+        self.assertEqual(result, plain)
+        ft.assert_called_once()
+        rp.assert_not_called()
+
+    def test_fetch_page_smart_returns_plain_when_enough_text(self):
+        plain = {"ok": True, "text": "x" * 50}
+        with mock.patch.object(web_render.config, "WEB_RENDER_ENABLED", True), \
+                mock.patch.object(web_render.config, "WEB_RENDER_MIN_TEXT", 10), \
+                mock.patch.object(web_render, "is_available", return_value=True), \
+                mock.patch.object(web_render.web_search, "fetch_page_text", return_value=plain), \
+                mock.patch.object(web_render, "render_page") as rp:
+            result = web_render.fetch_page_smart("https://example.com")
+        self.assertEqual(result, plain)
+        rp.assert_not_called()
+
+    def test_fetch_page_smart_renders_when_shell(self):
+        plain = {"ok": True, "text": "x"}
+        rendered = {"ok": True, "text": "y" * 100, "url": "https://example.com"}
+        with mock.patch.object(web_render.config, "WEB_RENDER_ENABLED", True), \
+                mock.patch.object(web_render.config, "WEB_RENDER_MIN_TEXT", 10), \
+                mock.patch.object(web_render, "is_available", return_value=True), \
+                mock.patch.object(web_render.web_search, "fetch_page_text", return_value=plain), \
+                mock.patch.object(web_render, "render_page", return_value=rendered) as rp:
+            result = web_render.fetch_page_smart("https://example.com")
+        rp.assert_called_once()
+        self.assertEqual(result, rendered)
+
+    def test_fetch_page_smart_falls_back_to_plain_when_render_fails(self):
+        plain = {"ok": True, "text": "x"}
+        rendered = {"ok": False, "error": "boom"}
+        with mock.patch.object(web_render.config, "WEB_RENDER_ENABLED", True), \
+                mock.patch.object(web_render.config, "WEB_RENDER_MIN_TEXT", 10), \
+                mock.patch.object(web_render, "is_available", return_value=True), \
+                mock.patch.object(web_render.web_search, "fetch_page_text", return_value=plain), \
+                mock.patch.object(web_render, "render_page", return_value=rendered):
+            result = web_render.fetch_page_smart("https://example.com")
+        self.assertEqual(result, plain)
+
+    def test_render_page_blocks_non_http_scheme(self):
+        result = web_render.render_page("file:///etc/passwd")
+        self.assertFalse(result["ok"])
+        self.assertIn("only http/https", result["error"])
+
+    def test_render_page_blocks_non_public_address(self):
+        with mock.patch.object(
+            web_render.web_search,
+            "resolve_public_addresses",
+            return_value=(None, "Blocked: refusing to fetch non-public address 127.0.0.1."),
+        ):
+            result = web_render.render_page("https://internal.example")
+        self.assertFalse(result["ok"])
+        self.assertIn("non-public address", result["error"])
+
+    def test_render_page_reports_missing_playwright(self):
+        addresses = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        with mock.patch.object(
+            web_render.web_search, "resolve_public_addresses", return_value=(addresses, "")
+        ), mock.patch.dict(sys.modules, {"playwright.sync_api": None}):
+            result = web_render.render_page("https://example.com")
+        self.assertFalse(result["ok"])
+        self.assertIn("Playwright not installed", result["error"])
 
 
 if __name__ == "__main__":

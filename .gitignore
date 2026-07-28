@@ -74,3 +74,6 @@ docs/code-audit.md
 /.claude
 /mockups
 /docs/design-docs
+
+# Persistent browser profile for headless page rendering (Playwright)
+/browser_profile

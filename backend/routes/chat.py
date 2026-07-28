@@ -10,6 +10,7 @@ from backend import config
 from backend.http import SseWriter, sanitize_sse_error
 from backend.services import chat as chat_service
 from backend.services import external_server
+from backend.services import web_render
 from backend.services import web_search
 
 
@@ -78,7 +79,7 @@ def completions(request, response, ctx):
                 if host.startswith("www."):
                     host = host[4:]
                 writer.write({"type": "web_status", "content": f"Reading: {host}"})
-                fetched_pages[url] = web_search.fetch_page_text(url, ssl_context=ctx.services.ssl_context)
+                fetched_pages[url] = web_render.fetch_page_smart(url, ssl_context=ctx.services.ssl_context)
 
             context, sources = chat_service.build_search_context(all_results, fetched_pages)
             if not context:

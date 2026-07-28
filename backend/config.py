@@ -83,6 +83,33 @@ WEB_SEARCH_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 )
 
+# Headless-browser rendering (optional; requires the "playwright" package and a
+# browser). When enabled, a page whose plain HTTP fetch looks like an empty
+# JavaScript shell is re-fetched through a real headless browser so its
+# client-rendered content is captured. It degrades to the plain fetch whenever
+# Playwright is not installed, so it stays a no-op unless you opt in.
+WEB_RENDER_ENABLED = parse_bool_env(os.environ.get("LLAMA_GUI_WEB_RENDER", "1"))
+# Browser channel to drive ("msedge"/"chrome" reuse an installed browser and
+# avoid a Chromium download; set to "" to use Playwright's bundled Chromium).
+WEB_RENDER_CHANNEL = os.environ.get("LLAMA_GUI_WEB_RENDER_CHANNEL", "msedge").strip()
+# Persistent browser profile directory so an interactive login can survive
+# across fetches (log in once, reuse the session). Gitignored.
+WEB_RENDER_PROFILE_DIR = ROOT_DIR / "browser_profile"
+WEB_RENDER_TIMEOUT = 45
+# Extra settle time (ms) after network idle to let late XHR/templating finish.
+WEB_RENDER_SETTLE_MS = 1200
+# When a plain GET yields fewer than this many characters the page is treated
+# as a JS shell and rendering is attempted.
+WEB_RENDER_MIN_TEXT = 600
+# Optional CSS selectors clicked after load to dismiss cookie/consent banners or
+# popups. Empty by default; set LLAMA_GUI_WEB_RENDER_DISMISS_SELECTORS to a
+# comma-separated list to enable.
+WEB_RENDER_DISMISS_SELECTORS = tuple(
+    s.strip()
+    for s in os.environ.get("LLAMA_GUI_WEB_RENDER_DISMISS_SELECTORS", "").split(",")
+    if s.strip()
+)
+
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
 # Branch that release tags are cut from. Auto-update always compares against
