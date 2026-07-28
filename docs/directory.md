@@ -69,7 +69,7 @@
 - Handles preset, model file, and Hugging Face download APIs.
 - Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.3`, `vulkan`, `hip`, `sycl`, `openvino`, `metal`).
 - Proxies OpenAI-compatible chat completions (`/v1/chat/completions`) to `llama-server` with streaming SSE support.
-- Built-in web search via DuckDuckGo (`ddgs` + page fetching with HTML-to-text parsing).
+- Built-in web search via DuckDuckGo (`ddgs` + page fetching with HTML-to-text parsing), with an optional self-hosted SearXNG backend (`LLAMA_GUI_SEARXNG_URL`) that is preferred when set and falls back to `ddgs`.
 - Cloudflare tunnel management (auto-downloads `cloudflared`, starts/stops tunnel, returns public URL).
 - Git-based app auto-updating (checks status, pulls, reinstalls dependencies, restarts server).
 - Native file picker (tkinter) for selecting model files and paths.
@@ -103,7 +103,7 @@
 | `llama_manager.py` | GitHub release fetch, install, SHA256 verify, binary extraction |
 | `process_manager.py` | Process launch/stop, output streaming, arg flattening, API target parsing |
 | `hf_download.py` | HF repo listing, file download with cancel, path validation |
-| `web_search.py` | DuckDuckGo search, HTML-to-text, page fetching |
+| `web_search.py` | DuckDuckGo (`ddgs`) and optional SearXNG search, HTML-to-text, page fetching |
 | `tunnel.py` | Cloudflare tunnel lifecycle, binary download, status polling |
 | `git_update.py` | Git fetch/pull/status, safe dirty path classification |
 | `lifecycle.py` | Server shutdown, restart, cleanup |
@@ -557,7 +557,7 @@ The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface th
 The backend proxies `/api/chat/completions` to `llama-server`'s `/v1/chat/completions` endpoint:
 1. Frontend sends POST with messages, sampler params, and optional web_search flag.
 2. Backend resolves the destination from its own state — see [Chat Proxy Target](#chat-proxy-target) — and refuses the request when there is none.
-3. Backend optionally performs web search via DuckDuckGo, fetches result pages, injects context into the system prompt.
+3. Backend optionally performs web search (SearXNG when configured, otherwise DuckDuckGo), fetches result pages, injects context into the system prompt.
 4. Backend proxies the request to the resolved target and streams the SSE response back to the frontend.
 5. Frontend renders markdown and tracks source citations.
 
@@ -587,7 +587,7 @@ An unattended restore passes `require_identified=True`, so the `/health` respons
 ### Web Search
 
 When the web search toggle is enabled:
-- The backend extracts the latest user message and queries DuckDuckGo.
+- The backend extracts the latest user message and queries the search backend: a self-hosted SearXNG instance when `LLAMA_GUI_SEARXNG_URL` is set (its `settings.yml` must enable `json` under `search.formats`), otherwise DuckDuckGo (`ddgs`). SearXNG is preferred when configured and falls back to `ddgs` whenever it is unset, unreachable, or returns no usable results.
 - The Chat sidebar's "Result Count" setting controls both how many search results are requested and how many result pages are read for full text.
 - Result Count defaults to 5, is persisted in `localStorage` under `llama_gui_chat_web_search_max_results`, and is clamped to 1-10 by both frontend UI constraints and the backend chat route.
 - Search context is injected into the system prompt with source citations.

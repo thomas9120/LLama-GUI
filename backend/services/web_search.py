@@ -299,43 +299,92 @@ def ddgs_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) ->
     return {"ok": True, "query": query, "results": results}
 
 
+def _searxng_valid_result_url(url: Any) -> bool:
+    """A SearXNG result URL must be a non-empty http(s) string with a hostname.
+
+    Rejecting anything else here keeps a malformed row (e.g. a non-string URL,
+    or one with an invalid port such as ``http://host:bad``) from reaching the
+    Chat caller, which would later pass it to urlparse()/fetch_page_text() and
+    raise there instead of falling back.
+    """
+    if not isinstance(url, str) or not url:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url)
+        # Accessing .port forces port validation: a non-numeric or out-of-range
+        # port raises ValueError here rather than later in fetch_page_text().
+        parsed.port
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+
+
+def _searxng_text(value: Any) -> str:
+    """Normalize an optional text field: keep strings, drop anything else."""
+    return value if isinstance(value, str) else ""
+
+
 def searxng_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> dict[str, Any]:
-    """Query a SearXNG JSON endpoint. Connects directly (ignoring any
-    environment proxy) because SearXNG is expected to be a local/trusted host."""
+    """Query a SearXNG JSON endpoint, returning normalized results.
+
+    Connects directly (ignoring any environment proxy) because SearXNG is
+    expected to be a local/trusted host. Any problem -- an invalid endpoint URL,
+    an unreachable instance, a non-JSON or non-object response, a missing results
+    list, a malformed result row, etc. -- is logged to stderr and reported as a
+    generic failure so that web_search() falls back to ddgs. The SearXNG instance
+    must expose the JSON format (its settings.yml must include ``json`` under
+    ``search.formats``).
+    """
     query = str(query or "").strip()
     if not query:
         return {"ok": False, "error": "No query provided.", "results": []}
     base = str(config.WEB_SEARCH_SEARXNG_URL or "").strip().rstrip("/")
     if not base:
         return {"ok": False, "error": "SearXNG endpoint not configured.", "results": []}
-    params = urllib.parse.urlencode({"q": query, "format": "json", "safesearch": "0"})
-    endpoint = f"{base}/search?{params}"
-    request = urllib.request.Request(
-        endpoint,
-        headers={"User-Agent": config.WEB_SEARCH_USER_AGENT, "Accept": "application/json"},
-    )
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    # Everything below can fail on a misconfigured or hostile instance, so it is
+    # all guarded -- including endpoint parsing, which raises on inputs such as
+    # "http://[bad" -- and a failure falls back to ddgs via web_search().
     try:
+        parsed = urllib.parse.urlparse(base)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError(f"invalid endpoint URL: {base!r}")
+        parsed.port  # force port validation (raises ValueError on a bad port)
+        # No safesearch override: the instance's configured policy applies.
+        params = urllib.parse.urlencode({"q": query, "format": "json"})
+        endpoint = f"{base}/search?{params}"
+        request = urllib.request.Request(
+            endpoint,
+            headers={"User-Agent": config.WEB_SEARCH_USER_AGENT, "Accept": "application/json"},
+        )
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         with opener.open(request, timeout=config.WEB_SEARCH_TIMEOUT) as response:
             raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
         data = json.loads(raw.decode("utf-8", errors="replace"))
+        if not isinstance(data, dict):
+            raise ValueError("response was not a JSON object")
+        rows = data.get("results")
+        if not isinstance(rows, list):
+            raise ValueError("response had no results list")
+        results = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            url = row.get("url")
+            if not _searxng_valid_result_url(url):
+                continue
+            results.append(
+                {
+                    "title": _searxng_text(row.get("title")) or url,
+                    "url": url,
+                    "snippet": _searxng_text(row.get("content")) or _searxng_text(row.get("snippet")),
+                }
+            )
+            if len(results) >= max_results:
+                break
     except Exception as exc:
-        return {"ok": False, "error": f"SearXNG search failed: {exc}", "results": []}
-
-    results = []
-    for row in data.get("results", []) or []:
-        url = row.get("url") or ""
-        if not url:
-            continue
-        results.append(
-            {
-                "title": row.get("title") or url,
-                "url": url,
-                "snippet": row.get("content") or row.get("snippet") or "",
-            }
-        )
-        if len(results) >= max_results:
-            break
+        print(f"[web_search] SearXNG search failed: {exc}", file=sys.stderr)
+        return {"ok": False, "error": "SearXNG search failed.", "results": []}
     return {"ok": True, "query": query, "results": results}
 
 

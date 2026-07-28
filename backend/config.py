@@ -85,8 +85,10 @@ WEB_SEARCH_USER_AGENT = (
 
 # Optional SearXNG metasearch endpoint. When set (e.g. "http://127.0.0.1:8888")
 # it is preferred over the DuckDuckGo (ddgs) backend, which stays the fallback
-# whenever SearXNG is unset, unreachable, or returns no results. Leave
-# LLAMA_GUI_SEARXNG_URL unset/empty to use ddgs only (the default).
+# whenever SearXNG is unset, unreachable, or returns no results. The instance
+# must expose the JSON format (settings.yml must include "json" under
+# search.formats). Leave LLAMA_GUI_SEARXNG_URL unset/empty to use ddgs only
+# (the default).
 WEB_SEARCH_SEARXNG_URL = os.environ.get("LLAMA_GUI_SEARXNG_URL", "").strip()
 
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
