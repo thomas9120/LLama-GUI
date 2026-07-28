@@ -3,6 +3,7 @@
 import html
 import http.client
 import ipaddress
+import json
 import re
 import socket
 import sys
@@ -265,7 +266,7 @@ def fetch_page_text(
     return {"ok": False, "error": "Failed to fetch URL: too many redirects."}
 
 
-def web_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> dict[str, Any]:
+def ddgs_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> dict[str, Any]:
     query = str(query or "").strip()
     if not query:
         return {"ok": False, "error": "No query provided.", "results": []}
@@ -296,3 +297,56 @@ def web_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> 
             }
         )
     return {"ok": True, "query": query, "results": results}
+
+
+def searxng_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> dict[str, Any]:
+    """Query a SearXNG JSON endpoint. Connects directly (ignoring any
+    environment proxy) because SearXNG is expected to be a local/trusted host."""
+    query = str(query or "").strip()
+    if not query:
+        return {"ok": False, "error": "No query provided.", "results": []}
+    base = str(config.WEB_SEARCH_SEARXNG_URL or "").strip().rstrip("/")
+    if not base:
+        return {"ok": False, "error": "SearXNG endpoint not configured.", "results": []}
+    params = urllib.parse.urlencode({"q": query, "format": "json", "safesearch": "0"})
+    endpoint = f"{base}/search?{params}"
+    request = urllib.request.Request(
+        endpoint,
+        headers={"User-Agent": config.WEB_SEARCH_USER_AGENT, "Accept": "application/json"},
+    )
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    try:
+        with opener.open(request, timeout=config.WEB_SEARCH_TIMEOUT) as response:
+            raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
+        data = json.loads(raw.decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return {"ok": False, "error": f"SearXNG search failed: {exc}", "results": []}
+
+    results = []
+    for row in data.get("results", []) or []:
+        url = row.get("url") or ""
+        if not url:
+            continue
+        results.append(
+            {
+                "title": row.get("title") or url,
+                "url": url,
+                "snippet": row.get("content") or row.get("snippet") or "",
+            }
+        )
+        if len(results) >= max_results:
+            break
+    return {"ok": True, "query": query, "results": results}
+
+
+def web_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) -> dict[str, Any]:
+    """Run a web search, preferring SearXNG when configured and falling back to
+    DuckDuckGo (ddgs)."""
+    query = str(query or "").strip()
+    if not query:
+        return {"ok": False, "error": "No query provided.", "results": []}
+    if str(config.WEB_SEARCH_SEARXNG_URL or "").strip():
+        searxng_result = searxng_search(query, max_results=max_results)
+        if searxng_result.get("ok") and searxng_result.get("results"):
+            return searxng_result
+    return ddgs_search(query, max_results=max_results)

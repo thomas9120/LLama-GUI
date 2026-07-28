@@ -83,6 +83,12 @@ WEB_SEARCH_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 )
 
+# Optional SearXNG metasearch endpoint. When set (e.g. "http://127.0.0.1:8888")
+# it is preferred over the DuckDuckGo (ddgs) backend, which stays the fallback
+# whenever SearXNG is unset, unreachable, or returns no results. Leave
+# LLAMA_GUI_SEARXNG_URL unset/empty to use ddgs only (the default).
+WEB_SEARCH_SEARXNG_URL = os.environ.get("LLAMA_GUI_SEARXNG_URL", "").strip()
+
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
 # Branch that release tags are cut from. Auto-update always compares against

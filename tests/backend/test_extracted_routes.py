@@ -4608,5 +4608,84 @@ class LifecycleTests(unittest.TestCase):
         mock_of.assert_called_once_with(self.ctx.paths.models)
 
 
+class SearxngSearchTests(unittest.TestCase):
+    def _fake_opener(self, payload_bytes):
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = payload_bytes
+        opener = mock.MagicMock()
+        opener.open.return_value = response
+        return opener
+
+    def test_searxng_search_parses_results(self):
+        payload = json.dumps(
+            {"results": [{"url": "https://a.com", "title": "A", "content": "snippet A"}]}
+        ).encode()
+        opener = self._fake_opener(payload)
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search.urllib.request, "build_opener", return_value=opener):
+            result = web_search.searxng_search("hello", max_results=5)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["results"], [{"title": "A", "url": "https://a.com", "snippet": "snippet A"}])
+
+    def test_searxng_search_respects_max_results(self):
+        rows = [{"url": f"https://a{i}.com", "title": f"t{i}", "content": "c"} for i in range(10)]
+        opener = self._fake_opener(json.dumps({"results": rows}).encode())
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search.urllib.request, "build_opener", return_value=opener):
+            result = web_search.searxng_search("q", max_results=3)
+        self.assertEqual(len(result["results"]), 3)
+
+    def test_searxng_search_errors_when_not_configured(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", ""):
+            result = web_search.searxng_search("q")
+        self.assertFalse(result["ok"])
+        self.assertIn("not configured", result["error"])
+
+    def test_searxng_search_handles_network_failure(self):
+        opener = mock.MagicMock()
+        opener.open.side_effect = OSError("boom")
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search.urllib.request, "build_opener", return_value=opener):
+            result = web_search.searxng_search("q")
+        self.assertFalse(result["ok"])
+        self.assertIn("SearXNG search failed", result["error"])
+
+    def test_web_search_prefers_searxng_when_configured(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search, "searxng_search", return_value={"ok": True, "results": [{"url": "x"}]}) as sx, \
+                mock.patch.object(web_search, "ddgs_search") as dd:
+            result = web_search.web_search("q")
+        sx.assert_called_once()
+        dd.assert_not_called()
+        self.assertEqual(result["results"], [{"url": "x"}])
+
+    def test_web_search_falls_back_to_ddgs_when_searxng_empty(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search, "searxng_search", return_value={"ok": True, "results": []}) as sx, \
+                mock.patch.object(web_search, "ddgs_search", return_value={"ok": True, "results": [{"url": "d"}]}) as dd:
+            result = web_search.web_search("q")
+        sx.assert_called_once()
+        dd.assert_called_once()
+        self.assertEqual(result["results"], [{"url": "d"}])
+
+    def test_web_search_falls_back_to_ddgs_when_searxng_fails(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", "http://127.0.0.1:8888"), \
+                mock.patch.object(web_search, "searxng_search", return_value={"ok": False, "error": "down", "results": []}), \
+                mock.patch.object(web_search, "ddgs_search", return_value={"ok": True, "results": [{"url": "d"}]}) as dd:
+            result = web_search.web_search("q")
+        dd.assert_called_once()
+        self.assertEqual(result["results"], [{"url": "d"}])
+
+    def test_web_search_skips_searxng_when_unset(self):
+        with mock.patch.object(web_search.config, "WEB_SEARCH_SEARXNG_URL", ""), \
+                mock.patch.object(web_search, "searxng_search") as sx, \
+                mock.patch.object(web_search, "ddgs_search", return_value={"ok": True, "results": [{"url": "d"}]}) as dd:
+            result = web_search.web_search("q")
+        sx.assert_not_called()
+        dd.assert_called_once()
+        self.assertEqual(result["results"], [{"url": "d"}])
+
+
 if __name__ == "__main__":
     unittest.main()
