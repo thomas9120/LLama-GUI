@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from .. import config
 from ..context import AppContext
+from .hf_download import is_mmproj_filename
 from .subprocess_utils import get_no_window_creationflags
 
 
@@ -31,9 +32,11 @@ _REMOTE_MODEL_VALUE_FLAGS = ("-hf", "--hf-repo", "-mu", "--model-url")
 _ALIAS_VALUE_FLAGS = ("-a", "--alias")
 _MMPROJ_FLAGS = ("-mm", "--mmproj", "--mmproj-url", "--no-mmproj")
 # Quantization / precision tokens stripped when correlating a model file with
-# its mmproj companion (e.g. "...-Q4_K_M" vs "mmproj-...-BF16").
+# its mmproj companion (e.g. "...-Q4_K_M" vs "mmproj-...-BF16"). The q-quant
+# branch consumes the whole token, including legacy "Qn_n" forms such as Q4_0
+# and Q5_1 and k-quants such as Q4_K_M, so no trailing digit is left behind.
 _QUANT_TOKEN_RE = re.compile(
-    r"(?i)(?:^|[-_.])(?:q\d+(?:_k)?(?:_[sml])?|iq\d+[a-z0-9_]*|f16|f32|bf16|fp16|fp8|mxfp4|q\d_\d)(?=$|[-_.])"
+    r"(?i)(?:^|[-_.])(?:q\d+(?:_k(?:_[sml])?|_\d+)?|iq\d+[a-z0-9_]*|f16|f32|bf16|fp16|fp8|mxfp4)(?=$|[-_.])"
 )
 _MODEL_SHARD_RE = re.compile(r"-\d{5}-of-\d{5}$")
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -1184,42 +1187,58 @@ def _normalize_model_key(name: str) -> str:
 
 def _iter_mmproj_candidates(ctx: AppContext) -> list[Path]:
     candidates: list[Path] = []
-    search_dirs = [config.MMPROJ_DIR, ctx.paths.models, ctx.paths.models / "mmproj"]
     seen_dirs: set[Path] = set()
-    for directory in search_dirs:
+    seen_files: set[Path] = set()
+
+    def add_from(directory: Path, recursive: bool) -> None:
         try:
-            resolved = directory.resolve()
+            resolved_dir = directory.resolve()
         except Exception:
-            resolved = directory
-        if resolved in seen_dirs or not directory.exists():
-            continue
-        seen_dirs.add(resolved)
-        for path in directory.glob("*.gguf"):
-            if path.is_file() and "mmproj" in path.name.lower():
-                candidates.append(path)
+            resolved_dir = directory
+        if resolved_dir in seen_dirs or not directory.exists():
+            return
+        seen_dirs.add(resolved_dir)
+        globber = directory.rglob("*.gguf") if recursive else directory.glob("*.gguf")
+        for path in globber:
+            # Recognize the same projector names the downloader accepts
+            # (mmproj / clip* / projector).
+            if not path.is_file() or not is_mmproj_filename(path.name):
+                continue
+            try:
+                resolved_file = path.resolve()
+            except Exception:
+                resolved_file = path
+            if resolved_file in seen_files:
+                continue
+            seen_files.add(resolved_file)
+            candidates.append(path)
+
+    # The dedicated mmproj tree is scanned recursively so a projector the
+    # integrated downloader stored under models/mmproj/<repo-slug>/<file>.gguf is
+    # rediscovered automatically after a reload.
+    add_from(config.MMPROJ_DIR, recursive=True)
+    add_from(ctx.paths.models / "mmproj", recursive=True)
+    # The plain models/ directory is scanned shallowly for manually placed
+    # files; recursing here would re-descend into mmproj/ and model repo folders.
+    add_from(ctx.paths.models, recursive=False)
     return candidates
 
 
 def find_matching_mmproj(ctx: AppContext, model_path: str) -> Optional[Path]:
-    """Find an mmproj file whose name correlates with the given model file."""
+    """Find an mmproj file whose name correlates with the given model file.
+
+    Matching requires the model and mmproj filenames to reduce to the *same*
+    normalized key (quantization/precision-insensitive). Substring or fuzzy
+    matching is deliberately avoided: attaching an incompatible same-family
+    projector (e.g. an "-V-2" projector to a "-V-2.6" model) can make the model
+    fail to load, so declining to auto-match is the safer default.
+    """
     model_key = _normalize_model_key(Path(model_path).name)
     if not model_key:
         return None
-    best: Optional[Path] = None
-    best_score = 0
     for candidate in _iter_mmproj_candidates(ctx):
-        cand_key = _normalize_model_key(candidate.name)
-        if not cand_key:
-            continue
-        if cand_key == model_key:
+        if _normalize_model_key(candidate.name) == model_key:
             return candidate
-        if cand_key in model_key or model_key in cand_key:
-            score = min(len(cand_key), len(model_key))
-            if score > best_score:
-                best, best_score = candidate, score
-    # Require a substantial overlap to avoid spurious matches.
-    if best is not None and best_score >= 8:
-        return best
     return None
 
 
@@ -1236,19 +1255,12 @@ def compute_auto_mmproj_args(
         base = arg.split("=", 1)[0]
         if base in _MMPROJ_FLAGS:
             return []
-    # Only local model files can be correlated with a local mmproj.
-    model_path: Optional[str] = None
-    i = 0
-    while i < len(flat_launch_args):
-        arg = flat_launch_args[i]
-        if arg in _LOCAL_MODEL_VALUE_FLAGS and i + 1 < len(flat_launch_args):
-            model_path = flat_launch_args[i + 1]
-            break
-        if arg.startswith("-m=") or arg.startswith("--model="):
-            model_path = arg.split("=", 1)[1]
-            break
-        i += 1
-    if not model_path:
+    # Use the effective (last) model source, matching how the rest of the app
+    # resolves repeated model flags: Custom Launch Args may repeat -m/--model and
+    # are placed before the UI-selected model, and a later -hf/--model-url wins.
+    # Only a local model file can be correlated with a local mmproj.
+    model_flag, model_path = _last_launch_flag_entry(flat_launch_args, _MODEL_VALUE_FLAGS)
+    if model_flag not in _LOCAL_MODEL_VALUE_FLAGS or not model_path:
         return []
     resolved_model = model_path
     if not os.path.isabs(resolved_model):

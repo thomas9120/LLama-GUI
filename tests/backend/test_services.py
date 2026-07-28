@@ -2627,6 +2627,26 @@ class AutoMmprojTests(unittest.TestCase):
             process_manager._normalize_model_key("mmproj-Qwen3.6-35B-A3B-BF16.gguf"),
         )
 
+    def test_normalize_model_key_consumes_legacy_qn_n_quant_tokens(self):
+        # Legacy "Qn_n" quant tokens (Q4_0, Q5_1) must be stripped whole, with no
+        # trailing digit left behind, so a quantized model still equals its
+        # BF16/F16 projector.
+        self.assertEqual(
+            process_manager._normalize_model_key("Vision-Model-Q4_0.gguf"),
+            process_manager._normalize_model_key("mmproj-Vision-Model-BF16.gguf"),
+        )
+        self.assertEqual(
+            process_manager._normalize_model_key("Vision-Model-Q5_1.gguf"),
+            process_manager._normalize_model_key("mmproj-Vision-Model-F16.gguf"),
+        )
+
+    def test_normalize_model_key_distinguishes_close_family_versions(self):
+        # A "-V-2.6" model must not reduce to the same key as a "-V-2" projector.
+        self.assertNotEqual(
+            process_manager._normalize_model_key("MiniCPM-V-2.6-Q4_K_M.gguf"),
+            process_manager._normalize_model_key("mmproj-MiniCPM-V-2-F16.gguf"),
+        )
+
     def test_find_matching_mmproj_matches_companion_and_avoids_false_positive(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -2648,6 +2668,33 @@ class AutoMmprojTests(unittest.TestCase):
                 (models / "LFM2-24B-Q4_K_M.gguf").write_bytes(b"x")
                 self.assertIsNone(
                     process_manager.find_matching_mmproj(ctx, str(models / "LFM2-24B-Q4_K_M.gguf"))
+                )
+
+    def test_find_matching_mmproj_legacy_quant_matches_and_close_version_does_not(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            # Positive: a legacy Qn_n quantization still matches its BF16 projector.
+            (models / "Vision-Model-Q4_0.gguf").write_bytes(b"x")
+            companion = mmproj_dir / "mmproj-Vision-Model-BF16.gguf"
+            companion.write_bytes(b"y")
+            # Negative: a close-but-different family version must not be attached.
+            (models / "MiniCPM-V-2.6-Q4_K_M.gguf").write_bytes(b"x")
+            (mmproj_dir / "mmproj-MiniCPM-V-2-F16.gguf").write_bytes(b"z")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir):
+                self.assertEqual(
+                    process_manager.find_matching_mmproj(
+                        ctx, str(models / "Vision-Model-Q4_0.gguf")
+                    ),
+                    companion,
+                )
+                self.assertIsNone(
+                    process_manager.find_matching_mmproj(
+                        ctx, str(models / "MiniCPM-V-2.6-Q4_K_M.gguf")
+                    )
                 )
 
     def test_compute_auto_mmproj_args_and_overrides(self):
@@ -2684,6 +2731,84 @@ class AutoMmprojTests(unittest.TestCase):
                 self.assertEqual(
                     process_manager.compute_auto_mmproj_args(ctx, "llama-server", ["-m", "x"]), []
                 )
+
+    def test_compute_auto_mmproj_args_uses_last_model_source(self):
+        # Custom Launch Args may repeat -m and are placed before the UI-selected
+        # model; the last (effective) model source must drive projector matching.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            (models / "Old-30B-Q4_K_M.gguf").write_bytes(b"x")
+            (mmproj_dir / "mmproj-Old-30B-BF16.gguf").write_bytes(b"o")
+            (models / "Selected-30B-Q4_K_M.gguf").write_bytes(b"x")
+            selected_companion = mmproj_dir / "mmproj-Selected-30B-BF16.gguf"
+            selected_companion.write_bytes(b"s")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            args = [
+                "-m", str(models / "Old-30B-Q4_K_M.gguf"),
+                "-m", str(models / "Selected-30B-Q4_K_M.gguf"),
+            ]
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir), \
+                    mock.patch.object(process_manager.config, "AUTO_MMPROJ_ENABLED", True):
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", args),
+                    ["-mm", str(selected_companion)],
+                )
+
+    def test_compute_auto_mmproj_args_suppressed_by_effective_remote_source(self):
+        # A local -m followed by an effective remote -hf/--model-url source must
+        # not auto-attach the local projector.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            (models / "Local-30B-Q4_K_M.gguf").write_bytes(b"x")
+            (mmproj_dir / "mmproj-Local-30B-BF16.gguf").write_bytes(b"m")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            args = ["-m", str(models / "Local-30B-Q4_K_M.gguf"), "-hf", "some/repo"]
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir), \
+                    mock.patch.object(process_manager.config, "AUTO_MMPROJ_ENABLED", True):
+                self.assertEqual(
+                    process_manager.compute_auto_mmproj_args(ctx, "llama-server", args),
+                    [],
+                )
+
+    def test_find_matching_mmproj_discovers_downloaded_projector_in_subdir(self):
+        # The downloader stores projectors under models/mmproj/<repo-slug>/<file>;
+        # the recursive scan must rediscover them after a reload.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            repo_dir = models / "mmproj" / "some-org__some-repo"
+            repo_dir.mkdir(parents=True)
+            (models / "Downloaded-Vision-Q4_K_M.gguf").write_bytes(b"x")
+            companion = repo_dir / "mmproj-Downloaded-Vision-f16.gguf"
+            companion.write_bytes(b"y")
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", models / "mmproj"):
+                self.assertEqual(
+                    process_manager.find_matching_mmproj(
+                        ctx, str(models / "Downloaded-Vision-Q4_K_M.gguf")
+                    ),
+                    companion,
+                )
+
+    def test_iter_mmproj_candidates_recognizes_clip_and_projector_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            models = root / "models"
+            mmproj_dir = models / "mmproj"
+            mmproj_dir.mkdir(parents=True)
+            (mmproj_dir / "clip-vision-f16.gguf").write_bytes(b"a")
+            (mmproj_dir / "model-projector-f16.gguf").write_bytes(b"b")
+            (mmproj_dir / "regular-model-Q4_K_M.gguf").write_bytes(b"c")  # not a projector
+            ctx = SimpleNamespace(paths=SimpleNamespace(models=models, root=root))
+            with mock.patch.object(process_manager.config, "MMPROJ_DIR", mmproj_dir):
+                names = sorted(p.name for p in process_manager._iter_mmproj_candidates(ctx))
+            self.assertEqual(names, ["clip-vision-f16.gguf", "model-projector-f16.gguf"])
 
 
 if __name__ == "__main__":
