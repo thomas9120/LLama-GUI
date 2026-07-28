@@ -633,6 +633,7 @@ const FLAGS = [
 		min: -1,
 		max: 10,
 		step: 0.01,
+		submenu: "Advanced Truncation",
 	},
 	{
 		id: "xtc_probability",
@@ -645,6 +646,7 @@ const FLAGS = [
 		min: 0,
 		max: 1,
 		step: 0.01,
+		submenu: "XTC Sampling",
 	},
 	{
 		id: "xtc_threshold",
@@ -657,6 +659,7 @@ const FLAGS = [
 		min: 0,
 		max: 1,
 		step: 0.01,
+		submenu: "XTC Sampling",
 	},
 	{
 		id: "typical_p",
@@ -670,6 +673,7 @@ const FLAGS = [
 		min: 0,
 		max: 1,
 		step: 0.01,
+		submenu: "Advanced Truncation",
 	},
 	{
 		id: "repeat_last_n",
@@ -681,6 +685,7 @@ const FLAGS = [
 		tool: "both",
 		default: 64,
 		min: -1,
+		submenu: "Repetition Penalties",
 	},
 	{
 		id: "repeat_penalty",
@@ -723,6 +728,7 @@ const FLAGS = [
 		min: 0,
 		max: 5,
 		step: 0.05,
+		submenu: "Repetition Penalties",
 	},
 	{
 		id: "dry_multiplier",
@@ -802,6 +808,7 @@ const FLAGS = [
 		min: 0,
 		max: 5,
 		step: 0.01,
+		submenu: "Dynamic Temperature",
 	},
 	{
 		id: "dynatemp_exp",
@@ -815,6 +822,7 @@ const FLAGS = [
 		min: 0.1,
 		max: 5,
 		step: 0.05,
+		submenu: "Dynamic Temperature",
 	},
 	{
 		id: "mirostat",
@@ -829,6 +837,7 @@ const FLAGS = [
 			{ value: "1", label: "Mirostat (1)" },
 			{ value: "2", label: "Mirostat 2.0 (2)" },
 		],
+		submenu: "Mirostat",
 	},
 	{
 		id: "mirostat_lr",
@@ -841,6 +850,7 @@ const FLAGS = [
 		min: 0.001,
 		max: 1,
 		step: 0.01,
+		submenu: "Mirostat",
 	},
 	{
 		id: "mirostat_ent",
@@ -853,6 +863,7 @@ const FLAGS = [
 		min: 0,
 		max: 20,
 		step: 0.1,
+		submenu: "Mirostat",
 	},
 	{
 		id: "seed",
@@ -866,6 +877,7 @@ const FLAGS = [
 		default: -1,
 		min: -1,
 		placeholder: "-1 = random",
+		submenu: "Generation Control",
 	},
 	{
 		id: "ignore_eos",
@@ -876,6 +888,7 @@ const FLAGS = [
 		desc: "Ignore end-of-stream token and continue generating",
 		tool: "both",
 		default: false,
+		submenu: "Generation Control",
 	},
 	{
 		id: "samplers",
@@ -886,6 +899,7 @@ const FLAGS = [
 		desc: "Custom sampler order, semicolon separated",
 		tool: "both",
 		placeholder: "penalties;dry;top_k;top_p;temperature",
+		submenu: "Sampler Order",
 	},
 	{
 		id: "sampler_seq",
@@ -896,6 +910,7 @@ const FLAGS = [
 		desc: "Simplified sampler sequence shorthand. Leave empty when using the advanced sampler order above.",
 		tool: "both",
 		placeholder: "edskypmxt",
+		submenu: "Sampler Order",
 	},
 
 	// RoPE Scaling
@@ -1329,13 +1344,14 @@ const FLAGS = [
 		type: "enum",
 		label: "Speculative Type",
 		desc: "Type of speculative decoding",
-		tool: "server",
+		tool: "both",
 		default: "none",
 		options: [
 			{ value: "none", label: "None (default)" },
 			{ value: "draft-simple", label: "Draft Simple" },
 			{ value: "draft-eagle3", label: "Draft EAGLE-3" },
 			{ value: "draft-dflash", label: "Draft DFlash" },
+			{ value: "draft-dspark", label: "Draft DSpark" },
 			{ value: "draft-mtp", label: "Draft MTP (Multi-Token Prediction)" },
 			{ value: "ngram-cache", label: "Ngram Cache" },
 			{ value: "ngram-simple", label: "Ngram Simple" },

@@ -8,7 +8,24 @@ const FLAG_CATEGORIES = [
 	{ id: "cpu", name: "CPU & Threads", icon: "⚙️" },
 	{ id: "gpu", name: "GPU / Acceleration", icon: "🎮" },
 	{ id: "auto_fit", name: "Auto Fit", icon: "📐" },
-	{ id: "sampling", name: "Sampling", icon: "🎲" },
+	// submenuOrder controls only the display order of submenu blocks in the Configure
+	// tab. It is deliberately separate from the FLAGS array order, which determines CLI
+	// argument order in buildLaunchArgs() and must not be reordered for presentation.
+	{
+		id: "sampling",
+		name: "Sampling",
+		icon: "🎲",
+		submenuOrder: [
+			"Repetition Penalties",
+			"DRY Sampling",
+			"XTC Sampling",
+			"Advanced Truncation",
+			"Dynamic Temperature",
+			"Mirostat",
+			"Sampler Order",
+			"Generation Control",
+		],
+	},
 	{ id: "rope", name: "RoPE Scaling", icon: "📏" },
 	{ id: "conversation", name: "Conversation & Chat", icon: "💬" },
 	{ id: "lora", name: "LoRA & Control Vectors", icon: "🔗" },
