@@ -245,7 +245,9 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - **`enum`**: Dropdown select from a predefined options list.
 - **`multi_enum`**: Multiple checkboxes for selecting zero or more values. Supports an `all` shortcut and `risk: "high"` badges with warnings for dangerous options (e.g., shell command execution).
 
-Categories can also define `submenu` entries that render as collapsible sub-accordions within the main category.
+Any flag can declare `submenu: "<name>"` to render inside a collapsible sub-accordion within its category instead of at the category's top level. Flags without `submenu` render first, in definition order; submenu blocks follow.
+
+A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to control the order those blocks appear in. It is presentation-only and deliberately independent of the `FLAGS` array order, which determines CLI argument order in `buildLaunchArgs()` and must never be reordered for display purposes. Submenu names not listed in `submenuOrder` keep their definition order and sort after every listed name. `tests/frontend/flag_definitions_unit.cjs` fails the build if the two lists drift apart.
 
 ### Launch Args Generation (`flagCore.getLaunchArgs()`)
 
@@ -751,7 +753,9 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 - Quick Launch tab: Sampler Preset controls in the sampler section (Load, then Save / Rename / Delete).
 - Quick profiles reference preset names (e.g., `samplerPresetName: "Balanced"`).
 - Loading a preset calls `window.LlamaGui.samplerPresets.applySamplerPresetValues()` which writes through `window.LlamaGui.flagCore.setMultipleFlagValues()`.
-- Configure groups all DRY controls under the collapsible **DRY Sampling** submenu. `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
+- Configure keeps six sampling flags at the top level — `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty`, `--presence-penalty` — and groups the remaining 20 into eight collapsible submenus, displayed in this order: **Repetition Penalties**, **DRY Sampling**, **XTC Sampling**, **Advanced Truncation**, **Dynamic Temperature**, **Mirostat**, **Sampler Order**, **Generation Control**. All submenus start collapsed.
+- Grouping is presentation-only. Sampler presets still read and write every sampling flag (`sampler-presets.js` selects by `category === "sampling"`), and rows inside a collapsed submenu are still present in the DOM, so preset apply/save works without expanding anything.
+- `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
 
 ### Model Load Mode
 
@@ -837,13 +841,13 @@ The Configure tab includes an advanced `Custom Launch Args` textarea near the co
 The Configure tab has a search input that filters visible flags in real-time.
 
 - Searches across: flag name (`--flag`), label, id, description, short description, beginner tip, submenu name, and all option labels/values.
-- When a search query is active, all accordion categories automatically expand to show matching flags.
+- When a search query is active, `openMatchingSearchSections()` expands all accordion categories, plus every submenu holding at least one matching flag — so a match is never hidden behind a collapsed submenu header.
+- The user's own submenu state is snapshotted into `savedOpenSubmenus` when a search begins and restored when the query is cleared, so searching does not destroy it. `resetOpenCategories()` (called on tool change) discards the snapshot, because submenu keys from the previous tool may no longer exist.
 - Partial matches are highlighted; unmatched flags within a category are hidden.
 - Empty results show "No configuration options match your search."
-- Escape key or clear button resets the search and collapses all categories.
+- Escape key or clear button resets the search and restores the pre-search submenu state. Categories opened by the search stay open.
 - "Expand All" opens all categories and submenus. "Collapse All" closes them.
-- Individual categories remember their open/closed state via `openCategories` Set.
-- Individual submenus remember their state via `openSubmenus` Set.
+- Individual categories remember their open/closed state via `openCategories` Set; submenus via `openSubmenus`, keyed `"<categoryId>::<submenuName>"`.
 
 ---
 
