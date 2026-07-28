@@ -324,6 +324,19 @@ function launchResult() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            spec_type: "draft-dspark",
+            draft_max: 7,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--spec-type") && args.includes("draft-dspark"));
+    assert.ok(args.includes("--spec-draft-n-max") && args.includes("7"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setSelectedModelValue("live-a.gguf");
         window.LlamaGui.flagCore.setFlagValue("temperature", 0.11);
     `, context);
