@@ -10,6 +10,7 @@ from backend import config
 from backend.http import SseWriter, sanitize_sse_error
 from backend.services import chat as chat_service
 from backend.services import external_server
+from backend.services import local_files
 from backend.services import web_search
 
 
@@ -48,39 +49,99 @@ def completions(request, response, ctx):
         messages = list(body.get("messages") or [])
         proxied_messages = messages
 
-        if body.get("web_search"):
+        # Detect content the user referenced directly -- a pasted URL and/or a
+        # local file path -- so it can be read without toggling Web Search.
+        latest_user = chat_service.get_latest_user_message(messages)
+        pasted_urls = chat_service.extract_urls(latest_user)
+        file_paths = local_files.extract_file_paths(latest_user)
+        refs_from_history = False
+        if not pasted_urls and not file_paths and chat_service.references_previous_page(latest_user):
+            history_urls = chat_service.find_recent_urls(messages)
+            history_files = local_files.find_recent_file_paths(messages)
+            if history_urls or history_files:
+                pasted_urls = history_urls
+                file_paths = history_files
+                refs_from_history = True
+        has_direct_content = bool(pasted_urls or file_paths)
+
+        # Run the read/search pipeline when Web Search is on, or whenever the
+        # user referenced a URL/file (so reading "just works" without the toggle).
+        if body.get("web_search") or has_direct_content:
             max_results = get_web_search_result_count(body)
-            latest_user = chat_service.get_latest_user_message(messages)
-            queries = chat_service.build_search_queries(latest_user)
-            if not queries:
-                writer.write({"error": {"message": "Add a text question to search the web for."}})
-                writer.write("[DONE]")
-                return
             all_results = []
             fetched_pages = {}
 
-            for query in queries:
-                writer.write({"type": "web_status", "content": f"Searching: {query}"})
-                search_response = web_search.web_search(query, max_results=max_results)
-                if not search_response.get("ok"):
-                    writer.write({"error": {"message": search_response.get("error", "Search unavailable")}})
+            if has_direct_content:
+                if refs_from_history:
+                    writer.write(
+                        {
+                            "type": "web_status",
+                            "content": "Using the link/file from earlier in the conversation.",
+                        }
+                    )
+                for file_path in file_paths[:max_results]:
+                    name = file_path.rsplit("\\", 1)[-1].rsplit("/", 1)[-1]
+                    writer.write({"type": "web_status", "content": f"Reading file: {name}"})
+                    file_result = local_files.read_local_file(file_path)
+                    key = f"file:///{file_path}"
+                    fetched_pages[key] = file_result
+                    if not file_result.get("ok"):
+                        writer.write(
+                            {
+                                "type": "web_status",
+                                "content": f"Could not read {name}: {str(file_result.get('error', ''))[:160]}",
+                            }
+                        )
+                    all_results.append({"title": file_path, "url": key, "snippet": ""})
+                for url in pasted_urls[:max_results]:
+                    host = urllib.parse.urlparse(url).hostname or url
+                    if host.startswith("www."):
+                        host = host[4:]
+                    writer.write({"type": "web_status", "content": f"Reading: {host}"})
+                    page = web_search.fetch_page_text(url, ssl_context=ctx.services.ssl_context)
+                    fetched_pages[url] = page
+                    if not page.get("ok"):
+                        writer.write(
+                            {
+                                "type": "web_status",
+                                "content": f"Could not read {host}: {str(page.get('error', ''))[:160]}",
+                            }
+                        )
+                    all_results.append({"title": url, "url": url, "snippet": ""})
+            else:
+                queries = chat_service.build_search_queries(latest_user)
+                if not queries:
+                    writer.write({"error": {"message": "Add a text question to search the web for."}})
                     writer.write("[DONE]")
                     return
-                for result in search_response.get("results", []):
-                    if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
-                        all_results.append(result)
-                    if len(all_results) >= max_results:
-                        break
 
-            for result in all_results[:max_results]:
-                url = result.get("url", "")
-                host = urllib.parse.urlparse(url).hostname or url
-                if host.startswith("www."):
-                    host = host[4:]
-                writer.write({"type": "web_status", "content": f"Reading: {host}"})
-                fetched_pages[url] = web_search.fetch_page_text(url, ssl_context=ctx.services.ssl_context)
+                for query in queries:
+                    writer.write({"type": "web_status", "content": f"Searching: {query}"})
+                    search_response = web_search.web_search(query, max_results=max_results)
+                    if not search_response.get("ok"):
+                        writer.write({"error": {"message": search_response.get("error", "Search unavailable")}})
+                        writer.write("[DONE]")
+                        return
+                    for result in search_response.get("results", []):
+                        if result.get("url") and all(r.get("url") != result.get("url") for r in all_results):
+                            all_results.append(result)
+                        if len(all_results) >= max_results:
+                            break
 
-            context, sources = chat_service.build_search_context(all_results, fetched_pages)
+                for result in all_results[:max_results]:
+                    url = result.get("url", "")
+                    host = urllib.parse.urlparse(url).hostname or url
+                    if host.startswith("www."):
+                        host = host[4:]
+                    writer.write({"type": "web_status", "content": f"Reading: {host}"})
+                    fetched_pages[url] = web_search.fetch_page_text(url, ssl_context=ctx.services.ssl_context)
+
+            # Direct URL/file reads get a larger per-source budget than search
+            # snippets so a full page or document (e.g. a CV) reaches the model.
+            max_source_chars = 12000 if has_direct_content else 3500
+            context, sources = chat_service.build_search_context(
+                all_results, fetched_pages, max_source_chars=max_source_chars
+            )
             if not context:
                 writer.write({"error": {"message": "Search returned no usable sources."}})
                 writer.write("[DONE]")

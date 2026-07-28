@@ -83,6 +83,18 @@ WEB_SEARCH_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36"
 )
 
+# Local files whose text may be read into chat context, by extension. A file the
+# user references by path in a chat message is read and added as context. PDF and
+# DOCX need the optional pypdf / python-docx packages.
+WEB_FILE_MAX_BYTES = 8 * 1024 * 1024
+WEB_FILE_TEXT_SUFFIXES = (
+    ".txt", ".md", ".markdown", ".json", ".csv", ".tsv", ".log",
+    ".html", ".htm", ".xml", ".yaml", ".yml", ".rtf",
+)
+WEB_FILE_IMAGE_SUFFIXES = (
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff",
+)
+
 GITHUB_API = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 APP_REPO_URL = "https://github.com/thomas9120/LLama-GUI.git"
 # Branch that release tags are cut from. Auto-update always compares against

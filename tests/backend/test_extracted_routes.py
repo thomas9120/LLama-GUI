@@ -21,6 +21,7 @@ from backend.services import external_server as external_server_service
 from backend.services import git_update as srv
 from backend.services import lifecycle as lifecycle_service
 from backend.services import llama_manager
+from backend.services import local_files
 from backend.services import process_manager
 from backend.services import web_search
 
@@ -4606,6 +4607,162 @@ class LifecycleTests(unittest.TestCase):
             )
         self.assertEqual(self.response.payload, {"opened": True})
         mock_of.assert_called_once_with(self.ctx.paths.models)
+
+
+class LocalFilesTests(unittest.TestCase):
+    def test_extract_file_paths_quoted_unquoted_and_unc(self):
+        text = (
+            'see "C:\\Users\\me\\my file.txt" and '
+            'C:\\Users\\me\\OneDrive - Team\\Report 2026.pdf and '
+            '\\\\server\\share\\doc.docx'
+        )
+        paths = local_files.extract_file_paths(text)
+        self.assertIn("C:\\Users\\me\\my file.txt", paths)
+        self.assertIn("C:\\Users\\me\\OneDrive - Team\\Report 2026.pdf", paths)
+        self.assertIn("\\\\server\\share\\doc.docx", paths)
+
+    def test_extract_file_paths_ignores_urls(self):
+        self.assertEqual(local_files.extract_file_paths("see https://example.com/a.txt"), [])
+
+    def test_find_recent_file_paths_scans_newest_first(self):
+        messages = [
+            {"role": "user", "content": "read C:\\a\\old.txt"},
+            {"role": "assistant", "content": "no path here"},
+            {"role": "user", "content": "and C:\\b\\new.pdf"},
+        ]
+        self.assertEqual(local_files.find_recent_file_paths(messages), ["C:\\b\\new.pdf"])
+
+    def test_read_local_file_reads_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "note.txt"
+            p.write_text("hello world", encoding="utf-8")
+            result = local_files.read_local_file(str(p))
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["text"], "hello world")
+
+    def test_read_local_file_not_found(self):
+        result = local_files.read_local_file("C:\\does\\not\\exist.txt")
+        self.assertFalse(result["ok"])
+        self.assertIn("File not found", result["error"])
+
+    def test_read_local_file_too_large(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "big.txt"
+            p.write_text("x" * 50, encoding="utf-8")
+            with mock.patch.object(local_files.config, "WEB_FILE_MAX_BYTES", 10):
+                result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("too large", result["error"])
+
+    def test_read_local_file_image_reports_needs_ocr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "shot.png"
+            p.write_bytes(b"\x89PNG\r\n\x1a\n fake")
+            result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("requires OCR", result["error"])
+
+    def test_read_local_file_unsupported_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "data.bin"
+            p.write_bytes(b"\x00\x01\x02")
+            result = local_files.read_local_file(str(p))
+        self.assertFalse(result["ok"])
+        self.assertIn("Unsupported file type", result["error"])
+
+
+class ChatServiceReadHelperTests(unittest.TestCase):
+    def test_extract_urls_trims_wrappers_and_punctuation(self):
+        self.assertEqual(
+            chat_service.extract_urls("see `https://a.com/x`, and <https://b.com/y>."),
+            ["https://a.com/x", "https://b.com/y"],
+        )
+
+    def test_find_recent_urls_scans_newest_first(self):
+        messages = [
+            {"role": "user", "content": "https://old.com"},
+            {"role": "assistant", "content": "no link"},
+            {"role": "user", "content": "try https://new.com/page"},
+        ]
+        self.assertEqual(chat_service.find_recent_urls(messages), ["https://new.com/page"])
+
+    def test_references_previous_page(self):
+        self.assertTrue(chat_service.references_previous_page("could you try again?"))
+        self.assertTrue(chat_service.references_previous_page("read the file please"))
+        self.assertFalse(chat_service.references_previous_page("what is the capital of France?"))
+
+    def test_build_search_context_respects_max_source_chars(self):
+        results = [{"title": "T", "url": "u", "snippet": ""}]
+        pages = {"u": {"ok": True, "text": "y" * 100}}
+        context, _ = chat_service.build_search_context(results, pages, max_source_chars=10)
+        self.assertIn("source excerpt truncated", context)
+        context2, _ = chat_service.build_search_context(results, pages, max_source_chars=1000)
+        self.assertNotIn("source excerpt truncated", context2)
+
+
+class ChatDirectContentRouteTests(unittest.TestCase):
+    def test_reads_local_file_without_web_search(self):
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
+            response = DummySseResponse()
+            with mock.patch.object(
+                chat.local_files, "read_local_file",
+                return_value={"ok": True, "path": "C:\\t\\cv.txt", "text": "RESUME BODY"},
+            ) as read_file, mock.patch.object(chat.web_search, "web_search") as ws, \
+                    mock.patch.object(
+                        chat.chat_service, "get_local_chat_api_url",
+                        return_value="http://127.0.0.1:8080/v1/chat/completions",
+                    ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+                chat.completions(
+                    Request("POST", "/api/chat/completions", "", {}, body={
+                        "messages": [{"role": "user", "content": "summarize C:\\t\\cv.txt"}],
+                    }),
+                    response, ctx,
+                )
+
+        read_file.assert_called_once()
+        ws.assert_not_called()
+        system_message = captured["body"]["messages"][0]
+        self.assertEqual(system_message["role"], "system")
+        self.assertIn("RESUME BODY", system_message["content"])
+
+    def test_reads_pasted_url_without_web_search(self):
+        captured = {}
+
+        def fake_urlopen(req, timeout):
+            captured["body"] = json.loads(req.data.decode("utf-8"))
+            return FakeSseUpstream([b"data: [DONE]\n\n"])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx)
+            response = DummySseResponse()
+            with mock.patch.object(
+                chat.web_search, "fetch_page_text",
+                return_value={"ok": True, "text": "PAGE BODY"},
+            ) as fetch, mock.patch.object(chat.web_search, "web_search") as ws, \
+                    mock.patch.object(
+                        chat.chat_service, "get_local_chat_api_url",
+                        return_value="http://127.0.0.1:8080/v1/chat/completions",
+                    ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+                chat.completions(
+                    Request("POST", "/api/chat/completions", "", {}, body={
+                        "messages": [{"role": "user", "content": "read https://example.com/page"}],
+                    }),
+                    response, ctx,
+                )
+
+        fetch.assert_called_once()
+        ws.assert_not_called()
+        system_message = captured["body"]["messages"][0]
+        self.assertIn("PAGE BODY", system_message["content"])
 
 
 if __name__ == "__main__":
