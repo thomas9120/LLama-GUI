@@ -2403,6 +2403,89 @@ class SlugifyRepoIdTests(unittest.TestCase):
     def test_spaces_replaced(self):
         self.assertEqual(hf_service.slugify_repo_id("my model"), "my_model")
 
+    def test_slug_is_not_injective(self):
+        # Documents an accepted limitation rather than asserting desired output.
+        # Only "/" is substituted, so a repo whose name contains "_" can collide
+        # with one whose owner does. Both of these are valid repo ids and land in
+        # the same download folder. Kept deliberately: an injective scheme would
+        # rename every existing folder, files keep their own names, and a
+        # same-name clash still hits the exists/overwrite prompt. If this ever
+        # stops being acceptable, this test is the thing to change first.
+        for repo_id in ("owner/my_model", "owner_my/model"):
+            hf_service.validate_hf_repo_id(repo_id)
+        self.assertEqual(
+            hf_service.slugify_repo_id("owner/my_model"),
+            hf_service.slugify_repo_id("owner_my/model"),
+        )
+
+
+class StartHfModelDownloadPathTests(unittest.TestCase):
+    def test_downloads_into_repo_subfolder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            payload = b"gguf-bytes"
+
+            def fake_urlopen(req, timeout=60):
+                return FakeDownloadResponse([payload], content_length=len(payload))
+
+            with (
+                mock.patch.object(hf_service, "get_hf_file_size", return_value=len(payload)),
+                mock.patch.object(
+                    hf_service,
+                    "build_hf_download_url",
+                    side_effect=lambda repo_id, filename, revision: f"https://example.test/{filename}",
+                ),
+            ):
+                hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="Q4/model.gguf",
+                    mmproj_file="mmproj-model.gguf",
+                    token=None,
+                    urlopen=fake_urlopen,
+                )
+                for _ in range(50):
+                    snap = hf_service.get_model_download_snapshot(ctx)
+                    if snap["status"] in {"done", "error", "cancelled"}:
+                        break
+                    import time
+
+                    time.sleep(0.02)
+
+            snap = hf_service.get_model_download_snapshot(ctx)
+            self.assertEqual(snap["status"], "done", snap)
+            self.assertEqual(snap["model_name"], "owner_model/model.gguf")
+            model_path = pathlib.Path(snap["model_path"])
+            self.assertEqual(model_path, ctx.paths.models / "owner_model" / "model.gguf")
+            self.assertTrue(model_path.is_file())
+            self.assertEqual(model_path.read_bytes(), payload)
+            mmproj_path = pathlib.Path(snap["mmproj_path"])
+            self.assertEqual(
+                mmproj_path,
+                ctx.paths.models / "mmproj" / "owner_model" / "mmproj-model.gguf",
+            )
+            self.assertTrue(mmproj_path.is_file())
+
+    def test_exists_check_uses_repo_relative_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = ctx.paths.models / "owner_model" / "model.gguf"
+            dest.parent.mkdir(parents=True)
+            dest.write_bytes(b"existing")
+
+            with self.assertRaises(FileExistsError) as raised:
+                hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="model.gguf",
+                    mmproj_file="",
+                    token=None,
+                )
+
+            self.assertIn("owner_model/model.gguf", str(raised.exception))
+
 
 class HfFileToDictTests(unittest.TestCase):
     def test_extracts_rfilename(self):

@@ -252,11 +252,19 @@
         const excluded = [];
 
         if (model) {
-            if (model.includes("..") || model.includes("/") || model.includes("\\")) {
+            // Reuse flag-core's validator rather than restating the rules, so the
+            // benchmark and launch paths cannot drift apart. Missing means the
+            // module failed to load: fail closed instead of skipping the check.
+            const normalize = root.flagCore && root.flagCore.normalizeModelRelPath;
+            if (typeof normalize !== "function") {
+                return { tool, args, applied, excluded, error: "Model path validation is unavailable." };
+            }
+            const modelPath = normalize(model);
+            if (!modelPath) {
                 return { tool, args, applied, excluded, error: "Invalid model filename." };
             }
-            args.push(["-m", "models/" + model]);
-            applied.push({ label: "Model", value: model });
+            args.push(["-m", "models/" + modelPath]);
+            applied.push({ label: "Model", value: modelPath });
         }
 
         if (benchmarkType === "perplexity" && !hasSelectedModelArg(args)) {

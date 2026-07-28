@@ -6,6 +6,10 @@ const vm = require("node:vm");
 const ROOT = path.resolve(__dirname, "..", "..");
 const outputCursorSource = fs.readFileSync(path.join(ROOT, "ui", "js", "output-cursor.js"), "utf8");
 const flagHelpersSource = fs.readFileSync(path.join(ROOT, "ui", "js", "flags", "helpers.js"), "utf8");
+// benchmark-ui borrows flagCore.normalizeModelRelPath so the -m rules stay in one
+// place; flag-core takes all its flag data through configure(), so loading it here
+// needs no other module.
+const flagCoreSource = fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "benchmark-ui.js"), "utf8");
 
 const context = {
@@ -29,6 +33,7 @@ context.window.window = context.window;
 vm.createContext(context);
 vm.runInContext(outputCursorSource, context, { filename: "ui/js/output-cursor.js" });
 vm.runInContext(flagHelpersSource, context, { filename: "ui/js/flags/helpers.js" });
+vm.runInContext(flagCoreSource, context, { filename: "ui/js/flag-core.js" });
 vm.runInContext(source, context, { filename: "ui/js/benchmark-ui.js" });
 
 const adapter = context.window.LlamaGui.benchmarkUi;
@@ -82,6 +87,23 @@ function flat(result) {
     assert.ok(result.excluded.some((item) => item.label === "GPU Layers"));
     assert.ok(result.excluded.some((item) => item.label === "Temperature"));
     assert.ok(result.excluded.some((item) => item.label === "Custom Launch Args"));
+}
+
+{
+    const nested = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "vendor/nested.gguf", flags: {} },
+    });
+    assert.equal(nested.error, null);
+    assert.ok(flat(nested).includes("models/vendor/nested.gguf"));
+
+    const escaped = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "../secret.gguf", flags: {} },
+    });
+    assert.match(escaped.error, /Invalid model filename/);
 }
 
 {

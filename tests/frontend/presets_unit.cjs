@@ -405,7 +405,7 @@ function createModelContext(knownModelNames, initialStorage = {}) {
     return ctx;
 }
 
-const modelsPresent = createModelContext(new Set(["kept.gguf", "other.gguf"]));
+const modelsPresent = createModelContext(new Set(["kept.gguf", "other.gguf", "vendor/nested.gguf"]));
 const isMissing = (ctx, model) => ctx.window.LlamaGui.presets.isPresetModelMissing(model);
 
 assert.equal(isMissing(modelsPresent, "gone.gguf"), true, "a model absent from models/ must be flagged");
@@ -418,6 +418,9 @@ assert.equal(
     "a path-like model value must match on its file name"
 );
 assert.equal(isMissing(modelsPresent, "/srv/models/kept.gguf"), false, "posix paths must match on file name too");
+assert.equal(isMissing(modelsPresent, "vendor/nested.gguf"), false, "relative subfolder paths must match exactly");
+assert.equal(isMissing(modelsPresent, "nested.gguf"), false, "bare names must match a nested file basename");
+assert.equal(isMissing(modelsPresent, "vendor/gone.gguf"), true, "a missing relative path must be flagged");
 
 // An unknown list must never be read as proof that a model is gone.
 assert.equal(isMissing(createModelContext(null), "gone.gguf"), false, "a failed model fetch must not warn");
@@ -439,6 +442,114 @@ assert.equal(
     0,
     "a preset whose model still exists must be warning-free"
 );
+
+// A bare name held by two subfolders cannot be resolved, so it must warn rather
+// than silently pick one. applyPresetModel() below must agree with this.
+const ambiguousModels = createModelContext(new Set(["vendor-a/dup.gguf", "vendor-b/dup.gguf"]));
+assert.equal(
+    isMissing(ambiguousModels, "dup.gguf"),
+    true,
+    "a basename held by two subfolders must not be treated as resolved"
+);
+assert.equal(
+    ambiguousModels.window.LlamaGui.presets.getPresetModelIssue("dup.gguf"),
+    "ambiguous",
+    "an unresolvable basename must be reported as ambiguous, not as missing"
+);
+const ambiguousWarnings = ambiguousModels.window.LlamaGui.presets.getPresetWarnings({
+    model: "dup.gguf",
+    flags: {},
+});
+assert.equal(ambiguousWarnings.length, 1, "an ambiguous model must surface exactly one warning");
+assert.match(ambiguousWarnings[0], /more than one models subfolder/, "the warning must explain the ambiguity");
+assert.equal(
+    ambiguousModels.window.LlamaGui.presets.getPresetModelIssue("vendor-a/dup.gguf"),
+    "",
+    "the full relative path stays unambiguous"
+);
+
+// --- applyPresetModel must agree with the warning ---------------------------
+// Regression: a legacy preset storing a bare name once reported healthy while the
+// dropdown appended "<name>  (missing)" and the launch emitted a path that does
+// not exist. Resolution and warning now share matchKnownModelName().
+function createSelectContext(optionValues, knownModelNames) {
+    const select = {
+        options: optionValues.map((value) => ({ value, textContent: value })),
+        value: "",
+        appendChild(option) { this.options.push(option); },
+    };
+    const selected = [];
+    const ctx = {
+        window: {},
+        document: {
+            getElementById: (id) => (id === "model-select" ? select : null),
+            createElement: () => ({ value: "", textContent: "" }),
+        },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: { getItem: () => null, setItem: () => {} },
+        FLAGS: [],
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = {
+        manager: { getKnownModelNames: () => knownModelNames },
+        flagCore: { setSelectedModelValue: (value) => selected.push(value) },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    return { ctx, select, selected };
+}
+
+{
+    const known = new Set(["kept.gguf", "vendor/nested.gguf"]);
+    const { ctx, select, selected } = createSelectContext(["", "kept.gguf", "vendor/nested.gguf"], known);
+    const optionCount = select.options.length;
+
+    ctx.window.LlamaGui.presets.applyPresetModel("nested.gguf");
+    assert.equal(select.value, "vendor/nested.gguf", "a legacy bare name must resolve to its nested path");
+    assert.equal(selected.at(-1), "vendor/nested.gguf", "the launch must use the resolved path");
+    assert.equal(select.options.length, optionCount, "resolving must not append a (missing) option");
+    assert.equal(
+        ctx.window.LlamaGui.presets.isPresetModelMissing("nested.gguf"),
+        false,
+        "the warning must agree that the resolved model is present"
+    );
+
+    ctx.window.LlamaGui.presets.applyPresetModel("vendor/nested.gguf");
+    assert.equal(select.value, "vendor/nested.gguf", "an exact relative path must select the same option");
+    assert.equal(select.options.length, optionCount, "an exact match must not append an option either");
+
+    ctx.window.LlamaGui.presets.applyPresetModel("VENDOR/NESTED.GGUF");
+    assert.equal(select.value, "vendor/nested.gguf", "resolution must restore the option's exact spelling");
+}
+
+{
+    // Both halves must still agree when the name genuinely cannot be resolved.
+    const known = new Set(["vendor-a/dup.gguf", "vendor-b/dup.gguf"]);
+    const { ctx, select } = createSelectContext(["", "vendor-a/dup.gguf", "vendor-b/dup.gguf"], known);
+
+    ctx.window.LlamaGui.presets.applyPresetModel("dup.gguf");
+    assert.equal(select.value, "dup.gguf", "an ambiguous basename must not silently pick a folder");
+    assert.equal(select.options.at(-1).textContent, "dup.gguf  (missing)", "it must be marked in the dropdown");
+    assert.equal(
+        ctx.window.LlamaGui.presets.isPresetModelMissing("dup.gguf"),
+        true,
+        "and the preset must warn to match the dropdown"
+    );
+}
+
+{
+    const known = new Set(["kept.gguf"]);
+    const { ctx, select } = createSelectContext(["", "kept.gguf"], known);
+
+    ctx.window.LlamaGui.presets.applyPresetModel("gone.gguf");
+    assert.equal(select.value, "gone.gguf", "a genuine miss keeps the saved value");
+    assert.equal(select.options.at(-1).textContent, "gone.gguf  (missing)", "a genuine miss is still marked");
+    assert.equal(
+        ctx.window.LlamaGui.presets.isPresetModelMissing("gone.gguf"),
+        true,
+        "a genuine miss must warn"
+    );
+}
 
 // --- Library summary (preset-todo item 6) ----------------------------------
 // The summary describes the visible presets, so its numbers always agree with

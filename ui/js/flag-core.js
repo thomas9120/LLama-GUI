@@ -102,6 +102,19 @@
         return selectedModel;
     }
 
+    // Relative path under models/: bare name or folder/name.gguf. Rejects escapes.
+    // Exported on the flagCore API and used by benchmark-ui too: this is the one
+    // definition of the rule, so `-m models/<name>` cannot diverge between the
+    // launch and benchmark paths. Deliberately kept here rather than injected via
+    // configure(), so a missing configure() call can never disable the check.
+    function normalizeModelRelPath(modelName) {
+        const name = String(modelName || "").trim().replace(/\\/g, "/");
+        if (!name || name.startsWith("/") || !name.toLowerCase().endsWith(".gguf")) return "";
+        const parts = name.split("/");
+        if (parts.some((part) => !part || part === "." || part === "..")) return "";
+        return parts.join("/");
+    }
+
     function setMultipleFlagValues(patch, options = {}) {
         patchFlagValues(patch);
         if (typeof afterPatch === "function") {
@@ -431,9 +444,9 @@
             args.push(...parsedCustom.tokens);
         }
 
-        const modelName = model;
-        if (modelName) {
-            if (modelName.includes("..") || modelName.includes("/") || modelName.includes("\\")) {
+        if (model) {
+            const modelName = normalizeModelRelPath(model);
+            if (!modelName) {
                 return { args, error: "Invalid model filename.", warnings };
             }
             args.push(["-m", "models/" + modelName]);
@@ -492,6 +505,7 @@
         isValidGpuLayersValue,
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
+        normalizeModelRelPath,
         redactSensitiveTokens,
         hasLaunchModelArg,
         buildLaunchArgs,

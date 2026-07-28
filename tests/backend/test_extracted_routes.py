@@ -167,11 +167,95 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.paths.models.mkdir(parents=True)
             (ctx.paths.models / "model.gguf").write_bytes(b"x" * 1024)
             (ctx.paths.models / "notes.txt").write_text("ignore")
+            nested = ctx.paths.models / "vendor" / "nested.gguf"
+            nested.parent.mkdir(parents=True)
+            nested.write_bytes(b"x" * 2048)
+            mmproj = ctx.paths.models / "mmproj" / "proj.gguf"
+            mmproj.parent.mkdir(parents=True)
+            mmproj.write_bytes(b"x" * 512)
             response = DummyResponse()
 
             models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
 
-            self.assertEqual(response.payload, [{"name": "model.gguf", "size_mb": 0.0}])
+            self.assertEqual(
+                response.payload,
+                [
+                    {"name": "model.gguf", "size_mb": 0.0},
+                    {"name": "vendor/nested.gguf", "size_mb": 0.0},
+                ],
+            )
+
+    def test_models_route_lists_symlinked_models(self):
+        # Symlinking a large .gguf into models/ from another disk is a common way
+        # to avoid copying it. Resolving the path before building the name would
+        # place it outside models/ and silently drop it from the list.
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.models.mkdir(parents=True)
+            external = Path(tmp) / "elsewhere"
+            external.mkdir()
+            (external / "external.gguf").write_bytes(b"x" * 1024)
+            try:
+                (ctx.paths.models / "linked.gguf").symlink_to(external / "external.gguf")
+                (ctx.paths.models / "vendor").symlink_to(external, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are not available on this platform")
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            names = [item["name"] for item in response.payload]
+            # Each link is listed under the name it has in models/, which is what
+            # `-m models/<name>` needs; the OS follows it at launch.
+            self.assertIn("linked.gguf", names)
+            self.assertIn("vendor/external.gguf", names)
+            self.assertNotIn("external.gguf", names)
+
+    def test_models_route_survives_symlink_cycle(self):
+        # Following directory links means a cycle would otherwise recurse forever.
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            nested = ctx.paths.models / "vendor"
+            nested.mkdir(parents=True)
+            (nested / "nested.gguf").write_bytes(b"x" * 1024)
+            try:
+                (nested / "loop").symlink_to(ctx.paths.models, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are not available on this platform")
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            self.assertEqual(
+                [item["name"] for item in response.payload],
+                ["vendor/nested.gguf"],
+            )
+
+    def test_models_route_skips_reserved_mmproj_folder_only_at_top_level(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.models.mkdir(parents=True)
+            for rel in ("mmproj/proj.gguf", "vendor/mmproj/nested.gguf", "mmproj-extra/other.gguf"):
+                path = ctx.paths.models / rel
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b"x" * 16)
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            self.assertEqual(
+                [item["name"] for item in response.payload],
+                ["mmproj-extra/other.gguf", "vendor/mmproj/nested.gguf"],
+            )
+
+    def test_models_route_returns_empty_list_without_models_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            self.assertEqual(response.payload, [])
 
     def test_benchmark_wikitext2_route_reuses_existing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2202,8 +2286,9 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_hf_download_route_reports_duplicate_with_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
-            ctx.paths.models.mkdir(parents=True)
-            (ctx.paths.models / "model.gguf").write_bytes(b"existing")
+            dest_dir = ctx.paths.models / "owner_model"
+            dest_dir.mkdir(parents=True)
+            (dest_dir / "model.gguf").write_bytes(b"existing")
             response = DummyResponse()
 
             hf_download.start_download(
@@ -2224,6 +2309,7 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertEqual(response.status, 409)
             self.assertEqual(response.payload["code"], "exists")
+            self.assertIn("owner_model/model.gguf", response.payload["error"])
 
     def test_hf_download_cancel_sets_cancelling_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2864,7 +2950,12 @@ class ExtractedRouteTests(unittest.TestCase):
             _, kwargs = select_file.call_args
             self.assertEqual(kwargs["title"], "Pick Model")
             self.assertEqual(kwargs["initial_dir"], ctx.paths.models)
-            self.assertEqual(kwargs["filetypes"][0], ("Model files", "*.gguf *.bin"))
+            # GGUF only: llama.cpp dropped the legacy ggml .bin formats, and the
+            # HF download and launch-arg checks both reject .bin.
+            self.assertEqual(kwargs["filetypes"][0], ("GGUF files", "*.gguf"))
+            offered = " ".join(pattern for _, pattern in kwargs["filetypes"])
+            self.assertNotIn(".bin", offered)
+            self.assertIn(("All files", "*.*"), kwargs["filetypes"])
             self.assertEqual(response.payload, {"selected": True, "path": str(ctx.paths.models / "model.gguf")})
 
 
