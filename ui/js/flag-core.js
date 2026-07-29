@@ -413,6 +413,9 @@
                     && !isSupportedChatTemplateValue(val)) {
                     continue;
                 }
+                if (f.id === "chat_template" && String(values.chat_template_custom || "").trim()) {
+                    continue;
+                }
                 if (f.id === "gpu_layers") {
                     const normalizedGpuLayers = normalizeGpuLayersValue(val);
                     if (normalizedGpuLayers === undefined) continue;

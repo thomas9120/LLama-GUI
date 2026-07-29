@@ -97,6 +97,8 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.ok(args.includes("--mmap"), "default launch args should enable mmap");
     assert.ok(!args.includes("--no-mmap"), "default launch args should not disable mmap");
+    assert.ok(args.includes("--jinja"), "default launch args should reflect llama.cpp's enabled Jinja default");
+    assert.ok(!args.includes("--no-jinja"), "default launch args should not disable Jinja");
     const timeoutIndex = args.indexOf("-to");
     assert.notEqual(timeoutIndex, -1, "default launch args should include server timeout");
     assert.equal(args[timeoutIndex + 1], "3600");
@@ -432,6 +434,29 @@ function launchResult() {
         flags: {},
     })`, context);
     assert.match(windowsAbsolute.error, /Invalid model filename/);
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("jinja", false);
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--no-jinja"), "disabled Jinja should emit the upstream negated flag");
+    assert.ok(!args.includes("--jinja"), "disabled Jinja should not emit the positive flag");
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template: "chatml",
+            chat_template_custom: "ui/templates/custom.jinja",
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--chat-template-file"));
+    assert.ok(!args.includes("--chat-template"), "a custom template file must take precedence over a builtin name");
 }
 
 console.log("launch args unit tests passed");

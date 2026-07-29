@@ -489,7 +489,48 @@ async function main() {
         await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("-c 12345"));
         assert.equal(await page.inputValue("#flag-ctx_size"), "12345");
 
+        await page.fill("#quick-context-custom", "1e5");
+        await page.dispatchEvent("#quick-context-custom", "input");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 100000);
+        assert.equal(await page.inputValue("#flag-ctx_size"), "100000");
+
+        await page.evaluate(() => {
+            const fitCtx = document.getElementById("quick-fit-ctx");
+            fitCtx.value = "1e5";
+            fitCtx.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().fit_ctx === 100000);
+
+        await page.evaluate(() => {
+            window.LlamaGui.flagCore.setMultipleFlagValues({
+                chat_template: "phi4",
+                chat_template_custom: undefined,
+            });
+            window.LlamaGui.quickLaunchUi.refresh();
+        });
+        await page.waitForFunction(() => document.querySelector("#quick-template-pack")?.value === "phi4");
+        assert.match(
+            await page.locator("#quick-template-pack option:checked").textContent(),
+            /phi4.*llama\.cpp built-in/i
+        );
+
         await selectSection(page, "configure");
+        await page.evaluate(() => {
+            const ctxSize = document.getElementById("flag-ctx_size");
+            ctxSize.value = "1e5";
+            ctxSize.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 100000);
+        assert.match(await page.textContent("#command-preview-text"), /-c 100000/);
+        assert.equal(await page.inputValue("#flag-chat_template"), "phi4");
+        await page.evaluate(() => {
+            window.LlamaGui.flagCore.setMultipleFlagValues({
+                ctx_size: 12345,
+                fit_ctx: 12345,
+                chat_template: undefined,
+            });
+            window.LlamaGui.quickLaunchUi.afterApply(window.LlamaGui.flagCore.getFlagValues());
+        });
         await page.fill("#config-search", "sampling");
         await page.waitForFunction(() => {
             const headers = Array.from(document.querySelectorAll(
@@ -697,7 +738,25 @@ async function main() {
         });
         assert.equal(rawThinkMessage.content, "<think>raw thought</think>\nFinal visible");
         assert.equal(rawThinkMessage.reasoning, "");
-        chatResponseMode = "ok";
+
+        await page.click("#btn-chat-new");
+        await page.evaluate(() => {
+            const originalFetch = window.fetch;
+            window.__restoreChatFetch = () => {
+                window.fetch = originalFetch;
+                delete window.__restoreChatFetch;
+            };
+            window.fetch = (url, options) => String(url).includes("/api/chat/completions")
+                ? Promise.resolve({ ok: true, status: 200, statusText: "OK", body: null })
+                : originalFetch(url, options);
+        });
+        await page.fill("#chat-input", "Empty response");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Response body is empty"));
+        assert.equal(await page.locator(".chat-message.assistant").count(), 1);
+        assert.equal(await page.locator(".chat-message.assistant .chat-bubble").count(), 1);
+        await page.evaluate(() => window.__restoreChatFetch());
+
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 
         await selectSection(page, "quick-launch");

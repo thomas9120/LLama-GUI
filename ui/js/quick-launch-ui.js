@@ -163,7 +163,7 @@
     function setContextValue(rawValue, options = {}) {
         const parsed = rawValue === "" || rawValue === null || rawValue === undefined
             ? undefined
-            : parseInt(rawValue, 10);
+            : Number(rawValue);
         const nextCtxSize = Number.isFinite(parsed) ? parsed : undefined;
         const patch = { ctx_size: nextCtxSize };
 
@@ -486,8 +486,7 @@
         const templateSummary = document.getElementById("quick-template-summary");
         const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
         if (templateSelect) {
-            const hasOption = Array.from(templateSelect.options).some((opt) => opt.value === selectedTemplateValue);
-            templateSelect.value = hasOption ? selectedTemplateValue : "";
+            configFlagsUi.ensureChatTemplateOption(templateSelect, selectedTemplateValue);
         }
         if (templateSummary) {
             templateSummary.textContent = getQuickTemplateSummaryText();
@@ -660,7 +659,8 @@
 
         on("quick-fit-ctx", "input", (e) => {
             const rawValue = e.target.value.trim();
-            const nextFitCtx = rawValue === "" ? undefined : parseInt(rawValue, 10);
+            const parsed = rawValue === "" ? undefined : Number(rawValue);
+            const nextFitCtx = Number.isFinite(parsed) ? parsed : undefined;
             flagCore.setFlagValue("fit_ctx", nextFitCtx, { quickLaunchFitCtxLinked: false });
         });
 

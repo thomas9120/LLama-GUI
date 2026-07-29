@@ -809,7 +809,7 @@ The Configure tab's "MCP Settings" category (separate from "Server Settings") co
   - `all`: Enable all tools (high risk)
   - `read_file`, `file_glob_search`, `grep_search`: Read-only tools
   - `exec_shell_command`: Execute shell commands (high risk)
-  - `write_file`, `edit_file`, `apply_diff`: File modification tools (high risk)
+  - `write_file`, `edit_file`: File modification tools (high risk)
 
 When a high-risk tool is selected, a warning message appears.
 

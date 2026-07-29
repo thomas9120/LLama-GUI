@@ -611,6 +611,7 @@
             try {
                 status = await fetchJson("/api/status");
             } catch (e) {
+                console.debug("Benchmark status refresh failed", e);
                 status = null;
             }
         }
@@ -648,6 +649,7 @@
         try {
             cachedPresets = await fetchJson("/api/presets") || [];
         } catch (e) {
+            console.debug("Benchmark presets failed to load", e);
             cachedPresets = [];
         }
         const select = byId("benchmark-preset-select");
@@ -681,6 +683,7 @@
         try {
             cachedModels = await fetchJson("/api/models") || [];
         } catch (e) {
+            console.debug("Benchmark models failed to load", e);
             cachedModels = [];
         }
         const select = byId("benchmark-manual-model");

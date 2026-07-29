@@ -477,6 +477,9 @@
             o.selected = String(values[f.id] || "") === opt.value;
             sel.appendChild(o);
         }
+        if (f.id === "chat_template") {
+            ensureChatTemplateOption(sel, values[f.id]);
+        }
         sel.addEventListener("change", () => {
             if (f.id === "chat_template") {
                 dependencies.setChatTemplateValue(sel.value);
@@ -485,6 +488,24 @@
             }
         });
         return sel;
+    }
+
+    function ensureChatTemplateOption(select, value) {
+        if (!select) return;
+        const normalized = String(value || "");
+        for (const option of Array.from(select.options || [])) {
+            if (option.dataset.chatTemplateFallback === "true") option.remove();
+        }
+        let hasOption = Array.from(select.options || []).some((option) => option.value === normalized);
+        if (!hasOption && normalized && isSupportedChatTemplateValue(normalized)) {
+            const option = document.createElement("option");
+            option.value = normalized;
+            option.textContent = `${normalized} (llama.cpp built-in)`;
+            option.dataset.chatTemplateFallback = "true";
+            select.appendChild(option);
+            hasOption = true;
+        }
+        select.value = hasOption ? normalized : "";
     }
 
     function createMultiEnumInput(f) {
@@ -606,8 +627,8 @@
             if (numField.value === "") {
                 getFlagCore().setFlagValue(f.id, undefined);
             } else {
-                const v = parseInt(numField.value, 10);
-                getFlagCore().setFlagValue(f.id, Number.isNaN(v) ? undefined : v);
+                const v = Number(numField.value);
+                getFlagCore().setFlagValue(f.id, Number.isFinite(v) ? v : undefined);
             }
         });
         return numField;
@@ -952,7 +973,10 @@
                 if (lbl) lbl.textContent = val === true ? "Enabled" : "Disabled";
             } else if (f.type === "enum") {
                 if (f.id === "chat_template") {
-                    el.value = dependencies.getSelectedChatTemplateDropdownValue();
+                    ensureChatTemplateOption(
+                        el,
+                        dependencies.getSelectedChatTemplateDropdownValue()
+                    );
                 } else {
                     el.value = val !== undefined ? String(val) : "";
                 }
@@ -993,5 +1017,6 @@
         initializeSensitiveTextInput,
         createSensitiveTextInput,
         syncSensitiveTextInput,
+        ensureChatTemplateOption,
     };
 })();

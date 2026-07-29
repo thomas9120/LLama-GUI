@@ -371,13 +371,13 @@
                 return;
             }
 
-            const bubble = renderChatMessage("assistant", "");
             if (!resp.body) {
                 renderChatMessage("assistant", "Error: Response body is empty.");
                 chatStreaming = false;
                 showChatSendButton(true);
                 return;
             }
+            const bubble = renderChatMessage("assistant", "");
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";

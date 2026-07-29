@@ -493,6 +493,7 @@ function loadPresetGroupState() {
         const parsed = raw ? JSON.parse(raw) : {};
         return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch (e) {
+        console.debug("Preset group state is invalid", e);
         return {};
     }
 }
