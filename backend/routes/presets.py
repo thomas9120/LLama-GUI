@@ -257,6 +257,9 @@ def save_preset(request, response, ctx):
     if preset_file is None:
         response.error("Invalid preset name", 400)
         return
+    if body.get("overwrite", True) is False and preset_file.exists():
+        response.error("A preset with that name already exists", 409)
+        return
 
     created_times = _load_preset_created_times(presets_dir)
     if not _is_valid_timestamp(created_times.get(preset_file.name)):

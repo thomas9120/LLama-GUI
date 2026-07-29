@@ -121,6 +121,7 @@ async function main() {
         const pageErrors = [];
         const releaseRequests = [];
         const activateCustomRequests = [];
+        const presetSaveBodies = [];
         let statusRunning = false;
         let activeProcessTool = "";
         let externalChatTarget = null;
@@ -267,6 +268,16 @@ async function main() {
                 return;
             }
             if (pathName === "/api/presets") {
+                if (route.request().method() === "POST") {
+                    const body = JSON.parse(route.request().postData() || "{}");
+                    presetSaveBodies.push(body);
+                    await route.fulfill({
+                        status: 200,
+                        contentType: "application/json",
+                        body: JSON.stringify({ saved: true, name: body.name }),
+                    });
+                    return;
+                }
                 // Two model groups so the roving focus check below can cross a
                 // group boundary and prove collapsed rows are skipped.
                 await route.fulfill({
@@ -341,6 +352,24 @@ async function main() {
         await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => window.LlamaGui?.flagCore && window.LlamaGui?.configFlagsUi);
         await page.waitForSelector("#flag-ctx_size", { state: "attached" });
+
+        await page.setInputFiles("#preset-import", {
+            name: "smoke-alpha.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({ flags: { temperature: 0.45 } })),
+        });
+        await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes("already exists"));
+        assert.equal(presetSaveBodies.length, 0, "a colliding launch preset import must not write");
+
+        await page.setInputFiles("#preset-import", {
+            name: "new-import.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({ flags: { temperature: 0.45 } })),
+        });
+        await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes('Imported preset "new-import"'));
+        assert.equal(presetSaveBodies.length, 1);
+        assert.equal(presetSaveBodies[0].name, "new-import");
+        assert.equal(presetSaveBodies[0].overwrite, false, "launch preset imports must ask the backend to reject races");
 
         // The hover gradient must follow the rounded card outline. A previous
         // implementation inset the bar by the full corner radius, leaving a
@@ -757,6 +786,64 @@ async function main() {
         assert.equal(await page.locator(".chat-message.assistant .chat-bubble").count(), 1);
         await page.evaluate(() => window.__restoreChatFetch());
 
+        await page.click("#btn-chat-new");
+        await page.evaluate(() => {
+            const originalFetch = window.fetch;
+            window.__restoreChatFetch = () => {
+                window.fetch = originalFetch;
+                delete window.__restoreChatFetch;
+            };
+            window.fetch = (url, options = {}) => {
+                if (!String(url).includes("/api/chat/completions")) {
+                    return originalFetch(url, options);
+                }
+                const stream = new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode(
+                            'data: {"choices":[{"delta":{"content":"partial reply"}}]}\n\n'
+                        ));
+                        options.signal.addEventListener("abort", () => {
+                            controller.error(new DOMException("Aborted", "AbortError"));
+                        }, { once: true });
+                    },
+                });
+                return Promise.resolve(new Response(stream, {
+                    status: 200,
+                    headers: { "Content-Type": "text/event-stream" },
+                }));
+            };
+        });
+        await page.fill("#chat-input", "Stop after a partial response");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("partial reply"));
+        await page.click("#btn-chat-stop");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        const stoppedStreamState = await page.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem("llama_gui_conversations") || "[]");
+            const lastMessage = conversations[0]?.messages?.at(-1);
+            return {
+                role: lastMessage?.role,
+                content: lastMessage?.content,
+                assistantBubbles: document.querySelectorAll(".chat-message.assistant").length,
+            };
+        });
+        assert.equal(stoppedStreamState.role, "assistant");
+        assert.equal(stoppedStreamState.content, "partial reply");
+        assert.equal(stoppedStreamState.assistantBubbles, 1);
+        await page.click("#btn-chat-undo");
+        const stoppedStreamUndoState = await page.evaluate(() => {
+            const conversations = JSON.parse(localStorage.getItem("llama_gui_conversations") || "[]");
+            return {
+                lastRole: conversations[0]?.messages?.at(-1)?.role,
+                userBubbles: document.querySelectorAll(".chat-message.user").length,
+                assistantBubbles: document.querySelectorAll(".chat-message.assistant").length,
+            };
+        });
+        assert.equal(stoppedStreamUndoState.lastRole, "user");
+        assert.equal(stoppedStreamUndoState.userBubbles, 1);
+        assert.equal(stoppedStreamUndoState.assistantBubbles, 0);
+        await page.evaluate(() => window.__restoreChatFetch());
+
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 
         await selectSection(page, "quick-launch");
@@ -835,6 +922,21 @@ async function main() {
             const preset = raw && JSON.parse(raw)["Smoke Sampler"];
             return preset?.temperature === 0.64 && preset?.presence_penalty === 0.4;
         });
+        await setRangeValue(page, "#quick-temperature", "0.11");
+        await page.fill("#quick-sampler-name", "smoke sampler");
+        let samplerCollisionMessage = "";
+        page.once("dialog", async (dialog) => {
+            samplerCollisionMessage = dialog.message();
+            await dialog.accept();
+        });
+        await page.click("#btn-quick-sampler-save");
+        assert.match(samplerCollisionMessage, /already exists/i);
+        const samplerStoreAfterCollision = await page.evaluate(
+            () => JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}")
+        );
+        assert.deepEqual(Object.keys(samplerStoreAfterCollision), ["Smoke Sampler"]);
+        assert.equal(samplerStoreAfterCollision["Smoke Sampler"].temperature, 0.64);
+        assert.equal(samplerStoreAfterCollision["Smoke Sampler"].presence_penalty, 0.4);
         await setRangeValue(page, "#quick-temperature", "0.91");
         await setRangeValue(page, "#quick-repeat-penalty", "1.19");
         await setRangeValue(page, "#quick-presence-penalty", "0.9");
@@ -922,6 +1024,46 @@ async function main() {
             await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
             ["Renamed Smoke Sampler"],
             "a refused rename must leave the sampler store untouched"
+        );
+
+        const samplerImportDialog = page.waitForEvent("dialog");
+        await page.setInputFiles('.sampler-presets input[type="file"]', {
+            name: "samplers.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({
+                presets: {
+                    "Would Be Partial": { temperature: 0.2 },
+                    balanced: { temperature: 0.1 },
+                },
+            })),
+        });
+        const samplerImportCollision = await samplerImportDialog;
+        assert.match(samplerImportCollision.message(), /already exists/i);
+        await samplerImportCollision.accept();
+        assert.deepEqual(
+            await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
+            ["Renamed Smoke Sampler"],
+            "a colliding sampler import must reject the entire batch before writing"
+        );
+
+        const malformedSamplerDialog = page.waitForEvent("dialog");
+        await page.setInputFiles('.sampler-presets input[type="file"]', {
+            name: "malformed-samplers.json",
+            mimeType: "application/json",
+            buffer: Buffer.from(JSON.stringify({
+                presets: {
+                    "Would Also Be Partial": { temperature: 0.3 },
+                    Broken: "not an object",
+                },
+            })),
+        });
+        const malformedSamplerAlert = await malformedSamplerDialog;
+        assert.match(malformedSamplerAlert.message(), /must contain an object of sampler values/i);
+        await malformedSamplerAlert.accept();
+        assert.deepEqual(
+            await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
+            ["Renamed Smoke Sampler"],
+            "a malformed sampler import must reject the entire batch before writing"
         );
 
         // A rename made from Quick Launch must carry the Configure panel's

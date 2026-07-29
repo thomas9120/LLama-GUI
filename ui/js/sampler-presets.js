@@ -73,6 +73,24 @@
         return result;
     }
 
+    function getSamplerPresetImportEntries(parsed) {
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+
+        if (parsed.name && Object.prototype.hasOwnProperty.call(parsed, "values")) {
+            if (!parsed.values || typeof parsed.values !== "object" || Array.isArray(parsed.values)) return null;
+            return [{ name: String(parsed.name), values: parsed.values }];
+        }
+
+        const presets = parsed.presets;
+        if (!presets || typeof presets !== "object" || Array.isArray(presets)) return null;
+        const incoming = Object.entries(presets).map(([name, values]) => ({ name, values }));
+        if (incoming.length === 0) return null;
+        if (incoming.some((item) => !item.values || typeof item.values !== "object" || Array.isArray(item.values))) {
+            return null;
+        }
+        return incoming;
+    }
+
     function getAllSamplerPresets() {
         const custom = loadSamplerPresetStore();
         const entries = [];
@@ -96,6 +114,17 @@
 
     function getSamplerRenameMessage(reason) {
         return SAMPLER_RENAME_MESSAGES[reason] || "Failed to rename sampler preset.";
+    }
+
+    function isSamplerPresetNameTaken(name, store, excludeCustomName = "") {
+        const folded = String(name == null ? "" : name).trim().toLowerCase();
+        if (!folded) return false;
+        const customStore = store && typeof store === "object" && !Array.isArray(store) ? store : {};
+        const builtinTaken = Object.keys(BUILTIN_SAMPLER_PRESETS)
+            .some(existingName => existingName.toLowerCase() === folded);
+        const customTaken = Object.keys(customStore)
+            .some(existingName => existingName !== excludeCustomName && existingName.toLowerCase() === folded);
+        return builtinTaken || customTaken;
     }
 
     /**
@@ -123,12 +152,7 @@
         // Compare case-insensitively so two presets can never differ by casing alone,
         // but allow re-casing a preset's own name (mirrors the case-only rename carve-out
         // in backend/routes/presets.py).
-        const folded = to.toLowerCase();
-        const builtinTaken = Object.keys(BUILTIN_SAMPLER_PRESETS)
-            .some(name => name.toLowerCase() === folded);
-        const customTaken = Object.keys(store)
-            .some(name => name !== from && name.toLowerCase() === folded);
-        if (builtinTaken || customTaken) return { ok: false, reason: "taken" };
+        if (isSamplerPresetNameTaken(to, store, from)) return { ok: false, reason: "taken" };
 
         // Move the stored values as-is rather than re-normalizing, so a rename can
         // never silently drop a flag the current build does not know about.
@@ -232,17 +256,6 @@
             return entries.find(e => e.source === source && e.name === name) || null;
         };
 
-        const buildUniqueName = (base, takenNames) => {
-            if (!takenNames.has(base)) return base;
-            let idx = 2;
-            let candidate = `${base} (${idx})`;
-            while (takenNames.has(candidate)) {
-                idx += 1;
-                candidate = `${base} (${idx})`;
-            }
-            return candidate;
-        };
-
         // Reads the value back after assigning it: the browser coerces `select.value`
         // to "" when no option matches, and the remembered value must track what the
         // DOM actually holds. Only refreshOptions calls this, once the options exist.
@@ -320,6 +333,10 @@
                 return;
             }
             const store = loadSamplerPresetStore();
+            if (isSamplerPresetNameTaken(name, store)) {
+                alert(SAMPLER_RENAME_MESSAGES.taken + " Rename or delete the existing preset first.");
+                return;
+            }
             store[name] = normalizeSamplerPresetValues(collectSamplerValues());
             saveSamplerPresetStore(store);
             refreshOptions(`custom|${name}`);
@@ -409,38 +426,26 @@
                 const text = await file.text();
                 const parsed = JSON.parse(text);
 
-                const incoming = [];
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                    if (parsed.name && parsed.values && typeof parsed.values === "object") {
-                        incoming.push({ name: String(parsed.name), values: parsed.values });
-                    } else if (parsed.presets && typeof parsed.presets === "object") {
-                        for (const [name, values] of Object.entries(parsed.presets)) {
-                            incoming.push({ name, values });
-                        }
-                    }
-                }
-
-                if (incoming.length === 0) {
-                    alert("Invalid sampler preset JSON format.");
+                const incoming = getSamplerPresetImportEntries(parsed);
+                if (!incoming) {
+                    alert("Invalid sampler preset JSON format. Every preset must contain an object of sampler values.");
                     return;
                 }
 
                 const store = loadSamplerPresetStore();
-                const taken = new Set([
-                    ...Object.keys(BUILTIN_SAMPLER_PRESETS),
-                    ...Object.keys(store),
-                ]);
-
+                const pendingStore = { ...store };
                 let lastImportedName = "";
                 for (const item of incoming) {
                     const baseName = String(item.name || "Imported Sampler").trim() || "Imported Sampler";
-                    const uniqueName = buildUniqueName(baseName, taken);
-                    taken.add(uniqueName);
-                    store[uniqueName] = normalizeSamplerPresetValues(item.values);
-                    lastImportedName = uniqueName;
+                    if (isSamplerPresetNameTaken(baseName, pendingStore)) {
+                        alert(`A sampler preset named "${baseName}" already exists. Rename or delete it before importing.`);
+                        return;
+                    }
+                    pendingStore[baseName] = normalizeSamplerPresetValues(item.values);
+                    lastImportedName = baseName;
                 }
 
-                saveSamplerPresetStore(store);
+                saveSamplerPresetStore(pendingStore);
                 refreshOptions(lastImportedName ? `custom|${lastImportedName}` : "");
                 refreshConsumers();
             } catch (e) {
@@ -471,7 +476,9 @@
         saveSamplerPresetStore,
         collectSamplerValues,
         normalizeSamplerPresetValues,
+        getSamplerPresetImportEntries,
         getAllSamplerPresets,
+        isSamplerPresetNameTaken,
         renameSamplerPreset,
         getSamplerRenameMessage,
         applySamplerPresetValues,

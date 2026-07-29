@@ -271,6 +271,33 @@ function addElement(elements, id, tagName = "div", value = "") {
     addElement(elements, "btn-hf-find-files", "button");
     addElement(elements, "btn-hf-download", "button");
     addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-repo-input", "input", "owner/model");
+    addElement(elements, "hf-revision-input", "input", "");
+    addElement(elements, "hf-token-input", "input", "");
+    addElement(elements, "hf-model-file-select", "select", "model.gguf");
+    addElement(elements, "hf-mmproj-file-select", "select", "");
+
+    let fetchCount = 0;
+    ui.configure({
+        fetchJson: async () => {
+            fetchCount += 1;
+            throw new Error("Already exists: model.gguf");
+        },
+        confirmAction: async () => false,
+    });
+
+    await ui.startDownload(false);
+    assert.equal(fetchCount, 1, "declining overwrite must not start a replacement request");
+    assert.equal(status.className, "hf-download-status info");
+    assert.equal(status.textContent, "Download cancelled. Existing file was kept.");
+}
+
+{
+    const { elements, ui } = makeContext();
+    const status = addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
 
     const calls = [];
     ui.configure({

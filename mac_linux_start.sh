@@ -35,6 +35,12 @@ if [ -z "$PY_CMD" ]; then
     exit 1
 fi
 
+if ! "$PY_CMD" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+    echo "[ERROR] Python 3.9 or newer is required."
+    echo "Install Python 3.9+, remove an outdated .venv if present, and rerun ./install.sh."
+    exit 1
+fi
+
 open_browser() {
     (
         sleep 2

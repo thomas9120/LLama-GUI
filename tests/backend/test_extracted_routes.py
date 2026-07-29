@@ -368,6 +368,44 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload[0]["data"]["notes"], "café 漢字")
             self.assertEqual(open_file.call_args.kwargs["encoding"], "utf-8")
 
+    def test_save_preset_can_reject_overwrite_for_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request(
+                    "POST",
+                    "/api/presets",
+                    "",
+                    {},
+                    body={"name": "Existing", "data": {"temperature": 0.7}},
+                ),
+                DummyResponse(),
+                ctx,
+            )
+
+            response = DummyResponse()
+            presets.save_preset(
+                Request(
+                    "POST",
+                    "/api/presets",
+                    "",
+                    {},
+                    body={
+                        "name": "Existing",
+                        "data": {"temperature": 0.1},
+                        "overwrite": False,
+                    },
+                ),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.status, 409)
+            self.assertEqual(
+                json.loads((ctx.paths.presets / "Existing.json").read_text(encoding="utf-8")),
+                {"temperature": 0.7},
+            )
+
     def test_rename_preset_moves_file_and_keeps_created_time(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

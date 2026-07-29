@@ -21,6 +21,7 @@
     let saveSamplerPresetStore = () => {};
     let normalizeSamplerPresetValues = (values) => values || {};
     let collectSamplerValues = () => ({});
+    let isSamplerPresetNameTaken = () => false;
     let renameSamplerPreset = () => ({ ok: false, reason: "missing" });
     let getSamplerRenameMessage = () => "Failed to rename sampler preset.";
     let confirmAction = async () => false;
@@ -51,6 +52,7 @@
         saveSamplerPresetStore = options.saveSamplerPresetStore || saveSamplerPresetStore;
         normalizeSamplerPresetValues = options.normalizeSamplerPresetValues || normalizeSamplerPresetValues;
         collectSamplerValues = options.collectSamplerValues || collectSamplerValues;
+        isSamplerPresetNameTaken = options.isSamplerPresetNameTaken || isSamplerPresetNameTaken;
         renameSamplerPreset = options.renameSamplerPreset || renameSamplerPreset;
         getSamplerRenameMessage = options.getSamplerRenameMessage || getSamplerRenameMessage;
         confirmAction = options.confirmAction || confirmAction;
@@ -692,6 +694,10 @@
             }
 
             const store = loadSamplerPresetStore();
+            if (isSamplerPresetNameTaken(name, store)) {
+                alert(getSamplerRenameMessage("taken") + " Rename or delete the existing preset first.");
+                return;
+            }
             store[name] = normalizeSamplerPresetValues(collectSamplerValues());
             saveSamplerPresetStore(store);
             nameInput.value = "";

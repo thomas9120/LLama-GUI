@@ -95,6 +95,30 @@ assertJsonEqual(
 );
 
 assertJsonEqual(
+    samplerPresets.getSamplerPresetImportEntries({
+        presets: {
+            First: { temperature: 0.5 },
+            Second: { top_p: 0.8 },
+        },
+    }),
+    [
+        { name: "First", values: { temperature: 0.5 } },
+        { name: "Second", values: { top_p: 0.8 } },
+    ],
+    "a structurally valid sampler bundle should produce import entries"
+);
+assert.equal(
+    samplerPresets.getSamplerPresetImportEntries({ presets: { Good: { temperature: 0.5 }, Broken: "nope" } }),
+    null,
+    "one malformed sampler entry should reject the entire bundle"
+);
+assert.equal(
+    samplerPresets.getSamplerPresetImportEntries({ name: "Broken", values: [] }),
+    null,
+    "array sampler values should be rejected rather than saved as an empty preset"
+);
+
+assertJsonEqual(
     samplerPresets.collectSamplerValues(),
     { temperature: 0.2, top_k: 12 },
     "sampler value collection should ignore non-sampling current flags"
@@ -123,6 +147,27 @@ assertJsonEqual(
         { name: "My Sampler", values: { temperature: 0.33, top_p: 0.7 }, source: "custom" },
     ],
     "all sampler presets should expose a stable normalized shape for consumers"
+);
+
+assert.equal(
+    samplerPresets.isSamplerPresetNameTaken("balanced", { Custom: {} }),
+    true,
+    "sampler preset names must not collide case-insensitively with built-ins"
+);
+assert.equal(
+    samplerPresets.isSamplerPresetNameTaken("CUSTOM", { Custom: {} }),
+    true,
+    "sampler preset names must not collide case-insensitively with custom presets"
+);
+assert.equal(
+    samplerPresets.isSamplerPresetNameTaken("custom", { Custom: {} }, "Custom"),
+    false,
+    "rename checks may exclude the custom preset being renamed"
+);
+assert.equal(
+    samplerPresets.isSamplerPresetNameTaken("New Sampler", { Custom: {} }),
+    false,
+    "an unused sampler preset name should be accepted"
 );
 
 // --- renameSamplerPreset ---

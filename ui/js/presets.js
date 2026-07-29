@@ -115,6 +115,26 @@ function hasUsablePresetData(presetData) {
     return Boolean(presetData && (presetData.model || Object.keys(presetData.flags || {}).length > 0));
 }
 
+function sanitizeImportedPresetName(name) {
+    return String(name || "")
+        .replace(/[^A-Za-z0-9 ._-]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^[. _]+|[. _]+$/g, "");
+}
+
+function findPresetImportNameCollision(existingPresets, importedPresets) {
+    const taken = new Set((existingPresets || [])
+        .map((preset) => String(preset && preset.name || "").toLowerCase())
+        .filter(Boolean));
+    for (const preset of importedPresets || []) {
+        const name = String(preset && preset.name || "");
+        const folded = name.toLowerCase();
+        if (folded && taken.has(folded)) return name;
+        if (folded) taken.add(folded);
+    }
+    return "";
+}
+
 function getPresetFlagCore() {
     if (!window.LlamaGui || !window.LlamaGui.flagCore) {
         throw new Error("Flag core is not available.");
@@ -1990,21 +2010,33 @@ async function handlePresetImport(file) {
                 : null;
 
         if (bulkPresets && bulkPresets.length > 0) {
-            let imported = 0;
+            const pendingImports = [];
             let unnamedIdx = 0;
             for (const entry of bulkPresets) {
-                const name = entry.name || "Imported-" + (++unnamedIdx);
+                const name = sanitizeImportedPresetName(entry.name || "Imported-" + (++unnamedIdx));
+                if (!name) {
+                    showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+                    return;
+                }
                 const normalized = normalizeImportedPresetData(entry.data || {});
                 if (!hasUsablePresetData(normalized)) continue;
+                pendingImports.push({ name, data: normalized });
+            }
+            const existingPresets = await fetchPresetEntries();
+            const collision = findPresetImportNameCollision(existingPresets, pendingImports);
+            if (collision) {
+                showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+                return;
+            }
+            for (const preset of pendingImports) {
                 await fetchJson("/api/presets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+                    body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
                 });
-                imported++;
             }
             loadPresets();
-            showPresetStatus(`Imported ${imported} preset(s)`, "success");
+            showPresetStatus(`Imported ${pendingImports.length} preset(s)`, "success");
             return;
         }
 
@@ -2013,11 +2045,21 @@ async function handlePresetImport(file) {
             showPresetStatus("Preset file contains no usable data.", "error", 3200);
             return;
         }
-        const name = file.name.replace(/\.json$/i, "");
+        const name = sanitizeImportedPresetName(file.name.replace(/\.json$/i, ""));
+        if (!name) {
+            showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+            return;
+        }
+        const existingPresets = await fetchPresetEntries();
+        const collision = findPresetImportNameCollision(existingPresets, [{ name }]);
+        if (collision) {
+            showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+            return;
+        }
         await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+            body: JSON.stringify({ name, data: normalized, overwrite: false }),
         });
         loadPresets();
         showPresetStatus(`Imported preset \"${name}\"`, "success");
@@ -2037,6 +2079,8 @@ if (window.LlamaGui) {
         findPresetByName,
         normalizePresetData,
         normalizeImportedPresetData,
+        sanitizeImportedPresetName,
+        findPresetImportNameCollision,
         getPresetWarnings,
         isPresetModelMissing,
         getPresetModelIssue,

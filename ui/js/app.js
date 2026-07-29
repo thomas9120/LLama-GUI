@@ -96,6 +96,7 @@ quickLaunchUi.configure({
     saveSamplerPresetStore: samplerPresets.saveSamplerPresetStore,
     normalizeSamplerPresetValues: samplerPresets.normalizeSamplerPresetValues,
     collectSamplerValues: samplerPresets.collectSamplerValues,
+    isSamplerPresetNameTaken: samplerPresets.isSamplerPresetNameTaken,
     renameSamplerPreset: samplerPresets.renameSamplerPreset,
     getSamplerRenameMessage: samplerPresets.getSamplerRenameMessage,
     confirmAction,

@@ -170,6 +170,8 @@
                     startDownload(true);
                     return;
                 }
+                showStatus("info", "Download cancelled. Existing file was kept.");
+                return;
             }
             showStatus("error", "Download failed to start: " + e.message);
         }

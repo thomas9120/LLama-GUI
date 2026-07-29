@@ -49,6 +49,32 @@ assert.equal(JSON.stringify(Array.from(overrideIds)), JSON.stringify(["ctx_size"
 const normalizeImportedPresetData = context.window.LlamaGui.presets.normalizeImportedPresetData;
 const presetApi = context.window.LlamaGui.presets;
 
+assert.equal(presetApi.sanitizeImportedPresetName("  My/Preset?.json  "), "My_Preset_.json");
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [{ name: "Existing" }],
+        [{ name: "existing" }, { name: "New" }]
+    ),
+    "existing",
+    "preset imports must reject case-insensitive collisions with saved presets"
+);
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [],
+        [{ name: "Duplicate" }, { name: "DUPLICATE" }]
+    ),
+    "DUPLICATE",
+    "bulk preset imports must reject duplicate names before any write"
+);
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [{ name: "Existing" }],
+        [{ name: "New One" }, { name: "New Two" }]
+    ),
+    "",
+    "distinct imported preset names should pass collision validation"
+);
+
 const normalized = normalizeImportedPresetData({
     tool: "llama-server",
     model: "model.gguf",

@@ -312,6 +312,42 @@
         return pending;
     }
 
+    function finalizeAssistantResponse(bubble, content, reasoning, sources, errored) {
+        if (!bubble) return;
+
+        setChatWebStatus(bubble, "");
+        let finalContent = content;
+        let finalReasoning = reasoning;
+        if (!finalReasoning && shouldExtractEmbeddedReasoning()) {
+            const split = splitReasoningFromContent(finalContent);
+            if (split.reasoning) {
+                finalContent = split.content;
+                finalReasoning = split.reasoning;
+                bubble.dataset.rawText = finalContent;
+                if (!finalContent) {
+                    bubble.textContent = "";
+                    delete bubble.dataset.streamingTextInitialized;
+                }
+                setChatReasoningContent(bubble, finalReasoning);
+            }
+        }
+        if (finalReasoning) {
+            finalizeChatReasoningMarkdown(bubble);
+        }
+        if (finalContent) {
+            finalizeChatStreamMarkdown(bubble);
+            bubble.classList.remove("hidden");
+        } else if (finalReasoning) {
+            bubble.classList.add("hidden");
+        }
+        if ((finalContent || finalReasoning) && !errored) {
+            const assistantMessage = { role: "assistant", content: finalContent, sources };
+            if (finalReasoning) assistantMessage.reasoning = finalReasoning;
+            chatMessages.push(assistantMessage);
+            saveCurrentConversation();
+        }
+    }
+
     async function runMessage(userText) {
         if (chatStreaming || !userText.trim()) return;
         if (!isServerRunning()) {
@@ -352,6 +388,11 @@
         }
 
         chatAbortController = new AbortController();
+        let bubble = null;
+        let fullContent = "";
+        let fullReasoning = "";
+        let responseSources = [];
+        let errored = false;
 
         try {
             const resp = await fetch("/api/chat/completions", {
@@ -377,15 +418,11 @@
                 showChatSendButton(true);
                 return;
             }
-            const bubble = renderChatMessage("assistant", "");
+            bubble = renderChatMessage("assistant", "");
             const reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
-            let fullContent = "";
-            let fullReasoning = "";
-            let responseSources = [];
             let streamDone = false;
-            let errored = false;
 
             while (!streamDone) {
                 const { done, value } = await reader.read();
@@ -443,38 +480,17 @@
             if (streamDone) {
                 await reader.cancel().catch((e) => console.debug("Failed to cancel completed chat stream reader", e));
             }
-            setChatWebStatus(bubble, "");
-            if (!fullReasoning && shouldExtractEmbeddedReasoning()) {
-                const split = splitReasoningFromContent(fullContent);
-                if (split.reasoning) {
-                    fullContent = split.content;
-                    fullReasoning = split.reasoning;
-                    bubble.dataset.rawText = fullContent;
-                    if (!fullContent) {
-                        bubble.textContent = "";
-                        delete bubble.dataset.streamingTextInitialized;
-                    }
-                    setChatReasoningContent(bubble, fullReasoning);
-                }
-            }
-            if (fullReasoning) {
-                finalizeChatReasoningMarkdown(bubble);
-            }
-            if (fullContent) {
-                finalizeChatStreamMarkdown(bubble);
-                bubble.classList.remove("hidden");
-            } else if (fullReasoning) {
-                bubble.classList.add("hidden");
-            }
-            if ((fullContent || fullReasoning) && !errored) {
-                const assistantMessage = { role: "assistant", content: fullContent, sources: responseSources };
-                if (fullReasoning) assistantMessage.reasoning = fullReasoning;
-                chatMessages.push(assistantMessage);
-                saveCurrentConversation();
-            }
+            finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, errored);
         } catch (e) {
             removeChatTypingIndicator();
-            if (e.name !== "AbortError") {
+            if (e.name === "AbortError") {
+                if (fullContent || fullReasoning) {
+                    finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, false);
+                } else if (bubble) {
+                    const message = bubble.closest(".chat-message");
+                    if (message) message.remove();
+                }
+            } else {
                 renderChatMessage("assistant", "Error: " + e.message);
             }
         } finally {
