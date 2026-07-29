@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 import threading
 from pathlib import Path
 from typing import Optional
@@ -87,35 +88,39 @@ def ensure_cloudflared(ctx: AppContext) -> Path:
         return binary_path
 
     set_remote_tunnel_state(ctx, status="downloading", message="Downloading Cloudflare tunnel helper...")
-    if spec["archive"]:
-        archive_path = cloudflared_dir / Path(spec["url"]).name
-        download_file(ctx, spec["url"], archive_path)
-        with tarfile.open(archive_path, "r:gz") as tf:
-            member = next(
-                (
-                    m
-                    for m in tf.getmembers()
-                    if Path(m.name).name == spec["filename"] and m.isfile()
-                ),
-                None,
-            )
-            if member is None:
-                raise RuntimeError("Downloaded cloudflared archive did not contain the expected binary.")
-            src = tf.extractfile(member)
-            if src is None:
-                raise RuntimeError("Could not extract cloudflared from archive.")
-            with open(binary_path, "wb") as out:
-                shutil.copyfileobj(src, out)
-        try:
-            archive_path.unlink()
-        except OSError:
-            pass
-    else:
-        download_file(ctx, spec["url"], binary_path)
+    staging_dir = Path(tempfile.mkdtemp(prefix=".cloudflared-", dir=cloudflared_dir))
+    try:
+        staged_binary = staging_dir / spec["filename"]
+        if spec["archive"]:
+            archive_path = staging_dir / Path(spec["url"]).name
+            download_file(ctx, spec["url"], archive_path)
+            with tarfile.open(archive_path, "r:gz") as tf:
+                member = next(
+                    (
+                        m
+                        for m in tf.getmembers()
+                        if Path(m.name).name == spec["filename"] and m.isfile()
+                    ),
+                    None,
+                )
+                if member is None:
+                    raise RuntimeError("Downloaded cloudflared archive did not contain the expected binary.")
+                src = tf.extractfile(member)
+                if src is None:
+                    raise RuntimeError("Could not extract cloudflared from archive.")
+                with src, open(staged_binary, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        else:
+            download_file(ctx, spec["url"], staged_binary)
 
-    if platform != "win32":
-        os.chmod(binary_path, 0o755)
-    return binary_path
+        if not staged_binary.is_file() or staged_binary.stat().st_size == 0:
+            raise RuntimeError("Downloaded cloudflared helper was empty.")
+        if platform != "win32":
+            os.chmod(staged_binary, 0o755)
+        staged_binary.replace(binary_path)
+        return binary_path
+    finally:
+        shutil.rmtree(staging_dir, ignore_errors=True)
 
 
 def _start_remote_tunnel_worker(ctx: AppContext) -> None:

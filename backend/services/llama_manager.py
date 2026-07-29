@@ -22,6 +22,7 @@ from ..context import AppContext
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
 LDD_NOT_FOUND_RE = re.compile(r"^\s*([^\s]+)\s+=>\s+not found\s*$")
+SHA256_DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 
 # Runtime dependency validation shells out to otool on macOS and ldd on Linux,
 # so results are cached briefly. Config-changing operations (install, cleanup,
@@ -209,6 +210,27 @@ def sha256_file(filepath: pathlib.Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def get_release_asset_sha256(asset: Mapping[str, Any], filename: str) -> Optional[str]:
+    """Return GitHub's SHA256 asset digest, or allow legacy metadata to proceed.
+
+    GitHub publishes release asset hashes as ``digest: sha256:<hex>``. Older
+    releases and non-GitHub providers may omit that field, so an unavailable or
+    unsupported digest stays warning-only instead of blocking installation.
+    """
+    digest = asset.get("digest")
+    match = SHA256_DIGEST_RE.fullmatch(digest.strip()) if isinstance(digest, str) else None
+    if match:
+        return match.group(1).lower()
+
+    detail = "missing" if digest in (None, "") else "unsupported or malformed"
+    print(
+        f"WARNING: SHA256 digest metadata is {detail} for release asset {filename}; "
+        "skipping checksum verification.",
+        file=sys.stderr,
+    )
+    return None
 
 
 def set_download_progress(ctx: AppContext, **updates: Any) -> dict[str, Any]:
@@ -821,12 +843,19 @@ def install_release(
         return False
 
     bin_url = asset_map[bin_filename]["browser_download_url"]
-    expected_sha = asset_map[bin_filename].get("sha256", None)
-    if not expected_sha:
-        print(
-            f"WARNING: No SHA256 metadata for release asset {bin_filename}; skipping checksum verification.",
-            file=sys.stderr,
+
+    def verify_archive(filename: str, archive_path: pathlib.Path) -> bool:
+        expected_sha = get_release_asset_sha256(asset_map[filename], filename)
+        if expected_sha is None:
+            return True
+        if sha256_file(archive_path).lower() == expected_sha:
+            return True
+        set_download_progress(
+            ctx,
+            status="error",
+            message=f"SHA256 mismatch for {filename}",
         )
+        return False
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="llama_install_"))
     try:
@@ -834,15 +863,8 @@ def install_release(
         set_download_progress(ctx, message=f"Downloading {bin_filename}...")
         download_file(ctx, bin_url, bin_archive, progress_cb)
 
-        if expected_sha:
-            actual_sha = sha256_file(bin_archive)
-            if actual_sha != expected_sha:
-                set_download_progress(
-                    ctx,
-                    status="error",
-                    message=f"SHA256 mismatch for {bin_filename}",
-                )
-                return False
+        if not verify_archive(bin_filename, bin_archive):
+            return False
 
         extra_archives: list[pathlib.Path] = []
         for extra_filename in backend_spec.get("extra_assets", []):
@@ -852,6 +874,8 @@ def install_release(
             extra_archive = tmpdir / extra_filename
             set_download_progress(ctx, message=f"Downloading {extra_filename}...")
             download_file(ctx, extra_url, extra_archive, progress_cb)
+            if not verify_archive(extra_filename, extra_archive):
+                return False
             extra_archives.append(extra_archive)
 
         set_download_progress(

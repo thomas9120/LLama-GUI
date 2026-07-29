@@ -3375,8 +3375,8 @@ class ExternalServerRouteTests(unittest.TestCase):
     def post(self, body):
         response = DummyResponse()
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -3430,8 +3430,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             external_server.connect(
@@ -3482,8 +3482,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -3504,14 +3504,14 @@ class ExternalServerRouteTests(unittest.TestCase):
         }
         response = DummyResponse()
 
-        with mock.patch.object(external_server_service.urllib.request, "urlopen") as urlopen:
+        with mock.patch.object(external_server_service, "_open_probe_request") as open_probe:
             external_server.connect(
                 Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
                 response,
                 self.ctx,
             )
 
-        urlopen.assert_not_called()
+        open_probe.assert_not_called()
         self.assertEqual(response.status, 200)
         self.assertIsNone(response.payload["external_chat_target"])
         self.assertEqual(response.payload["remembered_target"]["port"], 9001)
@@ -3525,8 +3525,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200, b"<html>some other dev server</html>"),
         ):
             external_server.connect(

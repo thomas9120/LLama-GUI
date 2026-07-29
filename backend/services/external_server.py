@@ -35,6 +35,18 @@ class ExternalServerUnreachable(RuntimeError):
     """Raised when nothing answers an HTTP probe at the registered address."""
 
 
+class _NoProbeRedirects(urllib.request.HTTPRedirectHandler):
+    """Keep probe credentials on the operator-selected local origin."""
+
+    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
+        return None
+
+
+def _open_probe_request(request: urllib.request.Request, timeout: float):
+    opener = urllib.request.build_opener(_NoProbeRedirects())
+    return opener.open(request, timeout=timeout)
+
+
 def _normalize_host(value: Any) -> str:
     """Resolve a host through the same local-only policy the proxies enforce."""
     host, error = chat_service.get_local_proxy_host(value)
@@ -181,15 +193,18 @@ def probe(host: str, port: int, authorization: str = "") -> dict[str, Any]:
         headers["Authorization"] = authorization
     request = urllib.request.Request(f"http://{host}:{port}/health", headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
+        with _open_probe_request(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
             status = int(getattr(response, "status", None) or response.getcode() or 0)
             body = response.read(MAX_PROBE_BODY_BYTES)
     except urllib.error.HTTPError as exc:
         try:
-            body = exc.read(MAX_PROBE_BODY_BYTES)
-        except Exception:
-            body = b""
-        status = int(exc.code)
+            try:
+                body = exc.read(MAX_PROBE_BODY_BYTES)
+            except Exception:
+                body = b""
+            status = int(exc.code)
+        finally:
+            exc.close()
     except (urllib.error.URLError, OSError) as exc:
         raise ExternalServerUnreachable(
             f"No server answered at {host}:{port}. Check that llama-server is running there."
