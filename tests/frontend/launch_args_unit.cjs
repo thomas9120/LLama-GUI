@@ -459,4 +459,33 @@ function launchResult() {
     assert.ok(!args.includes("--chat-template"), "a custom template file must take precedence over a builtin name");
 }
 
+// Command preview quoting: the preview is copy-pasteable, so any value holding a
+// space (a Windows model path, most often) has to survive the round trip.
+{
+    const quoteArg = vm.runInContext("window.LlamaGui.flagCore.quoteArg", context);
+    assert.equal(quoteArg("plain"), "plain", "an ordinary token must not be quoted");
+    assert.equal(quoteArg("C:\\My Models\\qwen.gguf"), '"C:\\My Models\\qwen.gguf"');
+    assert.equal(quoteArg('say "hi"'), '"say \\"hi\\""', "embedded quotes must be escaped");
+    assert.equal(quoteArg(7), "7", "non-strings must be coerced");
+}
+
+{
+    // Repo-relative with a space: normalizeModelRelPath rejects absolute paths,
+    // so a model in a subfolder is the realistic way to get a space into the args.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setSelectedModelValue("My Models/qwen.gguf");
+    `, context);
+    const { command } = vm.runInContext("window.LlamaGui.flagCore.updateCommandPreview()", context);
+    assert.match(
+        command,
+        /-m "models\/My Models\/qwen\.gguf"/,
+        "a model path containing spaces must be quoted in the copyable command"
+    );
+    assert.ok(
+        !/-m models\/My Models/.test(command),
+        "an unquoted path would split into two arguments when pasted"
+    );
+}
+
 console.log("launch args unit tests passed");

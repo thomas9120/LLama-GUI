@@ -120,7 +120,10 @@
         return (args || []).flatMap(toArrayEntry);
     }
 
+    // flag-core owns the single implementation (it loads first); the fallback
+    // keeps this module usable in a unit-test context that stubs flagCore out.
     function quoteArg(arg) {
+        if (flagCore && typeof flagCore.quoteArg === "function") return flagCore.quoteArg(arg);
         const text = String(arg);
         return /[\s"]/u.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
     }

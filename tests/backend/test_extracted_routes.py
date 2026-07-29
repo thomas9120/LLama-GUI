@@ -1249,6 +1249,60 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"sent": True})
             self.assertEqual(ctx.state.process.stdin.getvalue(), "hello\n")
 
+    def test_launch_does_not_hold_locks_across_runtime_validation(self):
+        """_validate_launch_environment shells out to ldd/otool per packaged ggml
+        library on Linux/macOS. Held under install_lock + process_lock it stalled
+        status, stop and output for the whole run."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def slow_validation(_ctx, _tool):
+                entered.set()
+                release.wait(5)
+                return None, "stopped after the slow part"
+
+            with mock.patch.object(process_manager, "_validate_launch_environment", slow_validation):
+                launcher = threading.Thread(
+                    target=process_manager.launch_process,
+                    args=(ctx, "llama-server", []),
+                    daemon=True,
+                )
+                launcher.start()
+                self.assertTrue(entered.wait(5), "validation never started")
+
+                install_free = ctx.state.install_lock.acquire(timeout=2)
+                if install_free:
+                    ctx.state.install_lock.release()
+                process_free = ctx.state.process_lock.acquire(timeout=2)
+                if process_free:
+                    ctx.state.process_lock.release()
+
+                release.set()
+                launcher.join(5)
+
+        self.assertTrue(install_free, "install_lock was held across runtime validation")
+        self.assertTrue(process_free, "process_lock was held across runtime validation")
+
+    def test_launch_rechecks_install_state_after_validation(self):
+        """Moving validation outside the locks opens a window; the authoritative
+        re-check inside them is what closes it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def validation_starts_an_install(_ctx, _tool):
+                ctx.state.install_in_progress = True
+                return Path(tmp) / "llama-server", None
+
+            with mock.patch.object(
+                process_manager, "_validate_launch_environment", validation_starts_an_install
+            ):
+                result = process_manager.launch_process(ctx, "llama-server", [])
+
+        self.assertIn("Installation in progress", result.get("error", ""))
+
     def test_process_send_input_does_not_hold_process_lock_while_writing(self):
         """llama-server never drains stdin, so a full pipe blocks write() forever.
         Holding process_lock across that froze launch/stop/status permanently."""
@@ -1336,6 +1390,43 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertEqual(response.status, 400)
             self.assertEqual(response.payload["error"], "Stop running process first")
+
+    def test_process_cleanup_blocks_during_an_install(self):
+        """Cleanup rmtree's the directories an install extracts into, so it must
+        claim the same slot rather than deleting files out from under one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.state.install_in_progress = True
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+
+            self.assertEqual(response.status, 409)
+            self.assertEqual(response.payload["error"], "Installation already in progress")
+            self.assertTrue(ctx.state.install_in_progress, "a refused claim must not clear the flag")
+
+    def test_process_cleanup_releases_the_install_slot(self):
+        """Including on failure — otherwise one error permanently blocks installs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.services.load_config = dict
+            ctx.services.save_config = lambda _cfg: None
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+            self.assertFalse(ctx.state.install_in_progress, "slot must be released after success")
+
+            with mock.patch.object(
+                process.process_manager, "remove_llama_files", side_effect=OSError("in use")
+            ):
+                failing = DummyResponse()
+                process.cleanup_llama(
+                    Request("POST", "/api/cleanup-llama", "", {}, body={}), failing, ctx
+                )
+
+            self.assertEqual(failing.status, 500)
+            self.assertFalse(ctx.state.install_in_progress, "slot must be released after failure too")
 
     def test_process_cleanup_removes_llama_files_and_resets_config(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2634,6 +2725,41 @@ class ExtractedRouteTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("non-public address 127.0.0.1", reason)
+
+    def test_validate_public_hostname_blocks_non_global_ranges(self):
+        """Ranges that are not private/loopback/reserved but still must not be
+        reachable. CGNAT (100.64.0.0/10) is what Tailscale hands out, and it is
+        excluded only by is_global — the flag the filter used to omit."""
+        blocked = [
+            "100.64.0.1",        # CGNAT / Tailscale
+            "100.127.255.254",   # CGNAT upper end
+            "192.0.2.1",         # TEST-NET-1 documentation range
+            "198.18.0.1",        # benchmarking range
+            "169.254.169.254",   # cloud metadata endpoint
+            "::1",               # IPv6 loopback
+            "fd00::1",           # IPv6 unique local
+        ]
+        for address in blocked:
+            with self.subTest(address=address):
+                with mock.patch.object(
+                    web_search.socket,
+                    "getaddrinfo",
+                    return_value=[(None, None, None, None, (address, 80))],
+                ):
+                    ok, reason = web_search.validate_public_hostname("example.com", 80)
+                self.assertFalse(ok, f"{address} should be blocked")
+                self.assertIn("non-public address", reason)
+
+    def test_validate_public_hostname_allows_public_addresses(self):
+        for address in ("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"):
+            with self.subTest(address=address):
+                with mock.patch.object(
+                    web_search.socket,
+                    "getaddrinfo",
+                    return_value=[(None, None, None, None, (address, 443))],
+                ):
+                    ok, _ = web_search.validate_public_hostname("example.com", 443)
+                self.assertTrue(ok, f"{address} should be allowed")
 
     def test_fetch_page_text_revalidates_redirect_targets(self):
         headers = Message()
@@ -4200,6 +4326,32 @@ class SubprocessWindowFlagTests(unittest.TestCase):
 
         self.assertEqual(runner.call_args.kwargs["creationflags"], 0x08000000)
 
+    def test_run_git_cannot_block_on_a_credential_prompt(self):
+        """run_git executes on an HTTP handler thread. A network git command
+        against a repo needing credentials would otherwise wait forever on a
+        prompt nobody can see."""
+        with mock.patch.object(srv.subprocess, "run") as runner:
+            srv.run_git(["fetch", "origin"], ".")
+
+        kwargs = runner.call_args.kwargs
+        self.assertEqual(kwargs["stdin"], srv.subprocess.DEVNULL, "stdin must be closed")
+        self.assertEqual(kwargs["timeout"], srv.GIT_COMMAND_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(kwargs["env"]["GCM_INTERACTIVE"], "Never")
+        self.assertIn("PATH", kwargs["env"], "the real environment must still be inherited")
+
+    def test_run_git_timeout_becomes_a_failed_result(self):
+        """Callers only check returncode, so a timeout must not surface as an
+        exception escaping into the route layer."""
+        timeout_error = srv.subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=1)
+        with mock.patch.object(srv.subprocess, "run", side_effect=timeout_error):
+            with contextlib.redirect_stderr(io.StringIO()) as captured:
+                result = srv.run_git(["fetch", "origin"], ".", timeout=1)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("timed out", result.stderr)
+        self.assertIn("timed out", captured.getvalue())
+
     def test_every_probe_subprocess_run_sets_creationflags(self):
         """Guards against a new probe reintroducing the console flash."""
         import ast
@@ -5018,6 +5170,45 @@ class LifecycleTests(unittest.TestCase):
         mock_tun.assert_called_once_with(self.ctx)
         mock_proc.assert_called_once_with(self.ctx)
         mock_popen.assert_called_once()
+
+    def test_restart_detaches_the_replacement_on_every_platform(self):
+        """The replacement outlives us by design. On POSIX, without
+        start_new_session it stays in our process group and dies with the
+        terminal or on the next Ctrl+C, so "restart" silently became "quit"."""
+
+        class SyncThread:
+            def __init__(self, **kw):
+                self._target = kw.get("target")
+                self.daemon = kw.get("daemon", False)
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        for platform_name in ("linux", "darwin", "win32"):
+            with self.subTest(platform=platform_name):
+                self.ctx.state.gui_server = mock.Mock()
+                with mock.patch("backend.services.tunnel.stop_remote_tunnel"), \
+                     mock.patch("backend.services.process_manager.stop_process"), \
+                     mock.patch("backend.services.lifecycle._wait_for_port_release", return_value=True), \
+                     mock.patch("backend.services.lifecycle.subprocess.Popen") as mock_popen, \
+                     mock.patch("backend.services.lifecycle.sys.platform", platform_name), \
+                     mock.patch("backend.services.lifecycle.os._exit", side_effect=SystemExit(0)), \
+                     mock.patch("backend.services.lifecycle.threading.Thread", SyncThread):
+                    with self.assertRaises(SystemExit):
+                        lifecycle_service.restart_gui_server(self.ctx)
+
+                kwargs = mock_popen.call_args.kwargs
+                if platform_name == "win32":
+                    self.assertTrue(
+                        kwargs.get("creationflags"), "Windows needs DETACHED_PROCESS"
+                    )
+                    self.assertNotIn("start_new_session", kwargs)
+                else:
+                    self.assertTrue(
+                        kwargs.get("start_new_session"),
+                        f"{platform_name} needs start_new_session to survive terminal close",
+                    )
 
     def test_restart_uses_context_host_and_port(self):
         self.ctx.config = ServerConfig(gui_host="127.0.0.2", gui_port=61234)

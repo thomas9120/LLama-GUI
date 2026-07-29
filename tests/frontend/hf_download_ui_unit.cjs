@@ -66,7 +66,7 @@ function makeContext(overrides = {}) {
         console,
         setInterval: overrides.setInterval || (() => 1),
         clearInterval: overrides.clearInterval || (() => {}),
-        Date,
+        Date: overrides.Date || Date,
     };
     context.window.window = context.window;
     vm.createContext(context);
@@ -324,6 +324,65 @@ function addElement(elements, id, tagName = "div", value = "") {
         "updateCommandPreview",
         "refreshQuickLaunchUI",
     ]);
+}
+
+// The give-up rule is "no progress for a while", not "took too long overall".
+// A flat 30-minute cap on total duration failed large GGUFs on slow links: the
+// UI declared the download dead while the backend was still fetching it, and
+// polling only resumed on a full page reload.
+{
+    const callbacks = [];
+    let now = 1_000_000;
+    const { elements, ui } = makeContext({
+        setInterval: (callback) => {
+            callbacks.push(callback);
+            return callbacks.length;
+        },
+        Date: { now: () => now },
+    });
+    const status = addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-download-progress");
+    addElement(elements, "hf-progress-fill");
+    addElement(elements, "hf-progress-text");
+
+    let downloaded = 0;
+    let frozen = false;
+    // Frozen via a flag rather than a second configure(): pollProgress resolves
+    // fetchJson once when it starts, so reconfiguring later has no effect.
+    ui.configure({
+        fetchJson: () => {
+            if (!frozen) downloaded += 1024 * 1024;
+            return Promise.resolve({ status: "downloading", downloaded, total: 40 * 1024 * 1024 * 1024 });
+        },
+    });
+
+    ui.pollProgress();
+    const tick = callbacks[0];
+
+    // Six simulated hours of steady progress — far past the old 30-minute cap.
+    for (let i = 0; i < 12; i += 1) {
+        now += 30 * 60 * 1000;
+        await tick();
+    }
+    assert.ok(
+        !/not progressed/.test(status.textContent),
+        "a slow but progressing download must never be declared failed"
+    );
+
+    // Freeze the byte count: the stall clock starts from the last movement.
+    frozen = true;
+    await tick();
+    assert.ok(!/not progressed/.test(status.textContent), "one frozen poll is not a stall yet");
+
+    now += 10 * 60 * 1000;
+    await tick();
+    assert.match(
+        status.textContent, /not progressed/,
+        "a download that stops moving must be reported"
+    );
 }
 
 console.log("hf download ui unit tests passed");

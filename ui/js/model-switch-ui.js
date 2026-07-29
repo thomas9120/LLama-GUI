@@ -631,7 +631,11 @@
             presetLoadError = "";
         } catch (error) {
             presetLoadError = error && error.message ? error.message : "Failed to load saved presets.";
-            if (!presetEntries) presetEntries = [];
+            // Deliberately leave presetEntries null. Caching [] here poisoned the
+            // loadPresetEntries() guard below, which only checks truthiness — an
+            // empty array is truthy, so one failed fetch made every later
+            // unforced refresh reuse it and the slots read "Missing" forever with
+            // no retry. Null means "not loaded", so the next refresh tries again.
         }
         if (requestId !== refreshId) return null;
         const record = callDependency("getAssignments", getAssignments);
@@ -649,8 +653,9 @@
         ) {
             clearSlotFailures(activeRuntime.slot);
         }
+        const renderEntries = presetEntries || [];
         const views = buildSlotViews({
-            entries: presetEntries,
+            entries: renderEntries,
             assignments: record,
             issues: assignmentIssues,
             status,
@@ -659,7 +664,7 @@
             failures: slotFailures,
         });
         const viewState = {
-            entries: presetEntries,
+            entries: renderEntries,
             assignments: record,
             issues: assignmentIssues,
             storageStatus,

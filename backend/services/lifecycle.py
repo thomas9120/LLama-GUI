@@ -88,12 +88,21 @@ def restart_gui_server(ctx):
             if not port_free:
                 print(f"WARNING: Port {gui_port} still in use after waiting, attempting restart anyway")
 
+            # The replacement has to outlive this process on both platforms.
+            # Windows gets DETACHED_PROCESS; POSIX needs start_new_session, or the
+            # child stays in our process group and dies with the terminal or on
+            # the next Ctrl+C — so "restart" silently became "quit".
+            popen_kwargs = {}
+            if sys.platform == "win32":
+                popen_kwargs["creationflags"] = (
+                    subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                )
+            else:
+                popen_kwargs["start_new_session"] = True
             subprocess.Popen(
                 [sys.executable, restart_script],
                 cwd=str(ctx.paths.root),
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                if sys.platform == "win32"
-                else 0,
+                **popen_kwargs,
             )
             print("Restarting Llama GUI...")
         except Exception as e:

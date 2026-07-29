@@ -376,6 +376,45 @@ function trackedClassList(initial = []) {
     assert.equal(runButton.classList.contains("hidden"), false);
     assert.equal(stopButton.classList.contains("hidden"), true);
     assert.equal(refreshCount, 1);
+
+    // A transient /api/output failure must not flip the UI to "not running".
+    // The benchmark is still going, so the Run button that used to reappear is
+    // rejected by the backend with "A process is already running", and the Stop
+    // button the user actually needs is gone.
+    const liveRun = { classList: trackedClassList(["hidden"]) };
+    const liveStop = { classList: trackedClassList() };
+    context.document.getElementById = id => ({
+        "btn-run-benchmark": liveRun,
+        "btn-stop-benchmark": liveStop,
+    })[id] || null;
+    adapter.configure({
+        fetchJson: async () => { throw new Error("network blip"); },
+        refreshRuntimeStatusPanels: async () => {},
+        processLifecycle: {
+            getSnapshot: () => ({ activeRuntime: { generation: 1, tool: "llama-bench" } }),
+        },
+    });
+
+    for (let i = 0; i < 4; i += 1) {
+        await adapter._testPollOutput();
+    }
+    assert.equal(
+        liveRun.classList.contains("hidden"), true,
+        "Run must stay hidden while the benchmark is still running"
+    );
+    assert.equal(
+        liveStop.classList.contains("hidden"), false,
+        "a transient poll error must leave Stop available"
+    );
+
+    // Once we do give up watching, Stop must still be there to end the process.
+    await adapter._testPollOutput();
+    await adapter._testPollOutput();
+    assert.equal(
+        liveStop.classList.contains("hidden"), false,
+        "Stop must remain available even after polling gives up"
+    );
+
     console.log("benchmark adapter tests passed");
 })().catch(error => {
     console.error(error);

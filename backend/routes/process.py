@@ -115,10 +115,17 @@ def send_input(request, response, ctx):
 
 
 def cleanup_llama(request, response, ctx):
-    if process_manager.is_process_running(ctx):
-        response.error("Stop running process first", 400)
+    # rmtree's the same llama/bin and llama/grammars an install extracts into, so
+    # it has to hold the install slot for the duration. The bare
+    # is_process_running() check this used to do left a window where an install
+    # running concurrently had its freshly extracted files deleted underneath it.
+    claim_error = process_manager.claim_install_slot(ctx)
+    if claim_error is not None:
+        response.error(*claim_error)
         return
     try:
         response.json({"removed_files": process_manager.remove_llama_files(ctx)})
     except Exception as e:
         response.error(sanitize_error(e, 500), 500)
+    finally:
+        process_manager.release_install_slot(ctx)

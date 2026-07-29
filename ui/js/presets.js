@@ -466,10 +466,21 @@ function buildDuplicatePresetName(name, existingNames) {
         : new Set(
             existingNames && typeof existingNames[Symbol.iterator] === "function" ? existingNames : []
         );
+    // Compared case-insensitively because presets are stored as "<name>.json" and
+    // POST /api/presets defaults to overwrite: on Windows/macOS "Foo copy" and
+    // "foo copy" are the same file, so a case-sensitive check handed back a name
+    // that silently clobbered an existing preset. Folding is best-effort — a
+    // duck-typed `taken` that is not iterable still gets the exact-match check.
+    const folded = new Set();
+    if (taken && typeof taken[Symbol.iterator] === "function") {
+        for (const existing of taken) folded.add(String(existing).toLowerCase());
+    }
+    const isTaken = (candidate) => taken.has(candidate) || folded.has(candidate.toLowerCase());
+
     const base = `${name} copy`;
-    if (!taken.has(base)) return base;
+    if (!isTaken(base)) return base;
     let suffix = 2;
-    while (taken.has(`${base} ${suffix}`)) suffix++;
+    while (isTaken(`${base} ${suffix}`)) suffix++;
     return `${base} ${suffix}`;
 }
 
@@ -1739,10 +1750,18 @@ async function duplicatePreset(name) {
         // duplicates the saved preset, not the live Configure state, so the current
         // launch settings are left untouched
         const duplicateName = buildDuplicatePresetName(name, new Set(presets.map((preset) => preset.name)));
+        // overwrite:false so a duplicate can never destroy an existing preset. The
+        // name check above should already have avoided the collision; this catches
+        // the case-insensitive-filesystem edge it cannot see from the browser and
+        // turns it into a 409 the user is told about instead of silent data loss.
         const result = await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: duplicateName, data: normalizePresetData(source.data) }),
+            body: JSON.stringify({
+                name: duplicateName,
+                data: normalizePresetData(source.data),
+                overwrite: false,
+            }),
         });
         if (result.saved) {
             selectedPresetName = result.name || duplicateName;

@@ -397,6 +397,63 @@ assert.equal(typeof api.handleSwitch, "function");
     refreshed = await api.refresh();
     assert.equal(refreshed.views[1].state, "standby", "healthy recovery must permanently clear that slot's failure");
 
+    // A failed preset fetch must not be cached. It used to store [], which is
+    // truthy, so the loadPresetEntries() cache guard reused it on every later
+    // unforced refresh and both slots read "Missing" forever with no retry.
+    // Uses a cold module so nothing is cached from the assertions above.
+    {
+        let coldStored = null;
+        const { api: coldApi } = createContext({
+            getItem: () => coldStored,
+            setItem: (_key, value) => { coldStored = value; },
+        });
+        let fetchFails = true;
+        let fetchCount = 0;
+        coldApi.configure({
+            fetchPresetEntries: async () => {
+                fetchCount += 1;
+                if (fetchFails) throw new Error("preset API down");
+                return entries;
+            },
+            getLatestBackendStatus: () => ({}),
+            getLifecycleSnapshot: () => ({ phase: "idle", busy: false }),
+        });
+
+        // Length rather than deepEqual against []: the vm realm has its own Array
+        // constructor, so deepStrictEqual fails on prototype identity alone.
+        let cold = await coldApi.refresh();
+        assert.equal(cold.entries.length, 0, "a first preset load that fails should render as empty");
+        assert.equal(fetchCount, 1);
+
+        // The retry must happen without the caller having to force a reload.
+        cold = await coldApi.refresh();
+        assert.equal(
+            fetchCount, 2,
+            "an unforced refresh after a failure must retry instead of reusing a cached []"
+        );
+
+        fetchFails = false;
+        cold = await coldApi.refresh();
+        assert.equal(
+            cold.entries.length, entries.length,
+            "presets must appear once the fetch recovers, with no forced reload"
+        );
+
+        // A successful load *is* cached, so a later unforced refresh must not refetch.
+        const countAfterSuccess = fetchCount;
+        await coldApi.refresh();
+        assert.equal(fetchCount, countAfterSuccess, "a successful load should still be cached");
+    }
+
+    // With a warm cache a failed reload keeps the last known-good list rather
+    // than blanking the slots the user is looking at.
+    api.configure({ fetchPresetEntries: async () => { throw new Error("preset API down"); } });
+    refreshed = await api.refresh({ reloadPresets: true });
+    assert.equal(
+        refreshed.entries.length, entries.length,
+        "a failed reload must not discard already-loaded presets"
+    );
+
     console.log("model switch UI tests passed");
 })().catch(error => {
     console.error(error);

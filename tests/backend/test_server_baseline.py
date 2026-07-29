@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import subprocess
 import sys
 import unittest
@@ -184,6 +185,55 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
 
         self.assertIsNone(handler.sent_response)
         self.assertTrue(handler.close_connection)
+
+    def test_v1_proxy_does_not_write_second_response_after_stream_started(self):
+        """Upstream dying mid-relay must truncate, not append a 502 to the reply
+        the client is already parsing."""
+        handler = self.make_handler(origin="http://localhost:5240")
+        handler.close_connection = False
+
+        class FailingUpstream:
+            status = 200
+            headers = Message()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def read(self, _size=-1):
+                raise OSError("upstream died mid-stream")
+
+            def readline(self):
+                raise OSError("upstream died mid-stream")
+
+        with mock.patch.object(
+            backend_app.urllib.request, "urlopen", return_value=FailingUpstream()
+        ):
+            with redirect_stderr(io.StringIO()) as captured:
+                handler.proxy_v1_request("GET", urllib.parse.urlparse("/v1/models"))
+
+        self.assertEqual(
+            handler.sent_response, 200,
+            "a second send_response would overwrite this with the 502",
+        )
+        self.assertTrue(handler.close_connection)
+        self.assertIn("upstream died mid-stream", captured.getvalue())
+
+    def test_v1_proxy_reports_unreachable_upstream_before_streaming(self):
+        handler = self.make_handler(origin="http://localhost:5240")
+        handler.close_connection = False
+
+        with mock.patch.object(
+            backend_app.urllib.request, "urlopen", side_effect=OSError("connection refused")
+        ):
+            with redirect_stderr(io.StringIO()):
+                handler.proxy_v1_request("GET", urllib.parse.urlparse("/v1/models"))
+
+        self.assertEqual(handler.sent_response, 502)
+        body = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        self.assertIn("llama-server", body["error"])
 
     def test_options_uses_v1_cors_methods(self):
         handler = self.make_handler(origin="http://localhost:5240")
@@ -621,6 +671,50 @@ class ValidationTests(ServerStateIsolationMixin, unittest.TestCase):
 
         with self.assertRaises(ValueError):
             server.get_local_chat_api_url({"host": "localhost", "port": 70000})
+
+
+class ReleaseManifestTests(unittest.TestCase):
+    """`release.ps1` copies a hand-written list into the zip, so anything the app
+    needs at runtime but that nobody added to that list is simply missing from
+    every release. These tie the list to the real runtime constants."""
+
+    @staticmethod
+    def _release_items():
+        root = Path(server.__file__).parent
+        text = (root / "release.ps1").read_text(encoding="utf-8")
+        block = re.search(r"\$items\s*=\s*@\((.*?)\n\)", text, re.DOTALL)
+        assert block, "could not find the $items array in release.ps1"
+        return root, re.findall(r'"([^"]+)"', block.group(1))
+
+    def test_every_listed_item_exists(self):
+        # release.ps1 throws "Missing release item" and produces no zip otherwise.
+        root, items = self._release_items()
+        for item in items:
+            with self.subTest(item=item):
+                self.assertTrue((root / item).exists(), f"{item} is listed but not in the repo")
+
+    def test_runtime_logo_is_packaged(self):
+        from backend.config import APP_LOGO_FILE
+
+        root, items = self._release_items()
+        self.assertIn(
+            APP_LOGO_FILE.name, items,
+            "APP_LOGO_FILE is served at /assets/app-logo.png and used by ui/index.html, "
+            "so it has to ship in the zip",
+        )
+        self.assertEqual(APP_LOGO_FILE.parent, root, "logo is expected at the repo root")
+
+    def test_windows_installer_dependencies_are_packaged(self):
+        root, items = self._release_items()
+        installer = (root / "windows_install.bat").read_text(encoding="utf-8", errors="replace")
+        self.assertIn("scripts\\create_windows_shortcuts.ps1", installer)
+        self.assertIn("scripts", items, "windows_install.bat invokes scripts\\create_windows_shortcuts.ps1")
+
+        shortcut_script = (root / "scripts" / "create_windows_shortcuts.ps1").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        self.assertIn("assets", shortcut_script)
+        self.assertIn("assets", items, "create_windows_shortcuts.ps1 reads assets\\Llama-GUI.ico")
 
 
 class ImportSmokeTests(unittest.TestCase):

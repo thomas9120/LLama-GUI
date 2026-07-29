@@ -322,6 +322,15 @@
             .map(flag => String(flag.flag)));
     }
 
+    // Shell-quotes a single token for the copyable command preview. Without this
+    // any value containing a space — the common case for a Windows model path —
+    // was joined in raw, so "Copy command" produced a command that split into the
+    // wrong arguments when pasted.
+    function quoteArg(arg) {
+        const text = String(arg);
+        return /[\s"]/u.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+    }
+
     function redactSensitiveTokens(tokens) {
         const sensitiveFlags = getSensitiveCliFlags();
         const redacted = [];
@@ -485,7 +494,7 @@
             }
         }
         const parts = [getToolBinaryName(currentTool), ...redactSensitiveTokens(launchTokens)];
-        const command = parts.join(" ");
+        const command = parts.map(quoteArg).join(" ");
         if (typeof renderCommandPreview === "function") {
             renderCommandPreview(command, result);
         }
@@ -517,6 +526,7 @@
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
         normalizeModelRelPath,
+        quoteArg,
         redactSensitiveTokens,
         hasLaunchModelArg,
         buildLaunchArgs,

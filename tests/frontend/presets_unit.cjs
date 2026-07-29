@@ -305,6 +305,18 @@ assert.equal(
     "Base copy 2",
     "an array of names must work like a Set"
 );
+// Presets are files named "<name>.json" and POST /api/presets overwrites by
+// default, so on Windows/macOS a differently-cased name is the same file.
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', new Set(['Base', 'base copy']))", duplicateContext),
+    "Base copy 2",
+    "a case-differing copy must still bump the suffix or it clobbers that file"
+);
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Foo', new Set(['Foo', 'FOO COPY', 'foo copy 2']))", duplicateContext),
+    "Foo copy 3",
+    "case-insensitive collisions must be skipped at every suffix, not just the base"
+);
 
 // rename carries name-keyed local state across
 const renameContext = createStoredContext({

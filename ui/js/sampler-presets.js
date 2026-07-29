@@ -169,6 +169,38 @@
         return { ok: true, name: to };
     }
 
+    /**
+     * Create or update a custom sampler preset.
+     *
+     * Saving over the preset that is currently selected is an *update*, not a
+     * collision. Both Save buttons fall back to the selected preset's own name
+     * when the name field is blank, so without excluding that name the taken
+     * check always fired against the preset being saved and Save could never
+     * update an existing custom preset at all.
+     *
+     * @returns {{ok: true, name: string}|{ok: false, reason: "empty"|"taken"}}
+     */
+    function saveSamplerPreset(name, selectedCustomName, values) {
+        const target = String(name == null ? "" : name).trim();
+        if (!target) return { ok: false, reason: "empty" };
+
+        const selected = String(selectedCustomName == null ? "" : selectedCustomName);
+        // Exact match, not case-insensitive: a case-differing name must still
+        // collide. Save is not a rename affordance — renameSamplerPreset() owns
+        // the re-casing carve-out — so accepting "fast" while "Fast" is selected
+        // would silently re-key a preset as a side effect of saving.
+        const isUpdatingSelected = Boolean(selected) && target === selected;
+
+        const store = loadSamplerPresetStore();
+        if (isSamplerPresetNameTaken(target, store, isUpdatingSelected ? selected : "")) {
+            return { ok: false, reason: "taken" };
+        }
+
+        store[target] = normalizeSamplerPresetValues(values);
+        saveSamplerPresetStore(store);
+        return { ok: true, name: target };
+    }
+
     function applySamplerPresetValues(values) {
         const core = getFlagCore();
         if (!core) return;
@@ -327,19 +359,18 @@
         saveBtn.addEventListener("click", () => {
             const typedName = nameInput.value.trim();
             const selected = getSelectedPresetEntry();
-            const name = typedName || (selected && selected.source === "custom" ? selected.name : "");
+            const selectedCustomName = selected && selected.source === "custom" ? selected.name : "";
+            const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
                 return;
             }
-            const store = loadSamplerPresetStore();
-            if (isSamplerPresetNameTaken(name, store)) {
-                alert(SAMPLER_RENAME_MESSAGES.taken + " Rename or delete the existing preset first.");
+            const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
+            if (!result.ok) {
+                alert(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.");
                 return;
             }
-            store[name] = normalizeSamplerPresetValues(collectSamplerValues());
-            saveSamplerPresetStore(store);
-            refreshOptions(`custom|${name}`);
+            refreshOptions(`custom|${result.name}`);
             refreshConsumers();
             nameInput.value = "";
         });
@@ -479,6 +510,7 @@
         getSamplerPresetImportEntries,
         getAllSamplerPresets,
         isSamplerPresetNameTaken,
+        saveSamplerPreset,
         renameSamplerPreset,
         getSamplerRenameMessage,
         applySamplerPresetValues,

@@ -213,6 +213,31 @@ def is_process_running(ctx: AppContext) -> bool:
         return ctx.state.process is not None
 
 
+def claim_install_slot(ctx: AppContext) -> Optional[tuple[str, int]]:
+    """Atomically reserve exclusive use of the llama.cpp install directories.
+
+    Lives here rather than in a route module because launch_process() is the
+    other side of the same interlock. Every operation that writes or deletes
+    under llama/bin must hold this slot — an install extracting into a tree that
+    a concurrent cleanup is deleting corrupts both.
+
+    Returns ``None`` on success, or an ``(message, status)`` pair to hand
+    straight to ``response.error``.
+    """
+    with ctx.state.install_lock:
+        if ctx.state.install_in_progress:
+            return "Installation already in progress", 409
+        if is_process_running(ctx):
+            return "Stop running process first", 400
+        ctx.state.install_in_progress = True
+    return None
+
+
+def release_install_slot(ctx: AppContext) -> None:
+    with ctx.state.install_lock:
+        ctx.state.install_in_progress = False
+
+
 def get_active_runtime_snapshot(ctx: AppContext) -> Optional[dict[str, Any]]:
     return get_process_status_snapshot(ctx)["active_runtime"]
 
@@ -1160,6 +1185,30 @@ def launch_process(
     args_list: Optional[Iterable[Any]],
     launch_context: Any = None,
 ) -> dict[str, Any]:
+    try:
+        normalized_launch_context = normalize_launch_context(launch_context)
+    except ValueError as exc:
+        return {"error": str(exc)}
+
+    # Cheap preconditions first, so an obviously doomed launch (double-click on
+    # Launch, or during an install) does not pay for the validation below.
+    with ctx.state.install_lock:
+        if ctx.state.install_in_progress:
+            return {"error": "Installation in progress. Wait for it to finish before launching."}
+    if is_process_running(ctx):
+        return {"error": "A process is already running"}
+
+    # Deliberately outside both locks. On Linux/macOS this shells out to ldd or
+    # otool once per packaged ggml library and can take tens of seconds cold;
+    # holding install_lock + process_lock across it stalled every other process
+    # endpoint — status, stop, output — for the whole run. The authoritative
+    # re-checks below close the window this opens: an install that starts
+    # meanwhile is caught there, and a binary that disappears meanwhile fails at
+    # Popen, which the except clause already handles.
+    exe_path, environment_error = _validate_launch_environment(ctx, tool)
+    if environment_error is not None:
+        return {"error": environment_error}
+
     # Lock order is install -> process everywhere that transitions between
     # these mutually exclusive operations.
     with ctx.state.install_lock, ctx.state.process_lock:
@@ -1168,14 +1217,6 @@ def launch_process(
         _reap_finished_process(ctx)
         if ctx.state.process is not None:
             return {"error": "A process is already running"}
-        try:
-            normalized_launch_context = normalize_launch_context(launch_context)
-        except ValueError as exc:
-            return {"error": str(exc)}
-
-        exe_path, environment_error = _validate_launch_environment(ctx, tool)
-        if environment_error is not None:
-            return {"error": environment_error}
 
         flat_launch_args = flatten_launch_args(args_list)
         args = [str(exe_path), *flat_launch_args]

@@ -697,8 +697,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             headers["Accept"] = "*/*"
 
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # Once the status line is buffered, no error path may emit a second
+        # response: it would be appended to the first and the client would parse
+        # the concatenation as one malformed reply.
+        response_started = False
         try:
             with urllib.request.urlopen(req, timeout=300) as resp:
+                response_started = True
                 self.send_response(resp.status)
                 excluded = {
                     "connection",
@@ -729,8 +734,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         self.wfile.write(chunk)
                         self.wfile.flush()
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            self.close_connection = True
             return
         except urllib.error.HTTPError as exc:
+            # urlopen raises this before any bytes go out, so response_started is
+            # False here in practice; the guard keeps the invariant local rather
+            # than relying on that staying true.
+            if response_started:
+                print(f"[v1 proxy] HTTPError after response started: {exc}", file=sys.stderr)
+                self.close_connection = True
+                return
             body = exc.read()
             self.send_response(exc.code)
             content_type = exc.headers.get("Content-Type", "application/json")
@@ -740,6 +753,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body)
         except Exception as exc:
             print(f"[v1 proxy] {type(exc).__name__}: {exc}", file=sys.stderr)
+            if response_started:
+                # Upstream failed partway through a reply we are already relaying.
+                # Truncating the body is the only signal left — an error response
+                # here would corrupt the stream the client is mid-way through
+                # parsing (and for SSE, inject a bogus event).
+                self.close_connection = True
+                return
             self.send_proxy_error("Failed to reach llama-server. Start it or check the configured API host and port.")
 
     def dispatch_api_request(self, method, parsed, body=None):

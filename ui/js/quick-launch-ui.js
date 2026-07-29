@@ -22,6 +22,7 @@
     let normalizeSamplerPresetValues = (values) => values || {};
     let collectSamplerValues = () => ({});
     let isSamplerPresetNameTaken = () => false;
+    let saveSamplerPreset = () => ({ ok: false, reason: "missing" });
     let renameSamplerPreset = () => ({ ok: false, reason: "missing" });
     let getSamplerRenameMessage = () => "Failed to rename sampler preset.";
     let confirmAction = async () => false;
@@ -53,6 +54,7 @@
         normalizeSamplerPresetValues = options.normalizeSamplerPresetValues || normalizeSamplerPresetValues;
         collectSamplerValues = options.collectSamplerValues || collectSamplerValues;
         isSamplerPresetNameTaken = options.isSamplerPresetNameTaken || isSamplerPresetNameTaken;
+        saveSamplerPreset = options.saveSamplerPreset || saveSamplerPreset;
         renameSamplerPreset = options.renameSamplerPreset || renameSamplerPreset;
         getSamplerRenameMessage = options.getSamplerRenameMessage || getSamplerRenameMessage;
         confirmAction = options.confirmAction || confirmAction;
@@ -702,24 +704,23 @@
             if (!nameInput) return;
             const typedName = nameInput.value.trim();
             const selected = getSelectedSamplerEntry();
-            const name = typedName || (selected && selected.source === "custom" ? selected.name : "");
+            const selectedCustomName = selected && selected.source === "custom" ? selected.name : "";
+            const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
                 return;
             }
 
-            const store = loadSamplerPresetStore();
-            if (isSamplerPresetNameTaken(name, store)) {
-                alert(getSamplerRenameMessage("taken") + " Rename or delete the existing preset first.");
+            const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
+            if (!result.ok) {
+                alert(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.");
                 return;
             }
-            store[name] = normalizeSamplerPresetValues(collectSamplerValues());
-            saveSamplerPresetStore(store);
             nameInput.value = "";
             refreshSamplerPresetSelect();
             configFlagsUi.renderFlags();
             const samplerSelect = document.getElementById("quick-sampler-select");
-            if (samplerSelect) samplerSelect.value = `custom|${name}`;
+            if (samplerSelect) samplerSelect.value = `custom|${result.name}`;
         });
 
         on("btn-quick-sampler-rename", "click", async () => {

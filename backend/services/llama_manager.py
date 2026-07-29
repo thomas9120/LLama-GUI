@@ -776,6 +776,29 @@ def extract_archive_preserve_paths(
     raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
 
+def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> None:
+    """Move ``staged`` onto ``target``, keeping the previous copy until it lands.
+
+    Both paths are siblings so this is a rename rather than a copy, which matters
+    for multi-gigabyte backends. If the move fails the old directory is put back,
+    so a failed install never leaves the tool directory missing.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    previous = target.with_name(target.name + ".old")
+    shutil.rmtree(previous, ignore_errors=True)
+
+    had_previous = target.exists()
+    if had_previous:
+        os.replace(target, previous)
+    try:
+        os.replace(staged, target)
+    except Exception:
+        if had_previous and not target.exists():
+            os.replace(previous, target)
+        raise
+    shutil.rmtree(previous, ignore_errors=True)
+
+
 def ensure_installed_tool_executables(ctx: AppContext) -> list[str]:
     """Add executable bits to downloaded llama.cpp tools on Unix platforms."""
     current_platform = ctx.services.current_platform
@@ -863,6 +886,10 @@ def install_release(
         return False
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="llama_install_"))
+    staged_bin = ctx.paths.llama_bin.with_name(ctx.paths.llama_bin.name + ".new")
+    staged_grammars = ctx.paths.llama_grammars.with_name(
+        ctx.paths.llama_grammars.name + ".new"
+    )
     try:
         bin_archive = tmpdir / bin_filename
         set_download_progress(ctx, message=f"Downloading {bin_filename}...")
@@ -887,22 +914,29 @@ def install_release(
             ctx, status="extracting", message="Extracting binaries..."
         )
 
-        for d in [ctx.paths.llama_bin, ctx.paths.llama_grammars]:
-            if d.exists():
-                shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)
+        # Extract into staging directories and swap them in only once extraction
+        # has fully succeeded. Deleting the live install first meant any failure
+        # from here on — truncated archive, disk full, killed process — left
+        # llama/bin empty while config still named the previous version: an
+        # "installed" build with no binaries behind it and no way back.
+        # Staged as siblings of the targets so the swap is a rename on the same
+        # filesystem, not a multi-gigabyte copy out of the system temp dir.
+        for staged in (staged_bin, staged_grammars):
+            shutil.rmtree(staged, ignore_errors=True)
+            staged.mkdir(parents=True, exist_ok=True)
 
         preserve_paths = bool(backend_spec.get("preserve_paths"))
         if preserve_paths:
-            extract_archive_preserve_paths(bin_archive, ctx.paths.llama_bin)
+            extract_archive_preserve_paths(bin_archive, staged_bin)
             for extra_archive in extra_archives:
-                extract_archive_preserve_paths(extra_archive, ctx.paths.llama_bin)
+                extract_archive_preserve_paths(extra_archive, staged_bin)
         else:
-            extract_archive_flat(bin_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars)
+            extract_archive_flat(bin_archive, staged_bin, staged_grammars)
             for extra_archive in extra_archives:
-                extract_archive_flat(
-                    extra_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars
-                )
+                extract_archive_flat(extra_archive, staged_bin, staged_grammars)
+
+        _swap_directory_into_place(staged_bin, ctx.paths.llama_bin)
+        _swap_directory_into_place(staged_grammars, ctx.paths.llama_grammars)
 
         ensure_installed_tool_executables(ctx)
 
@@ -923,3 +957,7 @@ def install_release(
         return False
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+        # Leftovers only exist if extraction or the swap failed; the live
+        # directories are untouched in that case.
+        shutil.rmtree(staged_bin, ignore_errors=True)
+        shutil.rmtree(staged_grammars, ignore_errors=True)

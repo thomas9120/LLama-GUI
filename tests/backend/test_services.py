@@ -1554,6 +1554,102 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             extract_archive.assert_not_called()
             ctx.services.save_config.assert_not_called()
 
+    def test_install_release_keeps_the_old_install_when_extraction_fails(self):
+        """Extraction used to run straight into llama/bin after deleting it, so a
+        truncated archive or a full disk left no binaries at all while config
+        still named the previous version."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.paths.llama_grammars.mkdir(parents=True)
+            old_binary = ctx.paths.llama_bin / "llama-server"
+            old_grammar = ctx.paths.llama_grammars / "json.gbnf"
+            old_binary.write_text("old server")
+            old_grammar.write_text("old grammar")
+            payload = b"primary archive"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(payload)
+                return len(payload)
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat", side_effect=OSError("disk full")
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            self.assertEqual(old_binary.read_text(), "old server", "old binaries must survive")
+            self.assertEqual(old_grammar.read_text(), "old grammar")
+            ctx.services.save_config.assert_not_called()
+            # Staging leftovers must not linger next to the live directories.
+            self.assertFalse(ctx.paths.llama_bin.with_name(ctx.paths.llama_bin.name + ".new").exists())
+            self.assertFalse(
+                ctx.paths.llama_grammars.with_name(ctx.paths.llama_grammars.name + ".new").exists()
+            )
+
+    def test_install_release_replaces_the_old_install_on_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.load_config = dict
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.paths.llama_grammars.mkdir(parents=True)
+            (ctx.paths.llama_bin / "stale-binary").write_text("stale")
+            payload = b"primary archive"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(payload)
+                return len(payload)
+
+            def fake_extract(_archive, bin_dir, grammars_dir):
+                (bin_dir / "llama-server").write_text("new server")
+                (grammars_dir / "json.gbnf").write_text("new grammar")
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat", side_effect=fake_extract
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertTrue(ok)
+            self.assertEqual((ctx.paths.llama_bin / "llama-server").read_text(), "new server")
+            self.assertEqual((ctx.paths.llama_grammars / "json.gbnf").read_text(), "new grammar")
+            self.assertFalse(
+                (ctx.paths.llama_bin / "stale-binary").exists(),
+                "the swap must replace the directory, not merge into it",
+            )
+            ctx.services.save_config.assert_called_once()
+
     def test_get_releases_uses_repo_api_when_provided(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)

@@ -268,4 +268,60 @@ assert.ok(
     "an unknown rename reason should still produce a message"
 );
 
+// --- saveSamplerPreset ---
+
+// Both Save buttons fall back to the selected preset's own name when the name
+// field is blank. Without excluding that name the taken check fired against the
+// preset being saved, so Save could never update an existing custom preset.
+setStore({ "My Sampler": { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("My Sampler", "My Sampler", { temperature: 0.9 }),
+    { ok: true, name: "My Sampler" },
+    "saving over the selected custom preset should update it, not report a collision"
+);
+assertJsonEqual(
+    samplerPresets.loadSamplerPresetStore()["My Sampler"].temperature,
+    0.9,
+    "an update should overwrite the stored values"
+);
+
+setStore({ "My Sampler": { temperature: 0.33 }, Other: { temperature: 0.4 } });
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("Other", "My Sampler", { temperature: 0.9 }),
+    { ok: false, reason: "taken" },
+    "saving onto a different existing preset must still be rejected"
+);
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("balanced", "My Sampler", { temperature: 0.9 }),
+    { ok: false, reason: "taken" },
+    "a built-in name must still be rejected even while updating a selection"
+);
+
+// Save is not a rename affordance (renameSamplerPreset owns the re-casing
+// carve-out), so a case-differing name must still collide rather than silently
+// re-key the preset.
+setStore({ "My Sampler": { temperature: 0.33 } });
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("my sampler", "My Sampler", { temperature: 0.9 }),
+    { ok: false, reason: "taken" },
+    "a case-differing name must collide even against the selected preset"
+);
+assertJsonEqual(
+    Object.keys(samplerPresets.loadSamplerPresetStore()),
+    ["My Sampler"],
+    "a rejected save must leave the store untouched"
+);
+
+setStore({});
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("  Fresh  ", "", { temperature: 0.5 }),
+    { ok: true, name: "Fresh" },
+    "a new preset should trim and save"
+);
+assertJsonEqual(
+    samplerPresets.saveSamplerPreset("   ", "", { temperature: 0.5 }),
+    { ok: false, reason: "empty" },
+    "a blank name should be rejected"
+);
+
 console.log("sampler presets unit tests passed");

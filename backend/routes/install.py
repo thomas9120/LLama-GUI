@@ -13,13 +13,7 @@ RELEASE_RESPONSE_LIMIT = 30
 
 def _claim_install_slot(ctx):
     """Atomically keep installs and llama.cpp launches mutually exclusive."""
-    with ctx.state.install_lock:
-        if ctx.state.install_in_progress:
-            return "Installation already in progress", 409
-        if process_manager.is_process_running(ctx):
-            return "Stop running process first", 400
-        ctx.state.install_in_progress = True
-    return None
+    return process_manager.claim_install_slot(ctx)
 
 
 def get_releases(request, response, ctx):
