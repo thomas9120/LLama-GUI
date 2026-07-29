@@ -544,6 +544,37 @@ async function main() {
         );
 
         await selectSection(page, "configure");
+
+        // Typed one key at a time on purpose. Every keystroke writes flag state,
+        // which loops back into restoreFlagInputs(); when that rewrote el.value
+        // unconditionally, type="number" reported the partial "0." as "" and the
+        // decimal point was wiped as fast as it was typed. page.fill() sets the
+        // value in one shot and would not have caught it.
+        await page.fill("#config-search", "temperature");
+        await page.waitForSelector("#flag-temperature", { state: "visible" });
+        await page.click("#flag-temperature");
+        await page.evaluate(() => { document.getElementById("flag-temperature").value = ""; });
+        await page.type("#flag-temperature", "0.85");
+        assert.equal(
+            await page.inputValue("#flag-temperature"),
+            "0.85",
+            "typing a decimal into a float flag must survive the state round-trip"
+        );
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.85);
+
+        // Trailing zeros are the sharper case: "0.0" parses to 0, so a plain
+        // value-equality guard would still rewrite the field to "0" mid-typing.
+        await page.evaluate(() => { document.getElementById("flag-temperature").value = ""; });
+        await page.type("#flag-temperature", "0.05");
+        assert.equal(await page.inputValue("#flag-temperature"), "0.05");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.05);
+
+        // A cleared field must stay cleared rather than snapping back to state.
+        await page.fill("#flag-temperature", "");
+        assert.equal(await page.inputValue("#flag-temperature"), "");
+        await page.fill("#config-search", "");
+        await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+
         await page.evaluate(() => {
             const ctxSize = document.getElementById("flag-ctx_size");
             ctxSize.value = "1e5";

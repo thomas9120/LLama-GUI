@@ -4,6 +4,7 @@ import io
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 import urllib.error
 import zipfile
@@ -285,6 +286,66 @@ class ExtractedRouteTests(unittest.TestCase):
             target = ctx.paths.models / "wikitext-2-raw-v1" / "wiki.test.raw"
             self.assertEqual(response.payload, {"ready": True, "downloaded": True, "path": str(target)})
             self.assertEqual(target.read_text(encoding="utf-8"), "test data")
+
+    def test_benchmark_wikitext2_route_leaves_no_file_when_extraction_fails(self):
+        """A failed extraction must not leave a truncated file that exists() accepts."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            zip_payload = io.BytesIO()
+            with zipfile.ZipFile(zip_payload, "w") as archive:
+                archive.writestr("wikitext-2-raw/wiki.test.raw", "test data")
+            ctx.services.urlopen_with_ssl = mock.Mock(return_value=FakeBinaryUpstream(zip_payload.getvalue()))
+            response = DummyResponse()
+            target = ctx.paths.models / "wikitext-2-raw-v1" / "wiki.test.raw"
+
+            real_copyfileobj = benchmarks.shutil.copyfileobj
+
+            def fail_extraction_only(src, dest, *args, **kwargs):
+                # Let the zip download through; blow up only on the extraction
+                # write, which is the step that used to leave a stub behind.
+                if str(getattr(dest, "name", "")).endswith(".zip"):
+                    return real_copyfileobj(src, dest, *args, **kwargs)
+                raise OSError("disk full")
+
+            with mock.patch.object(
+                benchmarks.shutil, "copyfileobj", side_effect=fail_extraction_only
+            ):
+                benchmarks.ensure_wikitext2(
+                    Request("POST", "/api/benchmark/wikitext2", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_name(target.name + ".part").exists())
+
+    def test_benchmark_wikitext2_route_rejects_short_extraction(self):
+        """A short write is caught rather than promoted to the final path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            zip_payload = io.BytesIO()
+            with zipfile.ZipFile(zip_payload, "w") as archive:
+                archive.writestr("wikitext-2-raw/wiki.test.raw", "test data")
+            ctx.services.urlopen_with_ssl = mock.Mock(return_value=FakeBinaryUpstream(zip_payload.getvalue()))
+            response = DummyResponse()
+            target = ctx.paths.models / "wikitext-2-raw-v1" / "wiki.test.raw"
+
+            real_copyfileobj = benchmarks.shutil.copyfileobj
+
+            def short_copy(src, dest, *args, **kwargs):
+                # Only truncate the extraction step; the zip download above uses
+                # copyfileobj too and must complete or this tests the wrong path.
+                if str(getattr(dest, "name", "")).endswith(".part"):
+                    dest.write(b"test")  # 4 of the 9 expected bytes
+                    return None
+                return real_copyfileobj(src, dest, *args, **kwargs)
+
+            with mock.patch.object(benchmarks.shutil, "copyfileobj", side_effect=short_copy):
+                benchmarks.ensure_wikitext2(
+                    Request("POST", "/api/benchmark/wikitext2", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertFalse(target.exists())
 
     def test_presets_routes_list_save_and_delete(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1187,6 +1248,78 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertEqual(response.payload, {"sent": True})
             self.assertEqual(ctx.state.process.stdin.getvalue(), "hello\n")
+
+    def test_process_send_input_does_not_hold_process_lock_while_writing(self):
+        """llama-server never drains stdin, so a full pipe blocks write() forever.
+        Holding process_lock across that froze launch/stop/status permanently."""
+        started = threading.Event()
+        release = threading.Event()
+
+        class BlockingStdin:
+            def write(self, text):
+                started.set()
+                release.wait(5)
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def __init__(self):
+                    self.stdin = BlockingStdin()
+
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+
+            sender = threading.Thread(
+                target=process_manager.send_input, args=(ctx, "hello"), daemon=True
+            )
+            sender.start()
+            self.assertTrue(started.wait(5), "stdin write never began")
+
+            # The lock must be free while the write is stuck, or every other
+            # process endpoint would be wedged behind it.
+            acquired = ctx.state.process_lock.acquire(timeout=2)
+            if acquired:
+                ctx.state.process_lock.release()
+            release.set()
+            sender.join(5)
+
+            self.assertTrue(acquired, "process_lock was held across the stdin write")
+
+    def test_process_send_input_reports_failure_when_write_blocks(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        class BlockingStdin:
+            def write(self, text):
+                release.wait(30)
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def __init__(self):
+                    self.stdin = BlockingStdin()
+
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+
+            with mock.patch.object(process_manager, "SEND_INPUT_TIMEOUT_SECONDS", 0.2):
+                with contextlib.redirect_stderr(io.StringIO()) as captured:
+                    sent = process_manager.send_input(ctx, "hello")
+
+            self.assertFalse(sent)
+            self.assertIn("timed out", captured.getvalue())
 
     def test_process_cleanup_blocks_when_process_is_running(self):
         with tempfile.TemporaryDirectory() as tmp:

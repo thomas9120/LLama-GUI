@@ -151,8 +151,8 @@ function syncUiAfterToolChange(nextTool) {
     flagCore.updateCommandPreview();
 }
 
-function syncUiAfterSharedStateChange() {
-    configFlagsUi.restoreFlagInputs();
+function syncUiAfterSharedStateChange(options) {
+    configFlagsUi.restoreFlagInputs(options);
     restoreCustomLaunchArgsInput();
     flagCore.updateCommandPreview();
     refreshChatSidebarUI();
@@ -248,7 +248,7 @@ async function switchModelSlot(slotId) {
         },
         applyTarget: target => {
             presetsApi.applyPresetData(target.presetData, { preserveApiKey: true });
-            syncUiAfterSharedStateChange();
+            syncUiAfterSharedStateChange({ force: true });
         },
     });
     if (outcome.ok && previousRuntime && outcome.runtime) {

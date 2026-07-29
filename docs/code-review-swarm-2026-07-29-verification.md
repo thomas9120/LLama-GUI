@@ -15,6 +15,31 @@ Both suites were re-run on `beta` at commit `b470ef9`:
 **Tally:** 5/5 High agreed. 13/17 Medium agreed, 3 partially, 1 disagreed.
 Of 16 Low spot-checks: 13 agreed, 1 partial, 2 disagreed.
 
+## Fix status (updated after remediation)
+
+The seven items in "Suggested fix order" at the bottom of this document are **done**,
+each with a regression test verified to fail against the pre-fix code:
+
+| # | Item | Fix | Test |
+|---|------|-----|------|
+| 1 | H1 number inputs | `config-flags-ui.js` skips the focused input; `flag-core.js` passes `force` for wholesale applies. Same fix applied to `quick-launch-ui.js` (context / GPU / fit fields) | `flag_sync_smoke.cjs` — types `0.85` and `0.05` key by key |
+| 2 | H5 CRLF launchers | `.gitattributes` pins `*.sh eol=lf` (plus `*.bat`/`*.ps1 eol=crlf`); working tree renormalized | verified by fresh `core.autocrlf=true` clone |
+| 3 | H2 + `startNewChat` | all three paths `await abortActiveStream()` | — (no chat-ui unit harness) |
+| 4 | H4 + truncated GGUF | wikitext extracts via `.part` + size check under a lock; `download_hf_file` verifies `Content-Length` | 2 route tests + 3 `DownloadHfFileLengthTests` |
+| 5 | `app.py` dispatch guard | sanitized 500; `Response.started` prevents a second response mid-stream | 3 `HandlerResponseTests` |
+| 6 | H3 stdin deadlock | write moved out of `process_lock`, bounded by `SEND_INPUT_TIMEOUT_SECONDS` | 2 tests, one asserting the lock is free during a blocked write |
+| 7 | `benchmark-ui.js:800` | tolerates `OUTPUT_POLL_MAX_FAILS` consecutive failures; no longer flips the UI to "not running" | — |
+
+Suites after the fixes: backend **544 passed, 2 skipped** (was 534); frontend all green.
+
+One correction to H1 below, found while testing: the failure is not only that the
+decimal point is swallowed. Typing `0.85` into Temperature on the pre-fix code
+produced **`850`** — the digits concatenate as each `.` is discarded, so the launch
+silently used a temperature of 850 instead of 0.85. That is a wrong-value bug, not
+just an input-annoyance bug.
+
+Everything else in this document is unchanged and still outstanding.
+
 ---
 
 ## High severity

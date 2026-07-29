@@ -3,6 +3,7 @@ import json
 import subprocess
 import sys
 import unittest
+import urllib.parse
 from contextlib import redirect_stderr
 from email.message import Message
 from pathlib import Path
@@ -136,6 +137,53 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         handler.end_headers = end_headers
         handler.send_error = send_error
         return handler
+
+    def dispatch_with_handler(self, route_handler, method="GET", path="/api/probe"):
+        handler = self.make_handler(origin="http://localhost:5240")
+        handler.close_connection = False
+        match = mock.Mock(handler=route_handler, params={})
+        with mock.patch.object(backend_app.API_ROUTER, "match", return_value=match):
+            with redirect_stderr(io.StringIO()) as captured:
+                handler.dispatch_api_request(method, urllib.parse.urlparse(path))
+        return handler, captured.getvalue()
+
+    def test_dispatch_turns_handler_exception_into_sanitized_500(self):
+        """A raising route must not drop the connection: the UI reports that as
+        'server unreachable' rather than showing an error."""
+
+        def boom(request, response, ctx):
+            raise RuntimeError("secret filesystem path")
+
+        handler, stderr = self.dispatch_with_handler(boom)
+
+        self.assertEqual(handler.sent_response, 500)
+        body = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        self.assertEqual(body["status"], 500)
+        self.assertNotIn("secret filesystem path", body["error"])
+        self.assertIn("secret filesystem path", stderr)
+
+    def test_dispatch_does_not_write_second_response_after_stream_started(self):
+        """Once a status line is out, an error response would corrupt it."""
+
+        def half_written(request, response, ctx):
+            response.json({"partial": True})
+            raise RuntimeError("late failure")
+
+        handler, stderr = self.dispatch_with_handler(half_written)
+
+        self.assertEqual(handler.sent_response, 200)
+        self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"partial": True})
+        self.assertTrue(handler.close_connection)
+        self.assertIn("late failure", stderr)
+
+    def test_dispatch_swallows_client_disconnect(self):
+        def disconnected(request, response, ctx):
+            raise BrokenPipeError("client hung up")
+
+        handler, _ = self.dispatch_with_handler(disconnected)
+
+        self.assertIsNone(handler.sent_response)
+        self.assertTrue(handler.close_connection)
 
     def test_options_uses_v1_cors_methods(self):
         handler = self.make_handler(origin="http://localhost:5240")

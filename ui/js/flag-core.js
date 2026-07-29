@@ -149,7 +149,10 @@
             afterApply(flagValues);
         }
         if (typeof postUpdate === "function") {
-            postUpdate();
+            // A wholesale replace (preset load, import, model switch) must win over
+            // whatever is in a focused input, unlike the incremental patches above
+            // which are themselves driven by the user typing in that input.
+            postUpdate({ force: true });
         }
         return flagValues;
     }

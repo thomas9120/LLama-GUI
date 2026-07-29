@@ -2815,6 +2815,55 @@ class SlugifyRepoIdTests(unittest.TestCase):
         )
 
 
+class DownloadHfFileLengthTests(unittest.TestCase):
+    @staticmethod
+    def _download(ctx, dest, resp):
+        return hf_service.download_hf_file(
+            ctx,
+            repo_id="owner/model",
+            filename="model.gguf",
+            revision="main",
+            token=None,
+            dest=dest,
+            completed_bytes=0,
+            total_bytes=10,
+            urlopen=lambda req, timeout=60: resp,
+        )
+
+    def test_rejects_truncated_response(self):
+        """A connection dropped mid-transfer looks like a clean EOF to
+        http.client, so only the Content-Length check catches it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"trun"], content_length=10)
+
+            with self.assertRaises(OSError) as caught:
+                self._download(ctx, dest, resp)
+
+            self.assertIn("incomplete", str(caught.exception))
+            self.assertFalse(dest.exists())
+
+    def test_accepts_complete_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"0123456789"], content_length=10)
+
+            self.assertEqual(self._download(ctx, dest, resp), 10)
+            self.assertEqual(dest.read_bytes(), b"0123456789")
+
+    def test_accepts_response_without_content_length(self):
+        """Servers that omit the header must still work; there is nothing to check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"abc"])
+
+            self.assertEqual(self._download(ctx, dest, resp), 3)
+            self.assertEqual(dest.read_bytes(), b"abc")
+
+
 class StartHfModelDownloadPathTests(unittest.TestCase):
     def test_downloads_into_repo_subfolder(self):
         with tempfile.TemporaryDirectory() as tmp:

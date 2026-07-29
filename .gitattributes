@@ -1,2 +1,11 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# release.ps1 copies working-tree files into the release zip verbatim, so the
+# line endings a contributor happens to check out are the ones that ship.
+# Without these pins a Windows checkout (core.autocrlf=true) turns every shebang
+# into "#!/usr/bin/env sh\r", which fails on Linux/macOS with a bad-interpreter
+# error. Pin both directions so the zip is identical whoever builds it.
+*.sh text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf

@@ -402,6 +402,18 @@
         }
     }
 
+    // Same hazard as restoreFlagInputs() in config-flags-ui.js: refresh() runs on
+    // every keystroke via the flag-state postUpdate hook, so writing state back
+    // into the field being typed in resets the caret and, on type="number",
+    // discards partial input the browser reports as "" (a lone "-" or "0.").
+    function setInputValueUnlessEditing(el, nextValue) {
+        if (!el) return;
+        const doc = el.ownerDocument || document;
+        if (doc && doc.activeElement === el) return;
+        const next = String(nextValue);
+        if (el.value !== next) el.value = next;
+    }
+
     function refresh() {
         const quickCommand = document.getElementById("quick-command-preview");
         if (!quickCommand) return;
@@ -443,7 +455,7 @@
                 contextCustom.disabled = true;
             } else {
                 contextPreset.value = "custom";
-                contextCustom.value = ctxString;
+                setInputValueUnlessEditing(contextCustom, ctxString);
                 contextCustom.disabled = false;
             }
         }
@@ -465,7 +477,7 @@
                 gpuCustom.disabled = true;
             } else {
                 gpuMode.value = "custom";
-                gpuCustom.value = hasCustomGpuValue ? gpuLayers : "";
+                setInputValueUnlessEditing(gpuCustom, hasCustomGpuValue ? gpuLayers : "");
                 gpuCustom.disabled = false;
             }
         }
@@ -474,8 +486,11 @@
         const fitTarget = document.getElementById("quick-fit-target");
         const fitCtx = document.getElementById("quick-fit-ctx");
         if (fitToggle) fitToggle.value = String(values.fit ?? "on");
-        if (fitTarget) fitTarget.value = String(values.fit_target ?? "1024");
-        if (fitCtx) fitCtx.value = values.fit_ctx ?? "";
+        // fit_target has no "" fallback on purpose in the summary below, but the
+        // input itself must stay clearable: forcing "1024" back in made the field
+        // impossible to empty.
+        setInputValueUnlessEditing(fitTarget, values.fit_target ?? "");
+        setInputValueUnlessEditing(fitCtx, values.fit_ctx ?? "");
 
         const fitSummary = document.getElementById("quick-fit-summary");
         if (fitSummary) {

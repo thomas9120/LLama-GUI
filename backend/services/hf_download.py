@@ -190,6 +190,17 @@ def cancel_hf_model_download(ctx: AppContext) -> Mapping[str, Any]:
         )
 
 
+def _content_length(resp: Any) -> Optional[int]:
+    """Declared body size, or None when the server didn't say (or said nonsense)."""
+    headers = getattr(resp, "headers", None)
+    raw = headers.get("Content-Length") if hasattr(headers, "get") else None
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return size if size >= 0 else None
+
+
 def download_hf_file(
     ctx: AppContext,
     repo_id: str,
@@ -209,6 +220,7 @@ def download_hf_file(
     tmp_path = dest.with_suffix(dest.suffix + ".part")
     downloaded = 0
     with urlopen(req, timeout=60) as resp, open(tmp_path, "wb") as f:
+        expected_bytes = _content_length(resp)
         while True:
             if ctx.state.model_download_cancel.is_set():
                 raise InterruptedError("Download cancelled.")
@@ -223,6 +235,15 @@ def download_hf_file(
                 total=total_bytes,
                 current_file=pathlib.PurePosixPath(filename).name,
             )
+    # http.client deliberately does not raise IncompleteRead from read(amt) — it
+    # just closes the connection and returns b"" — so a connection dropped
+    # mid-transfer looks exactly like a clean EOF here. Without this check the
+    # truncated .part was promoted to a "done" GGUF that fails at load time.
+    if expected_bytes is not None and downloaded != expected_bytes:
+        raise OSError(
+            f"Download of {filename} was incomplete: got {downloaded} bytes, "
+            f"expected {expected_bytes}."
+        )
     tmp_path.replace(dest)
     return downloaded
 

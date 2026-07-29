@@ -32,6 +32,8 @@ _ALIAS_VALUE_FLAGS = ("-a", "--alias")
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
 _SENSITIVE_CUSTOM_ARG_RE = re.compile(r"(?<![A-Za-z0-9_-])--api-key(?=$|[=\s])")
 _HEALTH_TIMEOUT_SECONDS = 2
+# How long to wait on a stdin write before giving up on it (see send_input).
+SEND_INPUT_TIMEOUT_SECONDS = 5.0
 _ESTIMATE_VALUE_FLAGS = {
     "-t",
     "--threads",
@@ -1369,19 +1371,43 @@ def stop_process_for_generation(ctx: AppContext, expected_generation: Any) -> di
 
 
 def send_input(ctx: AppContext, text: str) -> bool:
+    # Only the handle lookup belongs under process_lock. The write must not: a
+    # child that never drains stdin (llama-server ignores it) fills the ~64 KB OS
+    # pipe buffer, after which write/flush block forever — and holding the lock
+    # while that happened froze launch, stop, status and reaping for the whole
+    # process layer, unrecoverably.
     with ctx.state.process_lock:
         _reap_finished_process(ctx)
         process = ctx.state.process
-        if process is not None:
-            try:
-                if process.stdin:
-                    process.stdin.write(text + "\n")
-                    process.stdin.flush()
-                    return True
-            except Exception as exc:
-                print(f"[process] failed to send input: {exc}", file=sys.stderr)
-                return False
+        stdin = process.stdin if process is not None else None
+    if not stdin:
         return False
+
+    outcome: list[bool] = []
+
+    def _write() -> None:
+        try:
+            stdin.write(text + "\n")
+            stdin.flush()
+            outcome.append(True)
+        except Exception as exc:
+            print(f"[process] failed to send input: {exc}", file=sys.stderr)
+            outcome.append(False)
+
+    # Dropping the lock stops one stuck pipe from taking the app down with it,
+    # but the write can still block indefinitely. Bound it so the cost is a
+    # single detached daemon thread rather than a wedged HTTP request thread.
+    # There is no portable non-blocking pipe write to use instead on Windows.
+    worker = threading.Thread(target=_write, daemon=True)
+    worker.start()
+    worker.join(SEND_INPUT_TIMEOUT_SECONDS)
+    if worker.is_alive():
+        print(
+            "[process] send input timed out; the runtime is not reading stdin",
+            file=sys.stderr,
+        )
+        return False
+    return bool(outcome) and outcome[0]
 
 
 def remove_llama_files(ctx: AppContext) -> int:

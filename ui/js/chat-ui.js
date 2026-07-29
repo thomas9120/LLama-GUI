@@ -636,12 +636,15 @@
         return text.length > 50 ? text.slice(0, 50) + "..." : text;
     }
 
-    function loadConversation(id) {
+    async function loadConversation(id) {
         const conversations = getStoredConversations();
         const convo = conversations.find(c => c.id === id);
         if (!convo) return;
 
-        if (chatStreaming) stopStream();
+        // Must await: abort() rejects the pending read on a later microtask, so a
+        // bare stopStream() lets the AbortError handler run after the reassignments
+        // below and finalize the old reply into the conversation we just loaded.
+        if (chatStreaming) await abortActiveStream();
 
         currentConversationId = convo.id;
         chatMessages = convo.messages.slice();
@@ -688,7 +691,10 @@
         renderHistoryList();
     }
 
-    function startNewChat() {
+    async function startNewChat() {
+        // Stop before saving: an in-flight stream would otherwise keep appending
+        // tokens into the fresh chat and leave the composer disabled.
+        if (chatStreaming) await abortActiveStream();
         saveCurrentConversation();
         currentConversationId = null;
         chatMessages = [];
@@ -772,8 +778,8 @@
         return d.toLocaleDateString();
     }
 
-    function clearChat() {
-        if (chatStreaming) stopStream();
+    async function clearChat() {
+        if (chatStreaming) await abortActiveStream();
         if (currentConversationId) {
             const conversations = getStoredConversations();
             saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
@@ -921,7 +927,7 @@
                 const confirmed = await confirmAction("Delete All Conversations", "Delete all conversations? This cannot be undone.", "Delete All");
                 if (confirmed) {
                     deleteAllConversations();
-                    clearChat();
+                    await clearChat();
                 }
             });
         }

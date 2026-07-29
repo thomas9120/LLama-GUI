@@ -183,9 +183,14 @@ def sanitize_sse_error(exc: BaseException, tunnel_active: bool) -> str:
 class Response:
     def __init__(self, handler: Any):
         self.handler = handler
+        # True once a status line has gone out. Callers that want to turn a late
+        # failure into an error response must check this first: writing a second
+        # response into a reply already on the wire corrupts the first one.
+        self.started = False
 
     def json(self, data: Any, status: int = 200) -> None:
         body = json.dumps(data).encode("utf-8")
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", "application/json")
         self.handler.send_header("Content-Length", str(len(body)))
@@ -229,6 +234,7 @@ class Response:
         content_type: str = "application/octet-stream",
         headers: Optional[Mapping[str, str]] = None,
     ) -> None:
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", content_type)
         self.handler.send_header("Content-Length", str(len(body)))
@@ -239,6 +245,7 @@ class Response:
         self.handler.wfile.write(body)
 
     def sse_headers(self, status: int = 200) -> None:
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", "text/event-stream")
         self.handler.send_header("Cache-Control", "no-cache")

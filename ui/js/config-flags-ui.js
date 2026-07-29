@@ -943,7 +943,21 @@
         return entries.join(",");
     }
 
-    function restoreFlagInputs() {
+    // Every Configure input writes flag state on each keystroke, and that write
+    // loops straight back here through postUpdate(). Re-assigning el.value while
+    // the user is mid-edit resets the caret, and on type="number" it destroys the
+    // keystroke outright: the browser reports partial input ("-", "0.", "0.0") as
+    // "", so state holds undefined and writing that back clears the field. Leave
+    // the focused input alone and sync every other field from state as usual;
+    // applyFlagValues() passes force so a wholesale replace still wins.
+    function isFlagInputBeingEdited(el, force) {
+        if (force || !el) return false;
+        const doc = el.ownerDocument || document;
+        return Boolean(doc) && doc.activeElement === el;
+    }
+
+    function restoreFlagInputs(options) {
+        const force = Boolean(options && options.force);
         const values = getFlagValues();
         const getFlags = dependencies.getFlags || (() => window.FLAGS || FLAGS);
         for (const f of getFlags()) {
@@ -963,7 +977,9 @@
             }
             if (f.type === "text_list") {
                 const nextValue = Array.isArray(val) ? val.join("\n") : String(val || "");
-                if (el && el.value !== nextValue) el.value = nextValue;
+                if (el && !isFlagInputBeingEdited(el, force) && el.value !== nextValue) {
+                    el.value = nextValue;
+                }
                 continue;
             }
             if (!el) continue;
@@ -981,7 +997,10 @@
                     el.value = val !== undefined ? String(val) : "";
                 }
             } else {
-                el.value = val !== undefined ? String(val) : "";
+                const nextValue = val !== undefined ? String(val) : "";
+                if (!isFlagInputBeingEdited(el, force) && el.value !== nextValue) {
+                    el.value = nextValue;
+                }
                 if (f.sensitive) {
                     syncSensitiveTextInput(el.closest(".sensitive-input-control"), val);
                 }

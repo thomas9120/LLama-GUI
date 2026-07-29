@@ -42,6 +42,7 @@ from backend.http import (
     is_safe_v1_proxy_path,
     is_static_ui_path,
     is_v1_proxy_path,
+    sanitize_error,
 )
 from backend.routing import Router
 from backend.routes import chat as chat_routes
@@ -763,7 +764,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body=body,
             params=dict(match.params),
         )
-        match.handler(request, Response(self), APP_CONTEXT)
+        response = Response(self)
+        try:
+            match.handler(request, response, APP_CONTEXT)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # Client hung up; nothing left to reply to.
+            self.close_connection = True
+        except Exception as exc:
+            if response.started:
+                # A status line is already on the wire, so an error response here
+                # would be appended to the previous one and corrupt it. Log it and
+                # drop the connection instead — a truncated body is the only
+                # signal available at this point.
+                print(
+                    f"[api] {method} {path} failed after the response started: "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+                self.close_connection = True
+                return
+            # sanitize_error logs the original and returns a generic message for
+            # 5xx, so handler bugs surface as a clean 500 rather than a dropped
+            # connection the UI reports as "server unreachable".
+            response.error(sanitize_error(exc, 500), 500)
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
