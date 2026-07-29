@@ -5193,6 +5193,16 @@ class LifecycleTests(unittest.TestCase):
                      mock.patch("backend.services.lifecycle._wait_for_port_release", return_value=True), \
                      mock.patch("backend.services.lifecycle.subprocess.Popen") as mock_popen, \
                      mock.patch("backend.services.lifecycle.sys.platform", platform_name), \
+                     mock.patch(
+                         "backend.services.lifecycle.subprocess.DETACHED_PROCESS",
+                         0x00000008,
+                         create=True,
+                     ), \
+                     mock.patch(
+                         "backend.services.lifecycle.subprocess.CREATE_NEW_PROCESS_GROUP",
+                         0x00000200,
+                         create=True,
+                     ), \
                      mock.patch("backend.services.lifecycle.os._exit", side_effect=SystemExit(0)), \
                      mock.patch("backend.services.lifecycle.threading.Thread", SyncThread):
                     with self.assertRaises(SystemExit):
