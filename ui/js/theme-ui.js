@@ -2,6 +2,12 @@
     "use strict";
 
     const THEME_STORAGE_KEY = "llama_gui_theme";
+    // The pre-paint script in index.html cannot see THEMES (it must stay inline
+    // and blocking, and duplicating the registry there would be a second source
+    // of truth that silently rots). It reads the resolved scheme from here
+    // instead, so a stored light theme no longer flashes the dark default while
+    // theme-ui.js loads.
+    const THEME_SCHEME_STORAGE_KEY = "llama_gui_theme_scheme";
 
     /**
      * Single source of truth for every theme the GUI ships. Adding a theme is
@@ -39,11 +45,22 @@
         }
     }
 
+    function colorSchemeContent(scheme) {
+        return scheme === "light" ? "light dark" : "dark light";
+    }
+
     function updateColorScheme(theme) {
+        const scheme = THEMES_BY_ID.get(normalizeTheme(theme)).scheme;
+        // Mirrored to storage on every apply so the pre-paint script has it on the
+        // next load, including when the theme was changed in another tab.
+        try {
+            localStorage.setItem(THEME_SCHEME_STORAGE_KEY, scheme);
+        } catch (e) {
+            console.debug("Failed to save theme color-scheme hint", e);
+        }
         const meta = document.querySelector('meta[name="color-scheme"]');
         if (!meta) return;
-        const scheme = THEMES_BY_ID.get(normalizeTheme(theme)).scheme;
-        meta.setAttribute("content", scheme === "light" ? "light dark" : "dark light");
+        meta.setAttribute("content", colorSchemeContent(scheme));
     }
 
     function applyTheme(theme, options = {}) {

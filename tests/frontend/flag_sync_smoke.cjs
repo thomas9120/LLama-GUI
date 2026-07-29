@@ -55,7 +55,21 @@ async function startStaticServer(port) {
         stderr += chunk.toString();
     });
 
+    // A spawn failure (python not on PATH, for instance) emits 'error' on the
+    // ChildProcess. With no listener Node treats that as an unhandled error and
+    // crashes the runner with a bare trace instead of the diagnostic below.
+    let spawnError = null;
+    server.on("error", (error) => {
+        spawnError = error;
+    });
+
     for (let i = 0; i < 40; i += 1) {
+        if (spawnError) {
+            throw new Error(
+                `Could not start the static server with "${python}": ${spawnError.message}`
+                + ` (set PYTHON to override)`
+            );
+        }
         if (server.exitCode !== null) {
             throw new Error(`Static server exited early (${server.exitCode}): ${stderr}`);
         }

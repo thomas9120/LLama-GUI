@@ -32,6 +32,11 @@ def launch(request, response, ctx):
     if tool not in allowed_tools:
         response.error(f"Unknown tool: {tool!r}", 400)
         return
+    # flatten_launch_args() iterates whatever it is handed, so a bare string
+    # silently became one argument per character rather than being rejected.
+    if not isinstance(args, list):
+        response.error("args must be an array", 400)
+        return
     result = process_manager.launch_process(ctx, tool, args, launch_context)
     if "error" in result:
         response.error(result.get("error", "Launch failed"), 400)

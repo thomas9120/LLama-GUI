@@ -78,7 +78,6 @@ const CHAT_TEMPLATE_PRESETS = [
     { value: "__gemma4_e2b_e4b_nothink__", label: "Gemma 4 E2B & E4B NoThink", mode: "bundled", path: "ui/templates/gemma4-e2b-e4b-nothink.jinja" },
     { value: "__gemma4_26b_31b__", label: "Gemma 4 26B & 31B", mode: "bundled", path: "ui/templates/gemma4-26b-31b.jinja" },
     { value: "__gemma4_26b_31b_nothink__", label: "Gemma 4 26B & 31B NoThink", mode: "bundled", path: "ui/templates/gemma4-26b-31b-nothink.jinja" },
-    { value: "__gemma4_thinking__", label: "Gemma 4 Thinking", mode: "bundled", path: "ui/templates/gemma4.jinja" },
     { value: "chatglm4", label: "GLM-4 & 4.5", mode: "builtin", builtin: "chatglm4" },
     { value: "__glm45_nonthinking__", label: "GLM-4.5 Non-Thinking", mode: "bundled", path: "ui/templates/glm45-nonthinking.jinja" },
     { value: "__glm47_nonthinking__", label: "GLM-4.7 Non-Thinking", mode: "bundled", path: "ui/templates/glm47-nonthinking.jinja" },

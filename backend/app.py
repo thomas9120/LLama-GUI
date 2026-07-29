@@ -517,6 +517,26 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def send_response(self, code, message=None):
+        # A new status line starts a new response, so any CORS header emitted for
+        # the previous one on this (keep-alive) connection no longer counts.
+        self._cors_origin_sent = False
+        super().send_response(code, message)
+
+    def send_cors_origin_header(self):
+        """Emit Access-Control-Allow-Origin at most once per response.
+
+        Both Response (backend/http.py) and end_headers() below want to add this.
+        On `/` and `/index.html` they both ran — the path is a static UI path *and*
+        the body goes out through Response.bytes() — and a duplicated
+        Access-Control-Allow-Origin is rejected outright by browsers, so the
+        cross-origin case it exists for was the one case it broke.
+        """
+        if getattr(self, "_cors_origin_sent", False):
+            return
+        self._cors_origin_sent = True
+        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+
     def end_headers(self):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
@@ -524,13 +544,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
             self.send_header("Pragma", "no-cache")
             self.send_header("Expires", "0")
-            self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+            self.send_cors_origin_header()
         super().end_headers()
+        # Headers are flushed, so this response is done. Clearing here rather than
+        # only in send_response() keeps the latch correct for keep-alive
+        # connections, where one handler instance serves many responses.
+        self._cors_origin_sent = False
 
     def do_OPTIONS(self):
         parsed = urllib.parse.urlparse(self.path)
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+        self.send_cors_origin_header()
         self.send_header("Access-Control-Allow-Methods", get_cors_methods(parsed.path))
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         if self.is_v1_proxy_path(parsed.path):
@@ -716,7 +740,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 for key, value in resp.headers.items():
                     if key.lower() not in excluded:
                         self.send_header(key, value)
-                self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+                self.send_cors_origin_header()
                 self.end_headers()
                 content_type = resp.headers.get("Content-Type", "")
                 if content_type.startswith("text/event-stream"):
@@ -748,7 +772,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_response(exc.code)
             content_type = exc.headers.get("Content-Type", "application/json")
             self.send_header("Content-Type", content_type)
-            self.send_header("Access-Control-Allow-Origin", self.get_access_control_origin())
+            self.send_cors_origin_header()
             self.end_headers()
             self.wfile.write(body)
         except Exception as exc:

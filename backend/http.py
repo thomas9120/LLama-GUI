@@ -188,6 +188,21 @@ class Response:
         # response into a reply already on the wire corrupts the first one.
         self.started = False
 
+    def _send_cors_origin(self) -> None:
+        """Add the CORS origin header via the handler's once-per-response guard.
+
+        On static UI paths the handler's end_headers() adds this too, and two
+        Access-Control-Allow-Origin headers are rejected outright by browsers.
+        Falls back to a direct send_header for handlers without the guard.
+        """
+        sender = getattr(self.handler, "send_cors_origin_header", None)
+        if callable(sender):
+            sender()
+            return
+        self.handler.send_header(
+            "Access-Control-Allow-Origin", self.handler.get_access_control_origin()
+        )
+
     def json(self, data: Any, status: int = 200) -> None:
         body = json.dumps(data).encode("utf-8")
         self.started = True
@@ -197,7 +212,7 @@ class Response:
         self.handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
         self.handler.send_header("Pragma", "no-cache")
         self.handler.send_header("Expires", "0")
-        self.handler.send_header("Access-Control-Allow-Origin", self.handler.get_access_control_origin())
+        self._send_cors_origin()
         self.handler.end_headers()
         self.handler.wfile.write(body)
 
@@ -238,7 +253,7 @@ class Response:
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", content_type)
         self.handler.send_header("Content-Length", str(len(body)))
-        self.handler.send_header("Access-Control-Allow-Origin", self.handler.get_access_control_origin())
+        self._send_cors_origin()
         for name, value in (headers or {}).items():
             self.handler.send_header(name, value)
         self.handler.end_headers()
@@ -250,7 +265,7 @@ class Response:
         self.handler.send_header("Content-Type", "text/event-stream")
         self.handler.send_header("Cache-Control", "no-cache")
         self.handler.send_header("Connection", "keep-alive")
-        self.handler.send_header("Access-Control-Allow-Origin", self.handler.get_access_control_origin())
+        self._send_cors_origin()
         self.handler.end_headers()
 
 

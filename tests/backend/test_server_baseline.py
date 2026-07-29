@@ -235,6 +235,78 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         body = json.loads(handler.wfile.getvalue().decode("utf-8"))
         self.assertIn("llama-server", body["error"])
 
+    def acao_count(self, handler):
+        return sum(1 for name, _ in handler.sent_headers if name == "Access-Control-Allow-Origin")
+
+    def make_cors_handler(self, path, origin="http://localhost:5240"):
+        """Handler that keeps the *real* end_headers.
+
+        The duplicate Access-Control-Allow-Origin originates in
+        Handler.end_headers, so a stub that replaces it cannot observe the bug at
+        all — these tests pass with or without the fix if end_headers is faked.
+        """
+        handler = self.make_handler(origin=origin)
+        handler.path = path
+        handler.request_version = "HTTP/1.1"
+        handler._headers_buffer = []
+        handler.end_headers = lambda: server.Handler.end_headers(handler)
+        return handler
+
+    def test_index_sends_exactly_one_cors_origin_header(self):
+        """`/` is a static UI path *and* goes out through Response.bytes(), so both
+        end_headers() and Response added the header. Browsers reject a duplicated
+        Access-Control-Allow-Origin outright, breaking the one case it exists for."""
+        for path in ("/", "/index.html"):
+            with self.subTest(path=path):
+                handler = self.make_cors_handler(path)
+
+                handler.send_versioned_index()
+
+                self.assertEqual(self.acao_count(handler), 1, handler.sent_headers)
+                self.assertIn(
+                    ("Access-Control-Allow-Origin", "http://localhost:5240"),
+                    handler.sent_headers,
+                )
+
+    def test_options_on_static_path_sends_exactly_one_cors_origin_header(self):
+        """do_OPTIONS emits the header itself and then calls end_headers(), which
+        emitted it again for a static UI path."""
+        handler = self.make_cors_handler("/")
+
+        handler.do_OPTIONS()
+
+        self.assertEqual(self.acao_count(handler), 1, handler.sent_headers)
+
+    def test_api_json_response_still_sends_the_cors_origin_header(self):
+        """De-duplication must not drop the header on non-static paths, where
+        end_headers() does not add one."""
+        handler = self.make_cors_handler("/api/status")
+
+        handler.send_json({"ok": True})
+
+        self.assertEqual(self.acao_count(handler), 1, handler.sent_headers)
+
+    def test_static_asset_still_sends_the_cors_origin_header(self):
+        """/js/ and /css/ are served by SimpleHTTPRequestHandler, so end_headers is
+        the only thing that adds the header there."""
+        handler = self.make_cors_handler("/js/app.js")
+
+        handler.send_response(200)
+        handler.end_headers()
+
+        self.assertEqual(self.acao_count(handler), 1, handler.sent_headers)
+
+    def test_cors_origin_guard_resets_between_responses(self):
+        """Handlers are reused across keep-alive requests, so the once-per-response
+        latch has to clear."""
+        handler = self.make_cors_handler("/api/status")
+
+        handler.send_json({"first": True})
+        handler.sent_headers.clear()
+        handler.send_json({"second": True})
+
+        self.assertEqual(self.acao_count(handler), 1, handler.sent_headers)
+
     def test_options_uses_v1_cors_methods(self):
         handler = self.make_handler(origin="http://localhost:5240")
         handler.path = "/v1/chat/completions"

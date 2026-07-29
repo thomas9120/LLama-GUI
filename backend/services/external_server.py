@@ -14,6 +14,7 @@ was needed and the port still identifies itself as llama-server -- see
 ``reconnect_remembered``.
 """
 
+import http.client
 import json
 import sys
 import urllib.error
@@ -208,7 +209,11 @@ def probe(host: str, port: int, authorization: str = "") -> dict[str, Any]:
             status = int(exc.code)
         finally:
             exc.close()
-    except (urllib.error.URLError, OSError) as exc:
+    # http.client.HTTPException covers BadStatusLine, IncompleteRead and friends —
+    # a sibling of neither URLError nor OSError, so a peer that answers with
+    # garbage instead of HTTP used to escape probe() entirely rather than being
+    # reported as "nothing usable is listening there".
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
         raise ExternalServerUnreachable(
             f"No server answered at {host}:{port}. Check that llama-server is running there."
         ) from exc

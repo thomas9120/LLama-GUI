@@ -649,6 +649,14 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
     return result
 
 
+def _is_int_token(token: str) -> bool:
+    try:
+        int(token)
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
 def _memory_estimate_args(args: list[str]) -> list[str]:
     filtered_args: list[str] = []
     i = 0
@@ -662,18 +670,25 @@ def _memory_estimate_args(args: list[str]) -> list[str]:
             i += 1
             continue
         if name == "-np" or name == "--parallel":
-            raw_value = arg.split("=", 1)[1] if "=" in arg else (args[i + 1] if i + 1 < len(args) else "")
+            if "=" in arg:
+                raw_value = arg.split("=", 1)[1]
+                consumed = 1
+            else:
+                # Only treat the next token as this flag's value if it actually
+                # parses as one. Consuming it unconditionally meant a valueless
+                # "-np" swallowed the *following flag* ("-np --verbose" dropped
+                # both). Checked with int() rather than a leading-dash test so a
+                # negative value like "-np -1" is still recognised as the value.
+                candidate = args[i + 1] if i + 1 < len(args) else ""
+                raw_value = candidate if _is_int_token(candidate) else ""
+                consumed = 2 if raw_value else 1
             try:
                 parallel = int(raw_value)
             except ValueError:
                 parallel = 0
             if 1 <= parallel <= 256:
-                filtered_args.append(arg)
-                if "=" not in arg and i + 1 < len(args):
-                    filtered_args.append(args[i + 1])
-                    i += 2
-                    continue
-            i += 1 if "=" in arg else 2
+                filtered_args.extend(args[i:i + consumed])
+            i += consumed
             continue
         if name in _ESTIMATE_VALUE_FLAGS:
             filtered_args.append(arg)

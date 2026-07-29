@@ -4,9 +4,10 @@ Outstanding work only. Anything fixed has been removed; the full record of what 
 reviewed, fixed, and rejected lives in
 [code-review-swarm-2026-07-29-verification.md](code-review-swarm-2026-07-29-verification.md).
 
-All High and Medium findings from the 2026-07-29 whole-repo review are done. What
-remains is the `chat-ui.js` test harness, the Low-severity findings, and a tail of
-Low items that were never verified either way.
+All High and Medium findings from the 2026-07-29 whole-repo review are done, as are
+every Low-severity finding that was actually verified. What remains is the
+`chat-ui.js` test harness, one unresolved item, and a tail of Low items that were
+never checked either way.
 
 ---
 
@@ -80,59 +81,7 @@ honest position is that H2 is covered by code review and nothing else.
 
 ---
 
-## 2. Low severity — confirmed, unfixed
-
-Each of these was read and verified during the review.
-
-### Backend
-
-- **`app.py:526` + `http.py:235` — duplicate `Access-Control-Allow-Origin` on `/`.**
-  `is_static_ui_path("/")` is true so `end_headers` emits the header, and
-  `send_versioned_index` routes through `Response.bytes`, which emits it again. More
-  than cosmetic: browsers reject a duplicated ACAO outright.
-- **`lifecycle.py:46` — `_wait_for_port_release` hardcodes `AF_INET`.** Every bind
-  attempt raises for an IPv6 GUI host, so it returns `False`, logs a warning, and
-  restarts anyway. Spurious warning plus a lost wait, not a hard failure.
-- **`lifecycle.py:122` — `xdg-open`/`open` with no timeout** can hang the handler thread.
-- **`process_manager.py:637` — `_memory_estimate_args` mishandles a valueless `-np`.**
-  Worse than reported: with `["-np", "--verbose"]`, `int("--verbose")` raises,
-  `parallel = 0` fails the range test, and `i += 2` eats **both** tokens.
-- **`routes/process.py:26` — `launch` never checks `args` is a list.**
-  `flatten_launch_args` iterates it, so a string explodes into one arg per character.
-- **`routes/chat.py:146` — only `BrokenPipeError` is caught** on client disconnect.
-  Windows raises `ConnectionAbortedError`/`ConnectionResetError`, neither of which is a
-  subclass of it.
-- **`web_search.py:234,264,293`** — `parsed.port` sits outside the `try` and raises
-  `ValueError` on an out-of-range port; `f"Failed to fetch URL: {exc}"` returns raw
-  exception text to the client; the ddgs loop calls `row.get(...)` with no
-  `isinstance(row, dict)` guard.
-- **`external_server.py:211` — `http.client.HTTPException` escapes `probe()`.**
-  `HTTPError` is caught at `:202` and `URLError`/`OSError` at `:211`, but
-  `BadStatusLine`/`IncompleteRead` are a sibling of neither.
-
-  *Note on the last two:* the `dispatch_api_request` guard added in `backend/app.py`
-  now converts these into a sanitized 500 rather than a dropped connection, so the
-  user-visible symptom is gone. The root causes remain and should still be fixed.
-
-### Frontend / assets
-
-- **`ui/index.html:6`** — `<meta name="color-scheme" content="dark">` is hardcoded and
-  the pre-paint IIFE sets only `documentElement.dataset.theme`. Brief dark flash for
-  stored light themes.
-- **`ui/templates/gemma4.jinja` vs `gemma4-e2b-e4b.jinja`** — byte-identical (both md5
-  `83b2e13500209bb24795d5e2db730fa6`). Two presets are backed by one file; whether one
-  should differ is a call for whoever added them.
-
-### Tests
-
-- **`flag_sync_smoke.cjs` — `startStaticServer` has no `'error'` listener.** A spawn
-  failure (e.g. `python` not on PATH) emits `'error'` on the ChildProcess with no
-  listener, crashing the runner with an unhandled-error trace instead of the intended
-  message.
-
----
-
-## 3. Unresolved — needs verification before acting
+## 2. Unresolved — needs verification before acting
 
 - **`external_server.py:359`** — "bearer key can be sent to an external host it wasn't
   minted for." Opened but **could not confirm as written**: `get_authorization`
@@ -144,7 +93,7 @@ Each of these was read and verified during the review.
 
 ---
 
-## 4. Not checked — no verdict yet
+## 3. Not checked — no verdict yet
 
 Reported by the original review but never opened, so these are neither confirmed nor
 dismissed. Verify before fixing; roughly a third of the items that *were* checked

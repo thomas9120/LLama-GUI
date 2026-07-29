@@ -328,7 +328,6 @@ Files under `ui/templates/`:
 - `chatml-nonthinking.jinja`
 - `deepseek-v31-nonthinking.jinja`
 - `deepseek-v4.jinja`
-- `gemma4.jinja`
 - `gemma4-e2b-e4b.jinja`
 - `gemma4-e2b-e4b-nothink.jinja`
 - `gemma4-26b-31b.jinja`
