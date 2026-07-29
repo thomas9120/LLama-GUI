@@ -39,6 +39,16 @@ def validate_hf_revision(revision: Any) -> str:
     return value
 
 
+def _is_windows_device_name(stem: str) -> bool:
+    """True when *stem* is COM1-COM9 or LPT1-LPT9 (case-insensitive)."""
+    return (
+        (stem.startswith("COM") or stem.startswith("LPT"))
+        and len(stem) == 4
+        and stem[3].isdigit()
+        and stem[3] != "0"
+    )
+
+
 def validate_hf_filename(filename: Any) -> str:
     value = str(filename or "").strip().replace("\\", "/")
     pure = pathlib.PurePosixPath(value)
@@ -51,6 +61,11 @@ def validate_hf_filename(filename: Any) -> str:
         raise ValueError("Hugging Face filename is not safe to save locally.")
     if not pure.name.lower().endswith(".gguf"):
         raise ValueError("Only .gguf files can be downloaded.")
+    # Windows reserved names: device is the segment before the first dot
+    # (CON.txt, COM1.foo.gguf), not Path.stem (before the last suffix only).
+    device = pure.name.split(".", 1)[0].upper()
+    if device in {"CON", "PRN", "AUX", "NUL"} or _is_windows_device_name(device):
+        raise ValueError("Invalid Hugging Face filename.")
     return value
 
 
@@ -89,7 +104,7 @@ def hf_file_to_dict(file_obj: Any) -> dict[str, Any]:
         size = int(size) if size is not None else None
     except (TypeError, ValueError):
         size = None
-    return {"name": str(filename), "size": size, "size_mb": round(size / 1048576, 2) if size else None}
+    return {"name": str(filename), "size": size, "size_mb": round(size / 1048576, 2) if size is not None else None}
 
 
 def get_hf_gguf_files(repo_id: str, revision: str = "main", token: Optional[str] = None) -> dict[str, Any]:
@@ -254,8 +269,8 @@ def remove_partial_downloads(paths: list[pathlib.Path]) -> None:
         try:
             if tmp_path.exists():
                 tmp_path.unlink()
-        except OSError:
-            pass
+        except OSError as exc:
+            print(f"[hf_download] failed to remove partial download: {exc}", file=sys.stderr)
 
 
 def start_hf_model_download(
@@ -368,7 +383,7 @@ def start_hf_model_download(
         finally:
             with ctx.state.model_download_lock:
                 ctx.state.model_download_in_progress = False
-            ctx.state.model_download_cancel.clear()
+                ctx.state.model_download_cancel.clear()
 
     threading.Thread(target=_worker, daemon=True).start()
     return get_model_download_snapshot(ctx)

@@ -331,6 +331,17 @@ assert.equal(externalServerUi.getTarget().port, 9001);
     assert.equal(byId("external-server-host").value, "127.0.0.2", "init should prefill from the registered target");
     assert.equal(byId("external-server-port").value, "9100");
 
+    byId("external-server-host").value = "draft-host";
+    byId("external-server-host").dispatch("input", {});
+    byId("external-server-port").value = "9200";
+    byId("external-server-port").dispatch("input", {});
+    latestStatus = {
+        external_chat_target: { connected: true, host: "127.0.0.9", port: 9300, label: "Updated box" },
+    };
+    externalServerUi.refresh();
+    assert.equal(byId("external-server-host").value, "draft-host", "refresh must preserve a dirty host draft");
+    assert.equal(byId("external-server-port").value, "9200", "refresh must preserve a dirty port draft");
+
     const enterRequests = requests.length;
     nextResponse = { external_chat_target: latestStatus.external_chat_target };
     let defaultPrevented = false;
@@ -343,6 +354,8 @@ assert.equal(externalServerUi.getTarget().port, 9001);
     await new Promise((resolve) => setImmediate(resolve));
     assert.ok(defaultPrevented, "Enter should not submit anything else");
     assert.equal(requests.length, enterRequests + 1, "Enter in the form should connect");
+    assert.equal(byId("external-server-host").value, "127.0.0.9", "successful connect should clear the host draft");
+    assert.equal(byId("external-server-port").value, "9300", "successful connect should clear the port draft");
 
     console.log("external server ui unit tests passed");
 })().catch((error) => {

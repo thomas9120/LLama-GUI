@@ -350,6 +350,7 @@ let presetFavoritesMode = loadPresetFavoritesMode();
 let currentPresetGroups = [];
 let selectedPresetName = "";
 let selectedPresetNames = new Set();
+let loadPresetsRequestId = 0;
 
 function getPresetStorageItem(storageKey) {
     try {
@@ -373,10 +374,12 @@ function setPresetStorageItem(storageKey, value) {
 function loadPresetJsonMap(storageKey) {
     try {
         const parsed = JSON.parse(getPresetStorageItem(storageKey) || "{}");
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? Object.assign(Object.create(null), parsed)
+            : Object.create(null);
     } catch (e) {
         console.debug("Preset storage data is invalid", e);
-        return {};
+        return Object.create(null);
     }
 }
 
@@ -1125,6 +1128,19 @@ function renderPresetAuxiliaryPanels() {
     renderPresetCountLine();
 }
 
+function renderPresetLoadErrorState() {
+    const panel = document.getElementById("preset-detail-panel");
+    if (panel) {
+        panel.textContent = "";
+        const error = document.createElement("div");
+        error.className = "preset-detail-empty presets-error";
+        error.textContent = "Preset library unavailable. Try refreshing the list.";
+        panel.appendChild(error);
+    }
+    renderPresetBulkControls();
+    renderPresetCountLine();
+}
+
 function selectPresetEntry(name) {
     selectedPresetName = String(name || "");
     // searching force-expands groups, so a selection made from search results would be
@@ -1532,11 +1548,13 @@ function refreshModelPresence() {
 }
 
 async function loadPresets() {
+    const requestId = ++loadPresetsRequestId;
     const container = document.getElementById("presets-list");
     if (!container) return;
     container.textContent = "";
     try {
         const presets = await fetchPresetEntries();
+        if (requestId !== loadPresetsRequestId) return;
         prunePresetLocalState(new Set(presets.map((preset) => preset.name)));
         currentPresetGroups = buildPresetGroups(presets);
         const visibleEntries = getVisiblePresetEntries();
@@ -1547,11 +1565,15 @@ async function loadPresets() {
         }
         renderPresetGroups(container, currentPresetGroups);
     } catch (e) {
+        if (requestId !== loadPresetsRequestId) return;
+        currentPresetGroups = [];
+        selectedPresetName = "";
+        selectedPresetNames.clear();
         const error = document.createElement("div");
         error.className = "presets-empty presets-error";
         error.textContent = "Failed to load presets.";
         container.appendChild(error);
-        renderPresetAuxiliaryPanels();
+        renderPresetLoadErrorState();
     }
 }
 
@@ -2047,15 +2069,23 @@ async function handlePresetImport(file) {
                 showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
                 return;
             }
-            for (const preset of pendingImports) {
-                await fetchJson("/api/presets", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
-                });
+            try {
+                let importedCount = 0;
+                for (const preset of pendingImports) {
+                    await fetchJson("/api/presets", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
+                    });
+                    importedCount++;
+                }
+                loadPresets();
+                showPresetStatus(`Imported ${importedCount} preset(s)`, "success");
+            } catch (e) {
+                console.warn("Preset import failed mid-loop", e);
+                loadPresets();
+                showPresetStatus("Failed to import some presets.", "error", 3200);
             }
-            loadPresets();
-            showPresetStatus(`Imported ${pendingImports.length} preset(s)`, "success");
             return;
         }
 

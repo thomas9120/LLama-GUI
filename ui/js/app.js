@@ -702,6 +702,9 @@ function getExecutableSuffix() {
     if (typeof latestStatus !== "undefined" && latestStatus && typeof latestStatus.executable_suffix === "string") {
         return latestStatus.executable_suffix;
     }
+    // ponytail: fallback sniffs navigator.userAgent (frontend platform decision).
+    // Acceptable because the primary path uses backend status; remove when
+    // executable_suffix is guaranteed in every status response.
     const ua = navigator.userAgent || "";
     return /Windows/i.test(ua) ? ".exe" : "";
 }
@@ -949,16 +952,7 @@ async function updateMemoryEstimate() {
         return;
     }
     const args = result.args || [];
-    const hasModel = args.some(a => {
-        const entryValues = Array.isArray(a) ? a : [a];
-        return entryValues.some(value => {
-            const token = String(value || "");
-            return token === "-m" || token === "-hf" || token === "--model" || token === "--hf-repo"
-                || token.startsWith("-m=") || token.startsWith("-hf=")
-                || token.startsWith("--model=") || token.startsWith("--hf-repo=");
-        });
-    });
-    if (!hasModel) {
+    if (!flagCore.hasLaunchModelArg(args)) {
         setMemoryEstimateState("Idle", "Select a model to estimate.");
         return;
     }

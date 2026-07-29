@@ -54,7 +54,13 @@
             throw new TypeError("Process lifecycle subscriber must be a function");
         }
         listeners.add(listener);
-        if (options.emitCurrent !== false) listener(getSnapshot());
+        if (options.emitCurrent !== false) {
+            try {
+                listener(getSnapshot());
+            } catch (error) {
+                console.warn("Process lifecycle subscriber failed during initial emit", error);
+            }
+        }
         return () => listeners.delete(listener);
     }
 

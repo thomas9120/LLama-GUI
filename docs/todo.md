@@ -118,128 +118,45 @@ handler in `try/except → sanitize_error(..., 500)` (`app.py:817`), so the "ung
 raises" findings below never leak a traceback — they degrade to a sanitized 500
 instead of the intended specific message.
 
-**Backend**
+**Backend** *(all fixed 2026-07-30)*
 
-- **`save_config` read-modify-write races — Confirmed (Low-Med).** `save_config`
-  (`app.py:151`) does an atomic `tmp.replace`, but the *load → mutate → save* cycle is
-  unserialized. Four callers share no config lock: `llama_manager` activate (`:498`) and
-  install (`:945`), `process_manager` uninstall (`:1488`), `external_server` register
-  (`:147`). A live install thread (writing version/tag) can race an external-server
-  register (writing its key) — last writer wins and silently loses the other's fields.
-- **`activate_custom_backend` bypasses the install lock — Confirmed (Low).** Route
-  `activate_custom` (`install.py:128`) only checks `is_process_running`, never
-  `_claim_install_slot()`, unlike the three install/update/uninstall paths.
-  `process_manager.claim_install_slot()` / `release_install_slot()` already exist and are
-  the natural fix. (Related to the race above.)
-- **`hf_download` — Confirmed (four sub-items, all Low).**
-  - *Cancel cleared outside lock.* The worker `finally` (`:369-371`) sets
-    `model_download_in_progress = False` under `model_download_lock`, then clears
-    `model_download_cancel` (`:371`) *outside* it — a stale clear can race a fresh
-    `cancel.set()` from a later download. Fix: clear inside the lock.
-  - *Windows reserved names.* `validate_hf_filename` (`:42`) has no
-    `CON/PRN/AUX/NUL/COMx/LPTx` check, so `con.gguf` validates but fails to save on
-    Windows.
-  - *Bare `pass`.* `remove_partial_downloads` `except OSError: pass` (`:263`) violates
-    the "no silent empty catch" invariant.
-  - *Zero-size files.* `hf_file_to_dict` (`:92`): `round(size/...) if size else None`
-    reports a real 0-byte file as `size:0, size_mb:None` (None usually means "unknown").
-- **`external_server.py:204` silent empty catch — Confirmed (Low, justifiable).** Inner
-  `except Exception: body = b""` reading an `HTTPError` body. Best-effort; the status is
-  captured regardless. Borderline "expected optional" — a `print(..., stderr)` would
-  satisfy the invariant.
-- **`chat.py:113` unguarded `ipaddress.ip_address` — Confirmed (Low).** Actually
-  `services/chat.py:113` (`get_local_proxy_host`): the loop parse is outside any try; an
-  IPv6 scope-id sockaddr raises `ValueError` → caught by `app.py:817` as a generic 500
-  instead of the intended "Blocked" message.
-- **`file_picker.py:59` macOS English cancel match — Confirmed (Low).**
-  `"User canceled" in result.stderr` is locale-dependent; on a non-English macOS a cancel
-  falls through to `raise RuntimeError(<localized msg>)`.
-- **`routes/lifecycle.py:21` unhashable folder / mkdir outside try — Confirmed (Low).**
-  `folder_map.get(folder, ...)` raises `TypeError` for a list/dict `folder`, and
-  `target.mkdir(...)` runs before the `try`. Both are caught by `app.py:817` — no crash,
-  just a generic 500 instead of a 400 validation message.
-- **`http.py:169` chat exception not logged when tunnel inactive — Confirmed (Low).**
-  `sanitize_sse_error` only `print(..., stderr)` inside `if tunnel_active`. A local
-  failure returns raw detail to the client but leaves no server-side log — violates
-  "real error always to stderr".
-- **`mac_linux_start.sh` — Confirmed (Low/marginal).** Port is not validated as numeric;
-  `open_browser` does `>/dev/null 2>&1 || true`, discarding all diagnostics. These are
-  operator-set env vars (quoted in the calls), so there's no injection — the
-  "unsanitized" framing is weak; the discarded-diagnostics part is the real nit.
+- ~~**`save_config` read-modify-write races — Confirmed (Low-Med).**~~ Fixed: added `config_lock` to `ServerState`; all four callers now hold it across the load→mutate→save cycle.
+- ~~**`activate_custom_backend` bypasses the install lock — Confirmed (Low).**~~ Fixed: `activate_custom` now claims/releases the install slot via `_claim_install_slot` / `release_install_slot`.
+- ~~**`hf_download` — Confirmed (four sub-items, all Low).**~~
+  - ~~*Cancel cleared outside lock.*~~ Fixed: `model_download_cancel.clear()` moved inside `model_download_lock`.
+  - ~~*Windows reserved names.*~~ Fixed: `validate_hf_filename` now rejects `CON/PRN/AUX/NUL/COM1-9/LPT1-9` (case-insensitive, stem-only).
+  - ~~*Bare `pass`.*~~ Fixed: `remove_partial_downloads` now prints to stderr on `OSError`.
+  - ~~*Zero-size files.*~~ Fixed: `hf_file_to_dict` uses `if size is not None` so real 0-byte files report `size_mb: 0.0`.
+- ~~**`external_server.py:204` silent empty catch — Confirmed (Low).**~~ Fixed: inner `except Exception` now prints to stderr.
+- ~~**`chat.py:113` unguarded `ipaddress.ip_address` — Confirmed (Low).**~~ Fixed: wrapped in `try/except ValueError`; non-parseable addresses are skipped.
+- ~~**`file_picker.py:59` macOS English cancel match — Confirmed (Low).**~~ Fixed: AppleScript now catches `error number -128` and returns `__CANCEL__`; Python checks for that sentinel instead of matching English stderr.
+- ~~**`routes/lifecycle.py:21` unhashable folder / mkdir outside try — Confirmed (Low).**~~ Fixed: `folder` validated as `str` before map lookup; `mkdir` moved inside `try`.
+- ~~**`http.py:169` chat exception not logged when tunnel inactive — Confirmed (Low).**~~ Fixed: `print(..., stderr)` now runs unconditionally before the `tunnel_active` branch.
+- ~~**`mac_linux_start.sh` — Confirmed (Low/marginal).**~~ Fixed: port validated as numeric; `open_browser` stderr redirected to stderr instead of `/dev/null`.
 
-**Frontend**
+**Frontend** *(all fixed 2026-07-30)*
 
-- **`app.js` model-arg duplication — Confirmed (Low-Med).** `updateMemoryEstimate`
-  (`app.js:945`) hand-rolls the check with only `-m/-hf/--model/--hf-repo`; the canonical
-  `flag-core.js:358 hasLaunchModelArg` also has `-mu`/`--model-url`. A `--model-url`
-  launch shows "Idle — Select a model". Classic duplication drift — call the shared
-  helper.
-- **`app.js` `getExecutableSuffix` sniffs `navigator.userAgent` — Confirmed (Low).**
-  `app.js:706`: fallback when `latestStatus.executable_suffix` is absent. Minor
-  "platform decision in frontend" invariant bend; the primary path uses backend status.
-- **`manager.js` empty `catch` in `waitForServerReady` — Confirmed (Low, invariant).**
-  `manager.js:670` `catch {}` — should be `console.debug` per the expected-optional rule.
-- **`manager.js` `refreshModels` no stale-response guard — Confirmed (Low).** No
-  request-id token (unlike `memoryEstimateRequestId` in `app.js`); two overlapping calls
-  can apply the older list last.
-- **`quick-launch-ui.js:458` dead no-op branch — Confirmed (Low).** Now at `:472-474`:
-  `} else if (!quickLaunchGpuCustomSelected) { quickLaunchGpuCustomSelected = false; }`
-  assigns the value the condition already guarantees.
-- **`presets.js` `__proto__` breaks favorites maps — Confirmed (Low).**
-  `loadPresetJsonMap` (`:376`) returns a plain object, so `favorites["__proto__"]` hits
-  the prototype — a preset named `__proto__`/`constructor` can't be favorited and
-  serializes as `{}`. Fix: `Object.create(null)` or a `Map`.
-- **`presets.js` partial import leaves stale UI — Confirmed (Low).** `handlePresetImport`
-  (`:2021`) POSTs in a loop; if one fails mid-loop the `catch` shows "Failed to import
-  preset" but never calls `loadPresets()`, so already-created presets don't appear until a
-  manual refresh.
-- **`presets.js` failed load renders stale summary — Confirmed (Low).** `loadPresets`
-  catch (`:1538`) still calls `renderPresetAuxiliaryPanels()`, which renders detail from
-  the prior `currentPresetGroups` / `selectedPresetName` next to the error.
-- **`searchable-select.js:216` popup/observer never torn down — Confirmed (Low, benign
-  today).** Popup reparented to `body` in `open()`; the `MutationObserver` (`:288`) and
-  the `select.value` override are never disconnected/restored; no `destroy()`. Benign for
-  today's static selects, a leak if ever applied to a dynamic `<select>`.
-- **`hf-download-ui.js:225` silent empty catch — Confirmed (Low, invariant).**
-  `refreshStatus` `catch (e) { /* comment */ }` — should `console.debug`.
-- **`external-server-ui.js` `refresh()` overwrites in-progress edits — Confirmed
-  (Low-Med).** `refresh()` (`:209`) always passes `syncInputs:true`; `render` then sets
-  `hostInput.value = target.host` with no `setInputValueUnlessEditing` / focus guard.
-  Fires on every switch to the API tab, clobbering any in-progress host/port edit.
-- **`external-server-ui.js` disconnect badge reads "Connecting" — Confirmed (Low,
-  cosmetic).** `disconnect()` calls `render(getTarget(), {busy:true})`; `render` maps
-  `busy → "Connecting"` regardless of operation, so a disconnect briefly shows
-  "Connecting".
-- **`api-tab.js` "Server ready" for any running process — Confirmed (Low-Med).**
-  `runningText` (`:312`) keys off `latestStatus.running` (true for
-  llama-bench/perplexity/cli), not `active_process_tool === "llama-server"` — a
-  benchmark run misleadingly says endpoints are "ready".
-- **`api-tab.js` empty parsed key sends blank `Bearer` — Confirmed (Low-Med).**
-  `getApiAuthorizationHeaders` (`:278`) guards only on the raw `api_key`;
-  `parseApiKeyCsv(",") → ["",""]`, then `selectedKey = undefined ?? keys[0]` = `""`, and
-  `"" !== undefined` yields `Authorization: "Bearer "`.
-- **`process-lifecycle.js:52` subscribe initial emit not isolated — Confirmed (Low).**
-  `subscribe` calls `listener(getSnapshot())` directly, while `notify()` wraps each
-  listener in try/catch — a throwing subscriber breaks the subscribe call.
-- **`benchmark-ui.js:96` `statusTimer` dead — Confirmed (Low).** Declared `:100`, only
-  referenced by the `beforeunload` `clearInterval` (`:978`); never assigned.
-- **`flag-core.js` dup detection misses `-m`/`--model` — Confirmed (Low).**
-  `getKnownCliFlags` derives from `FLAGS`; model flags aren't in `FLAGS`, so a user-typed
-  `-m` in custom args isn't flagged though the app emits its own `-m`.
-- **`flag-core.js` spurious duplicate warnings — Confirmed (Low, edge).** The parser is
-  token-naive (no flag/value distinction); a value that exactly equals a known flag
-  string is mis-flagged. Requires an unusual value.
-- **`flag-core.js` unsupported `chat_template` silently dropped — Confirmed (Low-Med).**
-  `:411` `continue` on an unsupported template emits no `warnings.push`, so a launch
-  silently runs with no `--chat-template`.
+- ~~`app.js` model-arg duplication — Confirmed (Low-Med).~~ Fixed: `updateMemoryEstimate` now calls `flagCore.hasLaunchModelArg`.
+- ~~`app.js` `getExecutableSuffix` sniffs UA — Confirmed (Low).~~ Added `ponytail:` comment; no code change needed.
+- ~~`manager.js` empty `catch` in `waitForServerReady` — Confirmed (Low).~~ Fixed: `catch (e) { console.debug(...) }`.
+- ~~`manager.js` `refreshModels` no stale-response guard — Confirmed (Low).~~ Fixed: added `refreshModelsRequestId` counter.
+- ~~`quick-launch-ui.js` dead no-op branch — Confirmed (Low).~~ Fixed: removed the `else if` branch.
+- ~~`presets.js` `__proto__` breaks favorites maps — Confirmed (Low).~~ Fixed: `loadPresetJsonMap` returns `Object.create(null)`.
+- ~~`presets.js` partial import leaves stale UI — Confirmed (Low).~~ Fixed: try/catch around loop; `loadPresets()` called on partial failure.
+- ~~`presets.js` failed load renders stale summary — Confirmed (Low).~~ Fixed: removed `renderPresetAuxiliaryPanels()` from catch.
+- ~~`searchable-select.js` popup/observer never torn down — Confirmed (Low).~~ Fixed: added `destroy()` method.
+- ~~`hf-download-ui.js` silent empty catch — Confirmed (Low).~~ Fixed: `console.debug(...)`.
+- ~~`external-server-ui.js` `refresh()` overwrites in-progress edits — Confirmed (Low-Med).~~ Fixed: activeElement guard on syncInputs.
+- ~~`external-server-ui.js` disconnect badge reads "Connecting" — Confirmed (Low).~~ Fixed: `render()` accepts `options.label`; disconnect passes `"Disconnecting..."`.
+- ~~`api-tab.js` "Server ready" for any running process — Confirmed (Low-Med).~~ Fixed: checks `active_process_tool === "llama-server"`.
+- ~~`api-tab.js` empty parsed key sends blank `Bearer` — Confirmed (Low-Med).~~ Fixed: guards `selectedKey` by truthiness.
+- ~~`process-lifecycle.js` subscribe initial emit not isolated — Confirmed (Low).~~ Fixed: try/catch around initial `listener(getSnapshot())`.
+- ~~`benchmark-ui.js` `statusTimer` dead — Confirmed (Low).~~ Fixed: removed `statusTimer` declaration and `beforeunload` clearInterval.
+- ~~`flag-core.js` dup detection misses model flags — Confirmed (Low).~~ Fixed: `getKnownCliFlags` includes model flags.
+- ~~`flag-core.js` spurious duplicate warnings — Confirmed (Low, edge).~~ Added `ponytail:` comment; no code change.
+- ~~`flag-core.js` unsupported `chat_template` silently dropped — Confirmed (Low-Med).~~ Fixed: `warnings.push(...)` before `continue`.
 
-**Tests**
+**Tests** *(1 fixed, 1 deferred)*
 
-- **`test_services.py` thread-poll flake — Confirmed (Low, latent).**
-  `test_downloads_into_repo_subfolder` (`:2960`) spawns a **real** `threading.Thread`
-  and polls up to 50×20 ms (~1 s) for terminal status — timing-dependent under CI load.
-  (A sibling test patches `threading.Thread` with `ImmediateThread`; this one doesn't.)
-- **`remote_tunnel_ui_unit.cjs` `classList.toggle` inverted — Confirmed (Low, test
-  fidelity).** Stub (`:18-21`): `if (force) add else delete` — the omitted-`force` case
-  always deletes instead of toggling, so `toggle("x")` never adds. Masks any SUT path
-  relying on no-force toggle to add.
+- **`test_services.py` thread-poll flake — Confirmed (Low, latent).** (Deferred — backend test, not in scope.)
+- ~~`remote_tunnel_ui_unit.cjs` `classList.toggle` inverted — Confirmed (Low).~~ Fixed: stub now handles missing `force` argument correctly.

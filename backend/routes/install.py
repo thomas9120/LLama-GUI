@@ -136,10 +136,14 @@ def start_update(request, response, ctx):
 
 def activate_custom(request, response, ctx):
     try:
-        if process_manager.is_process_running(ctx):
-            response.error("Stop running process first", 400)
+        claim_error = _claim_install_slot(ctx)
+        if claim_error is not None:
+            response.error(*claim_error)
             return
-        result = llama_manager.activate_custom_backend(ctx)
-        response.json(result)
+        try:
+            result = llama_manager.activate_custom_backend(ctx)
+            response.json(result)
+        finally:
+            process_manager.release_install_slot(ctx)
     except Exception as e:
         response.error(sanitize_error(e, 500), 500)

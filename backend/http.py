@@ -174,8 +174,8 @@ def sanitize_sse_error(exc: BaseException, tunnel_active: bool) -> str:
     issues.
     """
     detail = str(exc)
+    print(f"[sanitize_sse_error] {type(exc).__name__}: {detail}", file=sys.stderr)
     if tunnel_active:
-        print(f"[sanitize_sse_error] {type(exc).__name__}: {detail}", file=sys.stderr)
         return "Chat request failed."
     return detail
 

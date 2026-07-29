@@ -16,13 +16,25 @@ function createElement() {
             add: (...names) => names.forEach((name) => classes.add(name)),
             remove: (...names) => names.forEach((name) => classes.delete(name)),
             toggle: (name, force) => {
-                if (force) classes.add(name);
-                else classes.delete(name);
+                if (force === undefined) {
+                    if (classes.has(name)) classes.delete(name); else classes.add(name);
+                } else if (force) {
+                    classes.add(name);
+                } else {
+                    classes.delete(name);
+                }
             },
             contains: (name) => classes.has(name),
         },
     };
 }
+
+const toggleProbe = createElement();
+toggleProbe.classList.toggle("hidden", true);
+toggleProbe.classList.toggle("hidden", true);
+assert.equal(toggleProbe.classList.contains("hidden"), true, "forced true must not invert an existing class");
+toggleProbe.classList.toggle("hidden", false);
+assert.equal(toggleProbe.classList.contains("hidden"), false, "forced false must remove the class");
 
 (async () => {
     const elements = new Map();

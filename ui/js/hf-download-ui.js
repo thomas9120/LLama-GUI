@@ -228,7 +228,7 @@
                 pollProgress();
             }
         } catch (e) {
-            // Ignore initial status read failures; the panel remains available for manual use.
+            console.debug("HF download status read failed", e);
         }
     }
 

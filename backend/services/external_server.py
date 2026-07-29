@@ -136,15 +136,16 @@ def _write_remembered_target(ctx, entry: Optional[Mapping[str, Any]]) -> None:
     """Save or clear the remembered address. Best effort: losing the
     convenience of a prefilled form must never fail a connect or disconnect."""
     try:
-        config_data = dict(ctx.services.load_config())
-        if entry is None:
-            if config_data.pop(CONFIG_KEY, None) is None:
-                return
-        else:
-            if config_data.get(CONFIG_KEY) == dict(entry):
-                return
-            config_data[CONFIG_KEY] = dict(entry)
-        ctx.services.save_config(config_data)
+        with ctx.state.config_lock:
+            config_data = dict(ctx.services.load_config())
+            if entry is None:
+                if config_data.pop(CONFIG_KEY, None) is None:
+                    return
+            else:
+                if config_data.get(CONFIG_KEY) == dict(entry):
+                    return
+                config_data[CONFIG_KEY] = dict(entry)
+            ctx.services.save_config(config_data)
     except Exception as exc:
         print(f"[external-server] could not save the target: {exc}", file=sys.stderr)
 
@@ -204,7 +205,8 @@ def probe(host: str, port: int, authorization: str = "") -> dict[str, Any]:
         try:
             try:
                 body = exc.read(MAX_PROBE_BODY_BYTES)
-            except Exception:
+            except Exception as read_exc:
+                print(f"[external-server] could not read probe error body: {read_exc}", file=sys.stderr)
                 body = b""
             status = int(exc.code)
         finally:
