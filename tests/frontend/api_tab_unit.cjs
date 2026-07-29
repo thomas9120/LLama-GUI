@@ -73,6 +73,13 @@ assert.equal(
     "API endpoint config should fall back for blank host and invalid port"
 );
 
+flagValues = { host: "::1", port: 8080 };
+assert.equal(
+    JSON.stringify(apiTab.getServerEndpointConfig()),
+    JSON.stringify({ host: "::1", port: 8080, baseUrl: "http://[::1]:8080" }),
+    "API endpoint config should bracket IPv6 hosts"
+);
+
 flagValues = { host: "pending-host", port: 9999, alias: "pending-alias" };
 apiTab.configure({
     getLatestStatus: () => ({

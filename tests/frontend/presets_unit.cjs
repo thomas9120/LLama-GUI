@@ -49,6 +49,32 @@ assert.equal(JSON.stringify(Array.from(overrideIds)), JSON.stringify(["ctx_size"
 const normalizeImportedPresetData = context.window.LlamaGui.presets.normalizeImportedPresetData;
 const presetApi = context.window.LlamaGui.presets;
 
+assert.equal(presetApi.sanitizeImportedPresetName("  My/Preset?.json  "), "My_Preset_.json");
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [{ name: "Existing" }],
+        [{ name: "existing" }, { name: "New" }]
+    ),
+    "existing",
+    "preset imports must reject case-insensitive collisions with saved presets"
+);
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [],
+        [{ name: "Duplicate" }, { name: "DUPLICATE" }]
+    ),
+    "DUPLICATE",
+    "bulk preset imports must reject duplicate names before any write"
+);
+assert.equal(
+    presetApi.findPresetImportNameCollision(
+        [{ name: "Existing" }],
+        [{ name: "New One" }, { name: "New Two" }]
+    ),
+    "",
+    "distinct imported preset names should pass collision validation"
+);
+
 const normalized = normalizeImportedPresetData({
     tool: "llama-server",
     model: "model.gguf",
@@ -278,6 +304,18 @@ assert.equal(
     vm.runInContext("buildDuplicatePresetName('Base', ['Base', 'Base copy'])", duplicateContext),
     "Base copy 2",
     "an array of names must work like a Set"
+);
+// Presets are files named "<name>.json" and POST /api/presets overwrites by
+// default, so on Windows/macOS a differently-cased name is the same file.
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Base', new Set(['Base', 'base copy']))", duplicateContext),
+    "Base copy 2",
+    "a case-differing copy must still bump the suffix or it clobbers that file"
+);
+assert.equal(
+    vm.runInContext("buildDuplicatePresetName('Foo', new Set(['Foo', 'FOO COPY', 'foo copy 2']))", duplicateContext),
+    "Foo copy 3",
+    "case-insensitive collisions must be skipped at every suffix, not just the base"
 );
 
 // rename carries name-keyed local state across

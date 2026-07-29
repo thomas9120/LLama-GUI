@@ -17,6 +17,12 @@ if [ -z "$PY_CMD" ]; then
     exit 1
 fi
 
+if ! "$PY_CMD" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 9) else 1)'; then
+    echo "[ERROR] Python 3.9 or newer is required."
+    echo "Install Python 3.9+ and rerun ./install.sh."
+    exit 1
+fi
+
 if [ ! -d ".venv" ]; then
     echo "Creating local virtual environment..."
     "$PY_CMD" -m venv .venv

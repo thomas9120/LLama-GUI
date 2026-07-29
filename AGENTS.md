@@ -53,7 +53,7 @@ return names && typeof names.has === "function" && typeof names.size === "number
 - Chat template presets: one entry in `CHAT_TEMPLATE_PRESETS` (`ui/js/flags/chat-templates.js`); bundled `.jinja` under `ui/templates/`. Emit `--chat-template` **or** `--chat-template-file`, never both. Reverse-map builtin name / file path back to the dropdown.
 - Custom launch args: edit `parseCustomLaunchArgs()` in `flag-core.js` and run `node tests/frontend/custom_launch_args_unit.cjs` immediately; extend that file for new cases. Parser errors must block launch and surface near the textarea.
 - Themes: a theme is **one palette block in `ui/css/tokens.css` plus one `THEMES` entry in `ui/js/theme-ui.js`**. Never add a `[data-theme=…]` selector or a color literal to `style.css` — both are absent by design and `theme_ui_unit.cjs` will not let a new theme render as the fallback. Contrast floors are enforced per theme (AA for text, 3:1 for `--fg-faint` and the fill-only `-solid` tokens), measured against `--bg-surface`, `--bg-raised`, `--bg-elevated`, each semantic color's own `-subtle` chip, **and composited interaction-state washes**. On a mid-tone theme the chip sits *lighter* than the surface, so its colors need brightening where light themes need darkening.
-- `fetchJson()` (`manager.js`) returns `null` for non-JSON 200s — callers must handle `null`.
+- `fetchJson()` (`manager.js`) throws for non-JSON responses, including HTTP 200; callers only need a `null` guard when an endpoint can return a literal JSON `null`.
 - `_BODY_HANDLED` from `read_body()` is a three-state sentinel: `dict` / `None` / already-responded. Compare with `is`, not `==`.
 - Sanitize errors to clients; real error always to stderr. Download threads should clean partial files in `finally`.
 

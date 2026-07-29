@@ -115,6 +115,26 @@ function hasUsablePresetData(presetData) {
     return Boolean(presetData && (presetData.model || Object.keys(presetData.flags || {}).length > 0));
 }
 
+function sanitizeImportedPresetName(name) {
+    return String(name || "")
+        .replace(/[^A-Za-z0-9 ._-]+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^[. _]+|[. _]+$/g, "");
+}
+
+function findPresetImportNameCollision(existingPresets, importedPresets) {
+    const taken = new Set((existingPresets || [])
+        .map((preset) => String(preset && preset.name || "").toLowerCase())
+        .filter(Boolean));
+    for (const preset of importedPresets || []) {
+        const name = String(preset && preset.name || "");
+        const folded = name.toLowerCase();
+        if (folded && taken.has(folded)) return name;
+        if (folded) taken.add(folded);
+    }
+    return "";
+}
+
 function getPresetFlagCore() {
     if (!window.LlamaGui || !window.LlamaGui.flagCore) {
         throw new Error("Flag core is not available.");
@@ -446,10 +466,21 @@ function buildDuplicatePresetName(name, existingNames) {
         : new Set(
             existingNames && typeof existingNames[Symbol.iterator] === "function" ? existingNames : []
         );
+    // Compared case-insensitively because presets are stored as "<name>.json" and
+    // POST /api/presets defaults to overwrite: on Windows/macOS "Foo copy" and
+    // "foo copy" are the same file, so a case-sensitive check handed back a name
+    // that silently clobbered an existing preset. Folding is best-effort — a
+    // duck-typed `taken` that is not iterable still gets the exact-match check.
+    const folded = new Set();
+    if (taken && typeof taken[Symbol.iterator] === "function") {
+        for (const existing of taken) folded.add(String(existing).toLowerCase());
+    }
+    const isTaken = (candidate) => taken.has(candidate) || folded.has(candidate.toLowerCase());
+
     const base = `${name} copy`;
-    if (!taken.has(base)) return base;
+    if (!isTaken(base)) return base;
     let suffix = 2;
-    while (taken.has(`${base} ${suffix}`)) suffix++;
+    while (isTaken(`${base} ${suffix}`)) suffix++;
     return `${base} ${suffix}`;
 }
 
@@ -493,6 +524,7 @@ function loadPresetGroupState() {
         const parsed = raw ? JSON.parse(raw) : {};
         return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
     } catch (e) {
+        console.debug("Preset group state is invalid", e);
         return {};
     }
 }
@@ -1718,10 +1750,18 @@ async function duplicatePreset(name) {
         // duplicates the saved preset, not the live Configure state, so the current
         // launch settings are left untouched
         const duplicateName = buildDuplicatePresetName(name, new Set(presets.map((preset) => preset.name)));
+        // overwrite:false so a duplicate can never destroy an existing preset. The
+        // name check above should already have avoided the collision; this catches
+        // the case-insensitive-filesystem edge it cannot see from the browser and
+        // turns it into a 409 the user is told about instead of silent data loss.
         const result = await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: duplicateName, data: normalizePresetData(source.data) }),
+            body: JSON.stringify({
+                name: duplicateName,
+                data: normalizePresetData(source.data),
+                overwrite: false,
+            }),
         });
         if (result.saved) {
             selectedPresetName = result.name || duplicateName;
@@ -1989,21 +2029,33 @@ async function handlePresetImport(file) {
                 : null;
 
         if (bulkPresets && bulkPresets.length > 0) {
-            let imported = 0;
+            const pendingImports = [];
             let unnamedIdx = 0;
             for (const entry of bulkPresets) {
-                const name = entry.name || "Imported-" + (++unnamedIdx);
+                const name = sanitizeImportedPresetName(entry.name || "Imported-" + (++unnamedIdx));
+                if (!name) {
+                    showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+                    return;
+                }
                 const normalized = normalizeImportedPresetData(entry.data || {});
                 if (!hasUsablePresetData(normalized)) continue;
+                pendingImports.push({ name, data: normalized });
+            }
+            const existingPresets = await fetchPresetEntries();
+            const collision = findPresetImportNameCollision(existingPresets, pendingImports);
+            if (collision) {
+                showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+                return;
+            }
+            for (const preset of pendingImports) {
                 await fetchJson("/api/presets", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+                    body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
                 });
-                imported++;
             }
             loadPresets();
-            showPresetStatus(`Imported ${imported} preset(s)`, "success");
+            showPresetStatus(`Imported ${pendingImports.length} preset(s)`, "success");
             return;
         }
 
@@ -2012,11 +2064,21 @@ async function handlePresetImport(file) {
             showPresetStatus("Preset file contains no usable data.", "error", 3200);
             return;
         }
-        const name = file.name.replace(/\.json$/i, "");
+        const name = sanitizeImportedPresetName(file.name.replace(/\.json$/i, ""));
+        if (!name) {
+            showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+            return;
+        }
+        const existingPresets = await fetchPresetEntries();
+        const collision = findPresetImportNameCollision(existingPresets, [{ name }]);
+        if (collision) {
+            showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+            return;
+        }
         await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, data: { tool: normalized.tool, model: normalized.model, flags: normalized.flags } }),
+            body: JSON.stringify({ name, data: normalized, overwrite: false }),
         });
         loadPresets();
         showPresetStatus(`Imported preset \"${name}\"`, "success");
@@ -2036,6 +2098,8 @@ if (window.LlamaGui) {
         findPresetByName,
         normalizePresetData,
         normalizeImportedPresetData,
+        sanitizeImportedPresetName,
+        findPresetImportNameCollision,
         getPresetWarnings,
         isPresetModelMissing,
         getPresetModelIssue,

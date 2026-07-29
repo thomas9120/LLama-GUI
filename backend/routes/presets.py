@@ -198,7 +198,7 @@ def list_presets(request, response, ctx):
         metadata_changed = False
         for path in sorted(presets_dir.glob("*.json")):
             try:
-                with open(path, "r") as preset_file:
+                with open(path, "r", encoding="utf-8") as preset_file:
                     data = json.load(preset_file)
                 if is_preset_bundle(data):
                     continue
@@ -256,6 +256,9 @@ def save_preset(request, response, ctx):
     preset_file = get_preset_file_path(presets_dir, safe_name)
     if preset_file is None:
         response.error("Invalid preset name", 400)
+        return
+    if body.get("overwrite", True) is False and preset_file.exists():
+        response.error("A preset with that name already exists", 409)
         return
 
     created_times = _load_preset_created_times(presets_dir)

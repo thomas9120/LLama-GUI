@@ -21,6 +21,8 @@
     let saveSamplerPresetStore = () => {};
     let normalizeSamplerPresetValues = (values) => values || {};
     let collectSamplerValues = () => ({});
+    let isSamplerPresetNameTaken = () => false;
+    let saveSamplerPreset = () => ({ ok: false, reason: "missing" });
     let renameSamplerPreset = () => ({ ok: false, reason: "missing" });
     let getSamplerRenameMessage = () => "Failed to rename sampler preset.";
     let confirmAction = async () => false;
@@ -51,6 +53,8 @@
         saveSamplerPresetStore = options.saveSamplerPresetStore || saveSamplerPresetStore;
         normalizeSamplerPresetValues = options.normalizeSamplerPresetValues || normalizeSamplerPresetValues;
         collectSamplerValues = options.collectSamplerValues || collectSamplerValues;
+        isSamplerPresetNameTaken = options.isSamplerPresetNameTaken || isSamplerPresetNameTaken;
+        saveSamplerPreset = options.saveSamplerPreset || saveSamplerPreset;
         renameSamplerPreset = options.renameSamplerPreset || renameSamplerPreset;
         getSamplerRenameMessage = options.getSamplerRenameMessage || getSamplerRenameMessage;
         confirmAction = options.confirmAction || confirmAction;
@@ -163,7 +167,7 @@
     function setContextValue(rawValue, options = {}) {
         const parsed = rawValue === "" || rawValue === null || rawValue === undefined
             ? undefined
-            : parseInt(rawValue, 10);
+            : Number(rawValue);
         const nextCtxSize = Number.isFinite(parsed) ? parsed : undefined;
         const patch = { ctx_size: nextCtxSize };
 
@@ -400,6 +404,18 @@
         }
     }
 
+    // Same hazard as restoreFlagInputs() in config-flags-ui.js: refresh() runs on
+    // every keystroke via the flag-state postUpdate hook, so writing state back
+    // into the field being typed in resets the caret and, on type="number",
+    // discards partial input the browser reports as "" (a lone "-" or "0.").
+    function setInputValueUnlessEditing(el, nextValue) {
+        if (!el) return;
+        const doc = el.ownerDocument || document;
+        if (doc && doc.activeElement === el) return;
+        const next = String(nextValue);
+        if (el.value !== next) el.value = next;
+    }
+
     function refresh() {
         const quickCommand = document.getElementById("quick-command-preview");
         if (!quickCommand) return;
@@ -441,7 +457,7 @@
                 contextCustom.disabled = true;
             } else {
                 contextPreset.value = "custom";
-                contextCustom.value = ctxString;
+                setInputValueUnlessEditing(contextCustom, ctxString);
                 contextCustom.disabled = false;
             }
         }
@@ -463,7 +479,7 @@
                 gpuCustom.disabled = true;
             } else {
                 gpuMode.value = "custom";
-                gpuCustom.value = hasCustomGpuValue ? gpuLayers : "";
+                setInputValueUnlessEditing(gpuCustom, hasCustomGpuValue ? gpuLayers : "");
                 gpuCustom.disabled = false;
             }
         }
@@ -472,8 +488,11 @@
         const fitTarget = document.getElementById("quick-fit-target");
         const fitCtx = document.getElementById("quick-fit-ctx");
         if (fitToggle) fitToggle.value = String(values.fit ?? "on");
-        if (fitTarget) fitTarget.value = String(values.fit_target ?? "1024");
-        if (fitCtx) fitCtx.value = values.fit_ctx ?? "";
+        // fit_target has no "" fallback on purpose in the summary below, but the
+        // input itself must stay clearable: forcing "1024" back in made the field
+        // impossible to empty.
+        setInputValueUnlessEditing(fitTarget, values.fit_target ?? "");
+        setInputValueUnlessEditing(fitCtx, values.fit_ctx ?? "");
 
         const fitSummary = document.getElementById("quick-fit-summary");
         if (fitSummary) {
@@ -486,8 +505,7 @@
         const templateSummary = document.getElementById("quick-template-summary");
         const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
         if (templateSelect) {
-            const hasOption = Array.from(templateSelect.options).some((opt) => opt.value === selectedTemplateValue);
-            templateSelect.value = hasOption ? selectedTemplateValue : "";
+            configFlagsUi.ensureChatTemplateOption(templateSelect, selectedTemplateValue);
         }
         if (templateSummary) {
             templateSummary.textContent = getQuickTemplateSummaryText();
@@ -660,7 +678,8 @@
 
         on("quick-fit-ctx", "input", (e) => {
             const rawValue = e.target.value.trim();
-            const nextFitCtx = rawValue === "" ? undefined : parseInt(rawValue, 10);
+            const parsed = rawValue === "" ? undefined : Number(rawValue);
+            const nextFitCtx = Number.isFinite(parsed) ? parsed : undefined;
             flagCore.setFlagValue("fit_ctx", nextFitCtx, { quickLaunchFitCtxLinked: false });
         });
 
@@ -685,20 +704,23 @@
             if (!nameInput) return;
             const typedName = nameInput.value.trim();
             const selected = getSelectedSamplerEntry();
-            const name = typedName || (selected && selected.source === "custom" ? selected.name : "");
+            const selectedCustomName = selected && selected.source === "custom" ? selected.name : "";
+            const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
                 return;
             }
 
-            const store = loadSamplerPresetStore();
-            store[name] = normalizeSamplerPresetValues(collectSamplerValues());
-            saveSamplerPresetStore(store);
+            const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
+            if (!result.ok) {
+                alert(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.");
+                return;
+            }
             nameInput.value = "";
             refreshSamplerPresetSelect();
             configFlagsUi.renderFlags();
             const samplerSelect = document.getElementById("quick-sampler-select");
-            if (samplerSelect) samplerSelect.value = `custom|${name}`;
+            if (samplerSelect) samplerSelect.value = `custom|${result.name}`;
         });
 
         on("btn-quick-sampler-rename", "click", async () => {

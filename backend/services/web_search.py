@@ -13,6 +13,7 @@ from html.parser import HTMLParser
 from typing import Any, Optional
 
 from backend import config
+from backend.http import sanitize_error
 
 
 class ReadableHTMLParser(HTMLParser):
@@ -108,8 +109,14 @@ def resolve_public_addresses(hostname: str, port: int) -> tuple[Optional[list[An
         return None, f"Failed to resolve host: no addresses for {hostname!r}"
     for *_, sockaddr in infos:
         ip = ipaddress.ip_address(sockaddr[0])
+        # `is_global` is the authoritative check and subsumes the rest; the explicit
+        # flags stay because they document intent and because is_global's definition
+        # has shifted between Python versions. Listing only the flags let CGNAT space
+        # (100.64.0.0/10, which Tailscale hands out) through: it is absent from
+        # ipaddress's private-network table and is excluded only by is_global.
         if (
-            ip.is_private
+            not ip.is_global
+            or ip.is_private
             or ip.is_loopback
             or ip.is_link_local
             or ip.is_multicast
@@ -282,7 +289,11 @@ def ddgs_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) ->
     try:
         rows = DDGS(timeout=config.WEB_SEARCH_TIMEOUT).text(query, max_results=max_results)
     except Exception as exc:
-        return {"ok": False, "error": f"Search failed: {exc}", "results": []}
+        return {
+            "ok": False,
+            "error": f"Search failed: {sanitize_error(exc, 500)}",
+            "results": [],
+        }
 
     results = []
     for row in rows or []:

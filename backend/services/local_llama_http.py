@@ -4,6 +4,7 @@ import urllib.error
 import urllib.request
 
 from backend import config
+from backend.http import build_http_origin
 from backend.services import chat as chat_service
 
 
@@ -34,7 +35,7 @@ def _fetch_local_llama_endpoint(
     if authorization:
         headers["Authorization"] = authorization
     request = urllib.request.Request(
-        f"http://{proxy_host}:{parsed_port}{path}",
+        f"{build_http_origin(proxy_host, parsed_port)}{path}",
         headers=headers,
     )
     try:

@@ -920,7 +920,16 @@ async function checkAppUpdateStatus() {
 }
 
 async function updateAppFromGitHub() {
-    const status = latestAppUpdateStatus || await fetchJson("/api/app-update-status");
+    let status = latestAppUpdateStatus;
+    if (!status) {
+        showAppUpdateStatus("info", "Checking app update status...");
+        try {
+            status = await fetchJson("/api/app-update-status");
+        } catch (e) {
+            showAppUpdateStatus("error", "Failed to check app updates: " + e.message);
+            return;
+        }
+    }
     if (!status.can_update) {
         renderAppUpdateStatus(status);
         return;

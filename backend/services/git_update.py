@@ -1,5 +1,6 @@
 """Git-based app update helpers."""
 
+import os
 import re
 import subprocess
 import sys
@@ -8,6 +9,10 @@ from typing import Any
 from ..context import AppContext
 from .subprocess_utils import get_no_window_creationflags
 
+
+# Ceiling for any single git invocation. Generous enough for a cold `fetch` over
+# a slow link, short enough that a wedged command cannot pin an HTTP thread.
+GIT_COMMAND_TIMEOUT_SECONDS = 120
 
 # Passed to `git for-each-ref` to skip tags that are obviously not releases
 # (for example "Summer-2026") before they reach the regex below.
@@ -128,15 +133,42 @@ def classify_git_dirty_paths(entries):
     }
 
 
-def run_git(args, cwd):
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(cwd),
-        capture_output=True,
-        text=True,
-        check=False,
-        creationflags=get_no_window_creationflags(),
-    )
+def run_git(args, cwd, timeout=GIT_COMMAND_TIMEOUT_SECONDS):
+    # Runs on an HTTP handler thread, so it must never block indefinitely. A
+    # network git command (fetch/ls-remote) against a repo needing credentials
+    # would otherwise sit forever on a prompt: stdin is closed and
+    # GIT_TERMINAL_PROMPT=0 turns the ask into an error, the timeout catches
+    # anything that still stalls, and GIT_ASKPASS/SSH_ASKPASS stop a GUI
+    # credential helper from popping up where nobody can answer it.
+    env = dict(os.environ)
+    env.update({
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ASKPASS": "",
+        "SSH_ASKPASS": "",
+        "GCM_INTERACTIVE": "Never",
+    })
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            timeout=timeout,
+            env=env,
+            creationflags=get_no_window_creationflags(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        print(f"[git_update] git {' '.join(args)} timed out after {timeout}s", file=sys.stderr)
+        # Shaped like a failed CompletedProcess so every caller's returncode
+        # check keeps working instead of needing a new exception path.
+        return subprocess.CompletedProcess(
+            args=["git", *args],
+            returncode=124,
+            stdout=exc.stdout if isinstance(exc.stdout, str) else "",
+            stderr=f"git {args[0] if args else ''} timed out after {timeout} seconds.",
+        )
 
 
 def remote_ref_exists(base_dir, remote_ref):

@@ -195,6 +195,12 @@
         return target && target.connected ? target : null;
     }
 
+    function formatUrlHost(host) {
+        const value = String(host || "").trim();
+        if (value.startsWith("[") && value.endsWith("]")) return value;
+        return value.includes(":") ? `[${value}]` : value;
+    }
+
     function getServerEndpointConfig() {
         // A launched llama-server wins, then a server the user registered, then
         // whatever the Configure tab is currently set up to launch. This mirrors
@@ -207,7 +213,7 @@
         return {
             host,
             port,
-            baseUrl: `http://${host}:${port}`,
+            baseUrl: `http://${formatUrlHost(host)}:${port}`,
         };
     }
 

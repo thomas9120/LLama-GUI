@@ -1,6 +1,7 @@
 """Backend status API route."""
 
 import os
+import sys
 
 from ..http import sanitize_error
 from ..config import LLAMA_HOST, LLAMA_PORT
@@ -33,7 +34,8 @@ def get_status(request, response, ctx):
         backend_specs = services.backend_specs
         try:
             api_target = dict(services.get_llama_api_target())
-        except Exception:
+        except Exception as exc:
+            print(f"[status] failed to read llama API target: {exc}", file=sys.stderr)
             api_target = {"host": LLAMA_HOST, "port": LLAMA_PORT}
 
         response.json(

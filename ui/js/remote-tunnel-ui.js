@@ -93,7 +93,13 @@
             renderStatus(state);
             return state;
         } catch (e) {
-            renderStatus({ status: "error", message: "Failed to read remote tunnel status: " + e.message });
+            const message = "Failed to read remote tunnel status: " + e.message;
+            if (remoteTunnelTimer) {
+                const statusEl = document.getElementById("remote-tunnel-status");
+                if (statusEl) statusEl.textContent = message + " Retrying...";
+            } else {
+                renderStatus({ status: "error", message });
+            }
             return null;
         }
     }

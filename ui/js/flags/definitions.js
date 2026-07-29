@@ -1173,7 +1173,8 @@ const FLAGS = [
 		label: "Jinja Templates",
 		desc: "Enable Jinja-based chat template processing. Required for tool calling / function calling support in llama-server.",
 		tool: "server",
-		default: false,
+		default: true,
+		false_flag: "--no-jinja",
 	},
 	{
 		id: "single_turn",
@@ -1593,7 +1594,6 @@ const FLAGS = [
 			},
 			{ value: "write_file", label: "Write File", risk: "high" },
 			{ value: "edit_file", label: "Edit File", risk: "high" },
-			{ value: "apply_diff", label: "Apply Diff", risk: "high" },
 			{ value: "get_datetime", label: "Get Date & Time" },
 		],
 	},

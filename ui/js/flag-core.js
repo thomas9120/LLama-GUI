@@ -149,7 +149,10 @@
             afterApply(flagValues);
         }
         if (typeof postUpdate === "function") {
-            postUpdate();
+            // A wholesale replace (preset load, import, model switch) must win over
+            // whatever is in a focused input, unlike the incremental patches above
+            // which are themselves driven by the user typing in that input.
+            postUpdate({ force: true });
         }
         return flagValues;
     }
@@ -319,6 +322,15 @@
             .map(flag => String(flag.flag)));
     }
 
+    // Shell-quotes a single token for the copyable command preview. Without this
+    // any value containing a space — the common case for a Windows model path —
+    // was joined in raw, so "Copy command" produced a command that split into the
+    // wrong arguments when pasted.
+    function quoteArg(arg) {
+        const text = String(arg);
+        return /[\s"]/u.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+    }
+
     function redactSensitiveTokens(tokens) {
         const sensitiveFlags = getSensitiveCliFlags();
         const redacted = [];
@@ -413,6 +425,9 @@
                     && !isSupportedChatTemplateValue(val)) {
                     continue;
                 }
+                if (f.id === "chat_template" && String(values.chat_template_custom || "").trim()) {
+                    continue;
+                }
                 if (f.id === "gpu_layers") {
                     const normalizedGpuLayers = normalizeGpuLayersValue(val);
                     if (normalizedGpuLayers === undefined) continue;
@@ -479,7 +494,7 @@
             }
         }
         const parts = [getToolBinaryName(currentTool), ...redactSensitiveTokens(launchTokens)];
-        const command = parts.join(" ");
+        const command = parts.map(quoteArg).join(" ");
         if (typeof renderCommandPreview === "function") {
             renderCommandPreview(command, result);
         }
@@ -511,6 +526,7 @@
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
         normalizeModelRelPath,
+        quoteArg,
         redactSensitiveTokens,
         hasLaunchModelArg,
         buildLaunchArgs,

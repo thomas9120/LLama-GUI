@@ -2,11 +2,17 @@
     "use strict";
 
     const HF_DOWNLOAD_POLL_MAX_FAILS = 5;
-    const HF_DOWNLOAD_TIMEOUT_MS = 30 * 60 * 1000;
+    // Give up only after this long with no observable movement. This used to be a
+    // flat 30-minute cap on total download time, which a large GGUF on a slow link
+    // exceeds legitimately — the UI then declared failure while the backend was
+    // still downloading, and polling only resumed on a full page reload.
+    const HF_DOWNLOAD_STALL_TIMEOUT_MS = 5 * 60 * 1000;
 
     let hfDownloadTimer = null;
     let hfDownloadFailCount = 0;
-    let hfDownloadStartTime = null;
+    let hfDownloadLastProgressAt = null;
+    let hfDownloadLastFingerprint = "";
+    let hfDownloadPollInFlight = false;
     let deps = {};
 
     function requireDependency(name) {
@@ -169,6 +175,8 @@
                     startDownload(true);
                     return;
                 }
+                showStatus("info", "Download cancelled. Existing file was kept.");
+                return;
             }
             showStatus("error", "Download failed to start: " + e.message);
         }
@@ -227,23 +235,38 @@
     function clearPollTimer() {
         if (hfDownloadTimer) clearInterval(hfDownloadTimer);
         hfDownloadTimer = null;
+        hfDownloadPollInFlight = false;
+    }
+
+    // Anything that changes while a download is healthy. Byte counts move on every
+    // chunk; current_file also moves when a multi-file download advances between
+    // files at a byte boundary.
+    function progressFingerprint(prog) {
+        if (!prog || typeof prog !== "object") return "";
+        return [prog.status, prog.current_file, prog.downloaded, prog.total].join("|");
     }
 
     function pollProgress() {
         const fetchJson = requireDependency("fetchJson");
         clearPollTimer();
         hfDownloadFailCount = 0;
-        hfDownloadStartTime = Date.now();
+        hfDownloadLastProgressAt = Date.now();
+        hfDownloadLastFingerprint = "";
         hfDownloadTimer = setInterval(async () => {
-            if (Date.now() - hfDownloadStartTime > HF_DOWNLOAD_TIMEOUT_MS) {
-                clearPollTimer();
-                setBusy(false);
-                showStatus("error", "Download timed out. The server may have stopped responding.");
-                return;
-            }
+            if (hfDownloadPollInFlight) return;
+            hfDownloadPollInFlight = true;
             try {
                 const prog = await fetchJson("/api/hf/download-status");
                 hfDownloadFailCount = 0;
+
+                // Any observable movement resets the deadline, so a slow but
+                // healthy download is never cut off for taking a long time.
+                const fingerprint = progressFingerprint(prog);
+                if (fingerprint !== hfDownloadLastFingerprint) {
+                    hfDownloadLastFingerprint = fingerprint;
+                    hfDownloadLastProgressAt = Date.now();
+                }
+
                 updateProgress(prog);
                 if (prog.status === "done") {
                     clearPollTimer();
@@ -252,6 +275,14 @@
                     clearPollTimer();
                     setBusy(false);
                     showStatus(prog.status === "cancelled" ? "warning" : "error", prog.message || "Download stopped.");
+                } else if (Date.now() - hfDownloadLastProgressAt > HF_DOWNLOAD_STALL_TIMEOUT_MS) {
+                    clearPollTimer();
+                    setBusy(false);
+                    showStatus(
+                        "error",
+                        "Download has not progressed for several minutes. It may still be running "
+                        + "on the server - reload the page to pick it back up."
+                    );
                 }
             } catch (e) {
                 hfDownloadFailCount++;
@@ -260,6 +291,8 @@
                     setBusy(false);
                     showStatus("error", "Lost contact with the server during download. The download may still be in progress - try restarting Llama GUI.");
                 }
+            } finally {
+                hfDownloadPollInFlight = false;
             }
         }, 500);
     }

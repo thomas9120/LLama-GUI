@@ -4,6 +4,7 @@ import io
 import json
 import subprocess
 import tempfile
+import threading
 import unittest
 import urllib.error
 import zipfile
@@ -286,6 +287,66 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"ready": True, "downloaded": True, "path": str(target)})
             self.assertEqual(target.read_text(encoding="utf-8"), "test data")
 
+    def test_benchmark_wikitext2_route_leaves_no_file_when_extraction_fails(self):
+        """A failed extraction must not leave a truncated file that exists() accepts."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            zip_payload = io.BytesIO()
+            with zipfile.ZipFile(zip_payload, "w") as archive:
+                archive.writestr("wikitext-2-raw/wiki.test.raw", "test data")
+            ctx.services.urlopen_with_ssl = mock.Mock(return_value=FakeBinaryUpstream(zip_payload.getvalue()))
+            response = DummyResponse()
+            target = ctx.paths.models / "wikitext-2-raw-v1" / "wiki.test.raw"
+
+            real_copyfileobj = benchmarks.shutil.copyfileobj
+
+            def fail_extraction_only(src, dest, *args, **kwargs):
+                # Let the zip download through; blow up only on the extraction
+                # write, which is the step that used to leave a stub behind.
+                if str(getattr(dest, "name", "")).endswith(".zip"):
+                    return real_copyfileobj(src, dest, *args, **kwargs)
+                raise OSError("disk full")
+
+            with mock.patch.object(
+                benchmarks.shutil, "copyfileobj", side_effect=fail_extraction_only
+            ):
+                benchmarks.ensure_wikitext2(
+                    Request("POST", "/api/benchmark/wikitext2", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertFalse(target.exists())
+            self.assertFalse(target.with_name(target.name + ".part").exists())
+
+    def test_benchmark_wikitext2_route_rejects_short_extraction(self):
+        """A short write is caught rather than promoted to the final path."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            zip_payload = io.BytesIO()
+            with zipfile.ZipFile(zip_payload, "w") as archive:
+                archive.writestr("wikitext-2-raw/wiki.test.raw", "test data")
+            ctx.services.urlopen_with_ssl = mock.Mock(return_value=FakeBinaryUpstream(zip_payload.getvalue()))
+            response = DummyResponse()
+            target = ctx.paths.models / "wikitext-2-raw-v1" / "wiki.test.raw"
+
+            real_copyfileobj = benchmarks.shutil.copyfileobj
+
+            def short_copy(src, dest, *args, **kwargs):
+                # Only truncate the extraction step; the zip download above uses
+                # copyfileobj too and must complete or this tests the wrong path.
+                if str(getattr(dest, "name", "")).endswith(".part"):
+                    dest.write(b"test")  # 4 of the 9 expected bytes
+                    return None
+                return real_copyfileobj(src, dest, *args, **kwargs)
+
+            with mock.patch.object(benchmarks.shutil, "copyfileobj", side_effect=short_copy):
+                benchmarks.ensure_wikitext2(
+                    Request("POST", "/api/benchmark/wikitext2", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertFalse(target.exists())
+
     def test_presets_routes_list_save_and_delete(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -345,6 +406,65 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(
                 json.loads((ctx.paths.presets / ".preset-created-times").read_text(encoding="utf-8")),
                 {},
+            )
+
+    def test_list_presets_reads_utf8_explicitly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.presets.mkdir(parents=True)
+            preset_path = ctx.paths.presets / "Unicode.json"
+            preset_path.write_text(
+                json.dumps({"notes": "café 漢字"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            response = DummyResponse()
+
+            with mock.patch.object(
+                presets, "open", wraps=open, create=True
+            ) as open_file:
+                presets.list_presets(
+                    Request("GET", "/api/presets", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.payload[0]["data"]["notes"], "café 漢字")
+            self.assertEqual(open_file.call_args.kwargs["encoding"], "utf-8")
+
+    def test_save_preset_can_reject_overwrite_for_imports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request(
+                    "POST",
+                    "/api/presets",
+                    "",
+                    {},
+                    body={"name": "Existing", "data": {"temperature": 0.7}},
+                ),
+                DummyResponse(),
+                ctx,
+            )
+
+            response = DummyResponse()
+            presets.save_preset(
+                Request(
+                    "POST",
+                    "/api/presets",
+                    "",
+                    {},
+                    body={
+                        "name": "Existing",
+                        "data": {"temperature": 0.1},
+                        "overwrite": False,
+                    },
+                ),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.status, 409)
+            self.assertEqual(
+                json.loads((ctx.paths.presets / "Existing.json").read_text(encoding="utf-8")),
+                {"temperature": 0.7},
             )
 
     def test_rename_preset_moves_file_and_keeps_created_time(self):
@@ -1001,10 +1121,32 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.services.load_config = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
             response = DummyResponse()
 
-            status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
 
             self.assertEqual(response.status, 500)
             self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("boom", stderr.getvalue())
+
+    def test_status_route_logs_api_target_failure_before_using_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            configure_status_services(ctx)
+            ctx.services.get_llama_api_target = lambda: (_ for _ in ()).throw(
+                RuntimeError("target state unavailable")
+            )
+            response = DummyResponse()
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+            self.assertEqual(
+                response.payload["api_target"],
+                {"host": status.LLAMA_HOST, "port": status.LLAMA_PORT},
+            )
+            self.assertIn("target state unavailable", stderr.getvalue())
 
     def test_process_output_route_reads_buffer_and_running_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1107,6 +1249,132 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"sent": True})
             self.assertEqual(ctx.state.process.stdin.getvalue(), "hello\n")
 
+    def test_launch_does_not_hold_locks_across_runtime_validation(self):
+        """_validate_launch_environment shells out to ldd/otool per packaged ggml
+        library on Linux/macOS. Held under install_lock + process_lock it stalled
+        status, stop and output for the whole run."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def slow_validation(_ctx, _tool):
+                entered.set()
+                release.wait(5)
+                return None, "stopped after the slow part"
+
+            with mock.patch.object(process_manager, "_validate_launch_environment", slow_validation):
+                launcher = threading.Thread(
+                    target=process_manager.launch_process,
+                    args=(ctx, "llama-server", []),
+                    daemon=True,
+                )
+                launcher.start()
+                self.assertTrue(entered.wait(5), "validation never started")
+
+                install_free = ctx.state.install_lock.acquire(timeout=2)
+                if install_free:
+                    ctx.state.install_lock.release()
+                process_free = ctx.state.process_lock.acquire(timeout=2)
+                if process_free:
+                    ctx.state.process_lock.release()
+
+                release.set()
+                launcher.join(5)
+
+        self.assertTrue(install_free, "install_lock was held across runtime validation")
+        self.assertTrue(process_free, "process_lock was held across runtime validation")
+
+    def test_launch_rechecks_install_state_after_validation(self):
+        """Moving validation outside the locks opens a window; the authoritative
+        re-check inside them is what closes it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def validation_starts_an_install(_ctx, _tool):
+                ctx.state.install_in_progress = True
+                return Path(tmp) / "llama-server", None
+
+            with mock.patch.object(
+                process_manager, "_validate_launch_environment", validation_starts_an_install
+            ):
+                result = process_manager.launch_process(ctx, "llama-server", [])
+
+        self.assertIn("Installation in progress", result.get("error", ""))
+
+    def test_process_send_input_does_not_hold_process_lock_while_writing(self):
+        """llama-server never drains stdin, so a full pipe blocks write() forever.
+        Holding process_lock across that froze launch/stop/status permanently."""
+        started = threading.Event()
+        release = threading.Event()
+
+        class BlockingStdin:
+            def write(self, text):
+                started.set()
+                release.wait(5)
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def __init__(self):
+                    self.stdin = BlockingStdin()
+
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+
+            sender = threading.Thread(
+                target=process_manager.send_input, args=(ctx, "hello"), daemon=True
+            )
+            sender.start()
+            self.assertTrue(started.wait(5), "stdin write never began")
+
+            # The lock must be free while the write is stuck, or every other
+            # process endpoint would be wedged behind it.
+            acquired = ctx.state.process_lock.acquire(timeout=2)
+            if acquired:
+                ctx.state.process_lock.release()
+            release.set()
+            sender.join(5)
+
+            self.assertTrue(acquired, "process_lock was held across the stdin write")
+
+    def test_process_send_input_reports_failure_when_write_blocks(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+
+        class BlockingStdin:
+            def write(self, text):
+                release.wait(30)
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            class FakeProcess:
+                def __init__(self):
+                    self.stdin = BlockingStdin()
+
+                def poll(self):
+                    return None
+
+            ctx.state.process = FakeProcess()
+
+            with mock.patch.object(process_manager, "SEND_INPUT_TIMEOUT_SECONDS", 0.2):
+                with contextlib.redirect_stderr(io.StringIO()) as captured:
+                    sent = process_manager.send_input(ctx, "hello")
+
+            self.assertFalse(sent)
+            self.assertIn("timed out", captured.getvalue())
+
     def test_process_cleanup_blocks_when_process_is_running(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -1123,11 +1391,57 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.status, 400)
             self.assertEqual(response.payload["error"], "Stop running process first")
 
+    def test_process_cleanup_blocks_during_an_install(self):
+        """Cleanup rmtree's the directories an install extracts into, so it must
+        claim the same slot rather than deleting files out from under one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.state.install_in_progress = True
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+
+            self.assertEqual(response.status, 409)
+            self.assertEqual(response.payload["error"], "Installation already in progress")
+            self.assertTrue(ctx.state.install_in_progress, "a refused claim must not clear the flag")
+
+    def test_process_cleanup_releases_the_install_slot(self):
+        """Including on failure — otherwise one error permanently blocks installs."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.services.load_config = dict
+            ctx.services.save_config = lambda _cfg: None
+            response = DummyResponse()
+
+            process.cleanup_llama(Request("POST", "/api/cleanup-llama", "", {}, body={}), response, ctx)
+            self.assertFalse(ctx.state.install_in_progress, "slot must be released after success")
+
+            with mock.patch.object(
+                process.process_manager, "remove_llama_files", side_effect=OSError("in use")
+            ):
+                failing = DummyResponse()
+                process.cleanup_llama(
+                    Request("POST", "/api/cleanup-llama", "", {}, body={}), failing, ctx
+                )
+
+            self.assertEqual(failing.status, 500)
+            self.assertFalse(ctx.state.install_in_progress, "slot must be released after failure too")
+
     def test_process_cleanup_removes_llama_files_and_resets_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
             ctx.paths.llama_bin.mkdir(parents=True)
             (ctx.paths.llama_bin / "llama-cli.exe").write_text("binary")
+            remembered_target = {
+                "host": "127.0.0.1",
+                "port": 9001,
+                "label": "External llama-server",
+                "api_key_required": False,
+            }
+            ctx.services.load_config = lambda: {
+                "external_chat_target": remembered_target
+            }
             saved = []
             ctx.services.save_config = saved.append
             response = DummyResponse()
@@ -1137,7 +1451,17 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"removed_files": 1})
             self.assertTrue(ctx.paths.llama_bin.exists())
             self.assertTrue(ctx.paths.llama_grammars.exists())
-            self.assertEqual(saved, [{"version": None, "backend": None, "tag": None}])
+            self.assertEqual(
+                saved,
+                [
+                    {
+                        "external_chat_target": remembered_target,
+                        "version": None,
+                        "backend": None,
+                        "tag": None,
+                    }
+                ],
+            )
 
     def test_process_manager_flattens_nested_launch_args(self):
         self.assertEqual(
@@ -2274,14 +2598,44 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             response = DummyResponse()
 
-            hf_download.list_repo_files(
-                Request("POST", "/api/hf/repo-files", "", {}, body={"repo_id": "owner/model."}),
-                response,
-                ctx,
-            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                hf_download.list_repo_files(
+                    Request("POST", "/api/hf/repo-files", "", {}, body={"repo_id": "owner/model."}),
+                    response,
+                    ctx,
+                )
 
             self.assertEqual(response.status, 400)
             self.assertEqual(response.payload["error"], "Invalid Hugging Face repo ID.")
+            self.assertIn("Invalid Hugging Face repo ID", stderr.getvalue())
+
+    def test_hf_download_route_logs_unexpected_start_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                hf_download.hf_download,
+                "start_hf_model_download",
+                side_effect=RuntimeError("download setup failed"),
+            ):
+                hf_download.start_download(
+                    Request(
+                        "POST",
+                        "/api/hf/download",
+                        "",
+                        {},
+                        body={"repo_id": "owner/model", "model_file": "model.gguf"},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 400)
+            self.assertEqual(response.payload["error"], "download setup failed")
+            self.assertIn("download setup failed", stderr.getvalue())
 
     def test_hf_download_route_reports_duplicate_with_code(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2314,6 +2668,9 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_hf_download_cancel_sets_cancelling_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
+            with ctx.state.model_download_lock:
+                ctx.state.model_download_in_progress = True
+                ctx.state.model_download.update(status="downloading")
             response = DummyResponse()
 
             hf_download.cancel_download(
@@ -2325,6 +2682,20 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertTrue(ctx.state.model_download_cancel.is_set())
             self.assertEqual(response.payload["status"], "cancelling")
             self.assertEqual(response.payload["message"], "Cancelling download...")
+
+    def test_hf_download_cancel_is_a_no_op_while_idle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+
+            hf_download.cancel_download(
+                Request("POST", "/api/hf/download-cancel", "", {}, body={}),
+                response,
+                ctx,
+            )
+
+            self.assertFalse(ctx.state.model_download_cancel.is_set())
+            self.assertEqual(response.payload["status"], "idle")
 
     def test_web_search_html_to_readable_text_ignores_script(self):
         text = web_search.html_to_readable_text(
@@ -2354,6 +2725,41 @@ class ExtractedRouteTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("non-public address 127.0.0.1", reason)
+
+    def test_validate_public_hostname_blocks_non_global_ranges(self):
+        """Ranges that are not private/loopback/reserved but still must not be
+        reachable. CGNAT (100.64.0.0/10) is what Tailscale hands out, and it is
+        excluded only by is_global — the flag the filter used to omit."""
+        blocked = [
+            "100.64.0.1",        # CGNAT / Tailscale
+            "100.127.255.254",   # CGNAT upper end
+            "192.0.2.1",         # TEST-NET-1 documentation range
+            "198.18.0.1",        # benchmarking range
+            "169.254.169.254",   # cloud metadata endpoint
+            "::1",               # IPv6 loopback
+            "fd00::1",           # IPv6 unique local
+        ]
+        for address in blocked:
+            with self.subTest(address=address):
+                with mock.patch.object(
+                    web_search.socket,
+                    "getaddrinfo",
+                    return_value=[(None, None, None, None, (address, 80))],
+                ):
+                    ok, reason = web_search.validate_public_hostname("example.com", 80)
+                self.assertFalse(ok, f"{address} should be blocked")
+                self.assertIn("non-public address", reason)
+
+    def test_validate_public_hostname_allows_public_addresses(self):
+        for address in ("93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"):
+            with self.subTest(address=address):
+                with mock.patch.object(
+                    web_search.socket,
+                    "getaddrinfo",
+                    return_value=[(None, None, None, None, (address, 443))],
+                ):
+                    ok, _ = web_search.validate_public_hostname("example.com", 443)
+                self.assertTrue(ok, f"{address} should be allowed")
 
     def test_fetch_page_text_revalidates_redirect_targets(self):
         headers = Message()
@@ -2958,6 +3364,36 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn(("All files", "*.*"), kwargs["filetypes"])
             self.assertEqual(response.payload, {"selected": True, "path": str(ctx.paths.models / "model.gguf")})
 
+    def test_file_picker_route_handles_initial_directory_creation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                Path,
+                "mkdir",
+                side_effect=OSError("private path denied"),
+            ), mock.patch.object(
+                file_picker.file_picker, "select_file_in_native_dialog"
+            ) as select_file:
+                file_picker.select_file(
+                    Request(
+                        "POST",
+                        "/api/select-file",
+                        "",
+                        {},
+                        body={"purpose": "model"},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("private path denied", stderr.getvalue())
+            select_file.assert_not_called()
+
 
 class InstallRouteTests(unittest.TestCase):
     def setUp(self):
@@ -3143,6 +3579,35 @@ class InstallRouteTests(unittest.TestCase):
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
 
+    def test_install_claim_checks_process_while_holding_install_lock(self):
+        lock_was_available = []
+
+        def check_process(_ctx):
+            acquired = self.ctx.state.install_lock.acquire(blocking=False)
+            lock_was_available.append(acquired)
+            if acquired:
+                self.ctx.state.install_lock.release()
+            return True
+
+        response = DummyResponse()
+        with mock.patch.object(
+            process_manager, "is_process_running", side_effect=check_process
+        ):
+            install.start_install(
+                Request(
+                    "POST",
+                    "/api/install",
+                    "",
+                    {},
+                    body={"tag": "b1", "backend": "cpu"},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(lock_was_available, [False])
+        self.assertEqual(response.status, 400)
+
     def test_update_validates_nothing_installed(self):
         self.ctx.services.load_config = lambda: {}
         response = DummyResponse()
@@ -3220,6 +3685,39 @@ class InstallRouteTests(unittest.TestCase):
         install_release.assert_called_once_with(
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
+
+    def test_update_rechecks_for_a_process_after_release_lookup(self):
+        fake_releases = [
+            {
+                "tag_name": "b2",
+                "name": "b2 release",
+                "published_at": "2024-02-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+
+        class FakeProcess:
+            def poll(self):
+                return None
+
+        def lookup_then_launch(*_args, **_kwargs):
+            self.ctx.state.process = FakeProcess()
+            return fake_releases
+
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager, "get_releases", side_effect=lookup_then_launch
+        ), mock.patch.object(install.threading, "Thread") as thread:
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 400)
+        self.assertIn("Stop running process first", response.payload["error"])
+        self.assertFalse(self.ctx.state.install_in_progress)
+        thread.assert_not_called()
 
     def test_update_blocks_when_already_in_progress_without_calling_github(self):
         with self.ctx.state.install_lock:
@@ -3375,8 +3873,8 @@ class ExternalServerRouteTests(unittest.TestCase):
     def post(self, body):
         response = DummyResponse()
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -3430,8 +3928,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             external_server.connect(
@@ -3482,8 +3980,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -3504,14 +4002,14 @@ class ExternalServerRouteTests(unittest.TestCase):
         }
         response = DummyResponse()
 
-        with mock.patch.object(external_server_service.urllib.request, "urlopen") as urlopen:
+        with mock.patch.object(external_server_service, "_open_probe_request") as open_probe:
             external_server.connect(
                 Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
                 response,
                 self.ctx,
             )
 
-        urlopen.assert_not_called()
+        open_probe.assert_not_called()
         self.assertEqual(response.status, 200)
         self.assertIsNone(response.payload["external_chat_target"])
         self.assertEqual(response.payload["remembered_target"]["port"], 9001)
@@ -3525,8 +4023,8 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthUpstream(200, b"<html>some other dev server</html>"),
         ):
             external_server.connect(
@@ -3827,6 +4325,32 @@ class SubprocessWindowFlagTests(unittest.TestCase):
                 srv.run_git(["status"], ".")
 
         self.assertEqual(runner.call_args.kwargs["creationflags"], 0x08000000)
+
+    def test_run_git_cannot_block_on_a_credential_prompt(self):
+        """run_git executes on an HTTP handler thread. A network git command
+        against a repo needing credentials would otherwise wait forever on a
+        prompt nobody can see."""
+        with mock.patch.object(srv.subprocess, "run") as runner:
+            srv.run_git(["fetch", "origin"], ".")
+
+        kwargs = runner.call_args.kwargs
+        self.assertEqual(kwargs["stdin"], srv.subprocess.DEVNULL, "stdin must be closed")
+        self.assertEqual(kwargs["timeout"], srv.GIT_COMMAND_TIMEOUT_SECONDS)
+        self.assertEqual(kwargs["env"]["GIT_TERMINAL_PROMPT"], "0")
+        self.assertEqual(kwargs["env"]["GCM_INTERACTIVE"], "Never")
+        self.assertIn("PATH", kwargs["env"], "the real environment must still be inherited")
+
+    def test_run_git_timeout_becomes_a_failed_result(self):
+        """Callers only check returncode, so a timeout must not surface as an
+        exception escaping into the route layer."""
+        timeout_error = srv.subprocess.TimeoutExpired(cmd=["git", "fetch"], timeout=1)
+        with mock.patch.object(srv.subprocess, "run", side_effect=timeout_error):
+            with contextlib.redirect_stderr(io.StringIO()) as captured:
+                result = srv.run_git(["fetch", "origin"], ".", timeout=1)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("timed out", result.stderr)
+        self.assertIn("timed out", captured.getvalue())
 
     def test_every_probe_subprocess_run_sets_creationflags(self):
         """Guards against a new probe reintroducing the console flash."""
@@ -4646,6 +5170,55 @@ class LifecycleTests(unittest.TestCase):
         mock_tun.assert_called_once_with(self.ctx)
         mock_proc.assert_called_once_with(self.ctx)
         mock_popen.assert_called_once()
+
+    def test_restart_detaches_the_replacement_on_every_platform(self):
+        """The replacement outlives us by design. On POSIX, without
+        start_new_session it stays in our process group and dies with the
+        terminal or on the next Ctrl+C, so "restart" silently became "quit"."""
+
+        class SyncThread:
+            def __init__(self, **kw):
+                self._target = kw.get("target")
+                self.daemon = kw.get("daemon", False)
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        for platform_name in ("linux", "darwin", "win32"):
+            with self.subTest(platform=platform_name):
+                self.ctx.state.gui_server = mock.Mock()
+                with mock.patch("backend.services.tunnel.stop_remote_tunnel"), \
+                     mock.patch("backend.services.process_manager.stop_process"), \
+                     mock.patch("backend.services.lifecycle._wait_for_port_release", return_value=True), \
+                     mock.patch("backend.services.lifecycle.subprocess.Popen") as mock_popen, \
+                     mock.patch("backend.services.lifecycle.sys.platform", platform_name), \
+                     mock.patch(
+                         "backend.services.lifecycle.subprocess.DETACHED_PROCESS",
+                         0x00000008,
+                         create=True,
+                     ), \
+                     mock.patch(
+                         "backend.services.lifecycle.subprocess.CREATE_NEW_PROCESS_GROUP",
+                         0x00000200,
+                         create=True,
+                     ), \
+                     mock.patch("backend.services.lifecycle.os._exit", side_effect=SystemExit(0)), \
+                     mock.patch("backend.services.lifecycle.threading.Thread", SyncThread):
+                    with self.assertRaises(SystemExit):
+                        lifecycle_service.restart_gui_server(self.ctx)
+
+                kwargs = mock_popen.call_args.kwargs
+                if platform_name == "win32":
+                    self.assertTrue(
+                        kwargs.get("creationflags"), "Windows needs DETACHED_PROCESS"
+                    )
+                    self.assertNotIn("start_new_session", kwargs)
+                else:
+                    self.assertTrue(
+                        kwargs.get("start_new_session"),
+                        f"{platform_name} needs start_new_session to survive terminal close",
+                    )
 
     def test_restart_uses_context_host_and_port(self):
         self.ctx.config = ServerConfig(gui_host="127.0.0.2", gui_port=61234)

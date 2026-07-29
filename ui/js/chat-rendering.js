@@ -415,7 +415,8 @@
         try {
             const parsed = new URL(String(url || ""));
             return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
-        } catch {
+        } catch (e) {
+            console.debug("Ignored invalid chat source URL", e);
             return "";
         }
     }

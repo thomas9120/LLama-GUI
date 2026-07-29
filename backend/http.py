@@ -103,9 +103,12 @@ def get_request_host_origin(
     value = str(host_header or "").strip()
     if not value:
         return ""
-    parsed = urllib.parse.urlparse(f"//{value}")
-    host = parsed.hostname
-    port = parsed.port or gui_port
+    try:
+        parsed = urllib.parse.urlparse(f"//{value}")
+        host = parsed.hostname
+        port = parsed.port or gui_port
+    except ValueError:
+        return ""
     if not host or host in WILDCARD_BIND_HOSTS or port != gui_port:
         return ""
     if not is_trusted_request_host(host, trusted_hosts):
@@ -130,7 +133,7 @@ def is_safe_request_origin(headers: Any, allowed_origins: Sequence[str]) -> bool
 def get_access_control_origin(
     headers: Any,
     allowed_origins: Sequence[str],
-    default_origin: str = f"http://{config.GUI_HOST}:{config.GUI_PORT}",
+    default_origin: str = build_http_origin(config.GUI_HOST, config.GUI_PORT),
 ) -> str:
     origin = headers.get("Origin", "")
     if origin and origin in allowed_origins:
@@ -180,9 +183,14 @@ def sanitize_sse_error(exc: BaseException, tunnel_active: bool) -> str:
 class Response:
     def __init__(self, handler: Any):
         self.handler = handler
+        # True once a status line has gone out. Callers that want to turn a late
+        # failure into an error response must check this first: writing a second
+        # response into a reply already on the wire corrupts the first one.
+        self.started = False
 
     def json(self, data: Any, status: int = 200) -> None:
         body = json.dumps(data).encode("utf-8")
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", "application/json")
         self.handler.send_header("Content-Length", str(len(body)))
@@ -226,6 +234,7 @@ class Response:
         content_type: str = "application/octet-stream",
         headers: Optional[Mapping[str, str]] = None,
     ) -> None:
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", content_type)
         self.handler.send_header("Content-Length", str(len(body)))
@@ -236,6 +245,7 @@ class Response:
         self.handler.wfile.write(body)
 
     def sse_headers(self, status: int = 200) -> None:
+        self.started = True
         self.handler.send_response(status)
         self.handler.send_header("Content-Type", "text/event-stream")
         self.handler.send_header("Cache-Control", "no-cache")

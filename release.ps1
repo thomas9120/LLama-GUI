@@ -65,7 +65,14 @@ $items = @(
     "windows_startsilent.bat",
     "release.bat",
     "release.ps1",
-    "ui"
+    "ui",
+    # Served at runtime as /assets/app-logo.png (backend/config.py APP_LOGO_FILE);
+    # ui/index.html uses it for the favicon and the sidebar brand.
+    "Llama-GUI Logo.png",
+    # windows_install.bat runs scripts\create_windows_shortcuts.ps1, which in turn
+    # reads assets\Llama-GUI.ico. Without both, desktop shortcut creation is dead.
+    "scripts",
+    "assets"
 )
 
 foreach ($item in $items) {

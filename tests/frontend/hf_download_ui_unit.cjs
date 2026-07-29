@@ -55,7 +55,7 @@ function createElement(tagName = "div") {
     };
 }
 
-function makeContext() {
+function makeContext(overrides = {}) {
     const elements = new Map();
     const context = {
         window: { LlamaGui: {} },
@@ -64,9 +64,9 @@ function makeContext() {
             getElementById: (id) => elements.get(id) || null,
         },
         console,
-        setInterval: () => 1,
-        clearInterval: () => {},
-        Date,
+        setInterval: overrides.setInterval || (() => 1),
+        clearInterval: overrides.clearInterval || (() => {}),
+        Date: overrides.Date || Date,
     };
     context.window.window = context.window;
     vm.createContext(context);
@@ -84,6 +84,48 @@ function addElement(elements, id, tagName = "div", value = "") {
 }
 
 (async () => {
+{
+    const callbacks = [];
+    const { elements, ui } = makeContext({
+        setInterval: (callback) => {
+            callbacks.push(callback);
+            return callbacks.length;
+        },
+    });
+    addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-download-progress");
+    addElement(elements, "hf-progress-fill");
+    addElement(elements, "hf-progress-text");
+
+    let resolveFirst;
+    let fetchCount = 0;
+    ui.configure({
+        fetchJson: () => {
+            fetchCount += 1;
+            if (fetchCount === 1) {
+                return new Promise((resolve) => {
+                    resolveFirst = resolve;
+                });
+            }
+            return Promise.resolve({ status: "downloading", downloaded: 2, total: 10 });
+        },
+    });
+
+    ui.pollProgress();
+    const tick = callbacks[0];
+    const firstTick = tick();
+    const overlappingTick = tick();
+    assert.equal(fetchCount, 1);
+
+    resolveFirst({ status: "downloading", downloaded: 1, total: 10 });
+    await Promise.all([firstTick, overlappingTick]);
+    await tick();
+    assert.equal(fetchCount, 2);
+}
+
 {
     const { elements, ui } = makeContext();
     const status = addElement(elements, "hf-download-status");
@@ -229,6 +271,33 @@ function addElement(elements, id, tagName = "div", value = "") {
     addElement(elements, "btn-hf-find-files", "button");
     addElement(elements, "btn-hf-download", "button");
     addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-repo-input", "input", "owner/model");
+    addElement(elements, "hf-revision-input", "input", "");
+    addElement(elements, "hf-token-input", "input", "");
+    addElement(elements, "hf-model-file-select", "select", "model.gguf");
+    addElement(elements, "hf-mmproj-file-select", "select", "");
+
+    let fetchCount = 0;
+    ui.configure({
+        fetchJson: async () => {
+            fetchCount += 1;
+            throw new Error("Already exists: model.gguf");
+        },
+        confirmAction: async () => false,
+    });
+
+    await ui.startDownload(false);
+    assert.equal(fetchCount, 1, "declining overwrite must not start a replacement request");
+    assert.equal(status.className, "hf-download-status info");
+    assert.equal(status.textContent, "Download cancelled. Existing file was kept.");
+}
+
+{
+    const { elements, ui } = makeContext();
+    const status = addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
 
     const calls = [];
     ui.configure({
@@ -255,6 +324,65 @@ function addElement(elements, id, tagName = "div", value = "") {
         "updateCommandPreview",
         "refreshQuickLaunchUI",
     ]);
+}
+
+// The give-up rule is "no progress for a while", not "took too long overall".
+// A flat 30-minute cap on total duration failed large GGUFs on slow links: the
+// UI declared the download dead while the backend was still fetching it, and
+// polling only resumed on a full page reload.
+{
+    const callbacks = [];
+    let now = 1_000_000;
+    const { elements, ui } = makeContext({
+        setInterval: (callback) => {
+            callbacks.push(callback);
+            return callbacks.length;
+        },
+        Date: { now: () => now },
+    });
+    const status = addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-download-progress");
+    addElement(elements, "hf-progress-fill");
+    addElement(elements, "hf-progress-text");
+
+    let downloaded = 0;
+    let frozen = false;
+    // Frozen via a flag rather than a second configure(): pollProgress resolves
+    // fetchJson once when it starts, so reconfiguring later has no effect.
+    ui.configure({
+        fetchJson: () => {
+            if (!frozen) downloaded += 1024 * 1024;
+            return Promise.resolve({ status: "downloading", downloaded, total: 40 * 1024 * 1024 * 1024 });
+        },
+    });
+
+    ui.pollProgress();
+    const tick = callbacks[0];
+
+    // Six simulated hours of steady progress — far past the old 30-minute cap.
+    for (let i = 0; i < 12; i += 1) {
+        now += 30 * 60 * 1000;
+        await tick();
+    }
+    assert.ok(
+        !/not progressed/.test(status.textContent),
+        "a slow but progressing download must never be declared failed"
+    );
+
+    // Freeze the byte count: the stall clock starts from the last movement.
+    frozen = true;
+    await tick();
+    assert.ok(!/not progressed/.test(status.textContent), "one frozen poll is not a stall yet");
+
+    now += 10 * 60 * 1000;
+    await tick();
+    assert.match(
+        status.textContent, /not progressed/,
+        "a download that stops moving must be reported"
+    );
 }
 
 console.log("hf download ui unit tests passed");

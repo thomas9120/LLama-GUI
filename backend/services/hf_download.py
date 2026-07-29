@@ -8,6 +8,7 @@ import urllib.request
 from typing import Any, Callable, Mapping, Optional
 
 from backend.context import AppContext
+from backend.http import sanitize_error
 
 UrlOpen = Callable[..., Any]
 
@@ -173,6 +174,33 @@ def get_model_download_snapshot(ctx: AppContext) -> Mapping[str, Any]:
     return ctx.state.model_download.snapshot()
 
 
+def cancel_hf_model_download(ctx: AppContext) -> Mapping[str, Any]:
+    """Request cancellation only while a worker still owns the download slot."""
+    with ctx.state.model_download_lock:
+        snapshot = ctx.state.model_download.snapshot()
+        if not ctx.state.model_download_in_progress or snapshot.get("status") in {
+            "done",
+            "error",
+            "cancelled",
+        }:
+            return snapshot
+        ctx.state.model_download_cancel.set()
+        return ctx.state.model_download.update(
+            status="cancelling", message="Cancelling download..."
+        )
+
+
+def _content_length(resp: Any) -> Optional[int]:
+    """Declared body size, or None when the server didn't say (or said nonsense)."""
+    headers = getattr(resp, "headers", None)
+    raw = headers.get("Content-Length") if hasattr(headers, "get") else None
+    try:
+        size = int(raw)
+    except (TypeError, ValueError):
+        return None
+    return size if size >= 0 else None
+
+
 def download_hf_file(
     ctx: AppContext,
     repo_id: str,
@@ -192,6 +220,7 @@ def download_hf_file(
     tmp_path = dest.with_suffix(dest.suffix + ".part")
     downloaded = 0
     with urlopen(req, timeout=60) as resp, open(tmp_path, "wb") as f:
+        expected_bytes = _content_length(resp)
         while True:
             if ctx.state.model_download_cancel.is_set():
                 raise InterruptedError("Download cancelled.")
@@ -206,6 +235,15 @@ def download_hf_file(
                 total=total_bytes,
                 current_file=pathlib.PurePosixPath(filename).name,
             )
+    # http.client deliberately does not raise IncompleteRead from read(amt) — it
+    # just closes the connection and returns b"" — so a connection dropped
+    # mid-transfer looks exactly like a clean EOF here. Without this check the
+    # truncated .part was promoted to a "done" GGUF that fails at load time.
+    if expected_bytes is not None and downloaded != expected_bytes:
+        raise OSError(
+            f"Download of {filename} was incomplete: got {downloaded} bytes, "
+            f"expected {expected_bytes}."
+        )
     tmp_path.replace(dest)
     return downloaded
 
@@ -266,7 +304,10 @@ def start_hf_model_download(
         if ctx.state.model_download_in_progress:
             raise RuntimeError("A model download is already in progress.")
         ctx.state.model_download_in_progress = True
-    ctx.state.model_download_cancel.clear()
+        ctx.state.model_download_cancel.clear()
+        reset_model_download_state(
+            ctx, status="starting", message="Preparing Hugging Face download..."
+        )
 
     def _worker() -> None:
         destinations = [model_dest]
@@ -318,12 +359,16 @@ def start_hf_model_download(
             set_model_download_state(ctx, status="cancelled", message=str(exc), current_file="")
         except Exception as exc:
             remove_partial_downloads(destinations)
-            set_model_download_state(ctx, status="error", message=str(exc), current_file="")
+            set_model_download_state(
+                ctx,
+                status="error",
+                message=sanitize_error(exc, 500),
+                current_file="",
+            )
         finally:
             with ctx.state.model_download_lock:
                 ctx.state.model_download_in_progress = False
             ctx.state.model_download_cancel.clear()
 
-    reset_model_download_state(ctx, status="starting", message="Preparing Hugging Face download...")
     threading.Thread(target=_worker, daemon=True).start()
     return get_model_download_snapshot(ctx)

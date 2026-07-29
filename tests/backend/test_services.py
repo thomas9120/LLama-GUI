@@ -23,6 +23,7 @@ from backend.services import hf_download as hf_service
 from backend.services import llama_manager
 from backend.services import local_llama_http
 from backend.services import process_manager
+from backend.services import tunnel as tunnel_service
 from backend.services import web_search as web_search_service
 
 
@@ -100,6 +101,36 @@ class LocalLlamaHttpTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(urlopen.call_args.kwargs, {"timeout": 3})
         response.read.assert_called_once_with(config.WEB_SEARCH_FETCH_BYTES)
+
+    def test_metrics_brackets_an_ipv6_host(self):
+        response = self.make_response(b"metric 1")
+        with (
+            mock.patch.object(
+                local_llama_http,
+                "get_metrics_host",
+                return_value=("::1", ""),
+            ),
+            mock.patch.object(
+                local_llama_http.urllib.request,
+                "urlopen",
+                return_value=response,
+            ) as urlopen,
+        ):
+            text, error = local_llama_http.get_local_llama_metrics("::1", 9090)
+
+        self.assertEqual((text, error), ("metric 1", ""))
+        self.assertEqual(
+            urlopen.call_args.args[0].full_url,
+            "http://[::1]:9090/metrics",
+        )
+
+    def test_chat_url_brackets_an_ipv6_host(self):
+        with mock.patch.object(
+            chat_service, "get_local_proxy_host", return_value=("::1", "")
+        ):
+            url = chat_service.get_local_chat_api_url({"host": "::1", "port": 8080})
+
+        self.assertEqual(url, "http://[::1]:8080/v1/chat/completions")
 
     def test_slots_uses_json_accept_header_and_utf8_fallback(self):
         response = self.make_response('[{"id":0}]'.encode("utf-8"))
@@ -1135,6 +1166,17 @@ class ProcessStateReapTests(unittest.TestCase):
         self.assertIsNotNone(ctx.state.process)
         self.assertEqual(ctx.state.active_process_tool, "llama-cli")
 
+    def test_launch_process_refuses_while_install_owns_the_runtime_files(self):
+        ctx = AppContext()
+        with ctx.state.install_lock:
+            ctx.state.install_in_progress = True
+
+        with mock.patch.object(process_manager.subprocess, "Popen") as popen:
+            result = process_manager.launch_process(ctx, "llama-server", [])
+
+        self.assertIn("Installation in progress", result["error"])
+        popen.assert_not_called()
+
     def test_active_llama_authorization_uses_launch_snapshot_and_safe_fallback(self):
         ctx = AppContext()
         ctx.state.process = FakeLaunchedProcess(returncode=None)
@@ -1235,6 +1277,15 @@ class LlamaManagerDownloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
             saved_configs = []
+            remembered_target = {
+                "host": "127.0.0.1",
+                "port": 9001,
+                "label": "External llama-server",
+                "api_key_required": False,
+            }
+            ctx.services.load_config = lambda: {
+                "external_chat_target": remembered_target
+            }
             ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
             release = {
                 "tag_name": "b1234",
@@ -1274,11 +1325,103 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual((ctx.paths.llama_bin / "llama-server").read_text(), "server")
             self.assertEqual((ctx.paths.llama_grammars / "json.gbnf").read_text(), "grammar")
-            self.assertEqual(saved_configs, [{"version": "Build 1234", "backend": "cpu", "tag": "b1234"}])
+            self.assertEqual(
+                saved_configs,
+                [
+                    {
+                        "external_chat_target": remembered_target,
+                        "version": "Build 1234",
+                        "backend": "cpu",
+                        "tag": "b1234",
+                    }
+                ],
+            )
             self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
             self.assertTrue(tmpdirs)
             self.assertFalse(tmpdirs[0].exists())
-            self.assertIn("No SHA256 metadata", stderr.getvalue())
+            self.assertIn("SHA256 digest metadata is missing", stderr.getvalue())
+
+    def test_release_asset_sha256_parses_github_digest_and_allows_unusable_metadata(self):
+        digest = "A1" * 32
+        self.assertEqual(
+            llama_manager.get_release_asset_sha256(
+                {"digest": f"sha256:{digest}"}, "release.zip"
+            ),
+            digest.lower(),
+        )
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertIsNone(
+                llama_manager.get_release_asset_sha256(
+                    {"digest": "sha512:not-supported"}, "release.zip"
+                )
+            )
+            self.assertIsNone(
+                llama_manager.get_release_asset_sha256({}, "legacy.zip")
+            )
+
+        warning = stderr.getvalue()
+        self.assertIn("unsupported or malformed", warning)
+        self.assertIn("metadata is missing", warning)
+
+    def test_install_release_accepts_valid_github_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
+            ctx.services.save_config = mock.Mock()
+            payload = b"verified archive bytes"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(payload)
+                return len(payload)
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat"
+            ) as extract_archive:
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertTrue(ok)
+            extract_archive.assert_called_once()
+            ctx.services.save_config.assert_called_once()
+
+    def test_install_release_reports_release_lookup_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                llama_manager,
+                "get_release_by_tag",
+                side_effect=RuntimeError("tag lookup failed"),
+            ), mock.patch.object(
+                llama_manager,
+                "get_releases",
+                side_effect=RuntimeError("release API offline"),
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            progress = ctx.state.download_progress.snapshot()
+            self.assertEqual(progress["status"], "error")
+            self.assertEqual(progress["message"], "release API offline")
+            self.assertIn("release lookup failed: release API offline", stderr.getvalue())
 
     def test_install_release_does_not_save_config_when_executable_repair_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1328,7 +1471,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
                     {
                         "name": "llama-b1234.zip",
                         "browser_download_url": "https://example.test/llama.zip",
-                        "sha256": "0" * 64,
+                        "digest": "sha256:" + "0" * 64,
                     }
                 ],
             }
@@ -1352,6 +1495,160 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertIn("SHA256 mismatch", ctx.state.download_progress.snapshot()["message"])
             ctx.services.save_config.assert_not_called()
             self.assertFalse(tmpdir.exists())
+
+    def test_install_release_rejects_extra_asset_digest_mismatch_before_replacing_install(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.paths.llama_grammars.mkdir(parents=True)
+            old_binary = ctx.paths.llama_bin / "llama-server"
+            old_grammar = ctx.paths.llama_grammars / "json.gbnf"
+            old_binary.write_text("old server")
+            old_grammar.write_text("old grammar")
+            primary_payload = b"primary archive"
+            extra_payload = b"extra archive"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(primary_payload).hexdigest()}",
+                    },
+                    {
+                        "name": "runtime.zip",
+                        "browser_download_url": "https://example.test/runtime.zip",
+                        "digest": "sha256:" + "0" * 64,
+                    },
+                ],
+            }
+            backend_specs = {
+                "cpu": {
+                    "asset": "llama-{tag}.zip",
+                    "extra_assets": ["runtime.zip"],
+                }
+            }
+
+            def fake_download(_ctx, url, dest, progress_cb=None):
+                payload = extra_payload if url.endswith("runtime.zip") else primary_payload
+                dest.write_bytes(payload)
+                return len(payload)
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat"
+            ) as extract_archive:
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            self.assertEqual(old_binary.read_text(), "old server")
+            self.assertEqual(old_grammar.read_text(), "old grammar")
+            self.assertIn(
+                "SHA256 mismatch for runtime.zip",
+                ctx.state.download_progress.snapshot()["message"],
+            )
+            extract_archive.assert_not_called()
+            ctx.services.save_config.assert_not_called()
+
+    def test_install_release_keeps_the_old_install_when_extraction_fails(self):
+        """Extraction used to run straight into llama/bin after deleting it, so a
+        truncated archive or a full disk left no binaries at all while config
+        still named the previous version."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.paths.llama_grammars.mkdir(parents=True)
+            old_binary = ctx.paths.llama_bin / "llama-server"
+            old_grammar = ctx.paths.llama_grammars / "json.gbnf"
+            old_binary.write_text("old server")
+            old_grammar.write_text("old grammar")
+            payload = b"primary archive"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(payload)
+                return len(payload)
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat", side_effect=OSError("disk full")
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            self.assertEqual(old_binary.read_text(), "old server", "old binaries must survive")
+            self.assertEqual(old_grammar.read_text(), "old grammar")
+            ctx.services.save_config.assert_not_called()
+            # Staging leftovers must not linger next to the live directories.
+            self.assertFalse(ctx.paths.llama_bin.with_name(ctx.paths.llama_bin.name + ".new").exists())
+            self.assertFalse(
+                ctx.paths.llama_grammars.with_name(ctx.paths.llama_grammars.name + ".new").exists()
+            )
+
+    def test_install_release_replaces_the_old_install_on_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.load_config = dict
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            ctx.paths.llama_grammars.mkdir(parents=True)
+            (ctx.paths.llama_bin / "stale-binary").write_text("stale")
+            payload = b"primary archive"
+            release = {
+                "tag_name": "b1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                        "digest": f"sha256:{hashlib.sha256(payload).hexdigest()}",
+                    }
+                ],
+            }
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(payload)
+                return len(payload)
+
+            def fake_extract(_archive, bin_dir, grammars_dir):
+                (bin_dir / "llama-server").write_text("new server")
+                (grammars_dir / "json.gbnf").write_text("new grammar")
+
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                llama_manager, "extract_archive_flat", side_effect=fake_extract
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertTrue(ok)
+            self.assertEqual((ctx.paths.llama_bin / "llama-server").read_text(), "new server")
+            self.assertEqual((ctx.paths.llama_grammars / "json.gbnf").read_text(), "new grammar")
+            self.assertFalse(
+                (ctx.paths.llama_bin / "stale-binary").exists(),
+                "the swap must replace the directory, not merge into it",
+            )
+            ctx.services.save_config.assert_called_once()
 
     def test_get_releases_uses_repo_api_when_provided(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1606,6 +1903,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
     def test_install_release_preserve_paths_keeps_nested_rocm_layout_and_threads_repo_api(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
             saved_configs = []
             ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
             asset_name = "llama-b1294-windows-rocm-gfx110X-x64.zip"
@@ -1678,7 +1976,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
                 [{"version": "b1294", "backend": "lemonade-rocm-gfx110X", "tag": "b1294"}],
             )
             self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
-            self.assertIn("No SHA256 metadata", stderr.getvalue())
+            self.assertIn("SHA256 digest metadata is missing", stderr.getvalue())
 
 
 class FilePickerServiceTests(unittest.TestCase):
@@ -1870,6 +2168,158 @@ class FakeHealthResponse:
         return self.body
 
 
+class TunnelDownloadTests(unittest.TestCase):
+    def test_partial_direct_download_never_becomes_the_final_binary_and_retry_succeeds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.current_arch = "x64"
+            binary_path = ctx.paths.cloudflared / "cloudflared-linux-amd64"
+
+            def partial_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(b"partial")
+                raise OSError("connection lost")
+
+            with mock.patch.object(
+                tunnel_service, "download_file", side_effect=partial_download
+            ), self.assertRaisesRegex(OSError, "connection lost"):
+                tunnel_service.ensure_cloudflared(ctx)
+
+            self.assertFalse(binary_path.exists())
+            self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+            def complete_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(b"complete cloudflared")
+                return dest.stat().st_size
+
+            with mock.patch.object(
+                tunnel_service, "download_file", side_effect=complete_download
+            ):
+                installed = tunnel_service.ensure_cloudflared(ctx)
+
+            self.assertEqual(installed, binary_path)
+            self.assertEqual(binary_path.read_bytes(), b"complete cloudflared")
+            self.assertFalse(any(path.is_dir() for path in ctx.paths.cloudflared.iterdir()))
+
+    def test_partial_archive_extraction_never_becomes_the_final_binary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "darwin"
+            ctx.services.current_arch = "arm64"
+            binary_path = ctx.paths.cloudflared / "cloudflared"
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                with tarfile.open(dest, "w:gz") as tf:
+                    payload = b"complete cloudflared"
+                    info = tarfile.TarInfo("pkg/cloudflared")
+                    info.size = len(payload)
+                    tf.addfile(info, io.BytesIO(payload))
+                return dest.stat().st_size
+
+            def partial_extract(_src, out):
+                out.write(b"partial")
+                raise OSError("disk full")
+
+            with mock.patch.object(
+                tunnel_service, "download_file", side_effect=fake_download
+            ), mock.patch.object(
+                tunnel_service.shutil, "copyfileobj", side_effect=partial_extract
+            ), self.assertRaisesRegex(OSError, "disk full"):
+                tunnel_service.ensure_cloudflared(ctx)
+
+            self.assertFalse(binary_path.exists())
+            self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+    def test_worker_spawned_after_stop_is_terminated_before_registration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.state.remote_tunnel_generation = 1
+            ctx.state.remote_tunnel.update(status="preparing")
+
+            class FakeProcess:
+                def __init__(self):
+                    self.returncode = None
+                    self.stderr = io.StringIO("")
+                    self.terminated = False
+
+                def poll(self):
+                    return self.returncode
+
+                def terminate(self):
+                    self.terminated = True
+                    self.returncode = 0
+
+                def wait(self, timeout=None):
+                    return self.returncode
+
+                def kill(self):
+                    self.returncode = -9
+
+            process = FakeProcess()
+
+            def spawn_after_stop(*_args, **_kwargs):
+                tunnel_service.stop_remote_tunnel(ctx)
+                return process
+
+            with mock.patch.object(
+                tunnel_service, "ensure_cloudflared", return_value=ctx.paths.cloudflared / "cloudflared"
+            ), mock.patch.object(
+                tunnel_service.subprocess, "Popen", side_effect=spawn_after_stop
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 1)
+
+            self.assertTrue(process.terminated)
+            self.assertIsNone(ctx.state.remote_tunnel_process)
+            self.assertEqual(ctx.state.remote_tunnel.snapshot()["status"], "stopped")
+
+    def test_superseded_worker_error_does_not_clobber_newer_tunnel_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.state.remote_tunnel_generation = 3
+            ctx.state.remote_tunnel.update(status="preparing", message="Old worker")
+
+            def supersede_then_fail(*_args, **_kwargs):
+                with ctx.state.remote_tunnel_lock:
+                    ctx.state.remote_tunnel_generation = 4
+                    ctx.state.remote_tunnel.update(
+                        status="preparing", message="New worker"
+                    )
+                raise RuntimeError("old worker failed")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                tunnel_service,
+                "ensure_cloudflared",
+                side_effect=supersede_then_fail,
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 3)
+
+            snapshot = ctx.state.remote_tunnel.snapshot()
+            self.assertEqual(snapshot["status"], "preparing")
+            self.assertEqual(snapshot["message"], "New worker")
+            self.assertIn("old worker failed", stderr.getvalue())
+
+    def test_worker_logs_and_sanitizes_unexpected_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.state.remote_tunnel_generation = 1
+            ctx.state.remote_tunnel.update(status="preparing")
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                tunnel_service,
+                "ensure_cloudflared",
+                side_effect=RuntimeError("private tunnel failure"),
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 1)
+
+            snapshot = ctx.state.remote_tunnel.snapshot()
+            self.assertEqual(snapshot["status"], "error")
+            self.assertEqual(snapshot["message"], "Internal server error")
+            self.assertIn("private tunnel failure", stderr.getvalue())
+
+
 class ExternalServerServiceTests(unittest.TestCase):
     def make_context(self, saved=None):
         ctx = AppContext()
@@ -2042,18 +2492,24 @@ class ExternalServerServiceTests(unittest.TestCase):
 
     def test_connect_probes_the_target_and_reports_a_rejected_key(self):
         ctx = self.make_context()
+        error_body = io.BytesIO(b"")
         error = urllib.error.HTTPError(
-            "http://127.0.0.1:9001/health", 401, "Unauthorized", Message(), None
+            "http://127.0.0.1:9001/health",
+            401,
+            "Unauthorized",
+            Message(),
+            error_body,
         )
 
         with mock.patch.object(
-            external_server_service.urllib.request, "urlopen", side_effect=error
+            external_server_service, "_open_probe_request", side_effect=error
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001, "wrong-key")
 
         self.assertEqual(target["probe_status"], 401)
         self.assertIn("rejected the API key", target["warning"])
         self.assertIsNotNone(external_server_service.get_target(ctx))
+        self.assertTrue(error_body.closed)
 
     def test_connect_sends_the_api_key_with_the_probe(self):
         ctx = self.make_context()
@@ -2065,7 +2521,7 @@ class ExternalServerServiceTests(unittest.TestCase):
             return FakeHealthResponse(200)
 
         with mock.patch.object(
-            external_server_service.urllib.request, "urlopen", side_effect=fake_urlopen
+            external_server_service, "_open_probe_request", side_effect=fake_urlopen
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001, "probe-key")
 
@@ -2078,8 +2534,8 @@ class ExternalServerServiceTests(unittest.TestCase):
         ctx = self.make_context()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             side_effect=urllib.error.URLError("connection refused"),
         ), self.assertRaises(external_server_service.ExternalServerUnreachable):
             external_server_service.connect(ctx, "127.0.0.1", 9001)
@@ -2154,8 +2610,8 @@ class ExternalServerServiceTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthResponse(200),
         ):
             target = external_server_service.reconnect_remembered(ctx)
@@ -2170,10 +2626,12 @@ class ExternalServerServiceTests(unittest.TestCase):
             saved={"host": "127.0.0.1", "port": 9001, "api_key_required": True}
         )
 
-        with mock.patch.object(external_server_service.urllib.request, "urlopen") as urlopen:
+        with mock.patch.object(
+            external_server_service, "_open_probe_request"
+        ) as open_probe:
             self.assertIsNone(external_server_service.reconnect_remembered(ctx))
 
-        urlopen.assert_not_called()
+        open_probe.assert_not_called()
         self.assertIsNone(external_server_service.get_target(ctx))
 
     def test_reconnect_returns_none_when_nothing_was_saved(self):
@@ -2187,8 +2645,8 @@ class ExternalServerServiceTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
         ), self.assertRaises(external_server_service.ExternalServerUnreachable):
             external_server_service.reconnect_remembered(ctx)
@@ -2199,8 +2657,8 @@ class ExternalServerServiceTests(unittest.TestCase):
         ctx = self.make_context()
 
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "urlopen",
+            external_server_service,
+            "_open_probe_request",
             return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001)
@@ -2220,13 +2678,47 @@ class ExternalServerServiceTests(unittest.TestCase):
         for body, expected in cases.items():
             with self.subTest(body=body):
                 with mock.patch.object(
-                    external_server_service.urllib.request,
-                    "urlopen",
+                    external_server_service,
+                    "_open_probe_request",
                     return_value=FakeHealthResponse(200, body),
                 ):
                     result = external_server_service.probe("127.0.0.1", 9001)
                 self.assertEqual(result["identified"], expected)
                 self.assertEqual(result["status"], 200)
+
+    def test_probe_uses_a_no_redirect_opener_for_authorized_requests(self):
+        opener = mock.Mock()
+        opener.open.return_value = FakeHealthResponse(200)
+
+        with mock.patch.object(
+            external_server_service.urllib.request,
+            "build_opener",
+            return_value=opener,
+        ) as build_opener:
+            result = external_server_service.probe(
+                "::1", 9001, "Bearer secret-key"
+            )
+
+        redirect_handler = build_opener.call_args.args[0]
+        self.assertIsInstance(
+            redirect_handler, external_server_service._NoProbeRedirects
+        )
+        original_request = opener.open.call_args.args[0]
+        self.assertEqual(original_request.full_url, "http://[::1]:9001/health")
+        self.assertEqual(
+            original_request.get_header("Authorization"), "Bearer secret-key"
+        )
+        self.assertIsNone(
+            redirect_handler.redirect_request(
+                original_request,
+                None,
+                302,
+                "Found",
+                Message(),
+                "https://example.test/collect",
+            )
+        )
+        self.assertEqual(result["status"], 200)
 
 
 class GetLocalProxyHostTests(unittest.TestCase):
@@ -2419,6 +2911,55 @@ class SlugifyRepoIdTests(unittest.TestCase):
         )
 
 
+class DownloadHfFileLengthTests(unittest.TestCase):
+    @staticmethod
+    def _download(ctx, dest, resp):
+        return hf_service.download_hf_file(
+            ctx,
+            repo_id="owner/model",
+            filename="model.gguf",
+            revision="main",
+            token=None,
+            dest=dest,
+            completed_bytes=0,
+            total_bytes=10,
+            urlopen=lambda req, timeout=60: resp,
+        )
+
+    def test_rejects_truncated_response(self):
+        """A connection dropped mid-transfer looks like a clean EOF to
+        http.client, so only the Content-Length check catches it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"trun"], content_length=10)
+
+            with self.assertRaises(OSError) as caught:
+                self._download(ctx, dest, resp)
+
+            self.assertIn("incomplete", str(caught.exception))
+            self.assertFalse(dest.exists())
+
+    def test_accepts_complete_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"0123456789"], content_length=10)
+
+            self.assertEqual(self._download(ctx, dest, resp), 10)
+            self.assertEqual(dest.read_bytes(), b"0123456789")
+
+    def test_accepts_response_without_content_length(self):
+        """Servers that omit the header must still work; there is nothing to check."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            dest = pathlib.Path(tmp) / "model.gguf"
+            resp = FakeDownloadResponse([b"abc"])
+
+            self.assertEqual(self._download(ctx, dest, resp), 3)
+            self.assertEqual(dest.read_bytes(), b"abc")
+
+
 class StartHfModelDownloadPathTests(unittest.TestCase):
     def test_downloads_into_repo_subfolder(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2485,6 +3026,38 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
                 )
 
             self.assertIn("owner_model/model.gguf", str(raised.exception))
+
+    def test_worker_logs_and_sanitizes_unexpected_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+
+            class ImmediateThread:
+                def __init__(self, *, target, daemon):
+                    self.target = target
+
+                def start(self):
+                    self.target()
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                hf_service.threading, "Thread", ImmediateThread
+            ), mock.patch.object(
+                hf_service,
+                "get_hf_file_size",
+                side_effect=RuntimeError("private download failure"),
+            ):
+                snapshot = hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="model.gguf",
+                    mmproj_file="",
+                    token=None,
+                )
+
+            self.assertEqual(snapshot["status"], "error")
+            self.assertEqual(snapshot["message"], "Internal server error")
+            self.assertIn("private download failure", stderr.getvalue())
 
 
 class HfFileToDictTests(unittest.TestCase):
@@ -2691,12 +3264,16 @@ class WebSearchDirectTests(unittest.TestCase):
 
         fake_module = SimpleNamespace(DDGS=FailingDDGS)
 
-        with mock.patch.dict("sys.modules", {"ddgs": fake_module}):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), mock.patch.dict(
+            "sys.modules", {"ddgs": fake_module}
+        ):
             result = web_search_service.web_search("llama gui")
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["results"], [])
-        self.assertIn("network down", result["error"])
+        self.assertEqual(result["error"], "Search failed: Internal server error")
+        self.assertIn("network down", stderr.getvalue())
 
 
 if __name__ == "__main__":

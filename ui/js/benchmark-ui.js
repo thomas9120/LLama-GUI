@@ -1,6 +1,10 @@
 (function () {
     const root = window.LlamaGui = window.LlamaGui || {};
 
+    // Consecutive /api/output failures tolerated before we stop watching the
+    // benchmark. Matches HF_DOWNLOAD_POLL_MAX_FAILS in hf-download-ui.js.
+    const OUTPUT_POLL_MAX_FAILS = 5;
+
     const BENCH_COMPATIBLE_IDS = new Set([
         "hf_repo",
         "hf_file",
@@ -96,6 +100,7 @@
     let statusTimer = null;
     let outputTimer = null;
     let pollOutputActiveEpoch = null;
+    let outputPollFailCount = 0;
     const processOutputCursor = root.outputCursor.create(appendOutput);
     let outputLines = [];
     let cachedPresets = [];
@@ -115,7 +120,10 @@
         return (args || []).flatMap(toArrayEntry);
     }
 
+    // flag-core owns the single implementation (it loads first); the fallback
+    // keeps this module usable in a unit-test context that stubs flagCore out.
     function quoteArg(arg) {
+        if (flagCore && typeof flagCore.quoteArg === "function") return flagCore.quoteArg(arg);
         const text = String(arg);
         return /[\s"]/u.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
     }
@@ -611,6 +619,7 @@
             try {
                 status = await fetchJson("/api/status");
             } catch (e) {
+                console.debug("Benchmark status refresh failed", e);
                 status = null;
             }
         }
@@ -648,6 +657,7 @@
         try {
             cachedPresets = await fetchJson("/api/presets") || [];
         } catch (e) {
+            console.debug("Benchmark presets failed to load", e);
             cachedPresets = [];
         }
         const select = byId("benchmark-preset-select");
@@ -681,6 +691,7 @@
         try {
             cachedModels = await fetchJson("/api/models") || [];
         } catch (e) {
+            console.debug("Benchmark models failed to load", e);
             cachedModels = [];
         }
         const select = byId("benchmark-manual-model");
@@ -773,6 +784,7 @@
         pollOutputActiveEpoch = request.epoch;
         try {
             const data = await fetchJson(request.url);
+            outputPollFailCount = 0;
             const observedGeneration = Number(data && data.runtime_generation);
             const expectedGeneration = Number(processLifecycle?.getSnapshot().activeRuntime?.generation);
             if (
@@ -796,9 +808,19 @@
             }
         } catch (e) {
             if (!processOutputCursor.isCurrent(request.epoch)) return;
+            // A single failed /api/output used to stop polling and flip the UI to
+            // "not running" while the benchmark was still going — leaving no way
+            // to stop it and a Run button the backend rejects. Tolerate a short
+            // burst the way the HF download poller does, and keep the Stop button
+            // available even once we do give up watching.
+            outputPollFailCount += 1;
+            if (outputPollFailCount < OUTPUT_POLL_MAX_FAILS) return;
             appendOutput("Output polling error: " + e.message);
+            appendOutput(
+                "--- Stopped reading output; the benchmark may still be running. "
+                + "Use Stop to end it. ---"
+            );
             stopOutputPolling();
-            setRunningState(false);
         } finally {
             if (pollOutputActiveEpoch === request.epoch) pollOutputActiveEpoch = null;
         }
@@ -807,6 +829,7 @@
     function startOutputPolling(initialCursor = null) {
         stopOutputPolling();
         processOutputCursor.reset(initialCursor);
+        outputPollFailCount = 0;
         outputTimer = setInterval(pollOutput, 300);
     }
 

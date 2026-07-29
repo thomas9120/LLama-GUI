@@ -234,6 +234,15 @@ assert.deepEqual(validateFlags(current.flags, current.categories), {
     ],
 });
 
+{
+    const jinja = current.flags.find((flag) => flag.id === "jinja");
+    assert.equal(jinja.default, true);
+    assert.equal(jinja.false_flag, "--no-jinja");
+
+    const tools = current.flags.find((flag) => flag.id === "tools");
+    assert.ok(!tools.options.some((option) => option.value === "apply_diff"));
+}
+
 // Configure keeps exactly these six sampling flags at the top level; every other sampling
 // flag lives in a submenu. See docs/design-docs/V2-planning-log.md item 2.
 {

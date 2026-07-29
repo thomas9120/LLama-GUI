@@ -1,5 +1,8 @@
 """Routes for Hugging Face model discovery and downloads."""
 
+import sys
+
+from backend.http import sanitize_error
 from backend.services import hf_download
 
 
@@ -15,7 +18,8 @@ def list_repo_files(request, response, ctx):
         token = hf_download.normalize_hf_token(body.get("token"))
         response.json(hf_download.get_hf_gguf_files(repo_id, revision, token))
     except Exception as exc:
-        response.error(str(exc), 400)
+        print(f"[hf_download] repo file listing failed: {exc}", file=sys.stderr)
+        response.error(sanitize_error(exc, 400), 400)
 
 
 def start_download(request, response, ctx):
@@ -35,10 +39,9 @@ def start_download(request, response, ctx):
     except FileExistsError as exc:
         response.error(str(exc), 409, code="exists")
     except Exception as exc:
-        response.error(str(exc), 400)
+        print(f"[hf_download] failed to start model download: {exc}", file=sys.stderr)
+        response.error(sanitize_error(exc, 400), 400)
 
 
 def cancel_download(request, response, ctx):
-    ctx.state.model_download_cancel.set()
-    hf_download.set_model_download_state(ctx, status="cancelling", message="Cancelling download...")
-    response.json(hf_download.get_model_download_snapshot(ctx))
+    response.json(hf_download.cancel_hf_model_download(ctx))

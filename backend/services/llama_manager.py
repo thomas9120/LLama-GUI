@@ -22,6 +22,7 @@ from ..context import AppContext
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
 LDD_NOT_FOUND_RE = re.compile(r"^\s*([^\s]+)\s+=>\s+not found\s*$")
+SHA256_DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 
 # Runtime dependency validation shells out to otool on macOS and ldd on Linux,
 # so results are cached briefly. Config-changing operations (install, cleanup,
@@ -209,6 +210,27 @@ def sha256_file(filepath: pathlib.Path) -> str:
         for chunk in iter(lambda: f.read(65536), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def get_release_asset_sha256(asset: Mapping[str, Any], filename: str) -> Optional[str]:
+    """Return GitHub's SHA256 asset digest, or allow legacy metadata to proceed.
+
+    GitHub publishes release asset hashes as ``digest: sha256:<hex>``. Older
+    releases and non-GitHub providers may omit that field, so an unavailable or
+    unsupported digest stays warning-only instead of blocking installation.
+    """
+    digest = asset.get("digest")
+    match = SHA256_DIGEST_RE.fullmatch(digest.strip()) if isinstance(digest, str) else None
+    if match:
+        return match.group(1).lower()
+
+    detail = "missing" if digest in (None, "") else "unsupported or malformed"
+    print(
+        f"WARNING: SHA256 digest metadata is {detail} for release asset {filename}; "
+        "skipping checksum verification.",
+        file=sys.stderr,
+    )
+    return None
 
 
 def set_download_progress(ctx: AppContext, **updates: Any) -> dict[str, Any]:
@@ -754,6 +776,29 @@ def extract_archive_preserve_paths(
     raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
 
+def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> None:
+    """Move ``staged`` onto ``target``, keeping the previous copy until it lands.
+
+    Both paths are siblings so this is a rename rather than a copy, which matters
+    for multi-gigabyte backends. If the move fails the old directory is put back,
+    so a failed install never leaves the tool directory missing.
+    """
+    target.parent.mkdir(parents=True, exist_ok=True)
+    previous = target.with_name(target.name + ".old")
+    shutil.rmtree(previous, ignore_errors=True)
+
+    had_previous = target.exists()
+    if had_previous:
+        os.replace(target, previous)
+    try:
+        os.replace(staged, target)
+    except Exception:
+        if had_previous and not target.exists():
+            os.replace(previous, target)
+        raise
+    shutil.rmtree(previous, ignore_errors=True)
+
+
 def ensure_installed_tool_executables(ctx: AppContext) -> list[str]:
     """Add executable bits to downloaded llama.cpp tools on Unix platforms."""
     current_platform = ctx.services.current_platform
@@ -796,15 +841,20 @@ def install_release(
     repo_api = resolve_repo_api(backend_spec, ctx)
 
     try:
-        release = get_release_by_tag(ctx, tag, repo_api)
-    except Exception:
-        releases = get_releases(ctx, repo_api)
-        release = next((r for r in releases if r["tag_name"] == tag), None)
-        if not release:
-            set_download_progress(
-                ctx, status="error", message=f"Release {tag} not found"
-            )
-            return False
+        try:
+            release = get_release_by_tag(ctx, tag, repo_api)
+        except Exception:
+            releases = get_releases(ctx, repo_api)
+            release = next((r for r in releases if r["tag_name"] == tag), None)
+            if not release:
+                set_download_progress(
+                    ctx, status="error", message=f"Release {tag} not found"
+                )
+                return False
+    except Exception as exc:
+        print(f"[llama_manager] release lookup failed: {exc}", file=sys.stderr)
+        set_download_progress(ctx, status="error", message=str(exc))
+        return False
 
     asset_map = {a["name"]: a for a in release["assets"]}
 
@@ -821,28 +871,32 @@ def install_release(
         return False
 
     bin_url = asset_map[bin_filename]["browser_download_url"]
-    expected_sha = asset_map[bin_filename].get("sha256", None)
-    if not expected_sha:
-        print(
-            f"WARNING: No SHA256 metadata for release asset {bin_filename}; skipping checksum verification.",
-            file=sys.stderr,
+
+    def verify_archive(filename: str, archive_path: pathlib.Path) -> bool:
+        expected_sha = get_release_asset_sha256(asset_map[filename], filename)
+        if expected_sha is None:
+            return True
+        if sha256_file(archive_path).lower() == expected_sha:
+            return True
+        set_download_progress(
+            ctx,
+            status="error",
+            message=f"SHA256 mismatch for {filename}",
         )
+        return False
 
     tmpdir = pathlib.Path(tempfile.mkdtemp(prefix="llama_install_"))
+    staged_bin = ctx.paths.llama_bin.with_name(ctx.paths.llama_bin.name + ".new")
+    staged_grammars = ctx.paths.llama_grammars.with_name(
+        ctx.paths.llama_grammars.name + ".new"
+    )
     try:
         bin_archive = tmpdir / bin_filename
         set_download_progress(ctx, message=f"Downloading {bin_filename}...")
         download_file(ctx, bin_url, bin_archive, progress_cb)
 
-        if expected_sha:
-            actual_sha = sha256_file(bin_archive)
-            if actual_sha != expected_sha:
-                set_download_progress(
-                    ctx,
-                    status="error",
-                    message=f"SHA256 mismatch for {bin_filename}",
-                )
-                return False
+        if not verify_archive(bin_filename, bin_archive):
+            return False
 
         extra_archives: list[pathlib.Path] = []
         for extra_filename in backend_spec.get("extra_assets", []):
@@ -852,34 +906,45 @@ def install_release(
             extra_archive = tmpdir / extra_filename
             set_download_progress(ctx, message=f"Downloading {extra_filename}...")
             download_file(ctx, extra_url, extra_archive, progress_cb)
+            if not verify_archive(extra_filename, extra_archive):
+                return False
             extra_archives.append(extra_archive)
 
         set_download_progress(
             ctx, status="extracting", message="Extracting binaries..."
         )
 
-        for d in [ctx.paths.llama_bin, ctx.paths.llama_grammars]:
-            if d.exists():
-                shutil.rmtree(d)
-            d.mkdir(parents=True, exist_ok=True)
+        # Extract into staging directories and swap them in only once extraction
+        # has fully succeeded. Deleting the live install first meant any failure
+        # from here on — truncated archive, disk full, killed process — left
+        # llama/bin empty while config still named the previous version: an
+        # "installed" build with no binaries behind it and no way back.
+        # Staged as siblings of the targets so the swap is a rename on the same
+        # filesystem, not a multi-gigabyte copy out of the system temp dir.
+        for staged in (staged_bin, staged_grammars):
+            shutil.rmtree(staged, ignore_errors=True)
+            staged.mkdir(parents=True, exist_ok=True)
 
         preserve_paths = bool(backend_spec.get("preserve_paths"))
         if preserve_paths:
-            extract_archive_preserve_paths(bin_archive, ctx.paths.llama_bin)
+            extract_archive_preserve_paths(bin_archive, staged_bin)
             for extra_archive in extra_archives:
-                extract_archive_preserve_paths(extra_archive, ctx.paths.llama_bin)
+                extract_archive_preserve_paths(extra_archive, staged_bin)
         else:
-            extract_archive_flat(bin_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars)
+            extract_archive_flat(bin_archive, staged_bin, staged_grammars)
             for extra_archive in extra_archives:
-                extract_archive_flat(
-                    extra_archive, ctx.paths.llama_bin, ctx.paths.llama_grammars
-                )
+                extract_archive_flat(extra_archive, staged_bin, staged_grammars)
+
+        _swap_directory_into_place(staged_bin, ctx.paths.llama_bin)
+        _swap_directory_into_place(staged_grammars, ctx.paths.llama_grammars)
 
         ensure_installed_tool_executables(ctx)
 
-        ctx.services.save_config(
+        config_data = dict(ctx.services.load_config())
+        config_data.update(
             {"version": release.get("name", tag), "backend": backend, "tag": tag}
         )
+        ctx.services.save_config(config_data)
         ctx.state.clear_runtime_health_cache()
         set_download_progress(
             ctx, status="done", message=f"Installed {tag} ({backend})"
@@ -892,3 +957,7 @@ def install_release(
         return False
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
+        # Leftovers only exist if extraction or the swap failed; the live
+        # directories are untouched in that case.
+        shutil.rmtree(staged_bin, ignore_errors=True)
+        shutil.rmtree(staged_grammars, ignore_errors=True)

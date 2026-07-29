@@ -97,6 +97,8 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.ok(args.includes("--mmap"), "default launch args should enable mmap");
     assert.ok(!args.includes("--no-mmap"), "default launch args should not disable mmap");
+    assert.ok(args.includes("--jinja"), "default launch args should reflect llama.cpp's enabled Jinja default");
+    assert.ok(!args.includes("--no-jinja"), "default launch args should not disable Jinja");
     const timeoutIndex = args.indexOf("-to");
     assert.notEqual(timeoutIndex, -1, "default launch args should include server timeout");
     assert.equal(args[timeoutIndex + 1], "3600");
@@ -432,6 +434,58 @@ function launchResult() {
         flags: {},
     })`, context);
     assert.match(windowsAbsolute.error, /Invalid model filename/);
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("jinja", false);
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--no-jinja"), "disabled Jinja should emit the upstream negated flag");
+    assert.ok(!args.includes("--jinja"), "disabled Jinja should not emit the positive flag");
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template: "chatml",
+            chat_template_custom: "ui/templates/custom.jinja",
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("--chat-template-file"));
+    assert.ok(!args.includes("--chat-template"), "a custom template file must take precedence over a builtin name");
+}
+
+// Command preview quoting: the preview is copy-pasteable, so any value holding a
+// space (a Windows model path, most often) has to survive the round trip.
+{
+    const quoteArg = vm.runInContext("window.LlamaGui.flagCore.quoteArg", context);
+    assert.equal(quoteArg("plain"), "plain", "an ordinary token must not be quoted");
+    assert.equal(quoteArg("C:\\My Models\\qwen.gguf"), '"C:\\My Models\\qwen.gguf"');
+    assert.equal(quoteArg('say "hi"'), '"say \\"hi\\""', "embedded quotes must be escaped");
+    assert.equal(quoteArg(7), "7", "non-strings must be coerced");
+}
+
+{
+    // Repo-relative with a space: normalizeModelRelPath rejects absolute paths,
+    // so a model in a subfolder is the realistic way to get a space into the args.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setSelectedModelValue("My Models/qwen.gguf");
+    `, context);
+    const { command } = vm.runInContext("window.LlamaGui.flagCore.updateCommandPreview()", context);
+    assert.match(
+        command,
+        /-m "models\/My Models\/qwen\.gguf"/,
+        "a model path containing spaces must be quoted in the copyable command"
+    );
+    assert.ok(
+        !/-m models\/My Models/.test(command),
+        "an unquoted path would split into two arguments when pasted"
+    );
 }
 
 console.log("launch args unit tests passed");

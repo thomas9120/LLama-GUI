@@ -83,6 +83,8 @@ const elements = new Map();
     "btn-update",
     "release-group",
     "custom-backend-info",
+    "app-update-status",
+    "btn-update-app",
 ].forEach((id) => elements.set(id, makeElement()));
 
 const fetchCalls = [];
@@ -328,6 +330,20 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     result = runClear("http://127.0.0.1:5240/?preset=Test");
     assert.equal(result.cleared, false, "a URL without appReload must not be rewritten");
     assert.deepEqual(result.replaced, [], "no history entry should be replaced when nothing changes");
+
+    context.fetch = async (url) => {
+        assert.equal(url, "/api/app-update-status");
+        throw new Error("network down");
+    };
+    await assert.doesNotReject(
+        () => context.window.LlamaGui.manager.updateAppFromGitHub(),
+        "an app-update preflight failure must be handled by the update UI"
+    );
+    assert.equal(elements.get("app-update-status").className, "status-box error");
+    assert.equal(
+        elements.get("app-update-status").textContent,
+        "Failed to check app updates: network down"
+    );
 
     console.log("manager releases unit tests passed");
 })().catch((err) => {

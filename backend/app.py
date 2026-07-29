@@ -34,6 +34,7 @@ from backend.http import (
     Request,
     Response,
     WILDCARD_BIND_HOSTS,
+    build_http_origin,
     get_access_control_origin,
     get_allowed_request_origins,
     get_cors_methods,
@@ -41,6 +42,7 @@ from backend.http import (
     is_safe_v1_proxy_path,
     is_static_ui_path,
     is_v1_proxy_path,
+    sanitize_error,
 )
 from backend.routing import Router
 from backend.routes import chat as chat_routes
@@ -561,7 +563,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if length == 0:
             return {}
         try:
-            return json.loads(self.read_request_bytes(length))
+            parsed = json.loads(self.read_request_bytes(length))
+            return parsed if isinstance(parsed, dict) else None
         except (TimeoutError, socket.timeout):
             self.send_error_json("Request body timed out", 408)
             return _BODY_HANDLED
@@ -569,6 +572,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return None
 
     def get_request_content_length(self):
+        if str(self.headers.get("Transfer-Encoding") or "").strip():
+            self.send_error_json(
+                "Transfer-Encoding is not supported; send Content-Length instead",
+                501,
+            )
+            return _BODY_HANDLED
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
             return 0
@@ -649,7 +658,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = get_llama_api_target()
         text = (
             "Llama-GUI OpenAI-compatible proxy is running.\n"
-            f"Local llama-server target: http://{target['host']}:{target['port']}\n"
+            f"Local llama-server target: {build_http_origin(target['host'], target['port'])}\n"
             "Use /v1/models or /v1/chat/completions with an OpenAI-compatible client.\n"
         )
         Response(self).text(text)
@@ -670,7 +679,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = get_llama_api_target()
         path = parsed.path
         query = f"?{parsed.query}" if parsed.query else ""
-        url = f"http://{target['host']}:{target['port']}{path}{query}"
+        url = f"{build_http_origin(target['host'], target['port'])}{path}{query}"
         try:
             data = self.get_proxy_request_body() if method in {"POST", "PUT", "PATCH"} else None
         except (TimeoutError, socket.timeout):
@@ -688,8 +697,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             headers["Accept"] = "*/*"
 
         req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # Once the status line is buffered, no error path may emit a second
+        # response: it would be appended to the first and the client would parse
+        # the concatenation as one malformed reply.
+        response_started = False
         try:
             with urllib.request.urlopen(req, timeout=300) as resp:
+                response_started = True
                 self.send_response(resp.status)
                 excluded = {
                     "connection",
@@ -720,8 +734,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                         self.wfile.write(chunk)
                         self.wfile.flush()
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            self.close_connection = True
             return
         except urllib.error.HTTPError as exc:
+            # urlopen raises this before any bytes go out, so response_started is
+            # False here in practice; the guard keeps the invariant local rather
+            # than relying on that staying true.
+            if response_started:
+                print(f"[v1 proxy] HTTPError after response started: {exc}", file=sys.stderr)
+                self.close_connection = True
+                return
             body = exc.read()
             self.send_response(exc.code)
             content_type = exc.headers.get("Content-Type", "application/json")
@@ -731,6 +753,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(body)
         except Exception as exc:
             print(f"[v1 proxy] {type(exc).__name__}: {exc}", file=sys.stderr)
+            if response_started:
+                # Upstream failed partway through a reply we are already relaying.
+                # Truncating the body is the only signal left — an error response
+                # here would corrupt the stream the client is mid-way through
+                # parsing (and for SSE, inject a bogus event).
+                self.close_connection = True
+                return
             self.send_proxy_error("Failed to reach llama-server. Start it or check the configured API host and port.")
 
     def dispatch_api_request(self, method, parsed, body=None):
@@ -755,7 +784,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             body=body,
             params=dict(match.params),
         )
-        match.handler(request, Response(self), APP_CONTEXT)
+        response = Response(self)
+        try:
+            match.handler(request, response, APP_CONTEXT)
+        except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
+            # Client hung up; nothing left to reply to.
+            self.close_connection = True
+        except Exception as exc:
+            if response.started:
+                # A status line is already on the wire, so an error response here
+                # would be appended to the previous one and corrupt it. Log it and
+                # drop the connection instead — a truncated body is the only
+                # signal available at this point.
+                print(
+                    f"[api] {method} {path} failed after the response started: "
+                    f"{type(exc).__name__}: {exc}",
+                    file=sys.stderr,
+                )
+                self.close_connection = True
+                return
+            # sanitize_error logs the original and returns a generic message for
+            # 5xx, so handler bugs surface as a clean 500 rather than a dropped
+            # connection the UI reports as "server unreachable".
+            response.error(sanitize_error(exc, 500), 500)
 
     def do_GET(self):
         parsed = urllib.parse.urlparse(self.path)
@@ -826,6 +877,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         body = self.read_body()
 
         if body is _BODY_HANDLED:
+            return
+
+        if body is None:
+            self.send_error_json("Invalid or malformed JSON body", 400)
             return
 
         self.dispatch_api_request("DELETE", parsed, body)
@@ -902,13 +957,13 @@ def main():
     except OSError as e:
         if "address already in use" in str(e).lower() or e.errno == 10048:
             print(f"ERROR: Port {port} is already in use.")
-            print(f"Another instance of Llama GUI may be running at http://{GUI_HOST}:{port}")
+            print(f"Another instance of Llama GUI may be running at {build_http_origin(GUI_HOST, port)}")
             print("Stop the other instance first, or close the browser tab and try again.")
         else:
             print(f"ERROR: Could not start server on port {port}: {e}")
         sys.exit(1)
 
-    print(f"Llama GUI running at http://{GUI_HOST}:{port}")
+    print(f"Llama GUI running at {build_http_origin(GUI_HOST, port)}")
     if GUI_HOST in WILDCARD_BIND_HOSTS:
         print(f"Remote access enabled. Open http://<this-server-lan-ip>:{port} from a trusted machine.")
     print("Press Ctrl+C to stop the server.")
