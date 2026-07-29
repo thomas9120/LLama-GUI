@@ -4,9 +4,10 @@ Outstanding work only. Anything fixed has been removed; the full record of what 
 reviewed, fixed, and rejected lives in
 [code-review-swarm-2026-07-29-verification.md](code-review-swarm-2026-07-29-verification.md).
 
-All High and Medium findings from the 2026-07-29 whole-repo review are done. What
-remains is the `chat-ui.js` test harness, the Low-severity findings, and a tail of
-Low items that were never verified either way.
+All High and Medium findings from the 2026-07-29 whole-repo review are done, as are
+every Low-severity finding that was actually verified. What remains is the
+`chat-ui.js` test harness, one unresolved item, and a tail of Low items that are now
+verified but still unfixed (see §3).
 
 ---
 
@@ -80,59 +81,7 @@ honest position is that H2 is covered by code review and nothing else.
 
 ---
 
-## 2. Low severity — confirmed, unfixed
-
-Each of these was read and verified during the review.
-
-### Backend
-
-- **`app.py:526` + `http.py:235` — duplicate `Access-Control-Allow-Origin` on `/`.**
-  `is_static_ui_path("/")` is true so `end_headers` emits the header, and
-  `send_versioned_index` routes through `Response.bytes`, which emits it again. More
-  than cosmetic: browsers reject a duplicated ACAO outright.
-- **`lifecycle.py:46` — `_wait_for_port_release` hardcodes `AF_INET`.** Every bind
-  attempt raises for an IPv6 GUI host, so it returns `False`, logs a warning, and
-  restarts anyway. Spurious warning plus a lost wait, not a hard failure.
-- **`lifecycle.py:122` — `xdg-open`/`open` with no timeout** can hang the handler thread.
-- **`process_manager.py:637` — `_memory_estimate_args` mishandles a valueless `-np`.**
-  Worse than reported: with `["-np", "--verbose"]`, `int("--verbose")` raises,
-  `parallel = 0` fails the range test, and `i += 2` eats **both** tokens.
-- **`routes/process.py:26` — `launch` never checks `args` is a list.**
-  `flatten_launch_args` iterates it, so a string explodes into one arg per character.
-- **`routes/chat.py:146` — only `BrokenPipeError` is caught** on client disconnect.
-  Windows raises `ConnectionAbortedError`/`ConnectionResetError`, neither of which is a
-  subclass of it.
-- **`web_search.py:234,264,293`** — `parsed.port` sits outside the `try` and raises
-  `ValueError` on an out-of-range port; `f"Failed to fetch URL: {exc}"` returns raw
-  exception text to the client; the ddgs loop calls `row.get(...)` with no
-  `isinstance(row, dict)` guard.
-- **`external_server.py:211` — `http.client.HTTPException` escapes `probe()`.**
-  `HTTPError` is caught at `:202` and `URLError`/`OSError` at `:211`, but
-  `BadStatusLine`/`IncompleteRead` are a sibling of neither.
-
-  *Note on the last two:* the `dispatch_api_request` guard added in `backend/app.py`
-  now converts these into a sanitized 500 rather than a dropped connection, so the
-  user-visible symptom is gone. The root causes remain and should still be fixed.
-
-### Frontend / assets
-
-- **`ui/index.html:6`** — `<meta name="color-scheme" content="dark">` is hardcoded and
-  the pre-paint IIFE sets only `documentElement.dataset.theme`. Brief dark flash for
-  stored light themes.
-- **`ui/templates/gemma4.jinja` vs `gemma4-e2b-e4b.jinja`** — byte-identical (both md5
-  `83b2e13500209bb24795d5e2db730fa6`). Two presets are backed by one file; whether one
-  should differ is a call for whoever added them.
-
-### Tests
-
-- **`flag_sync_smoke.cjs` — `startStaticServer` has no `'error'` listener.** A spawn
-  failure (e.g. `python` not on PATH) emits `'error'` on the ChildProcess with no
-  listener, crashing the runner with an unhandled-error trace instead of the intended
-  message.
-
----
-
-## 3. Unresolved — needs verification before acting
+## 2. Unresolved — needs verification before acting - defer for now
 
 - **`external_server.py:359`** — "bearer key can be sent to an external host it wasn't
   minted for." Opened but **could not confirm as written**: `get_authorization`
@@ -144,52 +93,140 @@ Each of these was read and verified during the review.
 
 ---
 
-## 4. Not checked — no verdict yet
+## 3. Verified — all confirmed (Low unless noted)
 
-Reported by the original review but never opened, so these are neither confirmed nor
-dismissed. Verify before fixing; roughly a third of the items that *were* checked
-turned out to be wrong or misattributed.
+Reported by the original review but never opened. Verified against the current tree
+(2026-07-30): **every item is real.** Line references below are current, not the
+original review's (those had drifted). Severity is Low across the board; a few reach
+Low-Med. A fix plan is deferred.
+
+One cross-cutting fact that caps two of the items: `app.py` dispatch wraps every route
+handler in `try/except → sanitize_error(..., 500)` (`app.py:817`), so the "unguarded,
+raises" findings below never leak a traceback — they degrade to a sanitized 500
+instead of the intended specific message.
 
 **Backend**
 
-- unlocked `save_config` read-modify-write races across several callers
-- `llama_manager.py:496` — `activate_custom_backend` mutates config without the install
-  lock (`process_manager.claim_install_slot()` now exists and is the natural fix)
-- `hf_download.py:347,42,236,92` — cancel-event cleared outside lock; Windows reserved
-  names (`con.gguf`) not rejected; bare `pass` on partial cleanup; zero-size files
-  report `size_mb: None`
-- `external_server.py:204` — silent empty catch
-- `chat.py:113` — unguarded `ipaddress.ip_address` parse
-- `file_picker.py:59` — macOS cancel detection matches the English "User canceled"
-- `routes/lifecycle.py:21` — `post_open_folder`: unhashable `folder` raises; `mkdir`
-  outside the `try`
-- `http.py:169` — generic chat exception not logged to stderr when the tunnel is inactive
-- `mac_linux_start.sh` — browser URL uses unsanitized port/host env vars; silent start
-  discards all diagnostics
+- **`save_config` read-modify-write races — Confirmed (Low-Med).** `save_config`
+  (`app.py:151`) does an atomic `tmp.replace`, but the *load → mutate → save* cycle is
+  unserialized. Four callers share no config lock: `llama_manager` activate (`:498`) and
+  install (`:945`), `process_manager` uninstall (`:1488`), `external_server` register
+  (`:147`). A live install thread (writing version/tag) can race an external-server
+  register (writing its key) — last writer wins and silently loses the other's fields.
+- **`activate_custom_backend` bypasses the install lock — Confirmed (Low).** Route
+  `activate_custom` (`install.py:128`) only checks `is_process_running`, never
+  `_claim_install_slot()`, unlike the three install/update/uninstall paths.
+  `process_manager.claim_install_slot()` / `release_install_slot()` already exist and are
+  the natural fix. (Related to the race above.)
+- **`hf_download` — Confirmed (four sub-items, all Low).**
+  - *Cancel cleared outside lock.* The worker `finally` (`:369-371`) sets
+    `model_download_in_progress = False` under `model_download_lock`, then clears
+    `model_download_cancel` (`:371`) *outside* it — a stale clear can race a fresh
+    `cancel.set()` from a later download. Fix: clear inside the lock.
+  - *Windows reserved names.* `validate_hf_filename` (`:42`) has no
+    `CON/PRN/AUX/NUL/COMx/LPTx` check, so `con.gguf` validates but fails to save on
+    Windows.
+  - *Bare `pass`.* `remove_partial_downloads` `except OSError: pass` (`:263`) violates
+    the "no silent empty catch" invariant.
+  - *Zero-size files.* `hf_file_to_dict` (`:92`): `round(size/...) if size else None`
+    reports a real 0-byte file as `size:0, size_mb:None` (None usually means "unknown").
+- **`external_server.py:204` silent empty catch — Confirmed (Low, justifiable).** Inner
+  `except Exception: body = b""` reading an `HTTPError` body. Best-effort; the status is
+  captured regardless. Borderline "expected optional" — a `print(..., stderr)` would
+  satisfy the invariant.
+- **`chat.py:113` unguarded `ipaddress.ip_address` — Confirmed (Low).** Actually
+  `services/chat.py:113` (`get_local_proxy_host`): the loop parse is outside any try; an
+  IPv6 scope-id sockaddr raises `ValueError` → caught by `app.py:817` as a generic 500
+  instead of the intended "Blocked" message.
+- **`file_picker.py:59` macOS English cancel match — Confirmed (Low).**
+  `"User canceled" in result.stderr` is locale-dependent; on a non-English macOS a cancel
+  falls through to `raise RuntimeError(<localized msg>)`.
+- **`routes/lifecycle.py:21` unhashable folder / mkdir outside try — Confirmed (Low).**
+  `folder_map.get(folder, ...)` raises `TypeError` for a list/dict `folder`, and
+  `target.mkdir(...)` runs before the `try`. Both are caught by `app.py:817` — no crash,
+  just a generic 500 instead of a 400 validation message.
+- **`http.py:169` chat exception not logged when tunnel inactive — Confirmed (Low).**
+  `sanitize_sse_error` only `print(..., stderr)` inside `if tunnel_active`. A local
+  failure returns raw detail to the client but leaves no server-side log — violates
+  "real error always to stderr".
+- **`mac_linux_start.sh` — Confirmed (Low/marginal).** Port is not validated as numeric;
+  `open_browser` does `>/dev/null 2>&1 || true`, discarding all diagnostics. These are
+  operator-set env vars (quoted in the calls), so there's no injection — the
+  "unsanitized" framing is weak; the discarded-diagnostics part is the real nit.
 
 **Frontend**
 
-- `app.js:951,700` — `updateMemoryEstimate` duplicates model-arg detection and omits
-  `-mu`/`--model-url`; `getExecutableSuffix` sniffs `navigator.userAgent`
-- `manager.js:670,1119` — silent empty catch in `waitForServerReady`; `refreshModels`
-  has no stale-response guard
-- `quick-launch-ui.js:458` — dead no-op branch
-- `presets.js:405,2002,1538` — `__proto__` preset name breaks favorites maps; partial
-  import leaves stale UI; failed load renders stale summary next to error
-- `searchable-select.js:216` — popup reparented to body with listeners/`MutationObserver`
-  never torn down
-- `hf-download-ui.js:225` — silent empty catch in `refreshStatus`
-- `external-server-ui.js:209,53` — `refresh()` overwrites in-progress host/port edits;
-  disconnect badge wrongly reads "Connecting"
-- `api-tab.js:297,280` — "Server ready" shown for any running process, not just
-  llama-server; empty parsed API key sends a blank `Authorization: Bearer`
-- `process-lifecycle.js:52` — `subscribe()` initial emit not error-isolated
-- `benchmark-ui.js:96` — `statusTimer` is dead code
-- `flag-core.js:445,309,411` — custom-args duplicate detection misses `-m`/`--model`;
-  flag-name-valued tokens cause spurious duplicate warnings; an unsupported
-  `chat_template` value is silently dropped from launch args with no warning
+- **`app.js` model-arg duplication — Confirmed (Low-Med).** `updateMemoryEstimate`
+  (`app.js:945`) hand-rolls the check with only `-m/-hf/--model/--hf-repo`; the canonical
+  `flag-core.js:358 hasLaunchModelArg` also has `-mu`/`--model-url`. A `--model-url`
+  launch shows "Idle — Select a model". Classic duplication drift — call the shared
+  helper.
+- **`app.js` `getExecutableSuffix` sniffs `navigator.userAgent` — Confirmed (Low).**
+  `app.js:706`: fallback when `latestStatus.executable_suffix` is absent. Minor
+  "platform decision in frontend" invariant bend; the primary path uses backend status.
+- **`manager.js` empty `catch` in `waitForServerReady` — Confirmed (Low, invariant).**
+  `manager.js:670` `catch {}` — should be `console.debug` per the expected-optional rule.
+- **`manager.js` `refreshModels` no stale-response guard — Confirmed (Low).** No
+  request-id token (unlike `memoryEstimateRequestId` in `app.js`); two overlapping calls
+  can apply the older list last.
+- **`quick-launch-ui.js:458` dead no-op branch — Confirmed (Low).** Now at `:472-474`:
+  `} else if (!quickLaunchGpuCustomSelected) { quickLaunchGpuCustomSelected = false; }`
+  assigns the value the condition already guarantees.
+- **`presets.js` `__proto__` breaks favorites maps — Confirmed (Low).**
+  `loadPresetJsonMap` (`:376`) returns a plain object, so `favorites["__proto__"]` hits
+  the prototype — a preset named `__proto__`/`constructor` can't be favorited and
+  serializes as `{}`. Fix: `Object.create(null)` or a `Map`.
+- **`presets.js` partial import leaves stale UI — Confirmed (Low).** `handlePresetImport`
+  (`:2021`) POSTs in a loop; if one fails mid-loop the `catch` shows "Failed to import
+  preset" but never calls `loadPresets()`, so already-created presets don't appear until a
+  manual refresh.
+- **`presets.js` failed load renders stale summary — Confirmed (Low).** `loadPresets`
+  catch (`:1538`) still calls `renderPresetAuxiliaryPanels()`, which renders detail from
+  the prior `currentPresetGroups` / `selectedPresetName` next to the error.
+- **`searchable-select.js:216` popup/observer never torn down — Confirmed (Low, benign
+  today).** Popup reparented to `body` in `open()`; the `MutationObserver` (`:288`) and
+  the `select.value` override are never disconnected/restored; no `destroy()`. Benign for
+  today's static selects, a leak if ever applied to a dynamic `<select>`.
+- **`hf-download-ui.js:225` silent empty catch — Confirmed (Low, invariant).**
+  `refreshStatus` `catch (e) { /* comment */ }` — should `console.debug`.
+- **`external-server-ui.js` `refresh()` overwrites in-progress edits — Confirmed
+  (Low-Med).** `refresh()` (`:209`) always passes `syncInputs:true`; `render` then sets
+  `hostInput.value = target.host` with no `setInputValueUnlessEditing` / focus guard.
+  Fires on every switch to the API tab, clobbering any in-progress host/port edit.
+- **`external-server-ui.js` disconnect badge reads "Connecting" — Confirmed (Low,
+  cosmetic).** `disconnect()` calls `render(getTarget(), {busy:true})`; `render` maps
+  `busy → "Connecting"` regardless of operation, so a disconnect briefly shows
+  "Connecting".
+- **`api-tab.js` "Server ready" for any running process — Confirmed (Low-Med).**
+  `runningText` (`:312`) keys off `latestStatus.running` (true for
+  llama-bench/perplexity/cli), not `active_process_tool === "llama-server"` — a
+  benchmark run misleadingly says endpoints are "ready".
+- **`api-tab.js` empty parsed key sends blank `Bearer` — Confirmed (Low-Med).**
+  `getApiAuthorizationHeaders` (`:278`) guards only on the raw `api_key`;
+  `parseApiKeyCsv(",") → ["",""]`, then `selectedKey = undefined ?? keys[0]` = `""`, and
+  `"" !== undefined` yields `Authorization: "Bearer "`.
+- **`process-lifecycle.js:52` subscribe initial emit not isolated — Confirmed (Low).**
+  `subscribe` calls `listener(getSnapshot())` directly, while `notify()` wraps each
+  listener in try/catch — a throwing subscriber breaks the subscribe call.
+- **`benchmark-ui.js:96` `statusTimer` dead — Confirmed (Low).** Declared `:100`, only
+  referenced by the `beforeunload` `clearInterval` (`:978`); never assigned.
+- **`flag-core.js` dup detection misses `-m`/`--model` — Confirmed (Low).**
+  `getKnownCliFlags` derives from `FLAGS`; model flags aren't in `FLAGS`, so a user-typed
+  `-m` in custom args isn't flagged though the app emits its own `-m`.
+- **`flag-core.js` spurious duplicate warnings — Confirmed (Low, edge).** The parser is
+  token-naive (no flag/value distinction); a value that exactly equals a known flag
+  string is mis-flagged. Requires an unusual value.
+- **`flag-core.js` unsupported `chat_template` silently dropped — Confirmed (Low-Med).**
+  `:411` `continue` on an unsupported template emits no `warnings.push`, so a launch
+  silently runs with no `--chat-template`.
 
 **Tests**
 
-- `test_services.py:2838` — latent thread-poll flake
-- `remote_tunnel_ui_unit.cjs` — `classList.toggle` stub has inverted no-force semantics
+- **`test_services.py` thread-poll flake — Confirmed (Low, latent).**
+  `test_downloads_into_repo_subfolder` (`:2960`) spawns a **real** `threading.Thread`
+  and polls up to 50×20 ms (~1 s) for terminal status — timing-dependent under CI load.
+  (A sibling test patches `threading.Thread` with `ImmediateThread`; this one doesn't.)
+- **`remote_tunnel_ui_unit.cjs` `classList.toggle` inverted — Confirmed (Low, test
+  fidelity).** Stub (`:18-21`): `if (force) add else delete` — the omitted-`force` case
+  always deletes instead of toggling, so `toggle("x")` never adds. Masks any SUT path
+  relying on no-force toggle to add.

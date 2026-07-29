@@ -21,13 +21,24 @@
         // then normalises the attribute once it loads.
         (function () {
             var theme = "tokyo";
+            var scheme = "";
             try {
                 var stored = localStorage.getItem("llama_gui_theme");
                 if (stored && /^[a-z][a-z0-9-]*$/.test(stored)) theme = stored;
+                // theme-ui.js mirrors the resolved scheme here on every apply, so
+                // the polarity is known before its registry loads. Without this the
+                // hardcoded meta below stayed "dark" and a stored light theme got a
+                // dark flash of native scrollbars and form controls.
+                var storedScheme = localStorage.getItem("llama_gui_theme_scheme");
+                if (storedScheme === "light" || storedScheme === "dark") scheme = storedScheme;
             } catch (e) {
                 console.debug("Failed to apply stored theme before paint", e);
             }
             document.documentElement.dataset.theme = theme;
+            if (scheme) {
+                var meta = document.querySelector('meta[name="color-scheme"]');
+                if (meta) meta.setAttribute("content", scheme === "light" ? "light dark" : "dark light");
+            }
         })();
     </script>
     <link rel="stylesheet" href="/css/tokens.css">

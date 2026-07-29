@@ -199,11 +199,16 @@ function loadCurrentDefinitions() {
     const context = {};
     vm.createContext(context);
     vm.runInContext(
-        `${source}\nthis.__FLAGS = FLAGS; this.__FLAG_CATEGORIES = FLAG_CATEGORIES;`,
+        `${source}\nthis.__FLAGS = FLAGS; this.__FLAG_CATEGORIES = FLAG_CATEGORIES;`
+        + `\nthis.__CHAT_TEMPLATE_PRESETS = CHAT_TEMPLATE_PRESETS;`,
         context,
         { filename: "ui/js/flags/definitions.js" }
     );
-    return { flags: context.__FLAGS, categories: context.__FLAG_CATEGORIES };
+    return {
+        flags: context.__FLAGS,
+        categories: context.__FLAG_CATEGORIES,
+        chatTemplatePresets: context.__CHAT_TEMPLATE_PRESETS,
+    };
 }
 
 function makeFlag(overrides = {}) {
@@ -389,6 +394,34 @@ assert.deepEqual(validateFlags(null, []), {
     assertIncludes(result.warnings, 'default for "count" should be an integer-compatible value.');
     assertIncludes(result.warnings, 'default for "ratio" should be a finite number-compatible value.');
     assertIncludes(result.warnings, 'default for "items" should be an array or comma-separated string for multi_enum flags.');
+}
+
+// Every bundled chat-template preset must point at a file that actually ships.
+// A dangling path is invisible until a user picks that entry and the launch fails,
+// so deleting or renaming a template has to fail here instead.
+{
+    const presets = current.chatTemplatePresets || [];
+    const bundled = presets.filter((preset) => preset && preset.mode === "bundled");
+    assert.ok(bundled.length > 0, "expected bundled chat-template presets to exist");
+
+    for (const preset of bundled) {
+        assert.ok(hasText(preset.path), `bundled preset ${preset.value} needs a path`);
+        assert.ok(
+            fs.existsSync(path.join(ROOT, preset.path)),
+            `bundled chat template "${preset.label}" points at missing file ${preset.path}`
+        );
+    }
+
+    // And the reverse: a template file nobody references is dead weight, and was
+    // how a byte-identical duplicate of gemma4-e2b-e4b.jinja survived unnoticed.
+    const referenced = new Set(bundled.map((preset) => path.basename(preset.path)));
+    const onDisk = fs.readdirSync(path.join(ROOT, "ui", "templates"))
+        .filter((name) => name.endsWith(".jinja"));
+    const orphans = onDisk.filter((name) => !referenced.has(name));
+    assert.deepEqual(
+        orphans, [],
+        `ui/templates has .jinja files no preset references: ${orphans.join(", ")}`
+    );
 }
 
 console.log(`flag definition validation passed for ${current.flags.length} GUI flags`);

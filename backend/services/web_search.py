@@ -10,7 +10,7 @@ import sys
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from backend import config
 from backend.http import sanitize_error
@@ -238,7 +238,14 @@ def fetch_page_text(
     current_url = urllib.parse.urlunparse(parsed)
     for _ in range(5):
         parsed = urllib.parse.urlparse(current_url)
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        # .port raises ValueError on an out-of-range port ("http://host:99999/"),
+        # and this sits outside the try below, so it used to propagate all the way
+        # out of the route as an unhandled exception.
+        try:
+            explicit_port = parsed.port
+        except ValueError:
+            return {"ok": False, "error": "Blocked: URL has an invalid port."}
+        port = explicit_port or (443 if parsed.scheme == "https" else 80)
         addresses, reason = resolve_public_addresses(parsed.hostname, port)
         if addresses is None:
             return {"ok": False, "error": reason}
@@ -268,7 +275,10 @@ def fetch_page_text(
                 text = text[:max_chars].rstrip() + f"\n\n... (truncated, {len(text)} chars total)"
             return {"ok": True, "url": current_url, "text": text or "(page returned no readable text)"}
         except Exception as exc:
-            return {"ok": False, "error": f"Failed to fetch URL: {exc}"}
+            # sanitize_error logs the original and returns a generic message, so
+            # the raw exception text — which can carry local paths and host
+            # details — no longer reaches the client (or the tunnel).
+            return {"ok": False, "error": f"Failed to fetch URL: {sanitize_error(exc, 500)}"}
 
     return {"ok": False, "error": "Failed to fetch URL: too many redirects."}
 
@@ -297,6 +307,10 @@ def ddgs_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) ->
 
     results = []
     for row in rows or []:
+        # ddgs is a third-party scraper whose row shape is not guaranteed; a
+        # non-dict row used to raise AttributeError straight out of the route.
+        if not isinstance(row, Mapping):
+            continue
         url = row.get("href") or row.get("url") or ""
         if not url:
             continue

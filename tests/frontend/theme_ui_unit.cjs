@@ -249,6 +249,37 @@ function run(storedTheme) {
             theme.scheme === "light" ? "light dark" : "dark light",
             `theme ${theme.id} reported the wrong color-scheme hint`
         );
+        // Mirrored to storage for the pre-paint script in index.html, which
+        // cannot see THEMES. Without it the hardcoded <meta content="dark">
+        // survived until theme-ui.js loaded and a stored light theme flashed
+        // dark native controls.
+        assert.equal(
+            t.storage.get("llama_gui_theme_scheme"),
+            theme.scheme,
+            `theme ${theme.id} did not publish its scheme for the pre-paint script`
+        );
+    }
+}
+
+{
+    // The inline pre-paint script in index.html is the only consumer of that
+    // storage key, and it is duplicated markup rather than a module, so this
+    // asserts the two halves still agree on the key and the values.
+    const html = fs.readFileSync(path.join(ROOT, "ui", "index.html"), "utf8");
+    const prePaint = html.slice(0, html.indexOf("</head>"));
+    assert.ok(
+        prePaint.includes("llama_gui_theme_scheme"),
+        "index.html pre-paint script must read the scheme key theme-ui.js writes"
+    );
+    assert.ok(
+        /meta\[name="color-scheme"\]/.test(prePaint),
+        "index.html pre-paint script must update the color-scheme meta tag"
+    );
+    for (const value of ["light dark", "dark light"]) {
+        assert.ok(
+            prePaint.includes(value),
+            `pre-paint script must be able to emit "${value}"`
+        );
     }
 }
 

@@ -14,6 +14,9 @@ from ..config import (
     SUPERVISOR_RESTART_EXIT_CODE,
 )
 
+# Ceiling for the desktop file-manager handoff, which runs on a request thread.
+OPEN_FOLDER_TIMEOUT_SECONDS = 15
+
 
 def shutdown_gui_server(ctx):
     server = ctx.state.gui_server
@@ -43,20 +46,43 @@ def cleanup_gui_server(ctx):
     return False
 
 
-def _wait_for_port_release(gui_host, gui_port, startup_delay, wait_attempts, wait_seconds):
-    time.sleep(startup_delay)
-    for i in range(wait_attempts):
+def _can_bind_port(gui_host, gui_port):
+    """Is the address free again?
+
+    Resolves the address family instead of assuming AF_INET. Hardcoding IPv4 made
+    every bind fail for an IPv6 GUI host, so the wait below always ran out and the
+    restart raced the old process for the port instead of waiting for it.
+    """
+    try:
+        infos = socket.getaddrinfo(
+            gui_host or None,
+            gui_port,
+            type=socket.SOCK_STREAM,
+            flags=socket.AI_PASSIVE,
+        )
+    except OSError:
+        return False
+    for family, socktype, proto, _, sockaddr in infos:
         sock = None
         try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.bind((gui_host, gui_port))
+            sock = socket.socket(family, socktype, proto)
+            sock.bind(sockaddr)
             return True
         except OSError:
-            if i < wait_attempts - 1:
-                time.sleep(wait_seconds)
+            continue
         finally:
             if sock is not None:
                 sock.close()
+    return False
+
+
+def _wait_for_port_release(gui_host, gui_port, startup_delay, wait_attempts, wait_seconds):
+    time.sleep(startup_delay)
+    for i in range(wait_attempts):
+        if _can_bind_port(gui_host, gui_port):
+            return True
+        if i < wait_attempts - 1:
+            time.sleep(wait_seconds)
     return False
 
 
@@ -128,7 +154,20 @@ def open_folder_in_file_manager(target):
     if sys.platform == "win32":
         os.startfile(str(target))
         return
-    if sys.platform == "darwin":
-        subprocess.run(["open", str(target)], check=False)
-        return
-    subprocess.run(["xdg-open", str(target)], check=False)
+    opener = "open" if sys.platform == "darwin" else "xdg-open"
+    # Bounded because this runs on an HTTP handler thread: xdg-open can block
+    # indefinitely when it hands off to a desktop helper that never returns (or
+    # when no file manager is installed and it waits on a chooser).
+    try:
+        subprocess.run(
+            [opener, str(target)],
+            check=False,
+            timeout=OPEN_FOLDER_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
+        )
+    except subprocess.TimeoutExpired:
+        # The folder usually opens anyway; only the helper failed to exit.
+        print(
+            f"[lifecycle] {opener} did not exit within {OPEN_FOLDER_TIMEOUT_SECONDS}s",
+            file=sys.stderr,
+        )

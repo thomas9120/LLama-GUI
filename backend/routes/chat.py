@@ -13,6 +13,20 @@ from backend.services import external_server
 from backend.services import web_search
 
 
+def _write_stream_error(writer, message):
+    """Report a failure on an in-flight SSE stream, best effort.
+
+    The stream may already be dead — a client that disconnected is a common way
+    to *get* here — and failing to deliver the bad news must not raise a second
+    exception out of the route.
+    """
+    try:
+        writer.write({"error": {"message": message}})
+        writer.write("[DONE]")
+    except OSError as exc:
+        print(f"[chat] could not report stream error to client: {exc}", file=sys.stderr)
+
+
 def get_web_search_result_count(body):
     try:
         raw_value = body.get("web_search_max_results", config.WEB_SEARCH_MAX_RESULTS)
@@ -143,7 +157,12 @@ def completions(request, response, ctx):
                 response.handler.wfile.flush()
                 if line.strip() == b"data: [DONE]":
                     break
-    except BrokenPipeError:
+    # ConnectionError, not BrokenPipeError: a client that goes away mid-stream
+    # raises ConnectionAbortedError or ConnectionResetError on Windows, neither of
+    # which is a subclass of BrokenPipeError. Those used to fall through to the
+    # generic handler below, which then tried to write an error frame to the
+    # socket that had just died.
+    except ConnectionError:
         return
     except urllib.error.HTTPError as exc:
         try:
@@ -153,13 +172,11 @@ def completions(request, response, ctx):
         tunnel_active = bool(ctx.state.remote_tunnel.snapshot().get("url"))
         if tunnel_active:
             print(f"[sanitize_sse_error] HTTPError {exc.code}: {err}", file=sys.stderr)
-            writer.write({"error": {"message": "Chat request failed."}})
+            _write_stream_error(writer, "Chat request failed.")
         else:
-            writer.write({"error": {"message": f"llama-server returned HTTP {exc.code}: {err}"}})
-        writer.write("[DONE]")
+            _write_stream_error(writer, f"llama-server returned HTTP {exc.code}: {err}")
     except Exception as exc:
         tunnel_active = bool(ctx.state.remote_tunnel.snapshot().get("url"))
-        writer.write({"error": {"message": sanitize_sse_error(exc, tunnel_active)}})
-        writer.write("[DONE]")
+        _write_stream_error(writer, sanitize_sse_error(exc, tunnel_active))
     finally:
         response.handler.close_connection = True

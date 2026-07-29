@@ -2,9 +2,11 @@ import contextlib
 import hashlib
 import io
 import json
+import socket
 import subprocess
 import tempfile
 import threading
+import types
 import unittest
 import urllib.error
 import zipfile
@@ -1249,6 +1251,23 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"sent": True})
             self.assertEqual(ctx.state.process.stdin.getvalue(), "hello\n")
 
+    def test_memory_estimate_args_only_consumes_a_real_np_value(self):
+        """A valueless -np used to swallow the following flag: the next token was
+        consumed as its value unconditionally, so both were dropped."""
+        cases = [
+            # (input, expected output, why)
+            (["-np", "8", "--verbose"], ["-np", "8", "--verbose"], "a valid value is kept"),
+            (["-np=8", "--verbose"], ["-np=8", "--verbose"], "inline form is kept"),
+            (["-np", "--verbose"], ["--verbose"], "a valueless -np must not eat the next flag"),
+            (["--parallel", "--verbose"], ["--verbose"], "long form behaves the same"),
+            (["-np"], [], "a trailing -np is simply dropped"),
+            (["-np", "-1", "--verbose"], ["--verbose"], "a negative value is still its value"),
+            (["-np", "999", "--verbose"], ["--verbose"], "an out-of-range value drops both"),
+        ]
+        for args, expected, why in cases:
+            with self.subTest(args=args):
+                self.assertEqual(process_manager._memory_estimate_args(list(args)), expected, why)
+
     def test_launch_does_not_hold_locks_across_runtime_validation(self):
         """_validate_launch_environment shells out to ldd/otool per packaged ggml
         library on Linux/macOS. Held under install_lock + process_lock it stalled
@@ -1374,6 +1393,26 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertFalse(sent)
             self.assertIn("timed out", captured.getvalue())
+
+    def test_process_launch_rejects_non_array_args(self):
+        """flatten_launch_args iterates whatever it gets, so a bare string became
+        one argument per character instead of an error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.services.llama_tools = ["llama-server"]
+            for bad_args in ("--verbose", {"a": 1}, 7):
+                with self.subTest(args=bad_args):
+                    response = DummyResponse()
+                    process.launch(
+                        Request(
+                            "POST", "/api/launch", "", {},
+                            body={"tool": "llama-server", "args": bad_args},
+                        ),
+                        response,
+                        ctx,
+                    )
+                    self.assertEqual(response.status, 400)
+                    self.assertIn("array", response.payload["error"])
 
     def test_process_cleanup_blocks_when_process_is_running(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2725,6 +2764,47 @@ class ExtractedRouteTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertIn("non-public address 127.0.0.1", reason)
+
+    def test_fetch_page_text_rejects_an_invalid_port_instead_of_raising(self):
+        """urlparse().port raises ValueError on an out-of-range port, and that call
+        sat outside the try, so it propagated out of the route."""
+        result = web_search.fetch_page_text("http://example.com:99999/page")
+
+        self.assertFalse(result["ok"])
+        self.assertIn("invalid port", result["error"])
+
+    def test_fetch_page_text_does_not_leak_raw_exception_text(self):
+        addresses = [(web_search.socket.AF_INET, web_search.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        with mock.patch.object(
+            web_search, "resolve_public_addresses", return_value=(addresses, "")
+        ), mock.patch.object(
+            web_search,
+            "_open_validated_url",
+            side_effect=OSError(r"C:\Users\someone\secret\path failed"),
+        ):
+            with contextlib.redirect_stderr(io.StringIO()) as captured:
+                result = web_search.fetch_page_text("https://example.com/page")
+
+        self.assertFalse(result["ok"])
+        self.assertNotIn("secret", result["error"])
+        self.assertIn("secret", captured.getvalue(), "the detail must still be logged")
+
+    def test_ddgs_search_skips_non_mapping_rows(self):
+        """ddgs is a third-party scraper; a non-dict row used to raise
+        AttributeError straight out of the route."""
+        fake_ddgs = mock.Mock()
+        fake_ddgs.return_value.text.return_value = [
+            "not-a-dict",
+            None,
+            {"href": "https://example.com/a", "title": "A", "body": "snippet"},
+        ]
+        module = types.ModuleType("ddgs")
+        module.DDGS = fake_ddgs
+        with mock.patch.dict("sys.modules", {"ddgs": module}):
+            result = web_search.ddgs_search("query")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual([row["url"] for row in result["results"]], ["https://example.com/a"])
 
     def test_validate_public_hostname_blocks_non_global_ranges(self):
         """Ranges that are not private/loopback/reserved but still must not be
@@ -5274,13 +5354,34 @@ class LifecycleTests(unittest.TestCase):
         with mock.patch("backend.services.lifecycle.sys.platform", "darwin"), \
              mock.patch("backend.services.lifecycle.subprocess.run") as mock_run:
             lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
-        mock_run.assert_called_once_with(["open", str(self.ctx.paths.root / "test")], check=False)
+        mock_run.assert_called_once_with(
+            ["open", str(self.ctx.paths.root / "test")],
+            check=False,
+            timeout=lifecycle_service.OPEN_FOLDER_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
+        )
 
     def test_open_folder_linux(self):
         with mock.patch("backend.services.lifecycle.sys.platform", "linux"), \
              mock.patch("backend.services.lifecycle.subprocess.run") as mock_run:
             lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
-        mock_run.assert_called_once_with(["xdg-open", str(self.ctx.paths.root / "test")], check=False)
+        mock_run.assert_called_once_with(
+            ["xdg-open", str(self.ctx.paths.root / "test")],
+            check=False,
+            timeout=lifecycle_service.OPEN_FOLDER_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
+        )
+
+    def test_open_folder_survives_a_hanging_helper(self):
+        """Runs on a request thread: xdg-open can block indefinitely handing off
+        to a desktop helper, and that must not wedge the handler."""
+        timeout_error = subprocess.TimeoutExpired(cmd=["xdg-open"], timeout=1)
+        with mock.patch("backend.services.lifecycle.sys.platform", "linux"), \
+             mock.patch("backend.services.lifecycle.subprocess.run", side_effect=timeout_error):
+            with contextlib.redirect_stderr(io.StringIO()) as captured:
+                lifecycle_service.open_folder_in_file_manager(self.ctx.paths.root / "test")
+
+        self.assertIn("did not exit", captured.getvalue())
 
     # --- Service: _wait_for_port_release ---
 
@@ -5292,6 +5393,29 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(result)
         mock_sock.bind.assert_called_once_with(("127.0.0.1", 9999))
         mock_sock.close.assert_called_once()
+
+    def test_wait_for_port_release_supports_ipv6_hosts(self):
+        """Hardcoding AF_INET made every bind fail for an IPv6 GUI host, so the
+        wait was skipped and the restart raced the old process for the port."""
+        bound = []
+
+        class FakeSocket:
+            def __init__(self, family, socktype, proto):
+                self.family = family
+
+            def bind(self, sockaddr):
+                bound.append((self.family, sockaddr))
+
+            def close(self):
+                pass
+
+        with mock.patch("backend.services.lifecycle.socket.socket", FakeSocket), \
+             mock.patch("backend.services.lifecycle.time.sleep"):
+            result = lifecycle_service._wait_for_port_release("::1", 9999, 0, 3, 0)
+
+        self.assertTrue(result)
+        self.assertTrue(bound, "no bind was attempted for an IPv6 host")
+        self.assertEqual(bound[0][0], socket.AF_INET6)
 
     def test_wait_for_port_release_failure(self):
         mock_sock = mock.Mock()
