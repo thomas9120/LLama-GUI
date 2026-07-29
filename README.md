@@ -209,6 +209,34 @@ Talks to a running `llama-server` — one launched here, or one registered on th
 
 **Web Search** (optional): no API key. The local server searches (free `ddgs` by default, or an optional self-hosted [SearXNG](https://docs.searxng.org/) instance via `LLAMA_GUI_SEARXNG_URL`), fetches public pages, injects graded source context, and shows source chips under answers. History is not polluted with raw search text. Leave off for fully local chat. See [Security Notes](#security-notes) for fetch limits.
 
+#### Using SearXNG
+
+To use a self-hosted SearXNG instance instead of the default DDGS search:
+
+1. Enable JSON responses in the SearXNG `settings.yml`:
+
+   ```yaml
+   search:
+     formats:
+       - html
+       - json
+   ```
+
+2. Set the endpoint before starting Llama-GUI:
+
+   ```powershell
+   $env:LLAMA_GUI_SEARXNG_URL = "http://127.0.0.1:8888"
+   python server.py
+   ```
+
+   When using a launcher or service, configure it to provide the same environment variable when starting Llama-GUI.
+
+3. Enable **Web Search** in the Chat tab.
+
+Restart Llama-GUI after changing the environment variable. SearXNG is tried first; DDGS is used automatically if SearXNG is unavailable or returns no usable results.
+
+The SearXNG endpoint must currently be reachable without custom authentication headers.
+
 ### Presets
 
 Save/load full launcher presets as JSON in `presets/`, or import existing preset JSON. Windows can export preset shortcuts that open Llama GUI with a saved preset loaded.

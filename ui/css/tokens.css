@@ -96,6 +96,8 @@
     --accent-wash: rgba(108, 155, 255, 0.06);
     /* Hover states one step stronger than the matching -subtle token. */
     --accent-subtle-hover: rgba(108, 155, 255, 0.18);
+    /* Gradient bar revealed along the top edge of a hovered card. */
+    --gradient-primary: linear-gradient(135deg, #6c9bff 0%, #5cc8f0 100%);
     --red-subtle-hover: rgba(255, 107, 138, 0.2);
     --border: rgba(255, 255, 255, 0.06);
     --border-strong: rgba(255, 255, 255, 0.10);
@@ -195,6 +197,7 @@
     --magenta-border: rgba(139, 101, 71, 0.32);
     --accent-wash: rgba(75, 56, 50, 0.06);
     --accent-subtle-hover: rgba(75, 56, 50, 0.18);
+    --gradient-primary: linear-gradient(135deg, #4b3832 0%, #905426 100%);
     --red-subtle-hover: rgba(154, 75, 70, 0.2);
     --border: rgba(93, 57, 50, 0.14);
     --border-strong: rgba(93, 57, 50, 0.24);
@@ -283,6 +286,7 @@
     --magenta-border: rgba(193, 166, 214, 0.32);
     --accent-wash: rgba(217, 160, 91, 0.06);
     --accent-subtle-hover: rgba(217, 160, 91, 0.20);
+    --gradient-primary: linear-gradient(135deg, #d9a05b 0%, #e2c072 100%);
     --red-subtle-hover: rgba(245, 180, 170, 0.22);
     --border: rgba(255, 255, 255, 0.13);
     --border-strong: rgba(255, 255, 255, 0.20);
@@ -353,6 +357,7 @@
     --magenta-border: rgba(122, 90, 140, 0.32);
     --accent-wash: rgba(26, 36, 32, 0.05);
     --accent-subtle-hover: rgba(26, 36, 32, 0.16);
+    --gradient-primary: linear-gradient(135deg, #1a2420 0%, #276947 100%);
     --red-subtle-hover: rgba(151, 68, 58, 0.2);
     --border: rgba(18, 32, 26, 0.14);
     --border-strong: rgba(18, 32, 26, 0.24);
@@ -375,6 +380,82 @@
     --shadow-accent: 0 8px 18px rgba(26, 36, 32, 0.22);
     --shadow-inset: inset 0 1px 2px rgba(23, 43, 34, 0.10);
     --shadow-knob: 0 2px 6px rgba(23, 43, 34, 0.20);
+}
+
+/* Nebula — deep-space dark. Near-black violet surfaces, purple->pink->amber
+   gradient accent. Darker than Tokyo, so the inset scale runs deeper and
+   pure black is the right tint for it. */
+:root[data-theme="nebula"] {
+    color-scheme: dark;
+    --bg-base: #0a0b14;
+    --bg-surface: #121420;
+    --bg-raised: #1a1d2e;
+    --bg-elevated: #22263a;
+    --bg-hover: #2a2f45;
+    --fg: #e8e8f0;
+    --fg-muted: #989ab0;
+    --fg-bright: #ffffff;
+    /* Brightened from the mockup's #6b6d80, which lands at 2.93:1 on
+       --bg-elevated — under the 3:1 floor this tier is held to. */
+    --fg-faint: #71738a;
+    --accent: #8b5cf6;
+    --accent-hover: #a78bfa;
+    /* Lighter than the --accent fill, diverging from the dark-theme
+       "same as fill" convention: #8b5cf6 reaches only 3.53:1 on
+       --bg-elevated, and the mockup's white would sit ~1.1:1 from --fg
+       (the Cappuccino defect). #a78bfa clears AA everywhere it lands. */
+    --accent-text: #a78bfa;
+    --accent-subtle: rgba(139, 92, 246, 0.12);
+    --accent-border: rgba(139, 92, 246, 0.3);
+    --on-accent: #ffffff;
+    /* Dark reads better on the bright magenta fill: 5.46:1 vs white's 3.46. */
+    --on-magenta: #0a0b14;
+    --green: #10b981;
+    --green-subtle: rgba(16, 185, 129, 0.12);
+    --green-border: rgba(16, 185, 129, 0.3);
+    /* Brightened from the mockup's #ef4444 (3.97:1 on --bg-elevated, under
+       AA); hue and saturation preserved. */
+    --red: #f87171;
+    --red-subtle: rgba(239, 68, 68, 0.12);
+    --red-border: rgba(239, 68, 68, 0.3);
+    --yellow: #f59e0b;
+    --yellow-subtle: rgba(245, 158, 11, 0.12);
+    --yellow-border: rgba(245, 158, 11, 0.3);
+    /* Pink from the accent gradient: hue ~330, far from the warning gold
+       (~38) and --red (~0), so the favourite marker stays a distinct signal. */
+    --favorite: #f472b6;
+    --favorite-solid: var(--favorite);
+    --favorite-subtle: rgba(244, 114, 182, 0.12);
+    --favorite-border: rgba(244, 114, 182, 0.28);
+    --favorite-wash: rgba(244, 114, 182, 0.036);
+    --favorite-wash-hover: rgba(244, 114, 182, 0.095);
+    --cyan: #06b6d4;
+    --cyan-subtle: rgba(6, 182, 212, 0.12);
+    --cyan-border: rgba(6, 182, 212, 0.3);
+    --magenta: #d946ef;
+    --magenta-subtle: rgba(217, 70, 239, 0.12);
+    --magenta-border: rgba(217, 70, 239, 0.3);
+    --accent-wash: rgba(139, 92, 246, 0.06);
+    --accent-subtle-hover: rgba(139, 92, 246, 0.18);
+    --red-subtle-hover: rgba(239, 68, 68, 0.2);
+    --gradient-primary: linear-gradient(135deg, #8b5cf6 0%, #ec4899 50%, #f59e0b 100%);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.15);
+
+    --inset-xs: rgba(0, 0, 0, 0.20);
+    --inset-sm: rgba(0, 0, 0, 0.30);
+    --inset-md: rgba(0, 0, 0, 0.40);
+    --inset-lg: rgba(0, 0, 0, 0.50);
+    --red-fg: #fca5a5;
+    --yellow-glow: rgba(245, 158, 11, 0.5);
+
+    --body-gradient-top: rgba(139, 92, 246, 0.08);
+    --body-gradient-bottom: transparent;
+
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+    --shadow-accent: 0 2px 12px rgba(139, 92, 246, 0.25);
 }
 
 @media (prefers-reduced-motion: reduce) {

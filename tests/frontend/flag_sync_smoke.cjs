@@ -82,6 +82,29 @@ async function setRangeValue(page, selector, value) {
     }, [selector, value]);
 }
 
+async function sampleScreenshotPixels(page, screenshot, points) {
+    return page.evaluate(async ({ dataUrl, points: samplePoints }) => {
+        const image = new Image();
+        image.src = dataUrl;
+        await image.decode();
+
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth;
+        canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        context.drawImage(image, 0, 0);
+
+        return samplePoints.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data));
+    }, {
+        dataUrl: `data:image/png;base64,${screenshot.toString("base64")}`,
+        points,
+    });
+}
+
+function colorDistance(a, b) {
+    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+}
+
 async function main() {
     const { chromium } = loadPlaywright();
     const port = await findFreePort(START_PORT);
@@ -318,6 +341,35 @@ async function main() {
         await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => window.LlamaGui?.flagCore && window.LlamaGui?.configFlagsUi);
         await page.waitForSelector("#flag-ctx_size", { state: "attached" });
+
+        // The hover gradient must follow the rounded card outline. A previous
+        // implementation inset the bar by the full corner radius, leaving a
+        // visible straight gap before the curve. Pixel samples keep this tied
+        // to the rendered result rather than merely restating the CSS rules.
+        await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("nebula"));
+        await page.mouse.move(0, 0);
+        const modelCard = page.locator(".quick-setup-grid > .card").first();
+        const restingCard = await modelCard.screenshot({ animations: "disabled" });
+        await modelCard.hover();
+        const hoveredCard = await modelCard.screenshot({ animations: "disabled" });
+        const samplePoints = [[1, 1], [12, 2], [28, 2]];
+        const [restOutside, restCurve] = await sampleScreenshotPixels(page, restingCard, samplePoints);
+        const [hoverOutside, hoverCurve, hoverStrip] = await sampleScreenshotPixels(page, hoveredCard, samplePoints);
+
+        assert.ok(
+            colorDistance(restCurve, hoverCurve) > 60,
+            `hover must reveal the gradient at the card curve: rest=${restCurve}, hover=${hoverCurve}`
+        );
+        assert.ok(
+            colorDistance(hoverCurve, hoverStrip) < 100,
+            `gradient must reach the curve without a radius-sized gap: curve=${hoverCurve}, strip=${hoverStrip}`
+        );
+        assert.ok(
+            colorDistance(restOutside, hoverOutside) < 8,
+            `gradient must remain clipped out of the rounded corner: rest=${restOutside}, hover=${hoverOutside}`
+        );
+        await page.mouse.move(0, 0);
+        await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("tokyo"));
 
         assert.equal(await page.locator("#chat-slider-temp").getAttribute("step"), "0.01");
 
