@@ -306,6 +306,10 @@
             if (f.flag) names.add(String(f.flag));
             if (f.false_flag) names.add(String(f.false_flag));
         }
+        // Model flags are not in FLAGS but the app emits them.
+        for (const f of ["-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url"]) {
+            names.add(f);
+        }
         return names;
     }
 
@@ -423,6 +427,7 @@
                 if (f.id === "chat_template"
                     && typeof isSupportedChatTemplateValue === "function"
                     && !isSupportedChatTemplateValue(val)) {
+                    warnings.push(`Unsupported chat-template preset "${val}" — no --chat-template will be emitted.`);
                     continue;
                 }
                 if (f.id === "chat_template" && String(values.chat_template_custom || "").trim()) {
@@ -454,6 +459,9 @@
                 return { args, error: parsedCustom.error, warnings };
             }
 
+            // ponytail: token-naive duplicate detection — values that happen
+            // to equal known flag strings are mis-flagged. Fix with flag/value
+            // pairing when this produces user-visible false positives.
             const knownCliFlags = getKnownCliFlags();
             const duplicates = Array.from(new Set(parsedCustom.tokens
                 .map(getCustomArgFlagName)

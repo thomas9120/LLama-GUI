@@ -373,10 +373,12 @@ function setPresetStorageItem(storageKey, value) {
 function loadPresetJsonMap(storageKey) {
     try {
         const parsed = JSON.parse(getPresetStorageItem(storageKey) || "{}");
-        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+            ? Object.assign(Object.create(null), parsed)
+            : Object.create(null);
     } catch (e) {
         console.debug("Preset storage data is invalid", e);
-        return {};
+        return Object.create(null);
     }
 }
 
@@ -1551,7 +1553,6 @@ async function loadPresets() {
         error.className = "presets-empty presets-error";
         error.textContent = "Failed to load presets.";
         container.appendChild(error);
-        renderPresetAuxiliaryPanels();
     }
 }
 
@@ -2047,15 +2048,23 @@ async function handlePresetImport(file) {
                 showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
                 return;
             }
-            for (const preset of pendingImports) {
-                await fetchJson("/api/presets", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
-                });
+            try {
+                let importedCount = 0;
+                for (const preset of pendingImports) {
+                    await fetchJson("/api/presets", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
+                    });
+                    importedCount++;
+                }
+                loadPresets();
+                showPresetStatus(`Imported ${importedCount} preset(s)`, "success");
+            } catch (e) {
+                console.warn("Preset import failed mid-loop", e);
+                loadPresets();
+                showPresetStatus("Failed to import some presets.", "error", 3200);
             }
-            loadPresets();
-            showPresetStatus(`Imported ${pendingImports.length} preset(s)`, "success");
             return;
         }
 

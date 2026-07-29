@@ -323,6 +323,16 @@
                 updateButtonLabel();
                 if (isOpen()) renderList(search.value.trim().toLowerCase());
             },
+            // ponytail: event listeners on button/search/document/window are
+            // not removed — harmless for static selects. Add cleanup when
+            // searchable-select is applied to dynamically-added elements.
+            destroy() {
+                observer.disconnect();
+                if (popup.parentElement) popup.parentElement.removeChild(popup);
+                if (valueDescriptor && valueDescriptor.get && valueDescriptor.set) {
+                    Object.defineProperty(select, "value", valueDescriptor);
+                }
+            },
         };
     }
 

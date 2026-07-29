@@ -133,6 +133,40 @@ function createContext({ models, failFetch = false } = {}) {
         "refreshModels must not depend on the presets module being present"
     );
 
+    // A slower failed request must not clobber a newer successful refresh.
+    const race = createContext({ models: [] });
+    let resolveSlowFail;
+    const slowFail = new Promise((_, reject) => {
+        resolveSlowFail = () => reject(new Error("stale network down"));
+    });
+    let fetchCount = 0;
+    race.context.fetch = async () => {
+        fetchCount += 1;
+        if (fetchCount === 1) await slowFail;
+        return {
+            ok: true,
+            json: async () => [{ name: "fresh.gguf", size_mb: 1 }],
+        };
+    };
+    const stale = race.context.refreshModels();
+    const fresh = race.context.refreshModels();
+    await fresh;
+    assert.equal(race.context.getKnownModelNames().size, 1, "newer success must populate the cache");
+    assert.equal(race.presenceCalls.length, 1, "only the winning refresh notifies");
+    resolveSlowFail();
+    await stale;
+    assert.equal(
+        race.context.getKnownModelNames() && race.context.getKnownModelNames().size,
+        1,
+        "a late failure must not wipe a newer success"
+    );
+    assert.equal(race.presenceCalls.length, 1, "a late failure must not re-notify presets");
+    assert.equal(
+        race.modelSelect.children.some((opt) => /Failed to load models/.test(opt.textContent)),
+        false,
+        "a late failure must not append a failure option onto the fresh list"
+    );
+
     console.log("manager model cache unit tests passed");
 })().catch((error) => {
     console.error(error);

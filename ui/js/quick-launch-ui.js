@@ -469,8 +469,6 @@
             const hasCustomGpuValue = gpuLayers !== "auto" && gpuLayers !== "0" && gpuLayers !== "all";
             if (hasCustomGpuValue) {
                 quickLaunchGpuCustomSelected = true;
-            } else if (!quickLaunchGpuCustomSelected) {
-                quickLaunchGpuCustomSelected = false;
             }
 
             if (!quickLaunchGpuCustomSelected && (gpuLayers === "auto" || gpuLayers === "0" || gpuLayers === "all")) {

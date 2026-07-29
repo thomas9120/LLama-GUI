@@ -50,7 +50,7 @@
         const isBusy = Boolean(options.busy);
 
         if (badge) {
-            badge.textContent = isBusy ? "Connecting" : isConnected ? "Connected" : "Not connected";
+            badge.textContent = isBusy ? (options.label || "Connecting") : isConnected ? "Connected" : "Not connected";
             badge.classList.toggle("running", isConnected && !isBusy);
             badge.classList.toggle("working", isBusy);
         }
@@ -74,8 +74,8 @@
         const hostInput = byId("external-server-host");
         const portInput = byId("external-server-port");
         if (isConnected && options.syncInputs) {
-            if (hostInput) hostInput.value = target.host;
-            if (portInput) portInput.value = String(target.port);
+            if (hostInput && document.activeElement !== hostInput) hostInput.value = target.host;
+            if (portInput && document.activeElement !== portInput) portInput.value = String(target.port);
         }
     }
 
@@ -117,7 +117,7 @@
 
     async function disconnect() {
         const fetchJson = requireDependency("fetchJson");
-        render(getTarget(), { busy: true });
+        render(getTarget(), { busy: true, label: "Disconnecting..." });
         try {
             await fetchJson("/api/chat/target", { method: "DELETE" });
             const keyInput = byId("external-server-key");

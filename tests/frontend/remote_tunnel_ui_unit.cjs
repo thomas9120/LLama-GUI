@@ -16,8 +16,13 @@ function createElement() {
             add: (...names) => names.forEach((name) => classes.add(name)),
             remove: (...names) => names.forEach((name) => classes.delete(name)),
             toggle: (name, force) => {
-                if (force) classes.add(name);
-                else classes.delete(name);
+                if (arguments.length < 2) {
+                    if (classes.has(name)) classes.delete(name); else classes.add(name);
+                } else if (force) {
+                    classes.add(name);
+                } else {
+                    classes.delete(name);
+                }
             },
             contains: (name) => classes.has(name),
         },

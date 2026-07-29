@@ -97,7 +97,6 @@
     let getLatestStatus = () => null;
     let refreshRuntimeStatusPanels = null;
     let processLifecycle = null;
-    let statusTimer = null;
     let outputTimer = null;
     let pollOutputActiveEpoch = null;
     let outputPollFailCount = 0;
@@ -975,7 +974,6 @@
     if (typeof window.addEventListener === "function") {
         window.addEventListener("beforeunload", () => {
             stopOutputPolling();
-            if (statusTimer) clearInterval(statusTimer);
         });
     }
 

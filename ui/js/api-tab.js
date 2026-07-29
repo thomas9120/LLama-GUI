@@ -277,8 +277,8 @@
         const rawValue = String(values.api_key ?? "");
         if (!rawValue) return result;
         const keys = getConfiguredApiKeys();
-        const selectedKey = keys.find(key => key !== "") ?? keys[0];
-        if (selectedKey !== undefined) result.Authorization = `Bearer ${selectedKey}`;
+        const selectedKey = keys.find(key => key !== "") ?? null;
+        if (selectedKey) result.Authorization = `Bearer ${selectedKey}`;
         return result;
     }
 
@@ -319,8 +319,10 @@
             : "Tool mode is set to llama-cli. Switch to llama-server to expose HTTP endpoints.";
         const runningText = isLoading
             ? "Server process is running but the model is still loading; endpoints are temporarily unavailable."
-            : isRunning
+            : isRunning && latestStatus.active_process_tool === "llama-server"
             ? "Server process appears to be ready."
+            : isRunning
+            ? "A llama.cpp tool is running, but it is not llama-server — endpoints are not available."
             : externalTarget
             ? "Connected to a llama-server started outside this GUI."
             : "Server process is not running right now.";
