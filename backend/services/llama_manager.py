@@ -906,9 +906,11 @@ def install_release(
 
         ensure_installed_tool_executables(ctx)
 
-        ctx.services.save_config(
+        config_data = dict(ctx.services.load_config())
+        config_data.update(
             {"version": release.get("name", tag), "backend": backend, "tag": tag}
         )
+        ctx.services.save_config(config_data)
         ctx.state.clear_runtime_health_cache()
         set_download_progress(
             ctx, status="done", message=f"Installed {tag} ({backend})"

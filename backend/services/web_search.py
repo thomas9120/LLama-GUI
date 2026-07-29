@@ -13,6 +13,7 @@ from html.parser import HTMLParser
 from typing import Any, Optional
 
 from backend import config
+from backend.http import sanitize_error
 
 
 class ReadableHTMLParser(HTMLParser):
@@ -282,7 +283,11 @@ def ddgs_search(query: Any, max_results: int = config.WEB_SEARCH_MAX_RESULTS) ->
     try:
         rows = DDGS(timeout=config.WEB_SEARCH_TIMEOUT).text(query, max_results=max_results)
     except Exception as exc:
-        return {"ok": False, "error": f"Search failed: {exc}", "results": []}
+        return {
+            "ok": False,
+            "error": f"Search failed: {sanitize_error(exc, 500)}",
+            "results": [],
+        }
 
     results = []
     for row in rows or []:

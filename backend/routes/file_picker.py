@@ -11,9 +11,8 @@ def select_file(request, response, ctx):
         body.get("purpose"),
         body.get("title"),
     )
-    initial_dir.mkdir(parents=True, exist_ok=True)
-
     try:
+        initial_dir.mkdir(parents=True, exist_ok=True)
         selected_path = file_picker.select_file_in_native_dialog(
             title=title,
             initial_dir=initial_dir,

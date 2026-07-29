@@ -14,7 +14,7 @@ from typing import Optional
 
 from .. import config
 from ..context import AppContext
-from ..http import build_http_origin
+from ..http import build_http_origin, sanitize_error
 from ..services.llama_manager import download_file
 
 
@@ -267,13 +267,14 @@ def _start_remote_tunnel_worker(ctx: AppContext, generation: int) -> None:
                 log=log,
             )
     except Exception as exc:
+        message = sanitize_error(exc, 500)
         with ctx.state.remote_tunnel_lock:
             if ctx.state.remote_tunnel_generation != generation:
                 return
             if ctx.state.remote_tunnel_process is proc:
                 ctx.state.remote_tunnel_process = None
             ctx.state.remote_tunnel.update(
-                status="error", url="", message=str(exc), log=log
+                status="error", url="", message=message, log=log
             )
         _terminate_remote_tunnel_process(ctx, proc)
 

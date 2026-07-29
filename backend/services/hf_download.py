@@ -8,6 +8,7 @@ import urllib.request
 from typing import Any, Callable, Mapping, Optional
 
 from backend.context import AppContext
+from backend.http import sanitize_error
 
 UrlOpen = Callable[..., Any]
 
@@ -337,7 +338,12 @@ def start_hf_model_download(
             set_model_download_state(ctx, status="cancelled", message=str(exc), current_file="")
         except Exception as exc:
             remove_partial_downloads(destinations)
-            set_model_download_state(ctx, status="error", message=str(exc), current_file="")
+            set_model_download_state(
+                ctx,
+                status="error",
+                message=sanitize_error(exc, 500),
+                current_file="",
+            )
         finally:
             with ctx.state.model_download_lock:
                 ctx.state.model_download_in_progress = False

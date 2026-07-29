@@ -1277,6 +1277,15 @@ class LlamaManagerDownloadTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
             saved_configs = []
+            remembered_target = {
+                "host": "127.0.0.1",
+                "port": 9001,
+                "label": "External llama-server",
+                "api_key_required": False,
+            }
+            ctx.services.load_config = lambda: {
+                "external_chat_target": remembered_target
+            }
             ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
             release = {
                 "tag_name": "b1234",
@@ -1316,7 +1325,17 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual((ctx.paths.llama_bin / "llama-server").read_text(), "server")
             self.assertEqual((ctx.paths.llama_grammars / "json.gbnf").read_text(), "grammar")
-            self.assertEqual(saved_configs, [{"version": "Build 1234", "backend": "cpu", "tag": "b1234"}])
+            self.assertEqual(
+                saved_configs,
+                [
+                    {
+                        "external_chat_target": remembered_target,
+                        "version": "Build 1234",
+                        "backend": "cpu",
+                        "tag": "b1234",
+                    }
+                ],
+            )
             self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
             self.assertTrue(tmpdirs)
             self.assertFalse(tmpdirs[0].exists())
@@ -1349,6 +1368,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
     def test_install_release_accepts_valid_github_digest(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
             ctx.services.save_config = mock.Mock()
             payload = b"verified archive bytes"
             release = {
@@ -1787,6 +1807,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
     def test_install_release_preserve_paths_keeps_nested_rocm_layout_and_threads_repo_api(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
             saved_configs = []
             ctx.services.save_config = lambda cfg: saved_configs.append(dict(cfg))
             asset_name = "llama-b1294-windows-rocm-gfx110X-x64.zip"
@@ -2170,7 +2191,8 @@ class TunnelDownloadTests(unittest.TestCase):
                     )
                 raise RuntimeError("old worker failed")
 
-            with mock.patch.object(
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
                 tunnel_service,
                 "ensure_cloudflared",
                 side_effect=supersede_then_fail,
@@ -2180,6 +2202,26 @@ class TunnelDownloadTests(unittest.TestCase):
             snapshot = ctx.state.remote_tunnel.snapshot()
             self.assertEqual(snapshot["status"], "preparing")
             self.assertEqual(snapshot["message"], "New worker")
+            self.assertIn("old worker failed", stderr.getvalue())
+
+    def test_worker_logs_and_sanitizes_unexpected_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.state.remote_tunnel_generation = 1
+            ctx.state.remote_tunnel.update(status="preparing")
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                tunnel_service,
+                "ensure_cloudflared",
+                side_effect=RuntimeError("private tunnel failure"),
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 1)
+
+            snapshot = ctx.state.remote_tunnel.snapshot()
+            self.assertEqual(snapshot["status"], "error")
+            self.assertEqual(snapshot["message"], "Internal server error")
+            self.assertIn("private tunnel failure", stderr.getvalue())
 
 
 class ExternalServerServiceTests(unittest.TestCase):
@@ -2834,6 +2876,38 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
 
             self.assertIn("owner_model/model.gguf", str(raised.exception))
 
+    def test_worker_logs_and_sanitizes_unexpected_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+
+            class ImmediateThread:
+                def __init__(self, *, target, daemon):
+                    self.target = target
+
+                def start(self):
+                    self.target()
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                hf_service.threading, "Thread", ImmediateThread
+            ), mock.patch.object(
+                hf_service,
+                "get_hf_file_size",
+                side_effect=RuntimeError("private download failure"),
+            ):
+                snapshot = hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="model.gguf",
+                    mmproj_file="",
+                    token=None,
+                )
+
+            self.assertEqual(snapshot["status"], "error")
+            self.assertEqual(snapshot["message"], "Internal server error")
+            self.assertIn("private download failure", stderr.getvalue())
+
 
 class HfFileToDictTests(unittest.TestCase):
     def test_extracts_rfilename(self):
@@ -3039,12 +3113,16 @@ class WebSearchDirectTests(unittest.TestCase):
 
         fake_module = SimpleNamespace(DDGS=FailingDDGS)
 
-        with mock.patch.dict("sys.modules", {"ddgs": fake_module}):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), mock.patch.dict(
+            "sys.modules", {"ddgs": fake_module}
+        ):
             result = web_search_service.web_search("llama gui")
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["results"], [])
-        self.assertIn("network down", result["error"])
+        self.assertEqual(result["error"], "Search failed: Internal server error")
+        self.assertIn("network down", stderr.getvalue())
 
 
 if __name__ == "__main__":

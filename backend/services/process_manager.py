@@ -1402,7 +1402,9 @@ def remove_llama_files(ctx: AppContext) -> int:
                 removed_files += 1
         shutil.rmtree(llama_dll_dir)
 
-    ctx.services.save_config({"version": None, "backend": None, "tag": None})
+    config_data = _load_config_safe(ctx)
+    config_data.update({"version": None, "backend": None, "tag": None})
+    ctx.services.save_config(config_data)
     ctx.state.clear_runtime_health_cache()
 
     return removed_files

@@ -1022,10 +1022,32 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx.services.load_config = lambda: (_ for _ in ()).throw(RuntimeError("boom"))
             response = DummyResponse()
 
-            status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
 
             self.assertEqual(response.status, 500)
             self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("boom", stderr.getvalue())
+
+    def test_status_route_logs_api_target_failure_before_using_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            configure_status_services(ctx)
+            ctx.services.get_llama_api_target = lambda: (_ for _ in ()).throw(
+                RuntimeError("target state unavailable")
+            )
+            response = DummyResponse()
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+            self.assertEqual(
+                response.payload["api_target"],
+                {"host": status.LLAMA_HOST, "port": status.LLAMA_PORT},
+            )
+            self.assertIn("target state unavailable", stderr.getvalue())
 
     def test_process_output_route_reads_buffer_and_running_state(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1149,6 +1171,15 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             ctx.paths.llama_bin.mkdir(parents=True)
             (ctx.paths.llama_bin / "llama-cli.exe").write_text("binary")
+            remembered_target = {
+                "host": "127.0.0.1",
+                "port": 9001,
+                "label": "External llama-server",
+                "api_key_required": False,
+            }
+            ctx.services.load_config = lambda: {
+                "external_chat_target": remembered_target
+            }
             saved = []
             ctx.services.save_config = saved.append
             response = DummyResponse()
@@ -1158,7 +1189,17 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload, {"removed_files": 1})
             self.assertTrue(ctx.paths.llama_bin.exists())
             self.assertTrue(ctx.paths.llama_grammars.exists())
-            self.assertEqual(saved, [{"version": None, "backend": None, "tag": None}])
+            self.assertEqual(
+                saved,
+                [
+                    {
+                        "external_chat_target": remembered_target,
+                        "version": None,
+                        "backend": None,
+                        "tag": None,
+                    }
+                ],
+            )
 
     def test_process_manager_flattens_nested_launch_args(self):
         self.assertEqual(
@@ -2295,14 +2336,44 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             response = DummyResponse()
 
-            hf_download.list_repo_files(
-                Request("POST", "/api/hf/repo-files", "", {}, body={"repo_id": "owner/model."}),
-                response,
-                ctx,
-            )
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                hf_download.list_repo_files(
+                    Request("POST", "/api/hf/repo-files", "", {}, body={"repo_id": "owner/model."}),
+                    response,
+                    ctx,
+                )
 
             self.assertEqual(response.status, 400)
             self.assertEqual(response.payload["error"], "Invalid Hugging Face repo ID.")
+            self.assertIn("Invalid Hugging Face repo ID", stderr.getvalue())
+
+    def test_hf_download_route_logs_unexpected_start_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                hf_download.hf_download,
+                "start_hf_model_download",
+                side_effect=RuntimeError("download setup failed"),
+            ):
+                hf_download.start_download(
+                    Request(
+                        "POST",
+                        "/api/hf/download",
+                        "",
+                        {},
+                        body={"repo_id": "owner/model", "model_file": "model.gguf"},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 400)
+            self.assertEqual(response.payload["error"], "download setup failed")
+            self.assertIn("download setup failed", stderr.getvalue())
 
     def test_hf_download_route_reports_duplicate_with_code(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2995,6 +3066,36 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertNotIn(".bin", offered)
             self.assertIn(("All files", "*.*"), kwargs["filetypes"])
             self.assertEqual(response.payload, {"selected": True, "path": str(ctx.paths.models / "model.gguf")})
+
+    def test_file_picker_route_handles_initial_directory_creation_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                Path,
+                "mkdir",
+                side_effect=OSError("private path denied"),
+            ), mock.patch.object(
+                file_picker.file_picker, "select_file_in_native_dialog"
+            ) as select_file:
+                file_picker.select_file(
+                    Request(
+                        "POST",
+                        "/api/select-file",
+                        "",
+                        {},
+                        body={"purpose": "model"},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("private path denied", stderr.getvalue())
+            select_file.assert_not_called()
 
 
 class InstallRouteTests(unittest.TestCase):
