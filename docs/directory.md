@@ -872,6 +872,7 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Quick Launch sampler edits sync to Chat, Configure, shared flag state, and launch args.
 - Custom Launch Args update shared state, command preview, launch args, and launch blocking on parser errors.
 - API-key controls sync across Configure and Quick Launch, generated/manual keys authenticate Chat and stats, and rendered commands never expose the secret.
+- The card hover gradient reaches into the rounded top corner without filling outside the card outline.
 - The Presets browser list is a single tab stop, arrow keys skip collapsed groups' rows, only the focused row's controls stay tabbable, and focus survives the re-render that selecting a preset triggers.
 
 When running local browser smoke checks manually, serve `ui/` as the web root. Serving from the repo root will break root-relative assets such as `/js/app.js`.

@@ -578,12 +578,33 @@ body.chat-focus-mode .main-content {
     border-radius: var(--radius-lg);
     background: var(--bg-surface);
     box-shadow: var(--shadow-sm);
-    transition: box-shadow var(--ease-med), border-color var(--ease-med);
+    transition: box-shadow var(--ease-med), border-color var(--ease-med), transform var(--ease-med);
+    position: relative;
+}
+
+/* Gradient bar revealed along the top edge on hover. Give the pseudo-element
+   the card's full rounded outline, then reveal only its top 3px. This follows
+   the corner curve without clipping dropdowns that extend beyond the card. */
+.card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    clip-path: inset(0 0 calc(100% - 3px) 0);
+    background: var(--gradient-primary);
+    opacity: 0;
+    transition: opacity var(--ease-med);
+    pointer-events: none;
 }
 
 .card:hover {
-    border-color: var(--accent-border);
+    border-color: var(--accent);
     box-shadow: var(--shadow-md), 0 0 0 1px var(--accent-border);
+    transform: translateY(-2px);
+}
+
+.card:hover::before {
+    opacity: 1;
 }
 
 .card-header {
@@ -672,6 +693,8 @@ body.chat-focus-mode .main-content {
 .empty-state-sm { padding: var(--space-3); }
 
 .card.card-danger { border-color: var(--red-border); }
+/* Error cards stay red-only: no accent gradient bar. */
+.card.card-danger::before { content: none; }
 .card.card-danger:hover {
     border-color: var(--red-border);
     box-shadow: var(--shadow-md), 0 0 0 1px var(--red-border);

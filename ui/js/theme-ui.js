@@ -13,6 +13,7 @@
      */
     const THEMES = [
         { id: "tokyo", label: "Tokyo", hint: "Dark", scheme: "dark", swatchBg: "#161824", swatchAccent: "#6c9bff" },
+        { id: "nebula", label: "Nebula", hint: "Dark", scheme: "dark", swatchBg: "#121420", swatchAccent: "#8b5cf6" },
         { id: "graphite", label: "Graphite", hint: "Mid", scheme: "dark", swatchBg: "#383b41", swatchAccent: "#d9a05b" },
         { id: "cappuccino", label: "Cappuccino", hint: "Light", scheme: "light", swatchBg: "#fff4e6", swatchAccent: "#4b3832" },
         { id: "mint", label: "Mint", hint: "Light", scheme: "light", swatchBg: "#e3f0e9", swatchAccent: "#276947" },
