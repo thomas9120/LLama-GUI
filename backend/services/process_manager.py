@@ -1158,7 +1158,11 @@ def launch_process(
     args_list: Optional[Iterable[Any]],
     launch_context: Any = None,
 ) -> dict[str, Any]:
-    with ctx.state.process_lock:
+    # Lock order is install -> process everywhere that transitions between
+    # these mutually exclusive operations.
+    with ctx.state.install_lock, ctx.state.process_lock:
+        if ctx.state.install_in_progress:
+            return {"error": "Installation in progress. Wait for it to finish before launching."}
         _reap_finished_process(ctx)
         if ctx.state.process is not None:
             return {"error": "A process is already running"}

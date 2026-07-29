@@ -2314,6 +2314,9 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_hf_download_cancel_sets_cancelling_state(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
+            with ctx.state.model_download_lock:
+                ctx.state.model_download_in_progress = True
+                ctx.state.model_download.update(status="downloading")
             response = DummyResponse()
 
             hf_download.cancel_download(
@@ -2325,6 +2328,20 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertTrue(ctx.state.model_download_cancel.is_set())
             self.assertEqual(response.payload["status"], "cancelling")
             self.assertEqual(response.payload["message"], "Cancelling download...")
+
+    def test_hf_download_cancel_is_a_no_op_while_idle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+
+            hf_download.cancel_download(
+                Request("POST", "/api/hf/download-cancel", "", {}, body={}),
+                response,
+                ctx,
+            )
+
+            self.assertFalse(ctx.state.model_download_cancel.is_set())
+            self.assertEqual(response.payload["status"], "idle")
 
     def test_web_search_html_to_readable_text_ignores_script(self):
         text = web_search.html_to_readable_text(
@@ -3143,6 +3160,35 @@ class InstallRouteTests(unittest.TestCase):
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
 
+    def test_install_claim_checks_process_while_holding_install_lock(self):
+        lock_was_available = []
+
+        def check_process(_ctx):
+            acquired = self.ctx.state.install_lock.acquire(blocking=False)
+            lock_was_available.append(acquired)
+            if acquired:
+                self.ctx.state.install_lock.release()
+            return True
+
+        response = DummyResponse()
+        with mock.patch.object(
+            process_manager, "is_process_running", side_effect=check_process
+        ):
+            install.start_install(
+                Request(
+                    "POST",
+                    "/api/install",
+                    "",
+                    {},
+                    body={"tag": "b1", "backend": "cpu"},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(lock_was_available, [False])
+        self.assertEqual(response.status, 400)
+
     def test_update_validates_nothing_installed(self):
         self.ctx.services.load_config = lambda: {}
         response = DummyResponse()
@@ -3220,6 +3266,39 @@ class InstallRouteTests(unittest.TestCase):
         install_release.assert_called_once_with(
             self.ctx, "b2", "cpu", self.ctx.services.backend_specs
         )
+
+    def test_update_rechecks_for_a_process_after_release_lookup(self):
+        fake_releases = [
+            {
+                "tag_name": "b2",
+                "name": "b2 release",
+                "published_at": "2024-02-01T00:00:00Z",
+                "assets": [],
+            }
+        ]
+
+        class FakeProcess:
+            def poll(self):
+                return None
+
+        def lookup_then_launch(*_args, **_kwargs):
+            self.ctx.state.process = FakeProcess()
+            return fake_releases
+
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager, "get_releases", side_effect=lookup_then_launch
+        ), mock.patch.object(install.threading, "Thread") as thread:
+            install.start_update(
+                Request("POST", "/api/update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 400)
+        self.assertIn("Stop running process first", response.payload["error"])
+        self.assertFalse(self.ctx.state.install_in_progress)
+        thread.assert_not_called()
 
     def test_update_blocks_when_already_in_progress_without_calling_github(self):
         with self.ctx.state.install_lock:

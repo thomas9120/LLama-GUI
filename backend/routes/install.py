@@ -11,6 +11,17 @@ from ..services import process_manager
 RELEASE_RESPONSE_LIMIT = 30
 
 
+def _claim_install_slot(ctx):
+    """Atomically keep installs and llama.cpp launches mutually exclusive."""
+    with ctx.state.install_lock:
+        if ctx.state.install_in_progress:
+            return "Installation already in progress", 409
+        if process_manager.is_process_running(ctx):
+            return "Stop running process first", 400
+        ctx.state.install_in_progress = True
+    return None
+
+
 def get_releases(request, response, ctx):
     try:
         repo_api = None
@@ -56,14 +67,10 @@ def start_install(request, response, ctx):
     if backend not in ctx.services.backend_specs:
         response.error(f"Unsupported backend: {backend}", 400)
         return
-    if process_manager.is_process_running(ctx):
-        response.error("Stop running process first", 400)
+    claim_error = _claim_install_slot(ctx)
+    if claim_error is not None:
+        response.error(*claim_error)
         return
-    with ctx.state.install_lock:
-        if ctx.state.install_in_progress:
-            response.error("Installation already in progress", 409)
-            return
-        ctx.state.install_in_progress = True
 
     def _install(tag, backend):
         try:
@@ -115,11 +122,10 @@ def start_update(request, response, ctx):
         response.json({"status": "already_latest"})
         return
 
-    with ctx.state.install_lock:
-        if ctx.state.install_in_progress:
-            response.error("Installation already in progress", 409)
-            return
-        ctx.state.install_in_progress = True
+    claim_error = _claim_install_slot(ctx)
+    if claim_error is not None:
+        response.error(*claim_error)
+        return
 
     def _update(latest_tag, backend_name):
         try:

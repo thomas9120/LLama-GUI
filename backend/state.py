@@ -114,6 +114,7 @@ class ServerState:
 
     gui_server: Any = None
     remote_tunnel_process: Any = None
+    remote_tunnel_generation: int = 0
     remote_tunnel: AtomicDict = field(
         default_factory=lambda: AtomicDict(default_remote_tunnel_state())
     )

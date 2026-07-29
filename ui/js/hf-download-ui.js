@@ -7,6 +7,7 @@
     let hfDownloadTimer = null;
     let hfDownloadFailCount = 0;
     let hfDownloadStartTime = null;
+    let hfDownloadPollInFlight = false;
     let deps = {};
 
     function requireDependency(name) {
@@ -227,6 +228,7 @@
     function clearPollTimer() {
         if (hfDownloadTimer) clearInterval(hfDownloadTimer);
         hfDownloadTimer = null;
+        hfDownloadPollInFlight = false;
     }
 
     function pollProgress() {
@@ -235,6 +237,8 @@
         hfDownloadFailCount = 0;
         hfDownloadStartTime = Date.now();
         hfDownloadTimer = setInterval(async () => {
+            if (hfDownloadPollInFlight) return;
+            hfDownloadPollInFlight = true;
             if (Date.now() - hfDownloadStartTime > HF_DOWNLOAD_TIMEOUT_MS) {
                 clearPollTimer();
                 setBusy(false);
@@ -260,6 +264,8 @@
                     setBusy(false);
                     showStatus("error", "Lost contact with the server during download. The download may still be in progress - try restarting Llama GUI.");
                 }
+            } finally {
+                hfDownloadPollInFlight = false;
             }
         }, 500);
     }

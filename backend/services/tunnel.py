@@ -41,7 +41,7 @@ def get_cloudflared_asset(platform: str, arch: str) -> Optional[dict]:
     return None
 
 
-def set_remote_tunnel_state(ctx: AppContext, status=None, url=None, message=None, log=None) -> dict:
+def _remote_tunnel_updates(status=None, url=None, message=None, log=None) -> dict:
     updates = {}
     if status is not None:
         updates["status"] = status
@@ -51,28 +51,51 @@ def set_remote_tunnel_state(ctx: AppContext, status=None, url=None, message=None
         updates["message"] = message
     if log is not None:
         updates["log"] = log[-config.TUNNEL_LOG_LIMIT:]
+    return updates
+
+
+def set_remote_tunnel_state(ctx: AppContext, status=None, url=None, message=None, log=None) -> dict:
+    updates = _remote_tunnel_updates(status, url, message, log)
     with ctx.state.remote_tunnel_lock:
         return ctx.state.remote_tunnel.update(**updates)
+
+
+def _set_remote_tunnel_state_for_generation(
+    ctx: AppContext,
+    generation: int,
+    status=None,
+    url=None,
+    message=None,
+    log=None,
+) -> bool:
+    updates = _remote_tunnel_updates(status, url, message, log)
+    with ctx.state.remote_tunnel_lock:
+        if ctx.state.remote_tunnel_generation != generation:
+            return False
+        ctx.state.remote_tunnel.update(**updates)
+        return True
 
 
 def get_remote_tunnel_snapshot(ctx: AppContext) -> dict:
     with ctx.state.remote_tunnel_lock:
         proc = ctx.state.remote_tunnel_process
         snapshot = ctx.state.remote_tunnel.snapshot()
-        if proc is not None and proc.poll() is not None and snapshot["status"] in {
+        running = proc is not None and proc.poll() is None
+        if proc is not None and not running and snapshot["status"] in {
             "preparing",
             "downloading",
             "starting",
             "running",
         }:
+            ctx.state.remote_tunnel_process = None
             snapshot["status"] = "error"
             snapshot["message"] = "Remote tunnel process exited."
             ctx.state.remote_tunnel.replace(snapshot)
-        snapshot["running"] = proc is not None and proc.poll() is None
+        snapshot["running"] = running
         return snapshot
 
 
-def ensure_cloudflared(ctx: AppContext) -> Path:
+def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Path:
     platform = ctx.services.current_platform
     arch = ctx.services.current_arch
     spec = get_cloudflared_asset(platform, arch)
@@ -87,7 +110,19 @@ def ensure_cloudflared(ctx: AppContext) -> Path:
             os.chmod(binary_path, 0o755)
         return binary_path
 
-    set_remote_tunnel_state(ctx, status="downloading", message="Downloading Cloudflare tunnel helper...")
+    if generation is None:
+        set_remote_tunnel_state(
+            ctx,
+            status="downloading",
+            message="Downloading Cloudflare tunnel helper...",
+        )
+    elif not _set_remote_tunnel_state_for_generation(
+        ctx,
+        generation,
+        status="downloading",
+        message="Downloading Cloudflare tunnel helper...",
+    ):
+        raise RuntimeError("Remote tunnel start was cancelled.")
     staging_dir = Path(tempfile.mkdtemp(prefix=".cloudflared-", dir=cloudflared_dir))
     try:
         staged_binary = staging_dir / spec["filename"]
@@ -123,18 +158,44 @@ def ensure_cloudflared(ctx: AppContext) -> Path:
         shutil.rmtree(staging_dir, ignore_errors=True)
 
 
-def _start_remote_tunnel_worker(ctx: AppContext) -> None:
-    log = ""
+def _terminate_remote_tunnel_process(ctx: AppContext, proc) -> None:
+    if proc is None or proc.poll() is not None:
+        return
     try:
-        set_remote_tunnel_state(
+        if ctx.services.current_platform == "win32":
+            proc.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            proc.terminate()
+        proc.wait(timeout=5)
+    except Exception as exc:
+        print(f"[tunnel] graceful stop failed, killing process: {exc}", file=sys.stderr)
+        try:
+            proc.kill()
+        except Exception as kill_exc:
+            print(f"[tunnel] failed to kill process: {kill_exc}", file=sys.stderr)
+
+
+def _start_remote_tunnel_worker(ctx: AppContext, generation: int) -> None:
+    log = ""
+    proc = None
+    try:
+        if not _set_remote_tunnel_state_for_generation(
             ctx,
+            generation,
             status="preparing",
             url="",
             message="Preparing Cloudflare tunnel...",
             log="",
-        )
-        binary_path = ensure_cloudflared(ctx)
-        set_remote_tunnel_state(ctx, status="starting", message="Starting Cloudflare tunnel...")
+        ):
+            return
+        binary_path = ensure_cloudflared(ctx, generation)
+        if not _set_remote_tunnel_state_for_generation(
+            ctx,
+            generation,
+            status="starting",
+            message="Starting Cloudflare tunnel...",
+        ):
+            return
 
         env = os.environ.copy()
         if ctx.services.current_platform.startswith("linux"):
@@ -164,7 +225,12 @@ def _start_remote_tunnel_worker(ctx: AppContext) -> None:
             else 0,
         )
         with ctx.state.remote_tunnel_lock:
-            ctx.state.remote_tunnel_process = proc
+            superseded = ctx.state.remote_tunnel_generation != generation
+            if not superseded:
+                ctx.state.remote_tunnel_process = proc
+        if superseded:
+            _terminate_remote_tunnel_process(ctx, proc)
+            return
 
         pattern = re.compile(r"https://[\w.-]+\.trycloudflare\.com")
         while True:
@@ -174,24 +240,26 @@ def _start_remote_tunnel_worker(ctx: AppContext) -> None:
             log = (log + line)[-config.TUNNEL_LOG_LIMIT:]
             found = pattern.search(line)
             if found:
-                set_remote_tunnel_state(
+                _set_remote_tunnel_state_for_generation(
                     ctx,
+                    generation,
                     status="running",
                     url=found.group(0),
                     message="Remote tunnel is running.",
                     log=log,
                 )
             else:
-                set_remote_tunnel_state(ctx, log=log)
+                _set_remote_tunnel_state_for_generation(ctx, generation, log=log)
 
         exit_code = proc.wait()
         with ctx.state.remote_tunnel_lock:
-            if ctx.state.remote_tunnel_process is proc:
-                ctx.state.remote_tunnel_process = None
-            current_status = ctx.state.remote_tunnel.snapshot()["status"]
-        if current_status != "stopped":
-            set_remote_tunnel_state(
-                ctx,
+            if (
+                ctx.state.remote_tunnel_generation != generation
+                or ctx.state.remote_tunnel_process is not proc
+            ):
+                return
+            ctx.state.remote_tunnel_process = None
+            ctx.state.remote_tunnel.update(
                 status="error",
                 url="",
                 message=f"Cloudflare tunnel exited with code {exit_code}.",
@@ -199,8 +267,14 @@ def _start_remote_tunnel_worker(ctx: AppContext) -> None:
             )
     except Exception as exc:
         with ctx.state.remote_tunnel_lock:
-            ctx.state.remote_tunnel_process = None
-        set_remote_tunnel_state(ctx, status="error", url="", message=str(exc), log=log)
+            if ctx.state.remote_tunnel_generation != generation:
+                return
+            if ctx.state.remote_tunnel_process is proc:
+                ctx.state.remote_tunnel_process = None
+            ctx.state.remote_tunnel.update(
+                status="error", url="", message=str(exc), log=log
+            )
+        _terminate_remote_tunnel_process(ctx, proc)
 
 
 def start_remote_tunnel(ctx: AppContext) -> dict:
@@ -208,21 +282,30 @@ def start_remote_tunnel(ctx: AppContext) -> dict:
         proc = ctx.state.remote_tunnel_process
         snapshot = ctx.state.remote_tunnel.snapshot()
         if proc is not None and proc.poll() is None:
-            return get_remote_tunnel_snapshot(ctx)
+            snapshot["running"] = True
+            return snapshot
         if snapshot["status"] in {"preparing", "downloading", "starting"}:
-            return get_remote_tunnel_snapshot(ctx)
+            snapshot["running"] = False
+            return snapshot
+        ctx.state.remote_tunnel_generation += 1
+        generation = ctx.state.remote_tunnel_generation
         ctx.state.remote_tunnel.update(
             status="preparing",
             url="",
             message="Preparing Cloudflare tunnel...",
             log="",
         )
-    threading.Thread(target=_start_remote_tunnel_worker, args=(ctx,), daemon=True).start()
+    threading.Thread(
+        target=_start_remote_tunnel_worker,
+        args=(ctx, generation),
+        daemon=True,
+    ).start()
     return get_remote_tunnel_snapshot(ctx)
 
 
 def stop_remote_tunnel(ctx: AppContext) -> dict:
     with ctx.state.remote_tunnel_lock:
+        ctx.state.remote_tunnel_generation += 1
         proc = ctx.state.remote_tunnel_process
         ctx.state.remote_tunnel_process = None
         ctx.state.remote_tunnel.update(
@@ -231,17 +314,5 @@ def stop_remote_tunnel(ctx: AppContext) -> dict:
             message="Remote tunnel stopped.",
         )
 
-    if proc is not None and proc.poll() is None:
-        try:
-            if ctx.services.current_platform == "win32":
-                proc.send_signal(signal.CTRL_BREAK_EVENT)
-            else:
-                proc.terminate()
-            proc.wait(timeout=5)
-        except Exception as exc:
-            print(f"[tunnel] graceful stop failed, killing process: {exc}", file=sys.stderr)
-            try:
-                proc.kill()
-            except Exception as kill_exc:
-                print(f"[tunnel] failed to kill process: {kill_exc}", file=sys.stderr)
+    _terminate_remote_tunnel_process(ctx, proc)
     return get_remote_tunnel_snapshot(ctx)

@@ -818,15 +818,20 @@ def install_release(
     repo_api = resolve_repo_api(backend_spec, ctx)
 
     try:
-        release = get_release_by_tag(ctx, tag, repo_api)
-    except Exception:
-        releases = get_releases(ctx, repo_api)
-        release = next((r for r in releases if r["tag_name"] == tag), None)
-        if not release:
-            set_download_progress(
-                ctx, status="error", message=f"Release {tag} not found"
-            )
-            return False
+        try:
+            release = get_release_by_tag(ctx, tag, repo_api)
+        except Exception:
+            releases = get_releases(ctx, repo_api)
+            release = next((r for r in releases if r["tag_name"] == tag), None)
+            if not release:
+                set_download_progress(
+                    ctx, status="error", message=f"Release {tag} not found"
+                )
+                return False
+    except Exception as exc:
+        print(f"[llama_manager] release lookup failed: {exc}", file=sys.stderr)
+        set_download_progress(ctx, status="error", message=str(exc))
+        return False
 
     asset_map = {a["name"]: a for a in release["assets"]}
 

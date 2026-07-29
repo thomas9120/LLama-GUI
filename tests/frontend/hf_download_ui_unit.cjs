@@ -55,7 +55,7 @@ function createElement(tagName = "div") {
     };
 }
 
-function makeContext() {
+function makeContext(overrides = {}) {
     const elements = new Map();
     const context = {
         window: { LlamaGui: {} },
@@ -64,8 +64,8 @@ function makeContext() {
             getElementById: (id) => elements.get(id) || null,
         },
         console,
-        setInterval: () => 1,
-        clearInterval: () => {},
+        setInterval: overrides.setInterval || (() => 1),
+        clearInterval: overrides.clearInterval || (() => {}),
         Date,
     };
     context.window.window = context.window;
@@ -84,6 +84,48 @@ function addElement(elements, id, tagName = "div", value = "") {
 }
 
 (async () => {
+{
+    const callbacks = [];
+    const { elements, ui } = makeContext({
+        setInterval: (callback) => {
+            callbacks.push(callback);
+            return callbacks.length;
+        },
+    });
+    addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-download-progress");
+    addElement(elements, "hf-progress-fill");
+    addElement(elements, "hf-progress-text");
+
+    let resolveFirst;
+    let fetchCount = 0;
+    ui.configure({
+        fetchJson: () => {
+            fetchCount += 1;
+            if (fetchCount === 1) {
+                return new Promise((resolve) => {
+                    resolveFirst = resolve;
+                });
+            }
+            return Promise.resolve({ status: "downloading", downloaded: 2, total: 10 });
+        },
+    });
+
+    ui.pollProgress();
+    const tick = callbacks[0];
+    const firstTick = tick();
+    const overlappingTick = tick();
+    assert.equal(fetchCount, 1);
+
+    resolveFirst({ status: "downloading", downloaded: 1, total: 10 });
+    await Promise.all([firstTick, overlappingTick]);
+    await tick();
+    assert.equal(fetchCount, 2);
+}
+
 {
     const { elements, ui } = makeContext();
     const status = addElement(elements, "hf-download-status");

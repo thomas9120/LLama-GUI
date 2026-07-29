@@ -39,6 +39,4 @@ def start_download(request, response, ctx):
 
 
 def cancel_download(request, response, ctx):
-    ctx.state.model_download_cancel.set()
-    hf_download.set_model_download_state(ctx, status="cancelling", message="Cancelling download...")
-    response.json(hf_download.get_model_download_snapshot(ctx))
+    response.json(hf_download.cancel_hf_model_download(ctx))

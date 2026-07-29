@@ -173,6 +173,22 @@ def get_model_download_snapshot(ctx: AppContext) -> Mapping[str, Any]:
     return ctx.state.model_download.snapshot()
 
 
+def cancel_hf_model_download(ctx: AppContext) -> Mapping[str, Any]:
+    """Request cancellation only while a worker still owns the download slot."""
+    with ctx.state.model_download_lock:
+        snapshot = ctx.state.model_download.snapshot()
+        if not ctx.state.model_download_in_progress or snapshot.get("status") in {
+            "done",
+            "error",
+            "cancelled",
+        }:
+            return snapshot
+        ctx.state.model_download_cancel.set()
+        return ctx.state.model_download.update(
+            status="cancelling", message="Cancelling download..."
+        )
+
+
 def download_hf_file(
     ctx: AppContext,
     repo_id: str,
@@ -266,7 +282,10 @@ def start_hf_model_download(
         if ctx.state.model_download_in_progress:
             raise RuntimeError("A model download is already in progress.")
         ctx.state.model_download_in_progress = True
-    ctx.state.model_download_cancel.clear()
+        ctx.state.model_download_cancel.clear()
+        reset_model_download_state(
+            ctx, status="starting", message="Preparing Hugging Face download..."
+        )
 
     def _worker() -> None:
         destinations = [model_dest]
@@ -324,6 +343,5 @@ def start_hf_model_download(
                 ctx.state.model_download_in_progress = False
             ctx.state.model_download_cancel.clear()
 
-    reset_model_download_state(ctx, status="starting", message="Preparing Hugging Face download...")
     threading.Thread(target=_worker, daemon=True).start()
     return get_model_download_snapshot(ctx)

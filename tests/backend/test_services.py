@@ -1136,6 +1136,17 @@ class ProcessStateReapTests(unittest.TestCase):
         self.assertIsNotNone(ctx.state.process)
         self.assertEqual(ctx.state.active_process_tool, "llama-cli")
 
+    def test_launch_process_refuses_while_install_owns_the_runtime_files(self):
+        ctx = AppContext()
+        with ctx.state.install_lock:
+            ctx.state.install_in_progress = True
+
+        with mock.patch.object(process_manager.subprocess, "Popen") as popen:
+            result = process_manager.launch_process(ctx, "llama-server", [])
+
+        self.assertIn("Installation in progress", result["error"])
+        popen.assert_not_called()
+
     def test_active_llama_authorization_uses_launch_snapshot_and_safe_fallback(self):
         ctx = AppContext()
         ctx.state.process = FakeLaunchedProcess(returncode=None)
@@ -1338,6 +1349,29 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertTrue(ok)
             extract_archive.assert_called_once()
             ctx.services.save_config.assert_called_once()
+
+    def test_install_release_reports_release_lookup_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                llama_manager,
+                "get_release_by_tag",
+                side_effect=RuntimeError("tag lookup failed"),
+            ), mock.patch.object(
+                llama_manager,
+                "get_releases",
+                side_effect=RuntimeError("release API offline"),
+            ):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+
+            self.assertFalse(ok)
+            progress = ctx.state.download_progress.snapshot()
+            self.assertEqual(progress["status"], "error")
+            self.assertEqual(progress["message"], "release API offline")
+            self.assertIn("release lookup failed: release API offline", stderr.getvalue())
 
     def test_install_release_does_not_save_config_when_executable_repair_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2048,6 +2082,74 @@ class TunnelDownloadTests(unittest.TestCase):
 
             self.assertFalse(binary_path.exists())
             self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+    def test_worker_spawned_after_stop_is_terminated_before_registration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.state.remote_tunnel_generation = 1
+            ctx.state.remote_tunnel.update(status="preparing")
+
+            class FakeProcess:
+                def __init__(self):
+                    self.returncode = None
+                    self.stderr = io.StringIO("")
+                    self.terminated = False
+
+                def poll(self):
+                    return self.returncode
+
+                def terminate(self):
+                    self.terminated = True
+                    self.returncode = 0
+
+                def wait(self, timeout=None):
+                    return self.returncode
+
+                def kill(self):
+                    self.returncode = -9
+
+            process = FakeProcess()
+
+            def spawn_after_stop(*_args, **_kwargs):
+                tunnel_service.stop_remote_tunnel(ctx)
+                return process
+
+            with mock.patch.object(
+                tunnel_service, "ensure_cloudflared", return_value=ctx.paths.cloudflared / "cloudflared"
+            ), mock.patch.object(
+                tunnel_service.subprocess, "Popen", side_effect=spawn_after_stop
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 1)
+
+            self.assertTrue(process.terminated)
+            self.assertIsNone(ctx.state.remote_tunnel_process)
+            self.assertEqual(ctx.state.remote_tunnel.snapshot()["status"], "stopped")
+
+    def test_superseded_worker_error_does_not_clobber_newer_tunnel_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.state.remote_tunnel_generation = 3
+            ctx.state.remote_tunnel.update(status="preparing", message="Old worker")
+
+            def supersede_then_fail(*_args, **_kwargs):
+                with ctx.state.remote_tunnel_lock:
+                    ctx.state.remote_tunnel_generation = 4
+                    ctx.state.remote_tunnel.update(
+                        status="preparing", message="New worker"
+                    )
+                raise RuntimeError("old worker failed")
+
+            with mock.patch.object(
+                tunnel_service,
+                "ensure_cloudflared",
+                side_effect=supersede_then_fail,
+            ):
+                tunnel_service._start_remote_tunnel_worker(ctx, 3)
+
+            snapshot = ctx.state.remote_tunnel.snapshot()
+            self.assertEqual(snapshot["status"], "preparing")
+            self.assertEqual(snapshot["message"], "New worker")
 
 
 class ExternalServerServiceTests(unittest.TestCase):
