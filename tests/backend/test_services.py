@@ -2396,8 +2396,13 @@ class ExternalServerServiceTests(unittest.TestCase):
 
     def test_connect_probes_the_target_and_reports_a_rejected_key(self):
         ctx = self.make_context()
+        error_body = io.BytesIO(b"")
         error = urllib.error.HTTPError(
-            "http://127.0.0.1:9001/health", 401, "Unauthorized", Message(), None
+            "http://127.0.0.1:9001/health",
+            401,
+            "Unauthorized",
+            Message(),
+            error_body,
         )
 
         with mock.patch.object(
@@ -2408,6 +2413,7 @@ class ExternalServerServiceTests(unittest.TestCase):
         self.assertEqual(target["probe_status"], 401)
         self.assertIn("rejected the API key", target["warning"])
         self.assertIsNotNone(external_server_service.get_target(ctx))
+        self.assertTrue(error_body.closed)
 
     def test_connect_sends_the_api_key_with_the_probe(self):
         ctx = self.make_context()
