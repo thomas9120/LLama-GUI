@@ -24,7 +24,7 @@ each with a regression test verified to fail against the pre-fix code:
 |---|------|-----|------|
 | 1 | H1 number inputs | `config-flags-ui.js` skips the focused input; `flag-core.js` passes `force` for wholesale applies. Same fix applied to `quick-launch-ui.js` (context / GPU / fit fields) | `flag_sync_smoke.cjs` — types `0.85` and `0.05` key by key |
 | 2 | H5 CRLF launchers | `.gitattributes` pins `*.sh eol=lf` (plus `*.bat`/`*.ps1 eol=crlf`); working tree renormalized | verified by fresh `core.autocrlf=true` clone |
-| 3 | H2 + `startNewChat` | all three paths `await abortActiveStream()` | — (no chat-ui unit harness) |
+| 3 | H2 + `startNewChat` | all three paths `await abortActiveStream()` | `chat_ui_unit.cjs` — abort-mid-stream switch/load/clear ordering (verified by reverting the `await`s) |
 | 4 | H4 + truncated GGUF | wikitext extracts via `.part` + size check under a lock; `download_hf_file` verifies `Content-Length` | 2 route tests + 3 `DownloadHfFileLengthTests` |
 | 5 | `app.py` dispatch guard | sanitized 500; `Response.started` prevents a second response mid-stream | 3 `HandlerResponseTests` |
 | 6 | H3 stdin deadlock | write moved out of `process_lock`, bounded by `SEND_INPUT_TIMEOUT_SECONDS` | 2 tests, one asserting the lock is free during a blocked write |
@@ -224,17 +224,24 @@ download continues. But it is not permanent: `refreshStatus()` (`:201`) calls `p
 when the download is still active (`:222-224`), so a page reload recovers. "Permanently
 desyncs" overstates it; "desyncs until reload" is accurate.
 
-**`model-switch-ui.js:448` — DISAGREE.** The stated mechanism doesn't exist.
-`fetchPresetEntries` **throws** on a bad response (`presets.js:68-70`), and
-`loadPresetEntries` assigns `presetEntries` at `:457` only *after* the `Array.isArray` check
-at `:456` — which also throws. A failed load therefore caches nothing; `presetEntries`
-stays `null` and the next call retries. Slots will not render "Missing indefinitely".
+**`model-switch-ui.js:448` — ~~DISAGREE~~ AGREE. My verdict was wrong; corrected during
+remediation.**
 
-There is a smaller real issue nearby: a legitimately empty `[]` response *is* truthy and
-*is* cached at `:457`, and the only caller (`:630`) passes `force` only when
-`options.reloadPresets` is set. So presets created after an initial empty fetch stay
-invisible to the model switcher. Worth fixing, but it's a stale-cache bug, not a
-failure-caching bug.
+I read only `loadPresetEntries` and concluded a failed load caches nothing. It does cache —
+one level up. `refresh()` catches the error and runs `if (!presetEntries) presetEntries = [];`
+(`:634`). An empty array is **truthy**, so the cache guard at `:449`
+(`if (presetEntries && !force)`) hands it back on every later unforced refresh. The original
+finding was right: one failed fetch leaves the slots reading "Missing" with no retry.
+
+What I got right, but for the wrong reason: `fetchPresetEntries` does throw rather than
+return `[]` (`presets.js:68-70`), and `loadPresetEntries` itself assigns only on success.
+That made the loader look clean in isolation — the defect was in its caller, which I never
+opened. Verifying a cache claim means following *every* write to the cached variable, not
+just the one inside the loader.
+
+Fixed by dropping the `presetEntries = []` assignment so a failure leaves it `null`
+("not loaded"), and rendering from `presetEntries || []`. A successful load is still cached;
+a warm cache now survives a failed reload instead of blanking slots the user is looking at.
 
 **`benchmark-ui.js:855, 800` — HALF AGREE.**
 

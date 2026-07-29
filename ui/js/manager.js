@@ -1122,11 +1122,14 @@ async function refreshModels() {
     const requestId = ++refreshModelsRequestId;
     const sel = document.getElementById("model-select");
     if (!sel) return;
-    const current = sel.value;
-    sel.innerHTML = '<option value="">-- Select Model --</option>';
     try {
         const models = await fetchJson("/api/models");
         if (requestId !== refreshModelsRequestId) return;
+        // Keep the current options in place while requests overlap. Clearing
+        // them before the await made a second refresh snapshot an empty value,
+        // so the winning response silently dropped the selected model.
+        const selectedValue = sel.value;
+        sel.innerHTML = '<option value="">-- Select Model --</option>';
         const names = new Set();
         let added = 0;
         for (const m of models) {
@@ -1145,7 +1148,7 @@ async function refreshModels() {
             opt.textContent = "No .gguf models found \u2014 add one to models/ or download from Quick Launch";
             sel.appendChild(opt);
         }
-        if (current) sel.value = current;
+        if (selectedValue) sel.value = selectedValue;
         if (window.LlamaGui && window.LlamaGui.flagCore) {
             window.LlamaGui.flagCore.setSelectedModelValue(sel.value || "");
         }
@@ -1158,6 +1161,7 @@ async function refreshModels() {
         // Drop the cache rather than keeping a stale one: callers must not read
         // a failed refresh as proof that a model is missing.
         knownModelNames = null;
+        sel.innerHTML = '<option value="">-- Select Model --</option>';
         const opt = document.createElement("option");
         opt.value = "";
         opt.textContent = "Failed to load models";

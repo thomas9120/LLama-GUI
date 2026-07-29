@@ -26,6 +26,7 @@ function makeElement() {
     Object.defineProperty(el, "innerHTML", {
         set() {
             this.children = [];
+            this.value = "";
         },
         get() {
             return "";
@@ -135,6 +136,7 @@ function createContext({ models, failFetch = false } = {}) {
 
     // A slower failed request must not clobber a newer successful refresh.
     const race = createContext({ models: [] });
+    race.modelSelect.value = "fresh.gguf";
     let resolveSlowFail;
     const slowFail = new Promise((_, reject) => {
         resolveSlowFail = () => reject(new Error("stale network down"));
@@ -151,6 +153,11 @@ function createContext({ models, failFetch = false } = {}) {
     const stale = race.context.refreshModels();
     const fresh = race.context.refreshModels();
     await fresh;
+    assert.equal(
+        race.modelSelect.value,
+        "fresh.gguf",
+        "the winning refresh must preserve the selected model across overlapping requests"
+    );
     assert.equal(race.context.getKnownModelNames().size, 1, "newer success must populate the cache");
     assert.equal(race.presenceCalls.length, 1, "only the winning refresh notifies");
     resolveSlowFail();

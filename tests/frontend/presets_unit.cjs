@@ -907,4 +907,92 @@ const noSection = createPresenceContext(null);
 vm.runInContext("refreshModelPresence()", noSection);
 assert.equal(noSection.__rebuilds, 0, "a missing section must be safe rather than throwing");
 
-console.log("presets unit tests passed");
+function createPresetLoadElement() {
+    const classes = new Set();
+    const element = {
+        children: [],
+        disabled: false,
+        className: "",
+        _textContent: "",
+        classList: {
+            toggle(name, force) {
+                const add = force === undefined ? !classes.has(name) : Boolean(force);
+                if (add) classes.add(name); else classes.delete(name);
+                return add;
+            },
+        },
+        appendChild(child) {
+            this.children.push(child);
+            return child;
+        },
+    };
+    Object.defineProperty(element, "textContent", {
+        get() {
+            return this._textContent;
+        },
+        set(value) {
+            this._textContent = String(value || "");
+            this.children = [];
+        },
+    });
+    return element;
+}
+
+async function testPresetLoadFailureClearsAuxiliaryState() {
+    const elements = new Map();
+    for (const id of [
+        "presets-list",
+        "preset-detail-panel",
+        "presets-selection-count",
+        "btn-presets-delete-selected",
+        "btn-presets-export-selected",
+        "btn-presets-select-none",
+        "btn-presets-favorite-selected",
+        "btn-presets-unfavorite-selected",
+        "presets-browser",
+        "presets-count-line",
+    ]) {
+        elements.set(id, createPresetLoadElement());
+    }
+    elements.get("preset-detail-panel").appendChild({ textContent: "Stale preset actions" });
+
+    const ctx = {
+        window: {},
+        document: {
+            createElement: () => createPresetLoadElement(),
+            getElementById: (id) => elements.get(id) || null,
+        },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: { getItem: () => null, setItem: () => {} },
+        FLAGS: [],
+        fetchJson: async () => {
+            throw new Error("network down");
+        },
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    vm.runInContext(
+        "currentPresetGroups = [{ key: 'stale', entries: [] }]; selectedPresetName = 'stale'; selectedPresetNames.add('stale')",
+        ctx
+    );
+
+    await vm.runInContext("loadPresets()", ctx);
+
+    assert.equal(vm.runInContext("currentPresetGroups.length", ctx), 0);
+    assert.equal(vm.runInContext("selectedPresetName", ctx), "");
+    assert.equal(vm.runInContext("selectedPresetNames.size", ctx), 0);
+    assert.match(elements.get("presets-list").children[0].textContent, /Failed to load presets/);
+    assert.equal(elements.get("preset-detail-panel").children.length, 1, "stale preset actions must be removed");
+    assert.match(elements.get("preset-detail-panel").children[0].textContent, /library unavailable/);
+    assert.equal(elements.get("btn-presets-delete-selected").disabled, true);
+    assert.equal(elements.get("presets-count-line").textContent, "0 presets · 0 models");
+}
+
+testPresetLoadFailureClearsAuxiliaryState()
+    .then(() => console.log("presets unit tests passed"))
+    .catch((error) => {
+        console.error(error);
+        process.exitCode = 1;
+    });

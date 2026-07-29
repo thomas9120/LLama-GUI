@@ -321,10 +321,10 @@
             ? "Server process is running but the model is still loading; endpoints are temporarily unavailable."
             : isRunning && latestStatus.active_process_tool === "llama-server"
             ? "Server process appears to be ready."
-            : isRunning
-            ? "A llama.cpp tool is running, but it is not llama-server — endpoints are not available."
             : externalTarget
             ? "Connected to a llama-server started outside this GUI."
+            : isRunning
+            ? "A llama.cpp tool is running, but it is not llama-server — endpoints are not available."
             : "Server process is not running right now.";
         const authText = hasApiKey
             ? "API key is configured. Use `Authorization: Bearer <key>` in clients."

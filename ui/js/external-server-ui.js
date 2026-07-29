@@ -2,6 +2,7 @@
     "use strict";
 
     let deps = {};
+    const dirtyAddressFields = new Set();
 
     function configure(nextDeps) {
         deps = Object.assign({}, deps, nextDeps || {});
@@ -74,8 +75,12 @@
         const hostInput = byId("external-server-host");
         const portInput = byId("external-server-port");
         if (isConnected && options.syncInputs) {
-            if (hostInput && document.activeElement !== hostInput) hostInput.value = target.host;
-            if (portInput && document.activeElement !== portInput) portInput.value = String(target.port);
+            if (hostInput && !dirtyAddressFields.has("external-server-host")) {
+                hostInput.value = target.host;
+            }
+            if (portInput && !dirtyAddressFields.has("external-server-port")) {
+                portInput.value = String(target.port);
+            }
         }
     }
 
@@ -105,7 +110,8 @@
             const target = result && result.external_chat_target;
             const warning = target && target.warning;
             setNote(warning || `Connected to ${describeTarget(target)}.`, warning ? "warning" : "");
-            render(target);
+            dirtyAddressFields.clear();
+            render(target, { syncInputs: true });
             await refreshDependentPanels();
             return target;
         } catch (error) {
@@ -148,12 +154,17 @@
         if (!remembered) return;
         const hostInput = byId("external-server-host");
         const portInput = byId("external-server-port");
-        if (hostInput) hostInput.value = remembered.host;
-        if (portInput) portInput.value = String(remembered.port);
+        if (hostInput && !dirtyAddressFields.has("external-server-host")) {
+            hostInput.value = remembered.host;
+        }
+        if (portInput && !dirtyAddressFields.has("external-server-port")) {
+            portInput.value = String(remembered.port);
+        }
     }
 
-    async function restore() {
+    async function restore(options = {}) {
         const fetchJson = requireDependency("fetchJson");
+        if (!options.preserveDrafts) dirtyAddressFields.clear();
         let state = null;
         try {
             state = await fetchJson("/api/chat/target");
@@ -225,6 +236,9 @@
         for (const id of ["external-server-host", "external-server-port", "external-server-key"]) {
             const input = byId(id);
             if (!input) continue;
+            if (id !== "external-server-key") {
+                input.addEventListener("input", () => dirtyAddressFields.add(id));
+            }
             input.addEventListener("keydown", (event) => {
                 if (event.key === "Enter") {
                     event.preventDefault();
@@ -233,7 +247,8 @@
             });
         }
         refresh();
-        restore().catch((error) => console.debug("Failed to restore the saved chat target", error));
+        restore({ preserveDrafts: true })
+            .catch((error) => console.debug("Failed to restore the saved chat target", error));
     }
 
     window.LlamaGui = window.LlamaGui || {};

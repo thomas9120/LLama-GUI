@@ -350,6 +350,7 @@ let presetFavoritesMode = loadPresetFavoritesMode();
 let currentPresetGroups = [];
 let selectedPresetName = "";
 let selectedPresetNames = new Set();
+let loadPresetsRequestId = 0;
 
 function getPresetStorageItem(storageKey) {
     try {
@@ -1127,6 +1128,19 @@ function renderPresetAuxiliaryPanels() {
     renderPresetCountLine();
 }
 
+function renderPresetLoadErrorState() {
+    const panel = document.getElementById("preset-detail-panel");
+    if (panel) {
+        panel.textContent = "";
+        const error = document.createElement("div");
+        error.className = "preset-detail-empty presets-error";
+        error.textContent = "Preset library unavailable. Try refreshing the list.";
+        panel.appendChild(error);
+    }
+    renderPresetBulkControls();
+    renderPresetCountLine();
+}
+
 function selectPresetEntry(name) {
     selectedPresetName = String(name || "");
     // searching force-expands groups, so a selection made from search results would be
@@ -1534,11 +1548,13 @@ function refreshModelPresence() {
 }
 
 async function loadPresets() {
+    const requestId = ++loadPresetsRequestId;
     const container = document.getElementById("presets-list");
     if (!container) return;
     container.textContent = "";
     try {
         const presets = await fetchPresetEntries();
+        if (requestId !== loadPresetsRequestId) return;
         prunePresetLocalState(new Set(presets.map((preset) => preset.name)));
         currentPresetGroups = buildPresetGroups(presets);
         const visibleEntries = getVisiblePresetEntries();
@@ -1549,10 +1565,15 @@ async function loadPresets() {
         }
         renderPresetGroups(container, currentPresetGroups);
     } catch (e) {
+        if (requestId !== loadPresetsRequestId) return;
+        currentPresetGroups = [];
+        selectedPresetName = "";
+        selectedPresetNames.clear();
         const error = document.createElement("div");
         error.className = "presets-empty presets-error";
         error.textContent = "Failed to load presets.";
         container.appendChild(error);
+        renderPresetLoadErrorState();
     }
 }
 

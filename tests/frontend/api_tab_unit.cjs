@@ -180,6 +180,23 @@ flagValues.api_key = "";
 apiTab.updateEndpoints();
 assert.match(elements.get("api-status-note").textContent, /API key is configured/);
 
+apiTab.configure({
+    getLatestStatus: () => ({
+        running: true,
+        active_process_tool: "llama-bench",
+        external_chat_target: {
+            connected: true,
+            host: "127.0.0.4",
+            port: 8333,
+            api_key_configured: false,
+        },
+    }),
+});
+apiTab.updateEndpoints();
+assert.match(elements.get("api-status-note").textContent, /Connected to a llama-server started outside this GUI/);
+assert.doesNotMatch(elements.get("api-status-note").textContent, /endpoints are not available/);
+assert.equal(apiTab.getServerEndpointConfig().baseUrl, "http://127.0.0.4:8333");
+
 flagValues = { host: "localhost", port: 8081, alias: "", api_key: "" };
 selectedModel = "fallback-model.gguf";
 apiTab.configure({ getLatestStatus: () => ({ running: false }) });
