@@ -1294,7 +1294,6 @@ function showToast(message, type, options = {}) {
 chatUi.configure({
     flagCore,
     confirmAction,
-    getServerEndpointConfig,
     getLatestStatus: () => latestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     snapshotStatsBaseline,

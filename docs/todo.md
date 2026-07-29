@@ -5,83 +5,96 @@ reviewed, fixed, and rejected lives in
 [code-review-swarm-2026-07-29-verification.md](code-review-swarm-2026-07-29-verification.md).
 
 All High and Medium findings from the 2026-07-29 whole-repo review are done, as are
-every Low-severity finding that was actually verified. What remains is the
-`chat-ui.js` test harness, one unresolved item, and a tail of Low items that are now
-verified but still unfixed (see §3).
+every Low-severity finding that was actually verified. What remains is one unresolved
+item and a tail of Low items that are now verified but still unfixed (see §2).
 
 ---
 
-## 1. Build a `chat-ui.js` unit-test harness
+## Recently completed
 
-**Status:** not started · **Est.:** ~150–200 lines of harness + tests
+### `chat-ui.js` unit-test harness — done 2026-07-30
 
-`ui/js/chat-ui.js` is the only frontend module with no unit test. That gap blocks
-coverage for one already-fixed bug and four outstanding findings, so the harness is
-worth building once rather than paying for it per item.
+- `tests/frontend/chat_ui_unit.cjs` (new, ~420 lines): `node:vm` harness modeled on
+  `hf_download_ui_unit.cjs` / `chat_rendering_unit.cjs`. Loads the real
+  `chat-rendering.js` into the same context, stubs `document` / `localStorage`, uses
+  native `AbortController` / `TextDecoder`. The fetch stub's pending `read()` rejects
+  with `AbortError` on a real microtask after `abort()` — the ordering the H2 bug
+  depended on.
+- `ui/js/chat-ui.js` (+9 lines, no behavior change): `_testSendMessage`,
+  `_testLoadConversation`, `_testClearChat`, `_testStartNewChat`, `_testGetState`
+  seams on `window.LlamaGui.chatUi` (same precedent as `_testPollOutput` in
+  `benchmark-ui.js`). Both are now gated behind `window.__LLAMA_GUI_TEST_HOOKS__` —
+  see the follow-up round below.
+- Tests: happy-path stream (control) + the three H2 scenarios (`loadConversation`,
+  `startNewChat`, `clearChat` mid-stream) asserting the aborted partial reply never
+  lands in the conversation being switched to.
+- Verify-by-reverting passed: patching all three `await abortActiveStream()` calls
+  back to `stopStream()` makes the load-conversation test fail with exactly the H2
+  corruption; restoring the `await`s is green.
+- Registered in `package.json` `test` (after `chat_rendering_unit.cjs`) and
+  `docs/tests.md`; full `npm test` chain green. Fix-status table row 3 in
+  [code-review-swarm-2026-07-29-verification.md](code-review-swarm-2026-07-29-verification.md)
+  updated.
+- **Unlocked and fixed** the four deferred `chat-ui.js` findings — see below.
 
-### Why it matters
+### Four `chat-ui.js` findings — done 2026-07-30
 
-The aborted-stream conversation-corruption fix (H2) shipped with **no automated
-coverage**. `loadConversation`, `clearChat`, and `startNewChat` now
-`await abortActiveStream()` instead of calling `stopStream()` and racing the
-`AbortError` handler. It is three `await` keywords — exactly what a future refactor
-drops silently, and nothing breaks visibly in normal use because the corruption only
-appears when a conversation is switched mid-stream.
+All four fixed in `ui/js/chat-ui.js`, each pinned by a test on the harness above and
+verified by reverting (each revert fails its matching test):
 
-### What it unlocks
+- *Empty-string sampler values* (`getChatSamplerParams`): cleared Configure inputs (`""`)
+  are now omitted from the chat payload for all five samplers plus `n_predict`.
+- *Dead `host`/`port` payload fields*: removed (backend ignores and strips them,
+  `backend/routes/chat.py:132-133`); the unused `getServerEndpointConfig` wiring in
+  `chat-ui.js` went with them, and the dead `app.js` option was dropped in the
+  follow-up round below.
+- *`regenerateResponse` early-return desync*: the pop is now persisted before the early
+  return, mirroring `undoMessage` (delete-when-empty, save otherwise).
+- *Stale/`NaN` sidebar sliders*: `CHAT_SAMPLER_SLIDER_MAP` entries carry a `fallback`
+  (`app-data.js`) matching the `index.html` slider defaults; `refreshSidebarUI` always
+  sets slider + display, falling back on `""`/non-finite values. Display-only — flag
+  state is not written back.
 
-| Location | Finding |
-|---|---|
-| `chat-ui.js:285` | empty-string sampler values can be sent to the backend |
-| `chat-ui.js:381` | dead `host`/`port` fields in the request payload |
-| `chat-ui.js:556` | `regenerateResponse` early-return desyncs stored conversations |
-| `chat-ui.js:63` | sidebar sliders show stale / `NaN` values |
-| `chat-ui.js:691` | `startNewChat` stream handling (fixed, unpinned) |
+### Follow-up review of the above — done 2026-07-29
 
-### Scope
+`/code-review` on the working tree found seven issues in the round above; all fixed.
 
-Follow the existing `node:vm` pattern — closest models are
-`tests/frontend/hf_download_ui_unit.cjs` (333 lines) and `model_switch_ui_unit.cjs`
-(404 lines). Name it `chat_ui_unit.cjs`, register it in the `test` script in
-`package.json`, and add a line to the module list in [tests.md](tests.md).
+- *`loadConversation` read-before-await* (`chat-ui.js`): the storage snapshot was taken
+  *before* `await abortActiveStream()`, so reloading the conversation that was itself
+  streaming restored a pre-abort message list and the next `saveCurrentConversation()`
+  wrote it back, dropping the finalized turn. The read now happens after the await.
+  Pinned by a new case in `chat_ui_unit.cjs`; verified by reverting (memory keeps
+  `[B question]` while storage holds all three messages).
+- *Sampler values not normalized* (`getChatSamplerParams`): the `!== ""` guards only
+  covered empty strings, so numeric strings, `NaN`, and the string forms of the
+  `0`/`1.0`/`-1` disable sentinels reached the wire — llama-server 400s on a string
+  temperature, `NaN` serialized to `null`, and "disabled" samplers shipped as active.
+  New `normalizeSamplerNumber` (`Number()` + `Number.isFinite()`) now feeds both the
+  payload and `refreshSidebarUI`. Two new test cases; verified by reverting.
+- *`n_predict` sentinel* (`refreshSidebarUI`): compared the raw value against `-1`, so
+  `"-1"` rendered as `-1` while the slider clamped to its `min`. Now compares the
+  parsed number. Covered by two new sidebar assertions.
+- *`repeat_penalty` fallback*: was `1.1` in `app-data.js` against a flag default of
+  `1.0` (`flags/definitions.js:701`), so the panel asserted a penalty that was never
+  sent. Fallback and the `index.html` markup defaults are now both `1.00`.
+- *Unbounded spin in the harness*: `while (!streamPending) await flush();` would hang
+  `npm test` instead of failing it. Replaced with `flushUntil()` (1000-tick cap that
+  throws).
+- *Test hooks on the shipped namespace*: the five `_test*` mutators plus `_testGetState`
+  are now attached only when `window.__LLAMA_GUI_TEST_HOOKS__` is set before
+  `chat-ui.js` evaluates, so page/console callers can no longer invoke
+  `_testClearChat()` and bypass the `confirmAction` flows. Verified in both directions.
+  The pre-existing `_testPollOutput` export in `benchmark-ui.js` (which drives the live
+  benchmark output watcher) is gated behind the same flag, with
+  `benchmark_args_unit.cjs` opting in. Also verified in both directions.
+- *Dead wiring*: `chatUi.configure({ getServerEndpointConfig })` removed from `app.js`
+  and the test harness.
 
-Stubs required (`chat-ui.js` surface: 69 `document.*`, 12 `localStorage`, 7
-`AbortController`, plus `fetch`/`getReader`/`TextDecoder`):
-
-1. **`localStorage`** — conversation storage round-trip.
-2. **`document`** — `getElementById` + `querySelectorAll`; unlike the existing
-   `createElement` stub in `hf_download_ui_unit.cjs`, `addEventListener` must actually
-   record callbacks if any test drives handlers rather than calling functions directly.
-3. **`fetch`** — returns a body whose `getReader()` yields SSE chunks and rejects with
-   an `AbortError` when the signal fires. `AbortController` and `TextDecoder` are
-   native in Node; use them rather than faking them.
-
-`loadConversation`, `clearChat`, and `startNewChat` are not exported. Add `_test*`
-seams to `window.LlamaGui.chatUi` — existing precedent, `benchmark-ui.js` already
-exports `_testPollOutput` for the same reason.
-
-### The one thing to get right
-
-The H2 test is only meaningful if the stubbed reader rejects **asynchronously**, on a
-real microtask. That reproduces the ordering the bug depended on: `abort()` →
-synchronous reassignment of `currentConversationId` / `chatMessages` → `AbortError`
-handler finalizes the old reply into the *new* conversation. A stub that rejects
-synchronously passes with or without the `await` and proves nothing.
-
-**Verify by reverting.** Patch the three `await abortActiveStream()` calls back to
-`stopStream()`, confirm the test fails, then restore. Note that `git stash` is not
-reliable for this once the fix is committed — it silently stashes nothing and the
-"before" run passes with the fix still in place. Patch the file directly instead.
-
-### Not the answer
-
-A Playwright smoke test against a fake SSE endpoint costs nearly as much and covers
-only H2, leaving the other four findings untestable. If the harness is not built, the
-honest position is that H2 is covered by code review and nothing else.
+Full `npm test` chain green after all seven.
 
 ---
 
-## 2. Unresolved — needs verification before acting - defer for now
+## 1. Unresolved — needs verification before acting - defer for now
 
 - **`external_server.py:359`** — "bearer key can be sent to an external host it wasn't
   minted for." Opened but **could not confirm as written**: `get_authorization`
@@ -93,7 +106,7 @@ honest position is that H2 is covered by code review and nothing else.
 
 ---
 
-## 3. Verified — all confirmed (Low unless noted)
+## 2. Verified — all confirmed (Low unless noted)
 
 Reported by the original review but never opened. Verified against the current tree
 (2026-07-30): **every item is real.** Line references below are current, not the
