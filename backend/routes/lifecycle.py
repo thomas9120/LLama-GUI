@@ -17,10 +17,13 @@ def post_restart(request, response, ctx):
 def post_open_folder(request, response, ctx):
     body = request.body or {}
     folder = body.get("folder", "models")
+    if not isinstance(folder, str):
+        response.error("Invalid folder name.", 400)
+        return
     folder_map = {"models": ctx.paths.models, "llama": ctx.paths.llama}
     target = folder_map.get(folder, ctx.paths.models)
-    target.mkdir(parents=True, exist_ok=True)
     try:
+        target.mkdir(parents=True, exist_ok=True)
         lifecycle_service.open_folder_in_file_manager(target)
         response.json({"opened": True})
     except Exception as e:

@@ -118,54 +118,21 @@ handler in `try/except → sanitize_error(..., 500)` (`app.py:817`), so the "ung
 raises" findings below never leak a traceback — they degrade to a sanitized 500
 instead of the intended specific message.
 
-**Backend**
+**Backend** *(all fixed 2026-07-30)*
 
-- **`save_config` read-modify-write races — Confirmed (Low-Med).** `save_config`
-  (`app.py:151`) does an atomic `tmp.replace`, but the *load → mutate → save* cycle is
-  unserialized. Four callers share no config lock: `llama_manager` activate (`:498`) and
-  install (`:945`), `process_manager` uninstall (`:1488`), `external_server` register
-  (`:147`). A live install thread (writing version/tag) can race an external-server
-  register (writing its key) — last writer wins and silently loses the other's fields.
-- **`activate_custom_backend` bypasses the install lock — Confirmed (Low).** Route
-  `activate_custom` (`install.py:128`) only checks `is_process_running`, never
-  `_claim_install_slot()`, unlike the three install/update/uninstall paths.
-  `process_manager.claim_install_slot()` / `release_install_slot()` already exist and are
-  the natural fix. (Related to the race above.)
-- **`hf_download` — Confirmed (four sub-items, all Low).**
-  - *Cancel cleared outside lock.* The worker `finally` (`:369-371`) sets
-    `model_download_in_progress = False` under `model_download_lock`, then clears
-    `model_download_cancel` (`:371`) *outside* it — a stale clear can race a fresh
-    `cancel.set()` from a later download. Fix: clear inside the lock.
-  - *Windows reserved names.* `validate_hf_filename` (`:42`) has no
-    `CON/PRN/AUX/NUL/COMx/LPTx` check, so `con.gguf` validates but fails to save on
-    Windows.
-  - *Bare `pass`.* `remove_partial_downloads` `except OSError: pass` (`:263`) violates
-    the "no silent empty catch" invariant.
-  - *Zero-size files.* `hf_file_to_dict` (`:92`): `round(size/...) if size else None`
-    reports a real 0-byte file as `size:0, size_mb:None` (None usually means "unknown").
-- **`external_server.py:204` silent empty catch — Confirmed (Low, justifiable).** Inner
-  `except Exception: body = b""` reading an `HTTPError` body. Best-effort; the status is
-  captured regardless. Borderline "expected optional" — a `print(..., stderr)` would
-  satisfy the invariant.
-- **`chat.py:113` unguarded `ipaddress.ip_address` — Confirmed (Low).** Actually
-  `services/chat.py:113` (`get_local_proxy_host`): the loop parse is outside any try; an
-  IPv6 scope-id sockaddr raises `ValueError` → caught by `app.py:817` as a generic 500
-  instead of the intended "Blocked" message.
-- **`file_picker.py:59` macOS English cancel match — Confirmed (Low).**
-  `"User canceled" in result.stderr` is locale-dependent; on a non-English macOS a cancel
-  falls through to `raise RuntimeError(<localized msg>)`.
-- **`routes/lifecycle.py:21` unhashable folder / mkdir outside try — Confirmed (Low).**
-  `folder_map.get(folder, ...)` raises `TypeError` for a list/dict `folder`, and
-  `target.mkdir(...)` runs before the `try`. Both are caught by `app.py:817` — no crash,
-  just a generic 500 instead of a 400 validation message.
-- **`http.py:169` chat exception not logged when tunnel inactive — Confirmed (Low).**
-  `sanitize_sse_error` only `print(..., stderr)` inside `if tunnel_active`. A local
-  failure returns raw detail to the client but leaves no server-side log — violates
-  "real error always to stderr".
-- **`mac_linux_start.sh` — Confirmed (Low/marginal).** Port is not validated as numeric;
-  `open_browser` does `>/dev/null 2>&1 || true`, discarding all diagnostics. These are
-  operator-set env vars (quoted in the calls), so there's no injection — the
-  "unsanitized" framing is weak; the discarded-diagnostics part is the real nit.
+- ~~**`save_config` read-modify-write races — Confirmed (Low-Med).**~~ Fixed: added `config_lock` to `ServerState`; all four callers now hold it across the load→mutate→save cycle.
+- ~~**`activate_custom_backend` bypasses the install lock — Confirmed (Low).**~~ Fixed: `activate_custom` now claims/releases the install slot via `_claim_install_slot` / `release_install_slot`.
+- ~~**`hf_download` — Confirmed (four sub-items, all Low).**~~
+  - ~~*Cancel cleared outside lock.*~~ Fixed: `model_download_cancel.clear()` moved inside `model_download_lock`.
+  - ~~*Windows reserved names.*~~ Fixed: `validate_hf_filename` now rejects `CON/PRN/AUX/NUL/COM1-9/LPT1-9` (case-insensitive, stem-only).
+  - ~~*Bare `pass`.*~~ Fixed: `remove_partial_downloads` now prints to stderr on `OSError`.
+  - ~~*Zero-size files.*~~ Fixed: `hf_file_to_dict` uses `if size is not None` so real 0-byte files report `size_mb: 0.0`.
+- ~~**`external_server.py:204` silent empty catch — Confirmed (Low).**~~ Fixed: inner `except Exception` now prints to stderr.
+- ~~**`chat.py:113` unguarded `ipaddress.ip_address` — Confirmed (Low).**~~ Fixed: wrapped in `try/except ValueError`; non-parseable addresses are skipped.
+- ~~**`file_picker.py:59` macOS English cancel match — Confirmed (Low).**~~ Fixed: AppleScript now catches `error number -128` and returns `__CANCEL__`; Python checks for that sentinel instead of matching English stderr.
+- ~~**`routes/lifecycle.py:21` unhashable folder / mkdir outside try — Confirmed (Low).**~~ Fixed: `folder` validated as `str` before map lookup; `mkdir` moved inside `try`.
+- ~~**`http.py:169` chat exception not logged when tunnel inactive — Confirmed (Low).**~~ Fixed: `print(..., stderr)` now runs unconditionally before the `tunnel_active` branch.
+- ~~**`mac_linux_start.sh` — Confirmed (Low/marginal).**~~ Fixed: port validated as numeric; `open_browser` stderr redirected to stderr instead of `/dev/null`.
 
 **Frontend**
 

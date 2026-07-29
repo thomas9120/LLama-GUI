@@ -493,11 +493,12 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
                 "missing_runtime_files": runtime_health.get("missing_runtime_files", []),
             }
 
-        cfg = dict(ctx.services.load_config())
-        cfg["version"] = "custom"
-        cfg["backend"] = "custom"
-        cfg["tag"] = "custom"
-        ctx.services.save_config(cfg)
+        with ctx.state.config_lock:
+            cfg = dict(ctx.services.load_config())
+            cfg["version"] = "custom"
+            cfg["backend"] = "custom"
+            cfg["tag"] = "custom"
+            ctx.services.save_config(cfg)
         ctx.state.clear_runtime_health_cache()
         return {
             "ok": True,
@@ -940,11 +941,12 @@ def install_release(
 
         ensure_installed_tool_executables(ctx)
 
-        config_data = dict(ctx.services.load_config())
-        config_data.update(
-            {"version": release.get("name", tag), "backend": backend, "tag": tag}
-        )
-        ctx.services.save_config(config_data)
+        with ctx.state.config_lock:
+            config_data = dict(ctx.services.load_config())
+            config_data.update(
+                {"version": release.get("name", tag), "backend": backend, "tag": tag}
+            )
+            ctx.services.save_config(config_data)
         ctx.state.clear_runtime_health_cache()
         set_download_progress(
             ctx, status="done", message=f"Installed {tag} ({backend})"

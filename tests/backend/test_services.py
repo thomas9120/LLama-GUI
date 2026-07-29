@@ -2011,7 +2011,7 @@ class FilePickerServiceTests(unittest.TestCase):
         self.assertIn('of type {"gguf", "bin"}', args[2])
 
     def test_macos_file_picker_returns_empty_on_cancel(self):
-        completed = SimpleNamespace(returncode=1, stdout="", stderr="User canceled.")
+        completed = SimpleNamespace(returncode=0, stdout="__CANCEL__", stderr="")
         with mock.patch.object(file_picker_service.subprocess, "run", return_value=completed):
             selected = file_picker_service.select_file_with_osascript(
                 title="Pick Model",
@@ -3121,7 +3121,7 @@ class HfFileToDictTests(unittest.TestCase):
 
         result = hf_service.hf_file_to_dict(file_obj)
 
-        self.assertEqual(result["size_mb"], None)
+        self.assertEqual(result["size_mb"], 0.0)
 
 
 class ValidateHfRepoIdDirectTests(unittest.TestCase):
@@ -3175,6 +3175,27 @@ class ValidateHfFilenameDirectTests(unittest.TestCase):
     def test_rejects_null_byte(self):
         with self.assertRaises(ValueError):
             hf_service.validate_hf_filename("mod\x00el.gguf")
+
+    def test_rejects_windows_reserved_device_names(self):
+        for name in (
+            "con.gguf",
+            "PRN.gguf",
+            "aux.gguf",
+            "NuL.gguf",
+            "COM1.gguf",
+            "lpt9.gguf",
+            "Q4/con.gguf",
+            "con.txt.gguf",
+            "COM1.foo.gguf",
+        ):
+            with self.subTest(name=name):
+                with self.assertRaises(ValueError):
+                    hf_service.validate_hf_filename(name)
+
+    def test_allows_near_miss_windows_device_names(self):
+        self.assertEqual(hf_service.validate_hf_filename("COM0.gguf"), "COM0.gguf")
+        self.assertEqual(hf_service.validate_hf_filename("COM10.gguf"), "COM10.gguf")
+        self.assertEqual(hf_service.validate_hf_filename("console.gguf"), "console.gguf")
 
 
 class ValidateHfRevisionDirectTests(unittest.TestCase):

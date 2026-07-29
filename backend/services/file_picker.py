@@ -45,10 +45,14 @@ def select_file_with_osascript(
     script = (
         "set dialogTitle to item 1 of argv\n"
         "set initialDir to item 2 of argv\n"
-        "set selectedFile to choose file with prompt dialogTitle "
+        "try\n"
+        "    set selectedFile to choose file with prompt dialogTitle "
         "default location (POSIX file initialDir)"
         f"{type_clause}\n"
-        "return POSIX path of selectedFile\n"
+        "    return POSIX path of selectedFile\n"
+        "on error number -128\n"
+        "    return \"__CANCEL__\"\n"
+        "end try\n"
     )
     result = subprocess.run(
         ["osascript", "-e", f"on run argv\n{script}end run", str(title), str(initial)],
@@ -56,7 +60,7 @@ def select_file_with_osascript(
         text=True,
         timeout=300,
     )
-    if result.returncode == 1 and "User canceled" in result.stderr:
+    if result.returncode == 0 and result.stdout.strip() == "__CANCEL__":
         return ""
     if result.returncode != 0:
         message = (result.stderr or result.stdout or "macOS file picker failed.").strip()

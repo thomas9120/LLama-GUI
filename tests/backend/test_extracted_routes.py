@@ -3933,6 +3933,54 @@ class InstallRouteTests(unittest.TestCase):
         gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
 
 
+    def test_activate_custom_blocks_when_install_in_progress(self):
+        with self.ctx.state.install_lock:
+            self.ctx.state.install_in_progress = True
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "activate_custom_backend") as activate:
+            install.activate_custom(
+                Request("POST", "/api/activate-custom", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 409)
+        self.assertIn("Installation already in progress", response.payload["error"])
+        activate.assert_not_called()
+        self.assertTrue(self.ctx.state.install_in_progress)
+
+    def test_activate_custom_releases_install_slot(self):
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager,
+            "activate_custom_backend",
+            return_value={"ok": True},
+        ) as activate:
+            install.activate_custom(
+                Request("POST", "/api/activate-custom", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload, {"ok": True})
+        activate.assert_called_once_with(self.ctx)
+        self.assertFalse(self.ctx.state.install_in_progress)
+
+    def test_activate_custom_releases_install_slot_on_failure(self):
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager,
+            "activate_custom_backend",
+            side_effect=RuntimeError("boom"),
+        ):
+            install.activate_custom(
+                Request("POST", "/api/activate-custom", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 500)
+        self.assertFalse(self.ctx.state.install_in_progress)
+
+
 class ExternalServerRouteTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -5495,6 +5543,17 @@ class LifecycleTests(unittest.TestCase):
             )
         self.assertEqual(self.response.payload, {"opened": True})
         mock_of.assert_called_once_with(self.ctx.paths.models)
+
+    def test_post_open_folder_route_rejects_non_string_folder(self):
+        with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
+            lifecycle.post_open_folder(
+                Request("POST", "/api/open-folder", "", {}, body={"folder": ["models"]}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.status, 400)
+        self.assertEqual(self.response.payload["error"], "Invalid folder name.")
+        mock_of.assert_not_called()
 
 
 class SearxngSearchTests(unittest.TestCase):

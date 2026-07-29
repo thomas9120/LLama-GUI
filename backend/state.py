@@ -137,6 +137,7 @@ class ServerState:
     )
     external_chat_api_key: str = ""
     external_chat_target_lock: threading.Lock = field(default_factory=threading.Lock)
+    config_lock: threading.Lock = field(default_factory=threading.Lock)
 
     def clear_runtime_health_cache(self) -> None:
         with self.runtime_health_lock:

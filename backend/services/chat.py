@@ -110,7 +110,10 @@ def get_local_proxy_host(host: Any) -> tuple[str, str]:
         return "", f"Invalid llama-server metrics host: {exc}"
     local_addresses = get_local_interface_addresses()
     for info in infos:
-        ip = ipaddress.ip_address(info[4][0])
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
         if ip.is_loopback or info[4][0] in local_addresses:
             return value, ""
     return "", "Blocked: metrics proxy can only target this machine."

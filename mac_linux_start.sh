@@ -5,6 +5,12 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$SCRIPT_DIR"
 APP_HOST="${LLAMA_GUI_HOST:-127.0.0.1}"
 APP_PORT="${LLAMA_GUI_PORT:-5240}"
+case "$APP_PORT" in
+    ''|*[!0-9]*)
+        echo "[ERROR] LLAMA_GUI_PORT must be a numeric port number (got: $APP_PORT)" >&2
+        exit 1
+        ;;
+esac
 APP_BROWSER_HOST="$APP_HOST"
 case "$APP_BROWSER_HOST" in
     "0.0.0.0"|"::"|"*")
@@ -45,9 +51,9 @@ open_browser() {
     (
         sleep 2
         if command -v open >/dev/null 2>&1; then
-            open "$APP_URL" >/dev/null 2>&1 || true
+            open "$APP_URL" 2>&1 || true
         elif command -v xdg-open >/dev/null 2>&1; then
-            xdg-open "$APP_URL" >/dev/null 2>&1 || true
+            xdg-open "$APP_URL" 2>&1 || true
         fi
     ) &
 }
