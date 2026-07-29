@@ -198,7 +198,7 @@ def list_presets(request, response, ctx):
         metadata_changed = False
         for path in sorted(presets_dir.glob("*.json")):
             try:
-                with open(path, "r") as preset_file:
+                with open(path, "r", encoding="utf-8") as preset_file:
                     data = json.load(preset_file)
                 if is_preset_bundle(data):
                     continue

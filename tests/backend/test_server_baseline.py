@@ -196,6 +196,7 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         handler.headers["Authorization"] = "Bearer secret"
         parsed = server.urllib.parse.urlparse("/v1/models")
         captured = {}
+        server.set_llama_api_target("::1", 8080)
 
         class Upstream:
             status = 200
@@ -216,6 +217,7 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
 
         def fake_urlopen(req, timeout):
             captured["authorization"] = req.get_header("Authorization")
+            captured["url"] = req.full_url
             return Upstream()
 
         with mock.patch.object(backend_app.urllib.request, "urlopen", side_effect=fake_urlopen):
@@ -223,7 +225,30 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
 
         self.assertEqual(handler.sent_response, 200)
         self.assertEqual(captured["authorization"], "Bearer secret")
+        self.assertEqual(captured["url"], "http://[::1]:8080/v1/models")
         self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"data": []})
+
+    def test_read_body_rejects_valid_non_object_json(self):
+        for payload in (b"[]", b'"text"', b"42", b"null"):
+            with self.subTest(payload=payload):
+                handler = self.make_handler()
+                handler.headers["Content-Length"] = str(len(payload))
+                handler.read_request_bytes = lambda _length, body=payload: body
+
+                self.assertIsNone(handler.read_body())
+
+    def test_request_body_rejects_transfer_encoding(self):
+        for reader in ("read_body", "get_proxy_request_body"):
+            with self.subTest(reader=reader):
+                handler = self.make_handler()
+                handler.headers["Transfer-Encoding"] = "chunked"
+
+                result = getattr(handler, reader)()
+
+                self.assertIs(result, backend_app._BODY_HANDLED)
+                self.assertEqual(handler.sent_response, 501)
+                payload = json.loads(handler.wfile.getvalue().decode("utf-8"))
+                self.assertIn("Transfer-Encoding is not supported", payload["error"])
 
     def test_read_body_returns_408_when_body_read_times_out(self):
         handler = self.make_handler()

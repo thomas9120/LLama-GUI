@@ -7,6 +7,7 @@ import socket
 from typing import Any, Mapping, Sequence
 
 from backend import config
+from backend.http import build_http_origin
 
 
 def get_message_text(content: Any) -> str:
@@ -126,4 +127,4 @@ def get_local_chat_api_url(body: Mapping[str, Any]) -> str:
     chat_host, host_error = get_local_proxy_host(host)
     if not chat_host:
         raise ValueError(host_error)
-    return f"http://{chat_host}:{port}/v1/chat/completions"
+    return f"{build_http_origin(chat_host, port)}/v1/chat/completions"

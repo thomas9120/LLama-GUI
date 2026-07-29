@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from typing import Any, Mapping, Optional
 
+from backend.http import build_http_origin
 from backend.services import chat as chat_service
 from backend.services import process_manager
 from backend.state import default_external_chat_target
@@ -191,7 +192,9 @@ def probe(host: str, port: int, authorization: str = "") -> dict[str, Any]:
     headers = {"Accept": "*/*"}
     if authorization:
         headers["Authorization"] = authorization
-    request = urllib.request.Request(f"http://{host}:{port}/health", headers=headers)
+    request = urllib.request.Request(
+        f"{build_http_origin(host, port)}/health", headers=headers
+    )
     try:
         with _open_probe_request(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
             status = int(getattr(response, "status", None) or response.getcode() or 0)

@@ -28,6 +28,8 @@ Independent checks repeated during verification:
 - Batch 1 verification: `python -m py_compile` passed for all touched Python files; `python -m unittest discover tests -v` passed 517 tests with 2 platform-dependent skips.
 - **Batch 2 complete:** installs and launches now claim runtime access atomically; release lookup failures leave install progress in an error state; tunnel workers are generation-bound across start/stop races; idle HF cancellation is a no-op; HF polling rejects overlapping ticks; active tunnel polling survives transient status failures.
 - Batch 2 verification: Python compilation passed; `python -m unittest discover tests -v` passed 524 tests with 2 platform-dependent skips; all fast frontend tests passed; the Playwright smoke test passed when rerun with browser-launch permission.
+- **Batch 3 complete:** malformed Host ports are rejected safely; API request bodies must be JSON objects; unsupported transfer encodings receive an explicit 501 response; preset files are read as UTF-8; backend and API-tab URLs bracket IPv6 hosts.
+- Batch 3 verification: Python compilation passed; `python -m unittest discover tests -v` passed 530 tests with 2 platform-dependent skips; all fast frontend tests passed; the Playwright smoke test passed when rerun with browser-launch permission.
 
 ---
 
@@ -61,7 +63,7 @@ The `tools` multi_enum offers `{ value: "apply_diff", label: "Apply Diff" }`, bu
 - **Trigger:** start an install, then launch llama-server while the download is still in flight; the rmtree runs against the live installation when the download finishes.
 - **Impact:** on Windows the rmtree fails on the locked `.exe` and leaves bin/grammars partially deleted — subsequent launches fail with "not found. Install llama.cpp first." until Repair Install. On Linux the swap mostly succeeds but replaces binaries under a running process and deletes grammars.
 
-### [Verified] Guard against malformed `Host` header ports crashing the request thread
+### [Resolved — Batch 3] Guard against malformed `Host` header ports crashing the request thread
 `backend/http.py:108`
 
 `port = parsed.port or gui_port` in `get_request_host_origin()`: `urllib.parse.urlparse(...).port` raises `ValueError` for a non-numeric or out-of-range port (e.g. `Host: example.com:abc`, `:99999`).
@@ -69,7 +71,7 @@ The `tools` multi_enum offers `{ value: "apply_diff", label: "Apply Diff" }`, bu
 - **Trigger:** start the GUI with `LLAMA_GUI_HOST=0.0.0.0` (sets `allow_request_host_origin=True`, `backend/app.py:631`), then any request with a malformed Host port. The exception propagates out of `get_access_control_origin()` (called by `Response.json/bytes/text` and `end_headers`), killing the handler thread. Not reachable with the default `127.0.0.1` bind.
 - **Impact:** in the supported LAN-exposed mode, any client (or scanner) sending a bad Host header gets connection resets; server process survives but logs raw tracebacks.
 
-### [Verified] Reject valid-JSON non-object request bodies before they reach handlers
+### [Resolved — Batch 3] Reject valid-JSON non-object request bodies before they reach handlers
 `backend/app.py:563-569` (`read_body`), dispatch at `backend/app.py:758`
 
 `read_body` accepts any valid JSON (`[1]`, `"str"`, `42`) and `dispatch_api_request` calls handlers with no try/except. Handlers assume a mapping: e.g. `save_preset` does `body.get("name")` (`backend/routes/presets.py:237-238`) → `AttributeError: 'list' object has no attribute 'get'`.
@@ -99,7 +101,7 @@ When a stream is aborted (Stop button), the `catch` swallows `AbortError` and ne
 - **Trigger:** send a message → press Stop mid-stream → press Undo or Regenerate.
 - **Impact:** for regenerate, a duplicated user bubble on screen while `chatMessages` (and the saved conversation) holds one copy; for undo, the user bubble stays visible but is gone from state. Subsequent saves persist a history that doesn't match the screen. No test covers `chat-ui.js`. Fix direction: on abort, either remove the partial bubble or push the partial content into `chatMessages`.
 
-### [Verified with correction] Read preset files as UTF-8 instead of the platform default encoding
+### [Resolved — Batch 3] Read preset files as UTF-8 instead of the platform default encoding
 `backend/routes/presets.py:201`
 
 `list_presets` opens preset files with `open(path, "r")` (no `encoding=`), but `_write_preset_json` (`presets.py:58`) writes with `encoding="utf-8"`.
@@ -113,9 +115,9 @@ When a stream is aborted (Stop button), the `catch` swallows `AbortError` and ne
 
 **Backend**
 
-- **[Verified] Reject chunked request bodies instead of treating them as empty** — `backend/app.py:572-574`. `get_request_content_length()` returns `0` when `Content-Length` is absent, so `read_body()` returns `{}` and the proxy forwards an empty body. A client POSTing `Transfer-Encoding: chunked` to `/v1/chat/completions` gets a confusing "missing field" error from llama-server. Stdlib `http.server` can't decode chunked bodies; the actionable fix is rejecting with 411/501.
+- **[Resolved — Batch 3] Reject chunked request bodies instead of treating them as empty** — `backend/app.py:572-574`. `get_request_content_length()` returns `0` when `Content-Length` is absent, so `read_body()` returns `{}` and the proxy forwards an empty body. A client POSTing `Transfer-Encoding: chunked` to `/v1/chat/completions` gets a confusing "missing field" error from llama-server. Stdlib `http.server` can't decode chunked bodies; the actionable fix is rejecting with 411/501.
 - **[Resolved — Batch 2] Reset install progress when release lookup fails** — `backend/services/llama_manager.py:791` sets `status="downloading"`, but the release-lookup phase (`:798-830`) sits before the `try/finally` at `:832`. If `get_release_by_tag` fails and the fallback also raises (network down, rate limit), `download_progress` stays `{"status": "downloading"}` forever — the UI spinner never resolves and no error is surfaced.
-- **[Verified] Bracket IPv6 hosts in backend probe URLs** — `backend/services/external_server.py:182`, `backend/services/chat.py:129`, `backend/services/local_llama_http.py:37`. `f"http://{host}:{port}/health"` with host `::1` parses to `hostname=None`, so an IPv6-loopback server can never be registered; the user gets a misleading "No server answered at ::1:8080".
+- **[Resolved — Batch 3] Bracket IPv6 hosts in backend probe URLs** — `backend/services/external_server.py:182`, `backend/services/chat.py:129`, `backend/services/local_llama_http.py:37`. `f"http://{host}:{port}/health"` with host `::1` parses to `hostname=None`, so an IPv6-loopback server can never be registered; the user gets a misleading "No server answered at ::1:8080".
 - **[Resolved — Batch 2] Fix tunnel start/stop race and stale-worker status clobbering** — `backend/services/tunnel.py:148-162`, `:182-194`. (a) `stop_remote_tunnel()` between `Popen()` and the locked assignment reports "stopped" but never kills the child; (b) a superseded worker can stamp `status="error"` over a newer worker's state. Both self-heal on the next poll/start.
 - **[Verified with correction] Log real errors to stderr in blanket `except Exception` paths** — `backend/services/hf_download.py:319-321`, `backend/services/tunnel.py:195-198`, `backend/services/web_search.py:284-285`, `backend/routes/hf_download.py:17-18`, `:37-38`, `backend/routes/status.py:36-37`. These store `str(exc)` into user-visible state or return it raw with no stderr print, violating the "real error always to stderr" invariant and making failures undebuggable from logs.
 - **[Resolved — Batch 2] Don't set "cancelling" state when no download is running** — `backend/routes/hf_download.py:42-43`. `cancel_download` unconditionally sets the cancel event and `status="cancelling"`; a direct POST while idle leaves the status endpoint reporting "cancelling" indefinitely (UI only exposes the button mid-download).
@@ -137,7 +139,7 @@ When a stream is aborted (Stop button), the `catch` swallows `AbortError` and ne
 - **[Resolved — Batch 2] Add an in-flight guard to the HF download poller** — `ui/js/hf-download-ui.js:237`. The 500 ms `setInterval` lacks the `installPollInFlight`-style guard used in `manager.js:742-770`; a slow status fetch lets two ticks both observe `"done"` and both run `finishDownload` (duplicate `refreshModels()`/`applyPresetModel()` — idempotent, but doubled work).
 - **[Verified] Don't show an error when the user declines an HF overwrite** — `ui/js/hf-download-ui.js:164-174`. Cancelling the replace-confirmation falls through to `showStatus("error", "Download failed to start: ...")` — a red error for a deliberate cancel.
 - **[Resolved — Batch 2] Keep tunnel polling alive across transient status-fetch failures** — `ui/js/remote-tunnel-ui.js:96`, `:86`. One failed `/api/remote-tunnel/status` renders `{status: "error"}`, which calls `setPolling(false)` — the badge shows a wrong "error" state and the 2 s poll never resumes until the user re-enters the tab.
-- **[Verified] Bracket IPv6 hosts in the API tab base URL** — `ui/js/api-tab.js:210`. Setting the `host` flag to `::` or `::1` yields `http://::1:8080` instead of `http://[::1]:8080` in the link, copy buttons, and all four client snippets.
+- **[Resolved — Batch 3] Bracket IPv6 hosts in the API tab base URL** — `ui/js/api-tab.js:210`. Setting the `host` flag to `::` or `::1` yields `http://::1:8080` instead of `http://[::1]:8080` in the link, copy buttons, and all four client snippets.
 - **[Verified] Preserve `external_chat_target` when rewriting `config.json`** — `backend/services/llama_manager.py:880`, `backend/services/process_manager.py:1401`. Both call `save_config({...})` with a fresh dict containing only `version`/`backend`/`tag`, dropping the remembered external-server address that `README.md:204` promises persists across sessions. The sibling writer `activate_custom_backend` (`llama_manager.py:474-478`) does `dict(load_config())` first, proving it's an oversight. Existing tests never seed `external_chat_target`, so the clobber is uncovered.
 
 **Docs**

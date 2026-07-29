@@ -347,6 +347,27 @@ class ExtractedRouteTests(unittest.TestCase):
                 {},
             )
 
+    def test_list_presets_reads_utf8_explicitly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.presets.mkdir(parents=True)
+            preset_path = ctx.paths.presets / "Unicode.json"
+            preset_path.write_text(
+                json.dumps({"notes": "café 漢字"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            response = DummyResponse()
+
+            with mock.patch.object(
+                presets, "open", wraps=open, create=True
+            ) as open_file:
+                presets.list_presets(
+                    Request("GET", "/api/presets", "", {}), response, ctx
+                )
+
+            self.assertEqual(response.payload[0]["data"]["notes"], "café 漢字")
+            self.assertEqual(open_file.call_args.kwargs["encoding"], "utf-8")
+
     def test_rename_preset_moves_file_and_keeps_created_time(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

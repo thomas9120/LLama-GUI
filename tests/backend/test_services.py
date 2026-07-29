@@ -102,6 +102,36 @@ class LocalLlamaHttpTests(unittest.TestCase):
         self.assertEqual(urlopen.call_args.kwargs, {"timeout": 3})
         response.read.assert_called_once_with(config.WEB_SEARCH_FETCH_BYTES)
 
+    def test_metrics_brackets_an_ipv6_host(self):
+        response = self.make_response(b"metric 1")
+        with (
+            mock.patch.object(
+                local_llama_http,
+                "get_metrics_host",
+                return_value=("::1", ""),
+            ),
+            mock.patch.object(
+                local_llama_http.urllib.request,
+                "urlopen",
+                return_value=response,
+            ) as urlopen,
+        ):
+            text, error = local_llama_http.get_local_llama_metrics("::1", 9090)
+
+        self.assertEqual((text, error), ("metric 1", ""))
+        self.assertEqual(
+            urlopen.call_args.args[0].full_url,
+            "http://[::1]:9090/metrics",
+        )
+
+    def test_chat_url_brackets_an_ipv6_host(self):
+        with mock.patch.object(
+            chat_service, "get_local_proxy_host", return_value=("::1", "")
+        ):
+            url = chat_service.get_local_chat_api_url({"host": "::1", "port": 8080})
+
+        self.assertEqual(url, "http://[::1]:8080/v1/chat/completions")
+
     def test_slots_uses_json_accept_header_and_utf8_fallback(self):
         response = self.make_response('[{"id":0}]'.encode("utf-8"))
         with (
@@ -2522,7 +2552,7 @@ class ExternalServerServiceTests(unittest.TestCase):
             return_value=opener,
         ) as build_opener:
             result = external_server_service.probe(
-                "127.0.0.1", 9001, "Bearer secret-key"
+                "::1", 9001, "Bearer secret-key"
             )
 
         redirect_handler = build_opener.call_args.args[0]
@@ -2530,6 +2560,7 @@ class ExternalServerServiceTests(unittest.TestCase):
             redirect_handler, external_server_service._NoProbeRedirects
         )
         original_request = opener.open.call_args.args[0]
+        self.assertEqual(original_request.full_url, "http://[::1]:9001/health")
         self.assertEqual(
             original_request.get_header("Authorization"), "Bearer secret-key"
         )

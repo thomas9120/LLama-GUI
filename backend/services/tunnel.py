@@ -14,6 +14,7 @@ from typing import Optional
 
 from .. import config
 from ..context import AppContext
+from ..http import build_http_origin
 from ..services.llama_manager import download_file
 
 
@@ -209,7 +210,7 @@ def _start_remote_tunnel_worker(ctx: AppContext, generation: int) -> None:
             str(binary_path),
             "tunnel",
             "--url",
-            f"http://{tunnel_host}:{ctx.config.gui_port}",
+            build_http_origin(tunnel_host, ctx.config.gui_port),
         ]
         proc = subprocess.Popen(
             args,

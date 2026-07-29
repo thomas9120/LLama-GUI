@@ -9,6 +9,7 @@ from backend.http import (
     get_access_control_origin,
     get_allowed_request_origins,
     get_cors_methods,
+    get_request_host_origin,
     is_safe_request_origin,
     is_safe_v1_proxy_path,
     is_static_ui_path,
@@ -76,6 +77,15 @@ class HttpCorsAdapterTests(unittest.TestCase):
 
         self.assertIn("http://llama-box.local:5250", origins)
         self.assertTrue(is_safe_request_origin(self.make_headers(origin="http://llama-box.local:5250"), origins))
+
+    def test_request_host_origin_rejects_malformed_ports(self):
+        for host_header in (
+            "192.168.1.20:not-a-port",
+            "192.168.1.20:99999",
+            "[::1",
+        ):
+            with self.subTest(host_header=host_header):
+                self.assertEqual(get_request_host_origin(host_header, 5240), "")
 
     def test_origin_and_referer_validation(self):
         allowed = get_allowed_request_origins()

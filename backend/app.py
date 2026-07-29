@@ -34,6 +34,7 @@ from backend.http import (
     Request,
     Response,
     WILDCARD_BIND_HOSTS,
+    build_http_origin,
     get_access_control_origin,
     get_allowed_request_origins,
     get_cors_methods,
@@ -561,7 +562,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if length == 0:
             return {}
         try:
-            return json.loads(self.read_request_bytes(length))
+            parsed = json.loads(self.read_request_bytes(length))
+            return parsed if isinstance(parsed, dict) else None
         except (TimeoutError, socket.timeout):
             self.send_error_json("Request body timed out", 408)
             return _BODY_HANDLED
@@ -569,6 +571,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return None
 
     def get_request_content_length(self):
+        if str(self.headers.get("Transfer-Encoding") or "").strip():
+            self.send_error_json(
+                "Transfer-Encoding is not supported; send Content-Length instead",
+                501,
+            )
+            return _BODY_HANDLED
         raw_length = self.headers.get("Content-Length")
         if raw_length is None:
             return 0
@@ -649,7 +657,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = get_llama_api_target()
         text = (
             "Llama-GUI OpenAI-compatible proxy is running.\n"
-            f"Local llama-server target: http://{target['host']}:{target['port']}\n"
+            f"Local llama-server target: {build_http_origin(target['host'], target['port'])}\n"
             "Use /v1/models or /v1/chat/completions with an OpenAI-compatible client.\n"
         )
         Response(self).text(text)
@@ -670,7 +678,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = get_llama_api_target()
         path = parsed.path
         query = f"?{parsed.query}" if parsed.query else ""
-        url = f"http://{target['host']}:{target['port']}{path}{query}"
+        url = f"{build_http_origin(target['host'], target['port'])}{path}{query}"
         try:
             data = self.get_proxy_request_body() if method in {"POST", "PUT", "PATCH"} else None
         except (TimeoutError, socket.timeout):
@@ -828,6 +836,10 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if body is _BODY_HANDLED:
             return
 
+        if body is None:
+            self.send_error_json("Invalid or malformed JSON body", 400)
+            return
+
         self.dispatch_api_request("DELETE", parsed, body)
 
 
@@ -902,13 +914,13 @@ def main():
     except OSError as e:
         if "address already in use" in str(e).lower() or e.errno == 10048:
             print(f"ERROR: Port {port} is already in use.")
-            print(f"Another instance of Llama GUI may be running at http://{GUI_HOST}:{port}")
+            print(f"Another instance of Llama GUI may be running at {build_http_origin(GUI_HOST, port)}")
             print("Stop the other instance first, or close the browser tab and try again.")
         else:
             print(f"ERROR: Could not start server on port {port}: {e}")
         sys.exit(1)
 
-    print(f"Llama GUI running at http://{GUI_HOST}:{port}")
+    print(f"Llama GUI running at {build_http_origin(GUI_HOST, port)}")
     if GUI_HOST in WILDCARD_BIND_HOSTS:
         print(f"Remote access enabled. Open http://<this-server-lan-ip>:{port} from a trusted machine.")
     print("Press Ctrl+C to stop the server.")

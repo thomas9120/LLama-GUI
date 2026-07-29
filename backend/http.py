@@ -103,9 +103,12 @@ def get_request_host_origin(
     value = str(host_header or "").strip()
     if not value:
         return ""
-    parsed = urllib.parse.urlparse(f"//{value}")
-    host = parsed.hostname
-    port = parsed.port or gui_port
+    try:
+        parsed = urllib.parse.urlparse(f"//{value}")
+        host = parsed.hostname
+        port = parsed.port or gui_port
+    except ValueError:
+        return ""
     if not host or host in WILDCARD_BIND_HOSTS or port != gui_port:
         return ""
     if not is_trusted_request_host(host, trusted_hosts):
@@ -130,7 +133,7 @@ def is_safe_request_origin(headers: Any, allowed_origins: Sequence[str]) -> bool
 def get_access_control_origin(
     headers: Any,
     allowed_origins: Sequence[str],
-    default_origin: str = f"http://{config.GUI_HOST}:{config.GUI_PORT}",
+    default_origin: str = build_http_origin(config.GUI_HOST, config.GUI_PORT),
 ) -> str:
     origin = headers.get("Origin", "")
     if origin and origin in allowed_origins:
