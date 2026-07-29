@@ -3,7 +3,6 @@
 
     let flagCore = null;
     let confirmAction = null;
-    let getServerEndpointConfig = null;
     let getLatestStatus = null;
     let getLifecycleSnapshot = null;
     let snapshotStatsBaseline = null;
@@ -45,7 +44,6 @@
     function configure(options) {
         flagCore = options.flagCore;
         confirmAction = options.confirmAction;
-        getServerEndpointConfig = options.getServerEndpointConfig;
         getLatestStatus = options.getLatestStatus;
         getLifecycleSnapshot = options.getLifecycleSnapshot || getLifecycleSnapshot;
         snapshotStatsBaseline = options.snapshotStatsBaseline;
@@ -53,17 +51,26 @@
         switchTab = options.switchTab || switchTab;
     }
 
+    // Flag values can arrive as numeric strings or NaN (imported sampler presets
+    // are copied verbatim, and cleared inputs yield ""). Everything that reads a
+    // sampler value for display or for the wire must go through this so string
+    // sentinels ("0", "1.0", "-1") compare equal to their numeric forms.
+    function normalizeSamplerNumber(value) {
+        if (value === undefined || value === null || value === "") return null;
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+    }
+
     function refreshSidebarUI() {
         const values = flagCore.getFlagValues();
         for (const [sliderId, meta] of Object.entries(CHAT_SAMPLER_SLIDER_MAP)) {
             const slider = document.getElementById(sliderId);
             const display = document.getElementById(sliderId.replace("slider", "val"));
-            if (!slider || !display) continue;
-            const val = values[meta.flag];
-            if (val !== undefined && val !== null && val !== "") {
-                slider.value = val;
-                display.textContent = parseFloat(val).toFixed(meta.decimals);
-            }
+            if (!slider || !display || meta.fallback === undefined) continue;
+            const num = normalizeSamplerNumber(values[meta.flag]);
+            const effective = num !== null ? num : meta.fallback;
+            slider.value = effective;
+            display.textContent = effective.toFixed(meta.decimals);
         }
         const maxTokensSlider = document.getElementById("chat-slider-max-tokens");
         const maxTokensDisplay = document.getElementById("chat-val-max-tokens");
@@ -71,10 +78,11 @@
             const ctxSize = parseInt(values.ctx_size, 10);
             const sliderMax = (Number.isFinite(ctxSize) && ctxSize > 0) ? Math.min(ctxSize, 131072) : 32768;
             maxTokensSlider.max = sliderMax;
-            const nPredict = values.n_predict;
-            if (nPredict !== undefined && nPredict !== null && nPredict !== "" && nPredict !== -1) {
-                maxTokensSlider.value = Math.min(nPredict, sliderMax);
-                maxTokensDisplay.textContent = parseInt(Math.min(nPredict, sliderMax), 10);
+            const nPredict = normalizeSamplerNumber(values.n_predict);
+            if (nPredict !== null && nPredict !== -1) {
+                const clamped = Math.trunc(Math.min(nPredict, sliderMax));
+                maxTokensSlider.value = clamped;
+                maxTokensDisplay.textContent = String(clamped);
             } else {
                 maxTokensSlider.value = 512;
                 maxTokensDisplay.textContent = "512";
@@ -282,22 +290,18 @@
     function getChatSamplerParams() {
         const params = {};
         const values = flagCore.getFlagValues();
-        const temp = values.temperature;
-        if (temp !== undefined && temp !== null) params.temperature = temp;
-        const topP = values.top_p;
-        if (topP !== undefined && topP !== null) params.top_p = topP;
-        const topK = values.top_k;
-        if (topK !== undefined && topK !== null && topK !== 0) params.top_k = topK;
-        const minP = values.min_p;
-        if (minP !== undefined && minP !== null) params.min_p = minP;
-        const repeatPenalty = values.repeat_penalty;
-        if (repeatPenalty !== undefined && repeatPenalty !== null && repeatPenalty !== 1.0) {
-            params.repeat_penalty = repeatPenalty;
-        }
-        const nPredict = values.n_predict;
-        if (nPredict !== undefined && nPredict !== null && nPredict !== -1) {
-            params.max_tokens = nPredict;
-        }
+        const temp = normalizeSamplerNumber(values.temperature);
+        if (temp !== null) params.temperature = temp;
+        const topP = normalizeSamplerNumber(values.top_p);
+        if (topP !== null) params.top_p = topP;
+        const topK = normalizeSamplerNumber(values.top_k);
+        if (topK !== null && topK !== 0) params.top_k = topK;
+        const minP = normalizeSamplerNumber(values.min_p);
+        if (minP !== null) params.min_p = minP;
+        const repeatPenalty = normalizeSamplerNumber(values.repeat_penalty);
+        if (repeatPenalty !== null && repeatPenalty !== 1.0) params.repeat_penalty = repeatPenalty;
+        const nPredict = normalizeSamplerNumber(values.n_predict);
+        if (nPredict !== null && nPredict !== -1) params.max_tokens = nPredict;
         return params;
     }
 
@@ -373,13 +377,10 @@
         }
         messages.push(...getChatRequestMessages(chatMessages));
 
-        const endpoint = getServerEndpointConfig();
         const body = {
             model: getChatModelName(),
             messages,
             stream: true,
-            host: endpoint.host,
-            port: endpoint.port,
             ...getChatSamplerParams(),
         };
         if (isChatWebSearchEnabled()) {
@@ -564,7 +565,23 @@
         }
 
         const lastUserMsg = chatMessages[chatMessages.length - 1];
-        if (!lastUserMsg || lastUserMsg.role !== "user") return;
+        if (!lastUserMsg || lastUserMsg.role !== "user") {
+            // The pop above already mutated chatMessages and the DOM; persist it the
+            // same way undoMessage() does, or the removed message reappears on reload.
+            if (chatMessages.length === 0) {
+                const empty = document.getElementById("chat-empty");
+                if (empty) empty.style.display = "";
+                if (currentConversationId) {
+                    const conversations = getStoredConversations();
+                    saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
+                    currentConversationId = null;
+                    renderHistoryList();
+                }
+            } else {
+                saveCurrentConversation();
+            }
+            return;
+        }
 
         chatMessages.pop();
         const container = document.getElementById("chat-messages");
@@ -637,14 +654,17 @@
     }
 
     async function loadConversation(id) {
-        const conversations = getStoredConversations();
-        const convo = conversations.find(c => c.id === id);
-        if (!convo) return;
-
         // Must await: abort() rejects the pending read on a later microtask, so a
         // bare stopStream() lets the AbortError handler run after the reassignments
         // below and finalize the old reply into the conversation we just loaded.
         if (chatStreaming) await abortActiveStream();
+
+        // Read storage only after the abort has settled: finalizing the aborted
+        // reply writes to storage, so a snapshot taken earlier would be stale and
+        // reloading the streaming conversation would drop the in-flight turn.
+        const conversations = getStoredConversations();
+        const convo = conversations.find(c => c.id === id);
+        if (!convo) return;
 
         currentConversationId = convo.id;
         chatMessages = convo.messages.slice();
@@ -964,4 +984,22 @@
         abortActiveStream,
         addModelTransitionDivider,
     };
+
+    // Test-only hooks. These are live mutators that bypass the confirm flows
+    // wired up in init(), so they stay off the shipped namespace unless the
+    // harness opts in before this file is evaluated.
+    if (window.__LLAMA_GUI_TEST_HOOKS__) {
+        Object.assign(window.LlamaGui.chatUi, {
+            _testSendMessage: sendMessage,
+            _testLoadConversation: loadConversation,
+            _testClearChat: clearChat,
+            _testStartNewChat: startNewChat,
+            _testRegenerateResponse: regenerateResponse,
+            _testGetState: () => ({
+                chatMessages: chatMessages.slice(),
+                currentConversationId,
+                chatStreaming,
+            }),
+        });
+    }
 })();

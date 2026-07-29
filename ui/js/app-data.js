@@ -1,9 +1,9 @@
 const CHAT_SAMPLER_SLIDER_MAP = {
-    "chat-slider-temp": { flag: "temperature", decimals: 2 },
-    "chat-slider-top-p": { flag: "top_p", decimals: 2 },
-    "chat-slider-top-k": { flag: "top_k", decimals: 0 },
-    "chat-slider-min-p": { flag: "min_p", decimals: 2 },
-    "chat-slider-repeat": { flag: "repeat_penalty", decimals: 2 },
+    "chat-slider-temp": { flag: "temperature", decimals: 2, fallback: 0.8 },
+    "chat-slider-top-p": { flag: "top_p", decimals: 2, fallback: 0.95 },
+    "chat-slider-top-k": { flag: "top_k", decimals: 0, fallback: 40 },
+    "chat-slider-min-p": { flag: "min_p", decimals: 2, fallback: 0.05 },
+    "chat-slider-repeat": { flag: "repeat_penalty", decimals: 2, fallback: 1.0 },
     "chat-slider-max-tokens": { flag: "n_predict", decimals: 0 },
 };
 

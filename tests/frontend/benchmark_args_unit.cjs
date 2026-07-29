@@ -16,6 +16,9 @@ const context = {
     window: {
         LlamaGui: {},
         addEventListener: () => {},
+        // Must be set before benchmark-ui.js is evaluated: _testPollOutput is
+        // only attached to the namespace when this opt-in flag is present.
+        __LLAMA_GUI_TEST_HOOKS__: true,
     },
     document: {
         getElementById: () => null,
