@@ -52,8 +52,10 @@ samplerPresets.configure({
     getDefaultFlagValues: getDefaultValues,
     confirmAction,
     promptAction,
+    showToast,
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
+presetsApi.configure({ showToast });
 const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
 remoteTunnelUi.configure({
     fetchJson,
@@ -102,6 +104,7 @@ quickLaunchUi.configure({
     getSamplerRenameMessage: samplerPresets.getSamplerRenameMessage,
     confirmAction,
     promptAction,
+    showToast,
     hasLaunchModelArg: flagCore.hasLaunchModelArg,
 });
 benchmarkUi.configure({

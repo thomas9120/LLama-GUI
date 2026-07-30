@@ -373,6 +373,8 @@ async function main() {
             buffer: Buffer.from(JSON.stringify({ flags: { temperature: 0.45 } })),
         });
         await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes("already exists"));
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => /already exists/i.test(toast.textContent)));
         assert.equal(presetSaveBodies.length, 0, "a colliding launch preset import must not write");
 
         await page.setInputFiles("#preset-import", {
@@ -381,6 +383,8 @@ async function main() {
             buffer: Buffer.from(JSON.stringify({ flags: { temperature: 0.45 } })),
         });
         await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes('Imported preset "new-import"'));
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes('Imported preset "new-import"')));
         assert.equal(presetSaveBodies.length, 1);
         assert.equal(presetSaveBodies[0].name, "new-import");
         assert.equal(presetSaveBodies[0].overwrite, false, "launch preset imports must ask the backend to reject races");
@@ -967,15 +971,13 @@ async function main() {
             const preset = raw && JSON.parse(raw)["Smoke Sampler"];
             return preset?.temperature === 0.64 && preset?.presence_penalty === 0.4;
         });
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes('Saved sampler preset "Smoke Sampler"')));
         await setRangeValue(page, "#quick-temperature", "0.11");
         await page.fill("#quick-sampler-name", "smoke sampler");
-        let samplerCollisionMessage = "";
-        page.once("dialog", async (dialog) => {
-            samplerCollisionMessage = dialog.message();
-            await dialog.accept();
-        });
         await page.click("#btn-quick-sampler-save");
-        assert.match(samplerCollisionMessage, /already exists/i);
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => /already exists/i.test(toast.textContent)));
         const samplerStoreAfterCollision = await page.evaluate(
             () => JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}")
         );
@@ -1041,6 +1043,8 @@ async function main() {
             return Object.prototype.hasOwnProperty.call(store, "Renamed Smoke Sampler")
                 && !Object.prototype.hasOwnProperty.call(store, "Smoke Sampler");
         });
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes('Renamed sampler preset to "Renamed Smoke Sampler"')));
         assert.equal(
             await page.inputValue(configSamplerSelect),
             "custom|Renamed Smoke Sampler",
@@ -1058,8 +1062,9 @@ async function main() {
         // A built-in is not renameable, and the attempt must not disturb the store.
         await page.selectOption(configSamplerSelect, "builtin|Balanced");
         await page.dispatchEvent(configSamplerSelect, "change");
-        page.once("dialog", (dialog) => dialog.accept());
         await page.locator(".sampler-presets button", { hasText: "Rename" }).click();
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes("Built-in sampler presets cannot be renamed.")));
         assert.equal(
             await page.evaluate(() => document.querySelector("#prompt-modal")?.classList.contains("hidden")),
             true,
@@ -1071,7 +1076,6 @@ async function main() {
             "a refused rename must leave the sampler store untouched"
         );
 
-        const samplerImportDialog = page.waitForEvent("dialog");
         await page.setInputFiles('.sampler-presets input[type="file"]', {
             name: "samplers.json",
             mimeType: "application/json",
@@ -1082,16 +1086,14 @@ async function main() {
                 },
             })),
         });
-        const samplerImportCollision = await samplerImportDialog;
-        assert.match(samplerImportCollision.message(), /already exists/i);
-        await samplerImportCollision.accept();
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => /already exists/i.test(toast.textContent)));
         assert.deepEqual(
             await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
             ["Renamed Smoke Sampler"],
             "a colliding sampler import must reject the entire batch before writing"
         );
 
-        const malformedSamplerDialog = page.waitForEvent("dialog");
         await page.setInputFiles('.sampler-presets input[type="file"]', {
             name: "malformed-samplers.json",
             mimeType: "application/json",
@@ -1102,9 +1104,8 @@ async function main() {
                 },
             })),
         });
-        const malformedSamplerAlert = await malformedSamplerDialog;
-        assert.match(malformedSamplerAlert.message(), /must contain an object of sampler values/i);
-        await malformedSamplerAlert.accept();
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => /must contain an object of sampler values/i.test(toast.textContent)));
         assert.deepEqual(
             await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
             ["Renamed Smoke Sampler"],
@@ -1125,6 +1126,8 @@ async function main() {
             const raw = localStorage.getItem("llama_gui_sampler_presets_v1");
             return raw && Object.prototype.hasOwnProperty.call(JSON.parse(raw), "Renamed Again Sampler");
         });
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes('Renamed sampler preset to "Renamed Again Sampler"')));
         await selectSection(page, "configure");
         assert.equal(
             await page.inputValue(configSamplerSelect),
@@ -1141,6 +1144,8 @@ async function main() {
         await page.click("#btn-quick-sampler-delete");
         await page.click("#confirm-modal-ok");
         await deletePromise;
+        await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
+            .some((toast) => toast.textContent.includes('Deleted sampler preset "Renamed Again Sampler"')));
 
         await page.evaluate(() => {
             window.LlamaGui.flagCore.setMultipleFlagValues({

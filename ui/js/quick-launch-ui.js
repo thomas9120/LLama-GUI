@@ -27,6 +27,7 @@
     let getSamplerRenameMessage = () => "Failed to rename sampler preset.";
     let confirmAction = async () => false;
     let promptAction = async () => null;
+    let showToast = () => {};
     let hasLaunchModelArg = () => false;
 
     let quickLaunchFitCtxLinked = true;
@@ -59,6 +60,7 @@
         getSamplerRenameMessage = options.getSamplerRenameMessage || getSamplerRenameMessage;
         confirmAction = options.confirmAction || confirmAction;
         promptAction = options.promptAction || promptAction;
+        showToast = options.showToast || showToast;
         hasLaunchModelArg = options.hasLaunchModelArg || hasLaunchModelArg;
     }
 
@@ -706,12 +708,13 @@
             const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
+                showToast("Enter a sampler preset name.", "error");
                 return;
             }
 
             const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
             if (!result.ok) {
-                alert(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.");
+                showToast(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.", "error");
                 return;
             }
             nameInput.value = "";
@@ -719,13 +722,14 @@
             configFlagsUi.renderFlags();
             const samplerSelect = document.getElementById("quick-sampler-select");
             if (samplerSelect) samplerSelect.value = `custom|${result.name}`;
+            showToast(`Saved sampler preset "${result.name}"`, "success");
         });
 
         on("btn-quick-sampler-rename", "click", async () => {
             const selected = getSelectedSamplerEntry();
             if (!selected) return;
             if (selected.source !== "custom") {
-                alert(getSamplerRenameMessage("builtin"));
+                showToast(getSamplerRenameMessage("builtin"), "error");
                 return;
             }
 
@@ -740,19 +744,20 @@
 
             const result = renameSamplerPreset(selected.name, nextName);
             if (!result.ok) {
-                alert(getSamplerRenameMessage(result.reason));
+                showToast(getSamplerRenameMessage(result.reason), "error");
                 return;
             }
 
             refreshSamplerPresetSelect(`custom|${result.name}`);
             configFlagsUi.renderFlags();
+            showToast(`Renamed sampler preset to "${result.name}"`, "success");
         });
 
         on("btn-quick-sampler-delete", "click", async () => {
             const selected = getSelectedSamplerEntry();
             if (!selected) return;
             if (selected.source !== "custom") {
-                alert("Built-in sampler presets cannot be deleted.");
+                showToast("Built-in sampler presets cannot be deleted.", "error");
                 return;
             }
 
@@ -768,6 +773,7 @@
             saveSamplerPresetStore(store);
             refreshSamplerPresetSelect();
             configFlagsUi.renderFlags();
+            showToast(`Deleted sampler preset "${selected.name}"`, "success");
         });
 
         const quickSamplerFieldMap = {

@@ -1,6 +1,11 @@
 const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key"]);
 const SENSITIVE_CUSTOM_ARG_PATTERN = /(^|[^A-Za-z0-9_-])--api-key(?=$|[=\s])/;
 const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key in Custom Launch Args. Use the API Key field instead.";
+let presetDependencies = {};
+
+function configurePresetModule(options = {}) {
+    presetDependencies = Object.assign({}, presetDependencies, options);
+}
 
 function hasSensitiveCustomArgs(flags) {
     const raw = flags && flags.custom_args;
@@ -1530,6 +1535,14 @@ function showPresetStatus(message, type = "success", durationMs = 2200) {
     }, durationMs);
 }
 
+function showPresetActionStatus(message, type = "success", durationMs = 2200) {
+    showPresetStatus(message, type, durationMs);
+    const showToast = presetDependencies.showToast;
+    if (typeof showToast === "function") {
+        showToast(message, type, { duration: durationMs });
+    }
+}
+
 // Missing-model warnings are computed at build time from the cached model list,
 // so a model list that changes after the groups were built leaves the badges,
 // the Warnings filter, and the summary stale. loadPresets() already runs on
@@ -1722,13 +1735,13 @@ async function savePreset() {
         if (result.saved) {
             nameInput.value = "";
             loadPresets();
-            showPresetStatus(`Saved preset \"${result.name || name}\"`, "success");
+            showPresetActionStatus(`Saved preset \"${result.name || name}\"`, "success");
         }
     } catch (e) {
         const message = e && e.message === SENSITIVE_CUSTOM_ARG_MESSAGE
             ? SENSITIVE_CUSTOM_ARG_MESSAGE
             : "Failed to save preset";
-        showPresetStatus(message, "error", 5000);
+        showPresetActionStatus(message, "error", 5000);
         console.warn("Failed to save preset", e);
     }
 }
@@ -1808,7 +1821,7 @@ async function renamePreset(name) {
     );
     if (nextName === null) return;
     if (!nextName) {
-        showPresetStatus("Preset name cannot be empty", "error", 3200);
+        showPresetActionStatus("Preset name cannot be empty", "error", 3200);
         return;
     }
     if (nextName === name) return;
@@ -1829,11 +1842,11 @@ async function renamePreset(name) {
                 selectedPresetNames.add(savedName);
             }
             await loadPresets();
-            showPresetStatus(`Renamed to "${savedName}"`, "success");
+            showPresetActionStatus(`Renamed to "${savedName}"`, "success");
         }
     } catch (e) {
         const message = e && e.message ? e.message : "Failed to rename preset";
-        showPresetStatus(message, "error", 5000);
+        showPresetActionStatus(message, "error", 5000);
         console.warn("Failed to rename preset", e);
     }
 }
@@ -1872,9 +1885,9 @@ async function deletePreset(name) {
     try {
         await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
         loadPresets();
-        showPresetStatus(`Deleted preset \"${name}\"`, "success");
+        showPresetActionStatus(`Deleted preset \"${name}\"`, "success");
     } catch (e) {
-        showPresetStatus("Failed to delete preset", "error", 3200);
+        showPresetActionStatus("Failed to delete preset", "error", 3200);
         console.warn("Failed to delete preset", e);
     }
 }
@@ -1905,7 +1918,7 @@ async function favoriteSelectedPresets(favorite) {
 async function deleteSelectedPresets() {
     const names = Array.from(selectedPresetNames);
     if (names.length === 0) {
-        showPresetStatus("No presets selected", "error", 3200);
+        showPresetActionStatus("No presets selected", "error", 3200);
         return;
     }
 
@@ -1925,9 +1938,9 @@ async function deleteSelectedPresets() {
             selectedPresetName = "";
         }
         await loadPresets();
-        showPresetStatus(`Deleted ${names.length} preset${names.length === 1 ? "" : "s"}`, "success");
+        showPresetActionStatus(`Deleted ${names.length} preset${names.length === 1 ? "" : "s"}`, "success");
     } catch (e) {
-        showPresetStatus("Failed to delete selected presets", "error", 3200);
+        showPresetActionStatus("Failed to delete selected presets", "error", 3200);
         console.warn("Failed to delete selected presets", e);
         loadPresets();
     }
@@ -2056,7 +2069,7 @@ async function handlePresetImport(file) {
             for (const entry of bulkPresets) {
                 const name = sanitizeImportedPresetName(entry.name || "Imported-" + (++unnamedIdx));
                 if (!name) {
-                    showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+                    showPresetActionStatus("Preset import contains an invalid name.", "error", 3200);
                     return;
                 }
                 const normalized = normalizeImportedPresetData(entry.data || {});
@@ -2066,7 +2079,7 @@ async function handlePresetImport(file) {
             const existingPresets = await fetchPresetEntries();
             const collision = findPresetImportNameCollision(existingPresets, pendingImports);
             if (collision) {
-                showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+                showPresetActionStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
                 return;
             }
             try {
@@ -2080,29 +2093,29 @@ async function handlePresetImport(file) {
                     importedCount++;
                 }
                 loadPresets();
-                showPresetStatus(`Imported ${importedCount} preset(s)`, "success");
+                showPresetActionStatus(`Imported ${importedCount} preset(s)`, "success");
             } catch (e) {
                 console.warn("Preset import failed mid-loop", e);
                 loadPresets();
-                showPresetStatus("Failed to import some presets.", "error", 3200);
+                showPresetActionStatus("Failed to import some presets.", "error", 3200);
             }
             return;
         }
 
         const normalized = normalizeImportedPresetData(parsed);
         if (!hasUsablePresetData(normalized)) {
-            showPresetStatus("Preset file contains no usable data.", "error", 3200);
+            showPresetActionStatus("Preset file contains no usable data.", "error", 3200);
             return;
         }
         const name = sanitizeImportedPresetName(file.name.replace(/\.json$/i, ""));
         if (!name) {
-            showPresetStatus("Preset import contains an invalid name.", "error", 3200);
+            showPresetActionStatus("Preset import contains an invalid name.", "error", 3200);
             return;
         }
         const existingPresets = await fetchPresetEntries();
         const collision = findPresetImportNameCollision(existingPresets, [{ name }]);
         if (collision) {
-            showPresetStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+            showPresetActionStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
             return;
         }
         await fetchJson("/api/presets", {
@@ -2111,18 +2124,19 @@ async function handlePresetImport(file) {
             body: JSON.stringify({ name, data: normalized, overwrite: false }),
         });
         loadPresets();
-        showPresetStatus(`Imported preset \"${name}\"`, "success");
+        showPresetActionStatus(`Imported preset \"${name}\"`, "success");
     } catch (err) {
         const message = err && err.message === SENSITIVE_CUSTOM_ARG_MESSAGE
             ? SENSITIVE_CUSTOM_ARG_MESSAGE
             : "Failed to import preset";
-        showPresetStatus(message, "error", 5000);
+        showPresetActionStatus(message, "error", 5000);
         console.warn("Failed to import preset", err);
     }
 }
 
 if (window.LlamaGui) {
     window.LlamaGui.presets = Object.assign(window.LlamaGui.presets || {}, {
+        configure: configurePresetModule,
         loadPreset,
         fetchPresetEntries,
         findPresetByName,
