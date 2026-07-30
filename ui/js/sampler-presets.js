@@ -10,6 +10,12 @@
         dependencies = Object.assign({}, dependencies, options || {});
     }
 
+    function showSamplerPresetToast(message, type = "success", options = {}) {
+        if (typeof dependencies.showToast === "function") {
+            dependencies.showToast(message, type, options);
+        }
+    }
+
     function getFlagCore() {
         return dependencies.flagCore || window.LlamaGui.flagCore;
     }
@@ -363,23 +369,25 @@
             const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
+                showSamplerPresetToast("Enter a sampler preset name.", "error");
                 return;
             }
             const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
             if (!result.ok) {
-                alert(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.");
+                showSamplerPresetToast(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.", "error");
                 return;
             }
             refreshOptions(`custom|${result.name}`);
             refreshConsumers();
             nameInput.value = "";
+            showSamplerPresetToast(`Saved sampler preset "${result.name}"`, "success");
         });
 
         renameBtn.addEventListener("click", async () => {
             const selected = getSelectedPresetEntry();
             if (!selected) return;
             if (selected.source !== "custom") {
-                alert(getSamplerRenameMessage("builtin"));
+                showSamplerPresetToast(getSamplerRenameMessage("builtin"), "error");
                 return;
             }
 
@@ -397,19 +405,20 @@
 
             const result = renameSamplerPreset(selected.name, nextName);
             if (!result.ok) {
-                alert(getSamplerRenameMessage(result.reason));
+                showSamplerPresetToast(getSamplerRenameMessage(result.reason), "error");
                 return;
             }
 
             refreshOptions(`custom|${result.name}`);
             refreshConsumers(`custom|${result.name}`);
+            showSamplerPresetToast(`Renamed sampler preset to "${result.name}"`, "success");
         });
 
         delBtn.addEventListener("click", async () => {
             const selected = getSelectedPresetEntry();
             if (!selected) return;
             if (selected.source !== "custom") {
-                alert("Built-in sampler presets cannot be deleted.");
+                showSamplerPresetToast("Built-in sampler presets cannot be deleted.", "error");
                 return;
             }
             const confirmAction = dependencies.confirmAction;
@@ -427,6 +436,7 @@
             saveSamplerPresetStore(store);
             refreshOptions();
             refreshConsumers();
+            showSamplerPresetToast(`Deleted sampler preset "${selected.name}"`, "success");
         });
 
         exportBtn.addEventListener("click", () => {
@@ -459,7 +469,7 @@
 
                 const incoming = getSamplerPresetImportEntries(parsed);
                 if (!incoming) {
-                    alert("Invalid sampler preset JSON format. Every preset must contain an object of sampler values.");
+                    showSamplerPresetToast("Invalid sampler preset JSON format. Every preset must contain an object of sampler values.", "error");
                     return;
                 }
 
@@ -469,7 +479,7 @@
                 for (const item of incoming) {
                     const baseName = String(item.name || "Imported Sampler").trim() || "Imported Sampler";
                     if (isSamplerPresetNameTaken(baseName, pendingStore)) {
-                        alert(`A sampler preset named "${baseName}" already exists. Rename or delete it before importing.`);
+                        showSamplerPresetToast(`A sampler preset named "${baseName}" already exists. Rename or delete it before importing.`, "error");
                         return;
                     }
                     pendingStore[baseName] = normalizeSamplerPresetValues(item.values);
@@ -479,8 +489,9 @@
                 saveSamplerPresetStore(pendingStore);
                 refreshOptions(lastImportedName ? `custom|${lastImportedName}` : "");
                 refreshConsumers();
+                showSamplerPresetToast(`Imported ${incoming.length} sampler preset${incoming.length === 1 ? "" : "s"}`, "success");
             } catch (e) {
-                alert("Failed to import sampler preset: " + e.message);
+                showSamplerPresetToast("Failed to import sampler preset: " + e.message, "error");
             }
         });
 
