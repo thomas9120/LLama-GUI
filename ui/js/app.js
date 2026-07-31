@@ -20,6 +20,8 @@ let pollOutputActiveEpoch = null;
 let pollOutputFailCount = 0;
 const TOAST_MAX_VISIBLE = 5;
 const DEFAULT_TOAST_DURATION_MS = 4000;
+// Slow-load warning outlives default toasts: the model may still come up.
+const SLOW_LOAD_WARNING_TOAST_MS = 10000;
 
 let chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
 let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
@@ -776,7 +778,7 @@ async function handleLifecycleFailure(message) {
 
 function handleLifecycleSlowLoad(message) {
     appendOutput("WARNING: " + message);
-    showToast(message, "warning", { duration: 0 });
+    showToast(message, "warning", { duration: SLOW_LOAD_WARNING_TOAST_MS });
 }
 
 async function handleReconciliationFailure(message) {
