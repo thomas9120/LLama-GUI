@@ -98,6 +98,7 @@ Deeper maps (services, data flow, script order): `docs/directory.md`.
 | Custom launch-args parser | `node tests/frontend/custom_launch_args_unit.cjs` |
 | Mirrored controls / flag state / command preview / shared setters | `npm run test:frontend` |
 | Backend | `python -m unittest discover tests -v` |
+| New or removed backend route | Also update the Route Modules table in `docs/directory.md` (including its endpoint count) and the API surface table in `docs/architecture.html` — `tests/backend/test_docs_sync.py` fails on drift in either direction |
 | Full frontend suite / more detail | `docs/tests.md` |
 
 Minimal diffs; reuse existing helpers and patterns; fix root causes, not symptoms.

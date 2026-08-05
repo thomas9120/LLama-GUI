@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="tokyo">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Llama GUI — Architecture Guide</title>
+<style>
+/* ------------------------------------------------------------------
+   Palette mirrors ui/css/tokens.css (Tokyo = dark, Cappuccino = light)
+   so this document looks like the app it documents.
+   ------------------------------------------------------------------ */
+:root, :root[data-theme="tokyo"] {
+    color-scheme: dark;
+    --bg-base: #0f111a;
+    --bg-surface: #161824;
+    --bg-raised: #1c1f2e;
+    --bg-elevated: #232738;
+    --bg-hover: #2a2e42;
+    --fg: #c8cef5;
+    --fg-muted: #8b91b0;
+    --fg-bright: #eaecf8;
+    --fg-faint: #6a7090;
+    --accent: #6c9bff;
+    --accent-text: #6c9bff;
+    --accent-subtle: rgba(108, 155, 255, 0.12);
+    --accent-border: rgba(108, 155, 255, 0.30);
+    --on-accent: #0a0e1a;
+    --green: #6ee08a;
+    --green-subtle: rgba(110, 224, 138, 0.12);
+    --green-border: rgba(110, 224, 138, 0.30);
+    --red: #ff6b8a;
+    --red-subtle: rgba(255, 107, 138, 0.12);
+    --red-border: rgba(255, 107, 138, 0.30);
+    --yellow: #f0c75e;
+    --yellow-subtle: rgba(240, 199, 94, 0.12);
+    --yellow-border: rgba(240, 199, 94, 0.30);
+    --magenta: #c98bff;
+    --magenta-subtle: rgba(201, 139, 255, 0.12);
+    --magenta-border: rgba(201, 139, 255, 0.30);
+    --cyan: #63d8e0;
+    --cyan-subtle: rgba(99, 216, 224, 0.12);
+    --cyan-border: rgba(99, 216, 224, 0.30);
+    --border: rgba(200, 206, 245, 0.14);
+    --border-strong: rgba(200, 206, 245, 0.26);
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+:root[data-theme="cappuccino"] {
+    color-scheme: light;
+    --bg-base: #fff4e6;
+    --bg-surface: #fffaf2;
+    --bg-raised: #f8ead8;
+    --bg-elevated: #f0ddc6;
+    --bg-hover: #ead2b6;
+    --fg: #5d3932;
+    --fg-muted: #745e56;
+    --fg-bright: #31201c;
+    --fg-faint: #987769;
+    --accent: #4b3832;
+    --accent-text: #905426;
+    --accent-subtle: rgba(75, 56, 50, 0.10);
+    --accent-border: rgba(75, 56, 50, 0.30);
+    --on-accent: #fffaf2;
+    --green: #3f5a34;
+    --green-subtle: rgba(89, 104, 68, 0.14);
+    --green-border: rgba(89, 104, 68, 0.36);
+    --red: #9a4b46;
+    --red-subtle: rgba(154, 75, 70, 0.12);
+    --red-border: rgba(154, 75, 70, 0.32);
+    --yellow: #7e5d2d;
+    --yellow-subtle: rgba(190, 155, 123, 0.20);
+    --yellow-border: rgba(126, 93, 45, 0.34);
+    --magenta: #7d3f74;
+    --magenta-subtle: rgba(125, 63, 116, 0.10);
+    --magenta-border: rgba(125, 63, 116, 0.30);
+    --cyan: #1f5f66;
+    --cyan-subtle: rgba(31, 95, 102, 0.10);
+    --cyan-border: rgba(31, 95, 102, 0.30);
+    --border: rgba(93, 57, 50, 0.18);
+    --border-strong: rgba(93, 57, 50, 0.32);
+    --shadow: 0 10px 26px rgba(93, 57, 50, 0.14);
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 84px; }
+body {
+    margin: 0;
+    background: var(--bg-base);
+    color: var(--fg);
+    font: 15px/1.6 "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+code, .mono, pre {
+    font-family: "Cascadia Code", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+}
+code {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 5px;
+    font-size: 0.87em;
+    color: var(--fg-bright);
+    white-space: nowrap;
+}
+a { color: var(--accent-text); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------------- top bar ---------------- */
+.topbar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 22px;
+    background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+}
+.topbar .brand { font-weight: 700; color: var(--fg-bright); letter-spacing: .2px; }
+.topbar .brand span { color: var(--accent-text); }
+.topbar .spacer { flex: 1; }
+.topbar .meta { font-size: 12px; color: var(--fg-muted); }
+.theme-btn {
+    border: 1px solid var(--border-strong);
+    background: var(--bg-raised);
+    color: var(--fg);
+    border-radius: 999px;
+    padding: 6px 14px;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+.theme-btn:hover { background: var(--bg-hover); }
+
+/* ---------------- layout ---------------- */
+.shell {
+    display: grid;
+    grid-template-columns: 246px minmax(0, 1fr);
+    gap: 34px;
+    max-width: 1360px;
+    margin: 0 auto;
+    padding: 30px 22px 90px;
+}
+nav.toc {
+    position: sticky; top: 74px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+    overflow-y: auto;
+    font-size: 13.5px;
+    padding-right: 6px;
+}
+nav.toc .toc-title {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); margin: 0 0 10px 10px;
+}
+nav.toc a {
+    display: block;
+    padding: 5px 10px;
+    border-radius: 7px;
+    color: var(--fg-muted);
+    border-left: 2px solid transparent;
+}
+nav.toc a:hover { background: var(--bg-raised); color: var(--fg-bright); text-decoration: none; }
+nav.toc a.active { color: var(--accent-text); border-left-color: var(--accent); background: var(--accent-subtle); }
+
+main { min-width: 0; }
+
+/* ---------------- typography ---------------- */
+h1 { font-size: 33px; line-height: 1.2; margin: 6px 0 10px; color: var(--fg-bright); letter-spacing: -.4px; }
+h2 {
+    font-size: 22px; margin: 52px 0 6px; color: var(--fg-bright);
+    padding-bottom: 8px; border-bottom: 1px solid var(--border); letter-spacing: -.2px;
+}
+h2:first-of-type { margin-top: 34px; }
+h3 { font-size: 16px; margin: 28px 0 8px; color: var(--fg-bright); }
+h4 { font-size: 13.5px; margin: 20px 0 6px; color: var(--fg); }
+p { margin: 10px 0; }
+.lede { font-size: 16.5px; color: var(--fg-muted); max-width: 74ch; }
+.sub { color: var(--fg-muted); font-size: 13.5px; margin-top: -2px; }
+ul, ol { margin: 10px 0; padding-left: 22px; }
+li { margin: 5px 0; }
+.tight li { margin: 2px 0; }
+
+/* ---------------- cards / callouts ---------------- */
+.card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin: 16px 0;
+}
+.note {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-subtle);
+    border-radius: 0 10px 10px 0;
+    padding: 12px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+}
+.note.warn { border-left-color: var(--yellow); background: var(--yellow-subtle); }
+.note.rule { border-left-color: var(--red); background: var(--red-subtle); }
+.note strong { color: var(--fg-bright); }
+
+.factgrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+    gap: 10px;
+    margin: 22px 0 6px;
+}
+.fact {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+}
+.fact .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--fg-faint); }
+.fact .v { font-size: 14.5px; color: var(--fg-bright); margin-top: 4px; font-weight: 600; }
+.fact .v small { font-weight: 400; color: var(--fg-muted); font-size: 12px; display: block; margin-top: 2px; }
+
+/* ---------------- diagram primitives ---------------- */
+.diagram {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    margin: 20px 0;
+    overflow-x: auto;
+}
+.diagram-title {
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--fg-faint); margin-bottom: 16px;
+}
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }
+.row.center { justify-content: center; }
+.col { display: flex; flex-direction: column; gap: 12px; }
+
+.node {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+    padding: 11px 14px;
+    min-width: 132px;
+    flex: 1 1 132px;
+}
+.node .t { font-size: 13.5px; font-weight: 650; color: var(--fg-bright); }
+.node .d { font-size: 11.5px; color: var(--fg-muted); margin-top: 3px; line-height: 1.45; }
+.node .p { font-size: 11px; color: var(--fg-faint); margin-top: 5px; }
+
+.node.accent { border-color: var(--accent-border); background: var(--accent-subtle); }
+.node.green  { border-color: var(--green-border);  background: var(--green-subtle); }
+.node.yellow { border-color: var(--yellow-border); background: var(--yellow-subtle); }
+.node.red    { border-color: var(--red-border);    background: var(--red-subtle); }
+.node.magenta{ border-color: var(--magenta-border);background: var(--magenta-subtle); }
+.node.cyan   { border-color: var(--cyan-border);   background: var(--cyan-subtle); }
+.node.ghost  { background: transparent; border-style: dashed; }
+
+.band {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    background: var(--bg-base);
+}
+.band > .band-label {
+    font-size: 10.5px; letter-spacing: .11em; text-transform: uppercase;
+    color: var(--fg-faint); margin-bottom: 10px; display: flex; gap: 8px; align-items: center;
+}
+.band > .band-label .pill {
+    background: var(--bg-elevated); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 8px; letter-spacing: 0; text-transform: none;
+    color: var(--fg-muted); font-size: 10.5px;
+}
+
+.arrow {
+    display: flex; align-items: center; justify-content: center;
+    color: var(--fg-faint); font-size: 17px; padding: 6px 0;
+}
+.arrow small {
+    font-size: 11px; color: var(--fg-muted); margin-left: 8px;
+    font-family: "Cascadia Code", Consolas, monospace;
+}
+.vline { text-align: center; color: var(--fg-faint); font-size: 15px; line-height: 1; padding: 5px 0; }
+
+/* dependency ladder */
+.ladder { display: flex; flex-direction: column; gap: 8px; }
+.rung {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+}
+.rung .lvl {
+    font-size: 11px; color: var(--fg-faint); text-align: right;
+    font-family: "Cascadia Code", Consolas, monospace;
+}
+.rung .items { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip {
+    display: inline-flex; flex-direction: column;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+}
+.chip b { color: var(--fg-bright); font-weight: 620; font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; }
+.chip i { font-style: normal; color: var(--fg-muted); font-size: 10.5px; margin-top: 2px; }
+.chip.accent { border-color: var(--accent-border); background: var(--accent-subtle); }
+.chip.green  { border-color: var(--green-border);  background: var(--green-subtle); }
+.chip.cyan   { border-color: var(--cyan-border);   background: var(--cyan-subtle); }
+.chip.magenta{ border-color: var(--magenta-border);background: var(--magenta-subtle); }
+.chip.yellow { border-color: var(--yellow-border); background: var(--yellow-subtle); }
+
+/* sequence diagram */
+.seq { display: flex; flex-direction: column; gap: 0; }
+.seq-step {
+    display: grid;
+    grid-template-columns: 26px 118px minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+    padding: 9px 0;
+    border-top: 1px solid var(--border);
+}
+.seq-step:first-child { border-top: none; }
+.seq-step .n {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: var(--on-accent);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11.5px; font-weight: 700; margin-top: 1px;
+}
+.seq-step .who {
+    font-size: 11.5px; font-family: "Cascadia Code", Consolas, monospace;
+    color: var(--fg-faint); padding-top: 3px; word-break: break-word;
+}
+.seq-step .what { font-size: 13.5px; }
+.seq-step .what b { color: var(--fg-bright); font-weight: 620; }
+.seq-step .what em { font-style: normal; color: var(--fg-muted); font-size: 12.5px; display: block; margin-top: 2px; }
+
+/* tables */
+.tablewrap { overflow-x: auto; margin: 16px 0; border: 1px solid var(--border); border-radius: 11px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { text-align: left; padding: 9px 13px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th {
+    background: var(--bg-raised); color: var(--fg-bright); font-weight: 620;
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+}
+tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: var(--bg-raised); }
+td.mono, th.mono { font-family: "Cascadia Code", Consolas, monospace; font-size: 12px; white-space: nowrap; }
+.verb {
+    display: inline-block; min-width: 48px; text-align: center;
+    font-size: 10.5px; font-weight: 700; letter-spacing: .04em;
+    border-radius: 5px; padding: 2px 6px; font-family: "Cascadia Code", Consolas, monospace;
+}
+.verb.get { background: var(--cyan-subtle); color: var(--cyan); border: 1px solid var(--cyan-border); }
+.verb.post { background: var(--green-subtle); color: var(--green); border: 1px solid var(--green-border); }
+.verb.del { background: var(--red-subtle); color: var(--red); border: 1px solid var(--red-border); }
+
+pre {
+    background: var(--bg-base);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 12.5px;
+    line-height: 1.55;
+    margin: 14px 0;
+    color: var(--fg);
+}
+pre .c { color: var(--fg-faint); }
+pre .g { color: var(--green); }
+pre .r { color: var(--red); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; font-size: 11.5px; color: var(--fg-muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 11px; height: 11px; border-radius: 3px; display: inline-block; border: 1px solid var(--border-strong); }
+
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+
+footer {
+    max-width: 1360px; margin: 0 auto; padding: 26px 22px 50px;
+    color: var(--fg-faint); font-size: 12.5px; border-top: 1px solid var(--border);
+}
+
+@media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    nav.toc { display: none; }
+    .seq-step { grid-template-columns: 26px minmax(0, 1fr); }
+    .seq-step .who { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+    <div class="brand">Llama<span>&nbsp;GUI</span></div>
+    <div class="meta">Architecture Guide</div>
+    <div class="spacer"></div>
+    <button class="theme-btn" id="theme-toggle" type="button">Light theme</button>
+</div>
+
+<div class="shell">
+
+<nav class="toc">
+    <p class="toc-title">Contents</p>
+    <a href="#overview">Overview</a>
+    <a href="#context">System context</a>
+    <a href="#layers">Layer map</a>
+    <a href="#backend">Backend</a>
+    <a href="#request">Request lifecycle</a>
+    <a href="#state">State &amp; concurrency</a>
+    <a href="#frontend">Frontend</a>
+    <a href="#flagcore">Shared state contract</a>
+    <a href="#flags">Flag system</a>
+    <a href="#tabs">Tabs</a>
+    <a href="#flows">Key flows</a>
+    <a href="#api">API surface</a>
+    <a href="#polling">Polling &amp; streams</a>
+    <a href="#persistence">Persistence</a>
+    <a href="#security">Security boundaries</a>
+    <a href="#themes">Theming</a>
+    <a href="#tests">Tests</a>
+    <a href="#extend">Where to edit</a>
+</nav>
+
+<main>
+
+<h1>Llama GUI — Architecture</h1>
+<p class="lede">
+    A visual map of how Llama GUI is put together: a dependency-free Python control plane that installs and
+    supervises <code>llama.cpp</code> binaries, and a bundler-free browser UI that drives it. This document is a guide
+    for users who want to understand what the app does behind the buttons, and for developers who need to know where a
+    change belongs before making it.
+</p>
+
+<div class="factgrid">
+    <div class="fact"><div class="k">Backend</div><div class="v">Python stdlib<small>http.server, no framework</small></div></div>
+    <div class="fact"><div class="k">Frontend</div><div class="v">Vanilla JS<small>no bundler, no modules</small></div></div>
+    <div class="fact"><div class="k">Entry point</div><div class="v">server.py<small>26-line wrapper → backend/app.py</small></div></div>
+    <div class="fact"><div class="k">GUI server</div><div class="v">127.0.0.1:5240<small>ThreadingHTTPServer</small></div></div>
+    <div class="fact"><div class="k">llama-server</div><div class="v">127.0.0.1:8080<small>separate subprocess</small></div></div>
+    <div class="fact"><div class="k">Runtime deps</div><div class="v">3 packages<small>certifi, ddgs, huggingface_hub</small></div></div>
+    <div class="fact"><div class="k">Source size</div><div class="v">~30k lines<small>Python + JS + CSS</small></div></div>
+    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">43 routes<small>15 route modules</small></div></div>
+</div>
+
+<h2 id="overview">Overview</h2>
+
+<p>
+    Llama GUI is a <strong>launcher and control panel</strong>, not an inference engine. It never loads a model itself.
+    Everything that touches weights happens inside a <code>llama.cpp</code> binary that the app downloads, verifies,
+    and runs as a child process. The Python layer exists to do the things a browser cannot: fetch GitHub releases,
+    unpack archives, spawn processes, read <code>stdout</code>, open native file dialogs, and run <code>git</code>.
+</p>
+
+<p>Three deliberate constraints shape the whole codebase:</p>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">No web framework</h4>
+        <p class="sub" style="margin:0">
+            The backend is <code>http.server.ThreadingHTTPServer</code> plus a 75-line router. A user with Python and
+            three pip packages can run the app — there is no Flask, no FastAPI, no ASGI server to install or configure.
+        </p>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">No bundler</h4>
+        <p class="sub" style="margin:0">
+            The frontend is 25 ordered <code>&lt;script&gt;</code> tags that each attach a namespace to
+            <code>window.LlamaGui</code>. There is no build step: edit a file, reload the page. Node and Playwright are
+            test-only dev dependencies.
+        </p>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">One source of truth per concept</h4>
+        <p class="sub" style="margin:0">
+            Every launch setting lives once, in <code>flagCore</code>. Every CLI flag is defined once, in
+            <code>FLAGS</code>. Every color lives once, in <code>tokens.css</code>. Mirrored controls read and write
+            the same object rather than keeping copies.
+        </p>
+    </div>
+</div>
+
+<h2 id="context">System context</h2>
+<p class="sub">Who talks to whom. Everything inside the dashed boundary ships in this repository.</p>
+
+<div class="diagram">
+    <div class="diagram-title">Runtime topology</div>
+
+    <div class="row center">
+        <div class="node cyan" style="max-width:280px">
+            <div class="t">Browser</div>
+            <div class="d">The Llama GUI single-page app — 7 tabs, served as static files</div>
+            <div class="p">http://127.0.0.1:5240</div>
+        </div>
+    </div>
+
+    <div class="arrow">↕ <small>fetch / JSON &nbsp;·&nbsp; SSE stream &nbsp;·&nbsp; static assets</small></div>
+
+    <div class="band">
+        <div class="band-label">Llama GUI process <span class="pill">python server.py</span> <span class="pill">threaded, one process</span></div>
+        <div class="row">
+            <div class="node accent">
+                <div class="t">HTTP handler</div>
+                <div class="d">CORS check → router → route function</div>
+                <div class="p">backend/app.py</div>
+            </div>
+            <div class="node accent">
+                <div class="t">Routes</div>
+                <div class="d">15 modules, thin request/response adapters</div>
+                <div class="p">backend/routes/</div>
+            </div>
+            <div class="node accent">
+                <div class="t">Services</div>
+                <div class="d">12 modules holding the actual logic</div>
+                <div class="p">backend/services/</div>
+            </div>
+            <div class="node accent">
+                <div class="t">Shared state</div>
+                <div class="d">Lock-guarded process, download &amp; tunnel state</div>
+                <div class="p">backend/state.py</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="arrow">↓ <small>subprocess spawn &nbsp;·&nbsp; stdout/stderr pipe &nbsp;·&nbsp; localhost HTTP proxy</small></div>
+
+    <div class="row">
+        <div class="node green">
+            <div class="t">llama-server</div>
+            <div class="d">OpenAI-compatible API + Prometheus metrics</div>
+            <div class="p">127.0.0.1:8080</div>
+        </div>
+        <div class="node green">
+            <div class="t">llama-cli</div>
+            <div class="d">Terminal chat, stdin forwarded from the UI</div>
+            <div class="p">stdout streamed to Output</div>
+        </div>
+        <div class="node green">
+            <div class="t">llama-bench</div>
+            <div class="d">Throughput benchmarking</div>
+            <div class="p">Benchmarking tab</div>
+        </div>
+        <div class="node green">
+            <div class="t">llama-perplexity</div>
+            <div class="d">Perplexity over WikiText-2</div>
+            <div class="p">Benchmarking tab</div>
+        </div>
+    </div>
+
+    <div class="arrow">↓ <small>local filesystem</small></div>
+
+    <div class="row">
+        <div class="node ghost"><div class="t">llama/</div><div class="d">Installed binaries + grammars</div></div>
+        <div class="node ghost"><div class="t">models/</div><div class="d">GGUF weights, <code>mmproj/</code> for projectors</div></div>
+        <div class="node ghost"><div class="t">presets/</div><div class="d">Saved launch configurations (JSON)</div></div>
+        <div class="node ghost"><div class="t">config.json</div><div class="d">Installed version, backend, remembered target</div></div>
+        <div class="node ghost"><div class="t">tools/</div><div class="d">Auto-downloaded <code>cloudflared</code></div></div>
+    </div>
+
+    <div class="arrow" style="padding-top:18px">↑↓ <small>outbound network, all optional</small></div>
+
+    <div class="row">
+        <div class="node yellow"><div class="t">GitHub Releases</div><div class="d">llama.cpp builds, SHA256-verified</div><div class="p">api.github.com/ggml-org</div></div>
+        <div class="node yellow"><div class="t">Hugging Face</div><div class="d">GGUF model downloads via <code>huggingface_hub</code></div></div>
+        <div class="node yellow"><div class="t">DuckDuckGo / SearXNG</div><div class="d">Chat web search, zero-key</div></div>
+        <div class="node yellow"><div class="t">Cloudflare</div><div class="d">Quick tunnel for remote access</div></div>
+        <div class="node yellow"><div class="t">git origin</div><div class="d">In-app app updates to the newest release tag</div></div>
+    </div>
+
+    <div class="legend">
+        <span><i style="background:var(--cyan-subtle);border-color:var(--cyan-border)"></i> Browser</span>
+        <span><i style="background:var(--accent-subtle);border-color:var(--accent-border)"></i> Python control plane</span>
+        <span><i style="background:var(--green-subtle);border-color:var(--green-border)"></i> llama.cpp child processes</span>
+        <span><i style="background:var(--yellow-subtle);border-color:var(--yellow-border)"></i> External services (optional)</span>
+        <span><i style="border-style:dashed;background:transparent"></i> On-disk data</span>
+    </div>
+</div>
+
+<div class="note">
+    <strong>One process slot.</strong> The app supervises exactly one llama.cpp child at a time. Quick Launch,
+    Configure, Benchmarking, and the Model Switcher all compete for that same slot, which is why launch, stop, and
+    switch are funnelled through a single orchestrator (<code>process-lifecycle.js</code> on the frontend,
+    <code>process_manager.py</code> on the backend) rather than being implemented per tab.
+</div>
+
+<h2 id="layers">Layer map</h2>
+<p class="sub">The same system by responsibility. Dependencies point downward only.</p>
+
+<div class="diagram">
+    <div class="diagram-title">Layers</div>
+
+    <div class="band" style="margin-bottom:10px">
+        <div class="band-label">Presentation <span class="pill">ui/</span></div>
+        <div class="row">
+            <div class="node cyan"><div class="t">index.html</div><div class="d">All 7 tab panels as static markup, 1.4k lines</div></div>
+            <div class="node cyan"><div class="t">tab UI modules</div><div class="d">quick-launch · config-flags · chat · benchmark · presets · api-tab</div></div>
+            <div class="node cyan"><div class="t">widgets</div><div class="d">searchable-select · theme-ui · chat-rendering · model-switch</div></div>
+            <div class="node cyan"><div class="t">css</div><div class="d">style.css (no colors) + tokens.css (all colors)</div></div>
+        </div>
+    </div>
+    <div class="vline">│</div>
+
+    <div class="band" style="margin-bottom:10px">
+        <div class="band-label">Frontend domain <span class="pill">shared state, no DOM ownership</span></div>
+        <div class="row">
+            <div class="node magenta"><div class="t">flag-core</div><div class="d">Launch state, custom-arg parser, <code>getLaunchArgs()</code></div></div>
+            <div class="node magenta"><div class="t">process-lifecycle</div><div class="d">Launch / stop / switch / readiness orchestration</div></div>
+            <div class="node magenta"><div class="t">flags/*</div><div class="d">Pure data: FLAGS, categories, options, chat templates</div></div>
+            <div class="node magenta"><div class="t">sampler-presets · presets</div><div class="d">Preset storage, validation, library</div></div>
+            <div class="node magenta"><div class="t">manager</div><div class="d">Releases, installs, <code>fetchJson()</code>, model cache</div></div>
+        </div>
+    </div>
+    <div class="vline">│ &nbsp; <span style="font-size:11px;color:var(--fg-muted);font-family:Consolas,monospace">HTTP / JSON / SSE over localhost</span></div>
+
+    <div class="band" style="margin-bottom:10px">
+        <div class="band-label">Backend transport <span class="pill">backend/</span></div>
+        <div class="row">
+            <div class="node accent"><div class="t">app.py</div><div class="d">Handler, CORS, static serving, route registry, <code>main()</code></div></div>
+            <div class="node accent"><div class="t">routing.py</div><div class="d">Exact + prefix match dispatch table</div></div>
+            <div class="node accent"><div class="t">http.py</div><div class="d">Request / Response / SseWriter, <code>sanitize_error()</code></div></div>
+            <div class="node accent"><div class="t">context.py</div><div class="d">AppContext = paths + config + state + services</div></div>
+        </div>
+    </div>
+    <div class="vline">│</div>
+
+    <div class="band" style="margin-bottom:10px">
+        <div class="band-label">Backend domain <span class="pill">backend/services/</span></div>
+        <div class="row">
+            <div class="node green"><div class="t">llama_manager</div><div class="d">Release fetch, SHA256, extract, runtime-lib validation</div></div>
+            <div class="node green"><div class="t">process_manager</div><div class="d">Spawn, stop, output buffer, arg parsing, API keys</div></div>
+            <div class="node green"><div class="t">chat · web_search</div><div class="d">Proxy helpers, SearXNG/ddgs, HTML→text</div></div>
+            <div class="node green"><div class="t">hf_download</div><div class="d">Repo listing, cancellable download, path validation</div></div>
+            <div class="node green"><div class="t">external_server</div><div class="d">Target resolution, health probe, remembered address</div></div>
+            <div class="node green"><div class="t">tunnel · git_update · lifecycle · file_picker</div><div class="d">cloudflared, app updates, shutdown, tkinter dialogs</div></div>
+        </div>
+    </div>
+    <div class="vline">│</div>
+
+    <div class="band">
+        <div class="band-label">Foundation</div>
+        <div class="row">
+            <div class="node"><div class="t">state.py</div><div class="d">ServerState + AtomicDict, every lock in the app</div></div>
+            <div class="node"><div class="t">config.py</div><div class="d">Paths, ports, env parsing — no third-party imports</div></div>
+            <div class="node"><div class="t">Filesystem</div><div class="d">llama/ · models/ · presets/ · tools/ · config.json</div></div>
+        </div>
+    </div>
+</div>
+
+<div class="note">
+    <strong>Why <code>config.py</code> imports nothing optional.</strong> It is loaded during startup before dependency
+    checks run, so a minimal Python environment must be able to import it. That constraint is deliberate — putting a
+    <code>certifi</code> or <code>huggingface_hub</code> import there would break first-run diagnostics on a machine
+    that has not installed requirements yet.
+</div>
+
+<h2 id="backend">Backend structure</h2>
+
+<h3>Core modules</h3>
+<div class="tablewrap">
+<table>
+<thead><tr><th class="mono">Module</th><th>Responsibility</th><th style="text-align:right">Lines</th></tr></thead>
+<tbody>
+<tr><td class="mono">backend/app.py</td><td>HTTP handler, CORS validation, static asset serving with cache busting, the route registry, and <code>main()</code></td><td style="text-align:right">1007</td></tr>
+<tr><td class="mono">backend/routing.py</td><td><code>Router</code> — chained <code>.add(method, path, fn)</code> exact matches plus <code>.add_prefix()</code> for path parameters</td><td style="text-align:right">75</td></tr>
+<tr><td class="mono">backend/http.py</td><td><code>Request</code> / <code>Response</code> / <code>SseWriter</code> wrappers, body reading with size + timeout limits, <code>sanitize_error()</code></td><td style="text-align:right">282</td></tr>
+<tr><td class="mono">backend/context.py</td><td><code>AppContext</code> — frozen <code>AppPaths</code> and <code>ServerConfig</code>, mutable <code>ServerState</code>, injected <code>BackendServices</code></td><td style="text-align:right">86</td></tr>
+<tr><td class="mono">backend/state.py</td><td><code>ServerState</code> dataclass and <code>AtomicDict</code>; all mutable runtime state and every threading lock</td><td style="text-align:right">144</td></tr>
+<tr><td class="mono">backend/config.py</td><td>Path constants, port defaults, env-var parsing, web-search limits, release-branch name</td><td style="text-align:right">108</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Routes → services</h3>
+<p class="sub">
+    Route modules are adapters: parse and validate the request, call a service, shape the response. Domain logic lives
+    in the paired service so it can be unit-tested without an HTTP layer.
+</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th class="mono">Route module</th><th class="mono">Service</th><th>Does</th></tr></thead>
+<tbody>
+<tr><td class="mono">process.py</td><td class="mono">process_manager.py</td><td>Preflight, launch, stop, stdin, output snapshot, health, memory estimate, buffer types, cleanup</td></tr>
+<tr><td class="mono">install.py</td><td class="mono">llama_manager.py</td><td>List GitHub releases per backend, download + SHA256 verify + extract, activate a custom build</td></tr>
+<tr><td class="mono">chat.py</td><td class="mono">chat.py · web_search.py</td><td>SSE proxy to <code>/v1/chat/completions</code>, optional web-search context injection</td></tr>
+<tr><td class="mono">external_server.py</td><td class="mono">external_server.py</td><td>Register / read / clear an externally started llama-server; resolve the proxy target</td></tr>
+<tr><td class="mono">metrics.py</td><td class="mono">local_llama_http.py</td><td>Proxy llama-server's Prometheus <code>/metrics</code> and <code>/slots</code></td></tr>
+<tr><td class="mono">hf_download.py</td><td class="mono">hf_download.py</td><td>List repo GGUF files, background download with cancel, progress status</td></tr>
+<tr><td class="mono">presets.py</td><td class="mono">—</td><td>Preset CRUD on <code>presets/*.json</code>, rename with created-time carry, Windows shortcut export</td></tr>
+<tr><td class="mono">models.py</td><td class="mono">—</td><td>Recursive GGUF discovery under <code>models/</code>, returned as <code>models/</code>-relative names</td></tr>
+<tr><td class="mono">tunnel.py</td><td class="mono">tunnel.py</td><td>Download <code>cloudflared</code>, start/stop quick tunnel, poll for the public URL</td></tr>
+<tr><td class="mono">git_update.py</td><td class="mono">git_update.py</td><td>Fetch tags, classify dirty paths, fast-forward to the newest release tag, reinstall deps</td></tr>
+<tr><td class="mono">benchmarks.py</td><td class="mono">—</td><td>Ensure the official WikiText-2 raw test file exists for perplexity runs</td></tr>
+<tr><td class="mono">search.py</td><td class="mono">web_search.py</td><td>Standalone web-search endpoint</td></tr>
+<tr><td class="mono">lifecycle.py</td><td class="mono">lifecycle.py</td><td>Graceful shutdown, restart with port-availability polling, open a folder in the OS file manager</td></tr>
+<tr><td class="mono">file_picker.py</td><td class="mono">file_picker.py</td><td>Native tkinter open dialog with purpose-based folder and filter</td></tr>
+<tr><td class="mono">status.py</td><td class="mono">—</td><td>The aggregate status snapshot the frontend polls and reconciles against</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Service injection</h3>
+<p>
+    <code>BackendServices</code> is a dataclass of callables that starts out filled with a <code>_missing_service</code>
+    stub that raises. At import time <code>configure_services(APP_CONTEXT)</code> replaces each field with the real
+    implementation. Routes never import services directly — they reach them through <code>ctx.services</code>, which is
+    what lets the backend test suite swap in fakes for platform-specific behavior (binary suffixes, <code>otool</code>,
+    <code>ldd</code>, tkinter) without touching the routes.
+</p>
+
+<pre><span class="c"># every route has the same shape</span>
+def get_status(request, response, ctx):
+    snapshot = process_manager.get_process_status_snapshot(ctx)
+    ...
+    return response.json(payload)
+
+<span class="c"># ctx carries everything a route may need</span>
+ctx.paths      <span class="c"># frozen AppPaths   — llama/, models/, presets/, config.json</span>
+ctx.config     <span class="c"># frozen ServerConfig — hosts, ports, GitHub API, release branch</span>
+ctx.state      <span class="c"># mutable ServerState — process, locks, buffers, generations</span>
+ctx.services   <span class="c"># injected BackendServices — platform + IO callables</span>
+</pre>
+
+<h2 id="request">Request lifecycle</h2>
+
+<div class="diagram">
+    <div class="diagram-title">An /api/ request, start to finish</div>
+    <div class="seq">
+        <div class="seq-step"><div class="n">1</div><div class="who">browser</div><div class="what"><b>fetch()</b> through <code>fetchJson()</code> in <code>manager.js</code><em>Throws on any non-JSON response, including an HTTP 200 that returns HTML — so a mis-routed request fails loudly instead of silently.</em></div></div>
+        <div class="seq-step"><div class="n">2</div><div class="who">app.py Handler</div><div class="what"><b>Origin validation</b><em>Loopback origins for the configured GUI port, trusted <code>LLAMA_GUI_ALLOWED_HOSTS</code> entries when wildcard-bound, plus the active tunnel URL. Anything else is rejected before routing.</em></div></div>
+        <div class="seq-step"><div class="n">3</div><div class="who">http.py</div><div class="what"><b>Body read</b> with a 10&nbsp;MB cap and a 30&nbsp;s timeout<em><code>read_body()</code> returns a three-state sentinel: a dict, <code>None</code>, or "already responded". Compare with <code>is</code>, never <code>==</code>.</em></div></div>
+        <div class="seq-step"><div class="n">4</div><div class="who">routing.py</div><div class="what"><b>Router match</b> — exact table first, then prefix routes<em>Exact: <code>("POST", "/api/launch")</code>. Prefix: <code>DELETE /api/presets/&lt;name&gt;</code> passes the tail as a named argument.</em></div></div>
+        <div class="seq-step"><div class="n">5</div><div class="who">routes/*.py</div><div class="what"><b>Route function</b> <code>(request, response, ctx)</code><em>Validates external input — HF repo IDs, filenames, revisions, paths — before anything reaches the filesystem or a subprocess.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">services/*.py</div><div class="what"><b>Service call</b>, mutating <code>ctx.state</code> only under its lock<em>Long-running work (install, HF download, tunnel) is handed to a background thread that reports through an <code>AtomicDict</code> the frontend polls.</em></div></div>
+        <div class="seq-step"><div class="n">7</div><div class="who">http.py</div><div class="what"><b>Response</b> — JSON, or an <code>SseWriter</code> for chat streaming<em>On failure the real exception goes to stderr; the client gets <code>sanitize_error()</code> output with no paths or internals.</em></div></div>
+    </div>
+</div>
+
+<p>Static requests take a shorter path: <code>ui/</code> is served directly, with a manifest of known asset paths and a cache-busting query parameter applied after an app update so a stale <code>app.js</code> can never survive a version change.</p>
+
+<h2 id="state">State &amp; concurrency</h2>
+
+<p>
+    The backend is threaded — <code>ThreadingHTTPServer</code> gives every request its own thread, and installs,
+    downloads, tunnels, and output readers add more. All mutable state is therefore centralized in
+    <code>ServerState</code> and guarded.
+</p>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">Locks</h4>
+        <ul class="tight" style="font-size:13.5px">
+            <li><code>process_lock</code> — the single process slot</li>
+            <li><code>output_buffer_lock</code> — stdout ring buffer</li>
+            <li><code>install_lock</code> — one install at a time</li>
+            <li><code>model_download_lock</code> — one HF download</li>
+            <li><code>remote_tunnel_lock</code> — tunnel lifecycle</li>
+            <li><code>llama_api_target_lock</code>, <code>external_chat_target_lock</code></li>
+            <li><code>runtime_health_lock</code>, <code>config_lock</code></li>
+        </ul>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">AtomicDict</h4>
+        <p class="sub" style="margin:0 0 8px">
+            A lock-protected dict used for every status payload the frontend polls. Mutating methods return a copied
+            post-mutation snapshot, so a caller can act on the new state without holding the lock.
+        </p>
+        <p class="sub" style="margin:0"><code>update()</code> · <code>replace()</code> · <code>snapshot()</code></p>
+    </div>
+</div>
+
+<h3>Generation counters</h3>
+<p>
+    Two monotonic counters make stale browser tabs safe. Every launch increments <code>runtime_generation</code>, and
+    every process start increments <code>output_generation</code>.
+</p>
+<ul>
+    <li><strong>Output cursor.</strong> <code>/api/output</code> is polled with a <code>since</code> cursor and returns the authoritative generation with each chunk. A tab holding output from a process that has since been replaced sees the generation change, discards its buffer, and re-syncs — instead of interleaving two runs' logs.</li>
+    <li><strong>Readiness.</strong> Health checks are keyed to an expected generation. A readiness reply for a superseded launch is reported as superseded rather than being mistaken for the current server coming up.</li>
+</ul>
+
+<div class="note warn">
+    <strong>Windows process stop.</strong> Sending <code>CTRL_BREAK_EVENT</code> requires
+    <code>CREATE_NEW_PROCESS_GROUP</code> at creation time. Without it the signal can reach the parent process when the
+    two share a console — which is why the creation flags and the stop path have to be read together.
+</div>
+
+<h2 id="frontend">Frontend structure</h2>
+
+<p>
+    There are no ES modules and no import graph the browser can resolve. Dependency order is expressed purely by
+    <code>&lt;script&gt;</code> order in <code>ui/index.html</code>, and every module publishes itself on
+    <code>window.LlamaGui</code>. The ladder below is that load order — each rung may only depend on rungs above it.
+</p>
+
+<div class="diagram">
+    <div class="diagram-title">Script load order = dependency order (ui/index.html)</div>
+    <div class="ladder">
+        <div class="rung"><div class="lvl">1–5</div><div class="items">
+            <div class="chip yellow"><b>flags/categories.js</b><i>FLAG_CATEGORIES</i></div>
+            <div class="chip yellow"><b>flags/options.js</b><i>shared enum lists</i></div>
+            <div class="chip yellow"><b>flags/chat-templates.js</b><i>preset ↔ builtin ↔ file map</i></div>
+            <div class="chip yellow"><b>flags/definitions.js</b><i>FLAGS — the flag source of truth</i></div>
+            <div class="chip yellow"><b>flags/helpers.js</b><i>getFlagsForTool / ByCategory</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">6</div><div class="items">
+            <div class="chip"><b>theme-ui.js</b><i>THEMES registry + sidebar menu</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">7</div><div class="items">
+            <div class="chip magenta"><b>flag-core.js</b><i>shared launch state · getLaunchArgs() · custom-arg parser</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">8–10</div><div class="items">
+            <div class="chip accent"><b>config-flags-ui.js</b><i>Configure tab rendering</i></div>
+            <div class="chip accent"><b>manager.js</b><i>releases · install · fetchJson · model cache</i></div>
+            <div class="chip accent"><b>presets.js</b><i>preset library, search, warnings</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">11–14</div><div class="items">
+            <div class="chip"><b>searchable-select.js</b><i>combobox over a native select</i></div>
+            <div class="chip"><b>model-switch-ui.js</b><i>two standby preset slots</i></div>
+            <div class="chip yellow"><b>app-data.js</b><i>QUICK_PROFILES · sampler presets · slider map</i></div>
+            <div class="chip"><b>output-cursor.js</b><i>monotonic output consumer</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">15</div><div class="items">
+            <div class="chip magenta"><b>process-lifecycle.js</b><i>launch · stop · switch · readiness · recovery</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">16–18</div><div class="items">
+            <div class="chip"><b>sampler-presets.js</b><i>sampler store + Configure controls</i></div>
+            <div class="chip"><b>chat-rendering.js</b><i>markdown → DOM</i></div>
+            <div class="chip"><b>api-tab.js</b><i>endpoints, snippets, base URL</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">19–21</div><div class="items">
+            <div class="chip cyan"><b>hf-download-ui.js</b><i>Hugging Face downloader</i></div>
+            <div class="chip cyan"><b>remote-tunnel-ui.js</b><i>Cloudflare tunnel controls</i></div>
+            <div class="chip cyan"><b>external-server-ui.js</b><i>connect to a running server</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">22–24</div><div class="items">
+            <div class="chip cyan"><b>quick-launch-ui.js</b><i>Quick Launch tab</i></div>
+            <div class="chip cyan"><b>chat-ui.js</b><i>Chat tab, streaming, history</i></div>
+            <div class="chip cyan"><b>benchmark-ui.js</b><i>Benchmarking tab</i></div>
+        </div></div>
+        <div class="rung"><div class="lvl">25</div><div class="items">
+            <div class="chip accent"><b>app.js</b><i>orchestration — tabs, polling, toasts, module wiring, injection</i></div>
+        </div></div>
+    </div>
+
+    <div class="legend">
+        <span><i style="background:var(--yellow-subtle);border-color:var(--yellow-border)"></i> Pure data</span>
+        <span><i style="background:var(--magenta-subtle);border-color:var(--magenta-border)"></i> Shared domain state</span>
+        <span><i style="background:var(--accent-subtle);border-color:var(--accent-border)"></i> Cross-cutting</span>
+        <span><i style="background:var(--cyan-subtle);border-color:var(--cyan-border)"></i> Tab / feature UI</span>
+        <span><i></i> Widgets &amp; helpers</span>
+    </div>
+</div>
+
+<div class="note rule">
+    <strong>Do not reorder these scripts.</strong> A module placed above its dependency will read
+    <code>undefined</code> off <code>window.LlamaGui</code> at definition time and fail in ways that look unrelated. New
+    modules go after their dependencies and before their consumers, and the canonical order is mirrored in
+    <code>docs/directory.md</code>.
+</div>
+
+<h3>Dependency injection, frontend-style</h3>
+<p>
+    Feature modules do not reach for globals. <code>app.js</code> calls each module's <code>configure()</code> and hands
+    it what it needs — <code>fetchJson</code>, <code>flagCore</code>, confirmation callbacks, status helpers. That is
+    what makes the <code>.cjs</code> unit tests possible: they load a module's source inside a <code>node:vm</code>
+    context with stub dependencies, no browser required.
+</p>
+
+<div class="note warn">
+    <strong>Realm caveat.</strong> Because those tests run source in a <code>vm</code> context, <code>instanceof</code>
+    is unreliable for values crossing the realm boundary. Duck-type instead — check for <code>.has</code> and
+    <code>.size</code> rather than <code>x instanceof Set</code>, and use <code>Array.isArray</code>.
+</div>
+
+<h2 id="flagcore">The shared state contract</h2>
+
+<p>
+    This is the single most important invariant in the frontend. The same setting — context size, temperature, GPU
+    layers, chat template — appears in Configure, in Quick Launch, in the Chat sidebar, and in the command preview.
+    All four are views over one object.
+</p>
+
+<div class="diagram">
+    <div class="diagram-title">One state, many views</div>
+    <div class="row center" style="gap:10px">
+        <div class="node cyan" style="max-width:190px"><div class="t">Configure</div><div class="d">Full flag surface</div></div>
+        <div class="node cyan" style="max-width:190px"><div class="t">Quick Launch</div><div class="d">Simplified controls</div></div>
+        <div class="node cyan" style="max-width:190px"><div class="t">Chat sidebar</div><div class="d">Sampler sliders</div></div>
+        <div class="node cyan" style="max-width:190px"><div class="t">Benchmarking</div><div class="d">Reads, never mutates</div></div>
+    </div>
+
+    <div class="arrow">↓ <small>writes go through shared setters only</small></div>
+
+    <div class="row center">
+        <div class="node magenta" style="max-width:520px">
+            <div class="t">window.LlamaGui.flagCore</div>
+            <div class="d">
+                <code>setFlagValue()</code> · <code>setMultipleFlagValues()</code> · <code>applyFlagValues()</code><br>
+                owns <code>currentTool</code>, the selected model, and <code>flagValues</code>
+            </div>
+        </div>
+    </div>
+
+    <div class="arrow">↓ <small>generated, never stored per tab</small></div>
+
+    <div class="row center" style="gap:10px">
+        <div class="node accent" style="max-width:230px"><div class="t">Command preview</div><div class="d">Rendered from <code>getLaunchArgs()</code></div></div>
+        <div class="node accent" style="max-width:230px"><div class="t">POST /api/launch</div><div class="d">The exact same args array</div></div>
+        <div class="node accent" style="max-width:230px"><div class="t">Preset save</div><div class="d">Serialized from the same values</div></div>
+    </div>
+</div>
+
+<pre><span class="r">// Wrong — skips the sync broadcast; Quick Launch and the preview silently desync</span>
+flagCore.getFlagValues().temperature = 0.5;
+
+<span class="g">// Right — one write path, every mirrored control updates</span>
+flagCore.setFlagValue("temperature", 0.5);
+</pre>
+
+<p>The rule has three corollaries the codebase enforces:</p>
+<ul>
+    <li><strong>No per-tab copies</strong> of flag, template, or sampler state — and no second options list for a duplicated control.</li>
+    <li><strong>The command preview is generated only from shared state.</strong> If the preview and the launch could ever disagree, the preview is worthless.</li>
+    <li><strong>If a mirrored control cannot be kept reliable, delete the duplicate UI</strong> rather than maintain two sources of truth.</li>
+</ul>
+
+<h2 id="flags">Flag system</h2>
+
+<p>
+    <code>ui/js/flags/definitions.js</code> holds <code>FLAGS</code>, the single source of truth for every
+    <code>llama.cpp</code> option the UI exposes — 1,825 lines of pure data with no rendering logic. Each entry carries
+    an <code>id</code>, the CLI <code>flag</code>, a <code>category</code>, a <code>type</code>, label and description
+    text, a <code>tool</code> scope, and a <code>default</code>.
+</p>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">Types</h4>
+        <ul class="tight" style="font-size:13px">
+            <li><code>bool</code> — checkbox; <code>false_flag</code> emits the negated form (<code>--no-mmap</code>)</li>
+            <li><code>int</code> / <code>float</code> — numeric with min/max/step</li>
+            <li><code>text</code> — free-form</li>
+            <li><code>text_list</code> — one value per line, flag repeated per value</li>
+            <li><code>path</code> — text plus a native Browse button</li>
+            <li><code>enum</code> — dropdown from a shared options list</li>
+            <li><code>multi_enum</code> — checkboxes, with <code>risk: "high"</code> badges</li>
+        </ul>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">Categories</h4>
+        <p class="sub" style="margin:0">
+            model · context · cpu · gpu · auto_fit · sampling · rope · conversation · lora · kv · speculative · server ·
+            mcp · grammar · logging · advanced
+        </p>
+        <p class="sub" style="margin:10px 0 0">
+            Any flag may declare <code>submenu</code> to render inside a collapsible sub-accordion; a category may
+            declare <code>submenuOrder</code> to control the order those blocks appear in.
+        </p>
+    </div>
+</div>
+
+<div class="note warn">
+    <strong>Display order and argument order are different things.</strong> <code>submenuOrder</code> is
+    presentation-only. The <code>FLAGS</code> array order determines CLI argument order in the built command and must
+    never be shuffled for layout reasons. <code>tests/frontend/flag_definitions_unit.cjs</code> fails the build if the
+    two drift apart.
+</div>
+
+<h3>How a launch command is built</h3>
+<div class="diagram">
+    <div class="diagram-title">flagCore.getLaunchArgs()</div>
+    <div class="seq">
+        <div class="seq-step"><div class="n">1</div><div class="who">FLAGS</div><div class="what"><b>Iterate definitions, filter by tool</b><em><code>server</code>, <code>cli</code>, or <code>both</code> — a flag the current tool rejects is never emitted.</em></div></div>
+        <div class="seq-step"><div class="n">2</div><div class="who">flagValues</div><div class="what"><b>Skip inert defaults</b><em>An explicit allowlist in <code>shouldOmitFlagValue</code>, not a blanket "equals default" check.</em></div></div>
+        <div class="seq-step"><div class="n">3</div><div class="who">flagValues</div><div class="what"><b>Skip speculative flags unless enabled</b></div></div>
+        <div class="seq-step"><div class="n">4</div><div class="who">—</div><div class="what"><b>Build <code>[flag, value]</code> pairs</b> in definition order</div></div>
+        <div class="seq-step"><div class="n">5</div><div class="who">custom_args</div><div class="what"><b>Parse and append Custom Launch Args</b><em>Shell-like tokenizer: quotes, escapes, and preserved Windows backslashes. A parse error blocks the launch and surfaces beside the textarea.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">model</div><div class="what"><b>Append <code>-m models/&lt;name&gt;</code> last</b><em><code>normalizeModelRelPath()</code> rejects absolute paths, <code>.</code>/<code>..</code> segments, empty segments, and anything not ending in <code>.gguf</code>. Benchmarking reuses the same exported function so the two <code>-m</code> values cannot drift.</em></div></div>
+        <div class="seq-step"><div class="n">7</div><div class="who">→ caller</div><div class="what"><b>Return <code>{ args, error, warnings }</code></b></div></div>
+    </div>
+</div>
+
+<h2 id="tabs">The seven tabs</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Tab</th><th class="mono">Panel · module</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><strong>Install</strong></td><td class="mono">#section-install<br>manager.js</td><td>Pick a backend (CPU / CUDA / Vulkan / SYCL / HIP / Metal / ROCm / OpenVINO), install a llama.cpp release, and run in-app git updates. Only backends matching your OS and architecture are offered.</td></tr>
+<tr><td><strong>Quick Launch</strong></td><td class="mono">#section-quick-launch<br>quick-launch-ui.js</td><td>The beginner path: model, profile, context, GPU layers, template, sampler preset, readiness chips, and a sticky launch bar. Also hosts the Hugging Face downloader and the Model Switcher.</td></tr>
+<tr><td><strong>Configure</strong></td><td class="mono">#section-configure<br>config-flags-ui.js</td><td>The full flag surface with live search, collapsible categories and submenus, beginner tips, high-risk warnings, the command preview, and Custom Launch Args.</td></tr>
+<tr><td><strong>Chat</strong></td><td class="mono">#section-chat<br>chat-ui.js</td><td>Streaming OpenAI-compatible chat with markdown, collapsed reasoning, Focus mode, conversation history, sampler sliders, and optional zero-key web search.</td></tr>
+<tr><td><strong>API</strong></td><td class="mono">#section-api<br>api-tab.js</td><td>Endpoint reference and copyable snippets, connecting to a llama-server started outside the GUI, and Cloudflare tunnel start/stop.</td></tr>
+<tr><td><strong>Benchmarking</strong></td><td class="mono">#section-benchmarking<br>benchmark-ui.js</td><td><code>llama-bench</code> throughput and <code>llama-perplexity</code> runs sourced from current Configure state, a saved preset, or a manual model — reading that state without mutating it.</td></tr>
+<tr><td><strong>Presets</strong></td><td class="mono">#section-presets<br>presets.js</td><td>The launch-configuration library: grouped by model, searchable, with favorites, warnings, bulk actions, duplicate/rename, Windows shortcut export, and a health summary.</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Presets: designed for scale</h3>
+<p>
+    The reference case is 58 presets across 33 model groups, and several decisions only make sense at that size. Groups
+    are <strong>collapsed by default</strong>. Search text is precomputed onto each entry rather than rebuilt per
+    keystroke, and flag labels are cached in a <code>Map</code> keyed on the <code>FLAGS</code> array identity. The list
+    is a single composite widget with roving focus: at the reference size the naive markup would have been 265 tab
+    stops, and it is now one.
+</p>
+<p>
+    Missing-model detection is deliberately conservative. A bare filename held by two subfolders reports as
+    <em>ambiguous</em> rather than resolving — guessing a folder would launch the wrong weights. An unknown model list,
+    an empty models folder, and a preset with no model all stay silent, because a preset for a model kept on another
+    machine is legitimate.
+</p>
+
+<h2 id="flows">Key flows</h2>
+
+<h3>Launching a model</h3>
+<div class="diagram">
+    <div class="diagram-title">Quick Launch / Configure → running llama-server</div>
+    <div class="seq">
+        <div class="seq-step"><div class="n">1</div><div class="who">flag-core</div><div class="what"><b>Build args</b> from shared state<em>Custom-arg parse errors block here — the request is never sent.</em></div></div>
+        <div class="seq-step"><div class="n">2</div><div class="who">process-lifecycle</div><div class="what"><b>POST /api/launch/preflight</b><em>Guarded entry point. Anything already occupying the single process slot is resolved before a new launch is attempted.</em></div></div>
+        <div class="seq-step"><div class="n">3</div><div class="who">process_manager</div><div class="what"><b>Validate the launch environment</b><em>Packaged runtime libraries are checked with <code>otool</code> on macOS and <code>ldd</code> on Linux, preserving the local library search path, so a broken install fails with a real reason instead of a silent exit.</em></div></div>
+        <div class="seq-step"><div class="n">4</div><div class="who">process_manager</div><div class="what"><b>POST /api/launch</b> → spawn the binary<em>Increments <code>runtime_generation</code>, snapshots any parsed <code>--api-key</code> values in memory, and records the active runtime identity.</em></div></div>
+        <div class="seq-step"><div class="n">5</div><div class="who">reader thread</div><div class="what"><b>Stream stdout/stderr</b> into the ring buffer<em>Sensitive arguments are redacted from the captured output.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">output-cursor</div><div class="what"><b>Poll GET /api/output</b> with a monotonic cursor<em>Each response carries the authoritative generation, so a stale tab invalidates old output rather than interleaving runs.</em></div></div>
+        <div class="seq-step"><div class="n">7</div><div class="who">process-lifecycle</div><div class="what"><b>Poll GET /api/llama/health</b> until ready<em>Generation-keyed. A one-shot prolonged-load diagnostic fires if startup drags.</em></div></div>
+        <div class="seq-step"><div class="n">8</div><div class="who">app.js</div><div class="what"><b>Unlock Chat, start stats polling</b><em>Metrics begin ~2&nbsp;s after launch and refresh every 3&nbsp;s.</em></div></div>
+    </div>
+</div>
+
+<h3>A chat message</h3>
+<div class="diagram">
+    <div class="diagram-title">Browser → backend proxy → llama-server, streamed back</div>
+    <div class="seq">
+        <div class="seq-step"><div class="n">1</div><div class="who">chat-ui</div><div class="what"><b>POST /api/chat/completions</b> with messages, sampler params, and the web-search flag</div></div>
+        <div class="seq-step"><div class="n">2</div><div class="who">external_server</div><div class="what"><b>Resolve the target</b> from backend state, never from the request body<em>Order: a llama-server this GUI launched, then one registered through <code>POST /api/chat/target</code>. With neither, the request is refused — a caller cannot redirect its own request.</em></div></div>
+        <div class="seq-step"><div class="n">3</div><div class="who">web_search</div><div class="what"><b>Optional search</b> — SearXNG when configured, otherwise DuckDuckGo<em>Fetches result pages, converts HTML to text, injects context into the system prompt with citations. Status lines ("Searching…", "Reading…") stream to the UI while this runs.</em></div></div>
+        <div class="seq-step"><div class="n">4</div><div class="who">chat route</div><div class="what"><b>Proxy to <code>/v1/chat/completions</code></b> and relay SSE<em>Authorization comes from the launch-time API-key snapshot, so editing pending config cannot break a running server.</em></div></div>
+        <div class="seq-step"><div class="n">5</div><div class="who">chat-rendering</div><div class="what"><b>Render markdown incrementally</b>, track source chips<em><code>renderMarkdown()</code> is the one sanctioned <code>innerHTML</code> path in the app, and only for model output.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">chat-ui</div><div class="what"><b>Persist to <code>localStorage</code></b> under <code>llama_gui_conversations</code></div></div>
+    </div>
+</div>
+
+<h3>Installing a llama.cpp release</h3>
+<div class="diagram">
+    <div class="diagram-title">Install tab → llama/bin/</div>
+    <div class="seq">
+        <div class="seq-step"><div class="n">1</div><div class="who">manager.js</div><div class="what"><b>GET /api/releases</b><em>Backend specs are built from the detected platform and architecture, so only installable backends are offered.</em></div></div>
+        <div class="seq-step"><div class="n">2</div><div class="who">install route</div><div class="what"><b>POST /api/install</b> claims the install slot and starts a background thread</div></div>
+        <div class="seq-step"><div class="n">3</div><div class="who">llama_manager</div><div class="what"><b>Download the asset</b>, reporting into the download-progress <code>AtomicDict</code></div></div>
+        <div class="seq-step"><div class="n">4</div><div class="who">llama_manager</div><div class="what"><b>Verify SHA256</b> against the release metadata<em>Partial files are cleaned up in a <code>finally</code> block on any failure or cancellation.</em></div></div>
+        <div class="seq-step"><div class="n">5</div><div class="who">llama_manager</div><div class="what"><b>Extract</b> — flat, or preserving paths for layouts like ROCm — into a staging directory<em>Archive members are path-checked before extraction; the staged tree is then swapped into place atomically.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">llama_manager</div><div class="what"><b>Mark tool executables</b> and write version, backend, and tag to <code>config.json</code></div></div>
+        <div class="seq-step"><div class="n">7</div><div class="who">manager.js</div><div class="what"><b>Poll GET /api/download-progress</b> and refresh the status panels</div></div>
+    </div>
+</div>
+
+<h3>Updating the app itself</h3>
+<p>
+    <code>GET /api/app-update-status?fetch=true</code> runs <code>git fetch origin --prune --prune-tags --tags</code>,
+    then finds the newest release tag reachable from <code>origin/main</code> —
+    <em>always the release branch, never the checked-out branch</em>, so a user on a development branch is still offered
+    the newest published release. Tags are selected by version sort, not date, because they are lightweight and a
+    hotfix tagged onto an older commit would otherwise sort wrong.
+</p>
+<p>
+    Dirty working-tree paths are classified: data and cache locations (<code>models/</code>, <code>presets/</code>,
+    <code>llama/</code>, <code>config.json</code>, <code>__pycache__/</code>, log and backup suffixes) are
+    <em>safe</em>; source changes are <em>blocking</em>. If the branch is behind and nothing blocks,
+    <code>POST /api/app-update</code> fast-forwards to the tag, reinstalls <code>requirements.txt</code>, restarts the
+    server, and the page reloads with a cache-busting timestamp.
+</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th class="mono">state</th><th>Meaning</th><th>Auto-update</th></tr></thead>
+<tbody>
+<tr><td class="mono">up_to_date</td><td>HEAD already contains the release tag, including local commits made after it</td><td>No</td></tr>
+<tr><td class="mono">behind</td><td>The release is a strict descendant of HEAD, so <code>merge --ff-only</code> can succeed</td><td>Yes, unless blocking changes exist</td></tr>
+<tr><td class="mono">diverged</td><td>HEAD and the release have both moved; manual merge or rebase required</td><td>No</td></tr>
+<tr><td class="mono">no_release</td><td>No tag on the release branch matched the release pattern</td><td>No</td></tr>
+<tr><td class="mono">error</td><td>A git command failed or the upstream branch is missing; <code>reason</code> holds the detail</td><td>No</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="api">API surface</h2>
+<p class="sub">All 43 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th style="width:70px">Method</th><th class="mono">Path</th><th>Handler</th></tr></thead>
+<tbody>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/status</td><td>Aggregate runtime status snapshot</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/releases</td><td>llama.cpp releases for this platform</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/output</td><td>Process output from a monotonic cursor</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/buffer-types</td><td>Available buffer/device types</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/health</td><td>Generation-keyed readiness probe</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/metrics</td><td>Prometheus metrics proxy</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/slots</td><td>Slots proxy (KV/context fallback)</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/download-progress</td><td>Release install progress</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under <code>models/</code></td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Git release-tag comparison</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/presets</td><td>List saved presets</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/launch/preflight</td><td>Pre-launch checks and slot resolution</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/launch</td><td>Spawn the selected llama.cpp tool</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/stop</td><td>Stop the running process (generation-bound)</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/send-input</td><td>Write to <code>llama-cli</code> stdin</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/cleanup-llama</td><td>Reap and clear stale process state</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/estimate-memory</td><td>Memory estimate for the current args</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/fingerprint</td><td>Compare a preset against the running runtime</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/chat/completions</td><td>SSE chat proxy with optional web search</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/chat/target</td><td>Register an external llama-server</td></tr>
+<tr><td><span class="verb del">DELETE</span></td><td class="mono">/api/chat/target</td><td>Clear the registered target</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/web-search</td><td>Standalone search query</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/benchmark/wikitext2</td><td>Ensure the WikiText-2 raw test file</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/install</td><td>Install a llama.cpp release</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/update</td><td>Update the installed release</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/activate-custom</td><td>Activate a user-supplied build in <code>llama/custom/</code></td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/repo-files</td><td>List GGUF files in a HF repo</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download</td><td>Start a background model download</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download-cancel</td><td>Cancel the in-progress download</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/remote-tunnel/start</td><td>Start the Cloudflare quick tunnel</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/remote-tunnel/stop</td><td>Stop the tunnel</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets</td><td>Save a preset</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/rename</td><td>Rename, carrying the created-time entry</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/shortcut</td><td>Export a Windows shortcut</td></tr>
+<tr><td><span class="verb del">DELETE</span></td><td class="mono">/api/presets/&lt;name&gt;</td><td>Delete a preset (prefix route)</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/app-update</td><td>Fast-forward to the release tag and reinstall deps</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/shutdown</td><td>Graceful shutdown</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/restart</td><td>Restart, or exit 75 when supervised</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/open-folder</td><td>Open a folder in the OS file manager</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/select-file</td><td>Native tkinter file dialog</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="polling">Polling &amp; streams</h2>
+<p>
+    The frontend has no WebSocket. Live behavior is one SSE stream plus a small set of polling loops, each with an
+    authoritative snapshot the client reconciles against rather than trusting its own optimistic state.
+</p>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Channel</th><th class="mono">Endpoint</th><th>Cadence</th><th>Reconciles</th></tr></thead>
+<tbody>
+<tr><td>Chat tokens</td><td class="mono">/api/chat/completions</td><td>SSE stream</td><td>Abortable mid-stream; search status lines interleave</td></tr>
+<tr><td>Process output</td><td class="mono">/api/output</td><td>Cursor poll</td><td>Monotonic cursor + <code>output_generation</code></td></tr>
+<tr><td>Readiness</td><td class="mono">/api/llama/health</td><td>Poll while starting</td><td>Keyed to the expected <code>runtime_generation</code></td></tr>
+<tr><td>Server stats</td><td class="mono">/api/llama/metrics</td><td>Every 3&nbsp;s, from ~2&nbsp;s after launch</td><td>Falls back to <code>/api/llama/slots</code> for KV usage</td></tr>
+<tr><td>Runtime status</td><td class="mono">/api/status</td><td>Periodic</td><td>Authoritative; observers re-sync the UI on change</td></tr>
+<tr><td>Release install</td><td class="mono">/api/download-progress</td><td>While installing</td><td>AtomicDict snapshot</td></tr>
+<tr><td>Model download</td><td class="mono">/api/hf/download-status</td><td>While downloading</td><td>AtomicDict snapshot</td></tr>
+<tr><td>Tunnel</td><td class="mono">/api/remote-tunnel/status</td><td>Every 2&nbsp;s while running</td><td>Detects the <code>trycloudflare.com</code> URL from stderr</td></tr>
+</tbody>
+</table>
+</div>
+
+<h2 id="persistence">Where data lives</h2>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">On disk</h4>
+        <div class="tablewrap" style="margin:8px 0 0">
+        <table>
+        <tbody>
+        <tr><td class="mono">config.json</td><td>Installed version, active backend, release tag, remembered external target <em>(address only — never a key)</em></td></tr>
+        <tr><td class="mono">presets/*.json</td><td>Saved launch configurations, plus <code>.preset-created-times</code></td></tr>
+        <tr><td class="mono">models/</td><td>GGUF weights in any subfolder; <code>models/mmproj/</code> reserved for projectors</td></tr>
+        <tr><td class="mono">llama/bin/</td><td>Installed binaries; <code>llama/custom/</code> for a user-supplied build</td></tr>
+        <tr><td class="mono">tools/cloudflared/</td><td>Auto-downloaded tunnel binary</td></tr>
+        </tbody>
+        </table>
+        </div>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">In the browser (<code>localStorage</code>)</h4>
+        <div class="tablewrap" style="margin:8px 0 0">
+        <table>
+        <tbody>
+        <tr><td class="mono">llama_gui_conversations</td><td>Chat history</td></tr>
+        <tr><td class="mono">llama_gui_sampler_presets_v1</td><td>Custom sampler presets</td></tr>
+        <tr><td class="mono">llama_gui_preset_group_state_v1</td><td>Preset group collapse state</td></tr>
+        <tr><td class="mono">llama_gui_preset_favorites_v1</td><td>Favorited presets</td></tr>
+        <tr><td class="mono">llama_gui_preset_last_used_v1</td><td>Recency sort timestamps</td></tr>
+        <tr><td class="mono">llama_gui_preset_sort_v1</td><td>Active sort mode</td></tr>
+        <tr><td class="mono">llama_gui_chat_web_search_max_results</td><td>Result count, clamped 1–10</td></tr>
+        </tbody>
+        </table>
+        </div>
+        <p class="sub" style="margin:10px 0 0">All reads and writes go through helpers that tolerate blocked storage — a private-mode browser logs rather than breaking preset actions.</p>
+    </div>
+</div>
+
+<div class="note">
+    <strong>Never persisted:</strong> llama-server API keys. A key is snapshotted in backend memory at launch, masked in
+    controls, redacted from command previews and captured output, and omitted from preset saves, imports, and exports.
+    Reloading the browser clears the field; stopping the process clears the snapshot.
+</div>
+
+<h2 id="security">Security boundaries</h2>
+
+<p>
+    Llama GUI binds to loopback by default and is designed for a single trusted user on their own machine. The
+    boundaries it does enforce are worth understanding before exposing it further.
+</p>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">CORS &amp; origins</h4>
+        <p class="sub" style="margin:0">
+            API access is restricted to loopback origins for the configured GUI port, trusted
+            <code>LLAMA_GUI_ALLOWED_HOSTS</code> entries when wildcard-bound, and the active tunnel URL. The check runs
+            before routing.
+        </p>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">Proxy target policy</h4>
+        <p class="sub" style="margin:0">
+            The chat and metrics destination is resolved from backend state, never from the request body. Registration
+            goes through the same local-address check as the metrics proxy — only loopback and this machine's own
+            interfaces — and is probed with <code>GET /health</code> before acceptance. <em>The enforced boundary is the
+            address policy, not the caller.</em>
+        </p>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">Unattended restore</h4>
+        <p class="sub" style="margin:0">
+            Re-adopting a remembered target requires the <code>/health</code> response to actually look like
+            llama.cpp's. If another local service has taken the port since the last session, the restore is refused
+            instead of silently proxying chat to it. A hand-driven connect stays permissive.
+        </p>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">Input validation</h4>
+        <p class="sub" style="margin:0">
+            HF repo IDs, revisions, and filenames pass strict regex and traversal checks; only <code>.gguf</code> can be
+            downloaded. Archive members are path-checked before extraction. Model paths reject absolute paths and
+            <code>..</code> segments. Errors reaching the client go through <code>sanitize_error()</code>; the real
+            exception goes to stderr.
+        </p>
+    </div>
+</div>
+
+<div class="note warn">
+    <strong>What <code>--api-key</code> protects.</strong> It secures <em>llama-server</em>, not the Python management
+    UI. And because the key is passed as a process argument, same-user OS process inspection can still reveal it.
+</div>
+
+<h2 id="themes">Theming</h2>
+
+<p>
+    A theme is exactly two things: <strong>one palette block in <code>ui/css/tokens.css</code></strong> and
+    <strong>one entry in the <code>THEMES</code> registry in <code>ui/js/theme-ui.js</code></strong>. Nothing else.
+    <code>style.css</code> contains no color literals and no <code>[data-theme=…]</code> selectors — both are absent by
+    design, and <code>theme_ui_unit.cjs</code> will not let a new theme quietly render as the fallback.
+</p>
+
+<div class="row" style="margin:16px 0">
+    <div class="node" style="border-color:#6c9bff55;background:#161824"><div class="t" style="color:#eaecf8">Tokyo</div><div class="d" style="color:#8b91b0">Dark · accent #6c9bff</div></div>
+    <div class="node" style="border-color:#8b5cf655;background:#121420"><div class="t" style="color:#eaecf8">Nebula</div><div class="d" style="color:#8b91b0">Dark · accent #8b5cf6</div></div>
+    <div class="node" style="border-color:#d9a05b55;background:#383b41"><div class="t" style="color:#f0f0f2">Graphite</div><div class="d" style="color:#b6b9c2">Mid · accent #d9a05b</div></div>
+    <div class="node" style="border-color:#4b383255;background:#fff4e6"><div class="t" style="color:#31201c">Cappuccino</div><div class="d" style="color:#745e56">Light · accent #4b3832</div></div>
+    <div class="node" style="border-color:#27694755;background:#e3f0e9"><div class="t" style="color:#1a2420">Mint</div><div class="d" style="color:#3f5a4d">Light · accent #276947</div></div>
+</div>
+
+<p>
+    Contrast floors are enforced per theme — WCAG AA for text, 3:1 for <code>--fg-faint</code> and the fill-only
+    <code>-solid</code> tokens — measured against <code>--bg-surface</code>, <code>--bg-raised</code>,
+    <code>--bg-elevated</code>, each semantic color's own <code>-subtle</code> chip, <em>and</em> composited
+    interaction-state washes. On a mid-tone theme like Graphite the subtle chip sits <em>lighter</em> than the surface,
+    so its colors need brightening exactly where a light theme needs darkening.
+</p>
+
+<h2 id="tests">Tests</h2>
+
+<div class="two">
+    <div class="card">
+        <h4 style="margin-top:0">Backend — 6 files, stdlib <code>unittest</code></h4>
+        <pre style="margin:8px 0 0">python -m unittest discover tests -v</pre>
+        <ul class="tight" style="font-size:13px;margin-top:10px">
+            <li><code>test_backend_foundation.py</code> — context, state, config</li>
+            <li><code>test_routing.py</code> — exact and prefix dispatch</li>
+            <li><code>test_http_adapters.py</code> — request/response, CORS, sanitize</li>
+            <li><code>test_extracted_routes.py</code> — route behavior</li>
+            <li><code>test_services.py</code> — install, process, download, git</li>
+            <li><code>test_server_baseline.py</code> — end-to-end server behavior</li>
+        </ul>
+    </div>
+    <div class="card">
+        <h4 style="margin-top:0">Frontend — 23 <code>.cjs</code> files</h4>
+        <pre style="margin:8px 0 0">npm test              <span class="c"># everything</span>
+npm run test:syntax   <span class="c"># node --check all JS</span>
+npm run test:flag-definitions
+npm run test:frontend <span class="c"># Playwright smoke</span></pre>
+        <p class="sub" style="margin:10px 0 0">
+            Unit tests run module source in a <code>node:vm</code> context with stub dependencies — no browser. Only
+            <code>flag_sync_smoke.cjs</code> needs Playwright, which stays a dev-only dependency and never appears in
+            <code>requirements.txt</code>, launch scripts, or the update path.
+        </p>
+    </div>
+</div>
+
+<p>
+    The smoke test is the guardian of the shared-state contract. It serves <code>ui/</code> as the web root, stubs the
+    backend with Playwright routes, and asserts that Quick Launch context reaches Configure and the command preview,
+    that Configure GPU and metrics controls sync back, that sampler edits propagate across Chat / Configure / launch
+    args, that custom-arg parse errors block launching, and that a generated API key authenticates without ever
+    appearing in a rendered command.
+</p>
+
+<div class="note warn">
+    <strong>Serve <code>ui/</code> as the web root</strong> when checking the frontend manually. Serving from the repo
+    root breaks root-relative assets such as <code>/js/app.js</code>.
+</div>
+
+<h2 id="extend">Where to edit</h2>
+
+<div class="tablewrap">
+<table>
+<thead><tr><th>Concern</th><th class="mono">Primary file</th></tr></thead>
+<tbody>
+<tr><td>Flag definitions and enum option lists</td><td class="mono">ui/js/flags/definitions.js · options.js</td></tr>
+<tr><td>Flag categories and helper selectors</td><td class="mono">ui/js/flags/categories.js · helpers.js</td></tr>
+<tr><td>Shared flag state, launch args, custom-arg parser</td><td class="mono">ui/js/flag-core.js</td></tr>
+<tr><td>Configure tab</td><td class="mono">ui/js/config-flags-ui.js</td></tr>
+<tr><td>Quick Launch UI and profiles</td><td class="mono">ui/js/quick-launch-ui.js · app-data.js</td></tr>
+<tr><td>Chat UI and sidebar samplers</td><td class="mono">ui/js/chat-ui.js</td></tr>
+<tr><td>Chat markdown rendering</td><td class="mono">ui/js/chat-rendering.js</td></tr>
+<tr><td>Chat template presets</td><td class="mono">ui/js/flags/chat-templates.js</td></tr>
+<tr><td>Sampler presets</td><td class="mono">ui/js/sampler-presets.js · app-data.js</td></tr>
+<tr><td>Preset save/load/library</td><td class="mono">ui/js/presets.js</td></tr>
+<tr><td>Themes, palettes, theme menu</td><td class="mono">ui/css/tokens.css · ui/js/theme-ui.js</td></tr>
+<tr><td>Models, install UI, <code>fetchJson</code></td><td class="mono">ui/js/manager.js</td></tr>
+<tr><td>HF downloader / tunnel / API tab / benchmarks</td><td class="mono">ui/js/hf-download-ui.js · remote-tunnel-ui.js · api-tab.js · benchmark-ui.js</td></tr>
+<tr><td>Backend routes</td><td class="mono">backend/routes/*.py → matching backend/services/*.py</td></tr>
+<tr><td>Route registry and server lifecycle</td><td class="mono">backend/app.py · routing.py · services/lifecycle.py</td></tr>
+<tr><td>Locks and shared server state</td><td class="mono">backend/state.py</td></tr>
+<tr><td>Paths, ports, env vars</td><td class="mono">backend/config.py</td></tr>
+<tr><td>HTTP, CORS, <code>sanitize_error</code></td><td class="mono">backend/http.py</td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>Adding a llama.cpp flag</h3>
+<ol class="tight">
+    <li>Confirm the flag upstream in <code>common/arg.cpp</code> or <code>server.cpp</code> — name, shorthand, value type, valid enum values, and whether it has been renamed or removed.</li>
+    <li>Add an entry to <code>FLAGS</code> in <code>ui/js/flags/definitions.js</code>, matching enum values exactly and setting <code>false_flag</code> for negated booleans.</li>
+    <li>Run <code>npm run test:flag-definitions</code>.</li>
+    <li>Check the generated command preview produces arguments <code>llama-server</code> actually accepts.</li>
+</ol>
+
+<h3>Adding a backend endpoint</h3>
+<ol class="tight">
+    <li>Put the logic in a service under <code>backend/services/</code>, taking <code>ctx</code> and mutating state only under its lock.</li>
+    <li>Add a thin route function <code>(request, response, ctx)</code> in the matching <code>backend/routes/</code> module.</li>
+    <li>Register it in the <code>Router</code> chain at the bottom of <code>backend/app.py</code>.</li>
+    <li>Validate all external input before it reaches the filesystem or a subprocess; sanitize errors to the client and print the real one to stderr.</li>
+    <li>Add coverage in <code>tests/backend/</code> and run <code>python -m unittest discover tests -v</code>.</li>
+</ol>
+
+<h3>Adding a frontend module</h3>
+<ol class="tight">
+    <li>Create the file under <code>ui/js/</code> and attach it to <code>window.LlamaGui.&lt;name&gt;</code> — no new globals on <code>app.js</code>.</li>
+    <li>Add the <code>&lt;script&gt;</code> tag in <code>ui/index.html</code> after its dependencies and before its consumers, and mirror the order in <code>docs/directory.md</code>.</li>
+    <li>Take dependencies through a <code>configure()</code> call from <code>app.js</code> rather than reaching for globals.</li>
+    <li>Write launch-relevant values through <code>flagCore</code> setters. Never mutate <code>flagValues</code> directly.</li>
+    <li>Use <code>textContent</code> for anything user- or model-supplied. Add a <code>.cjs</code> unit test and run <code>npm test</code>.</li>
+</ol>
+
+<div class="note">
+    <strong>Companion repository.</strong> The <a href="https://github.com/thomas9120/llama-gui-pinokio">Pinokio launcher</a>
+    clones this repo into its <code>app/</code> directory and runs <code>python server.py</code>. Changes to startup or
+    shutdown behavior, <code>server.py</code>, lifecycle routes, static asset loading, dependency installation, ports,
+    cache busting, or frontend script loading should be checked against it. Internal frontend refactors are normally
+    fine as long as the script tags and the entry point still work.
+</div>
+
+<h2 style="border:none">Further reading</h2>
+<div class="tablewrap">
+<table>
+<thead><tr><th class="mono">File</th><th>Contents</th></tr></thead>
+<tbody>
+<tr><td class="mono">AGENTS.md</td><td>Working rules, invariants, landmines, and the where-to-edit table</td></tr>
+<tr><td class="mono">docs/directory.md</td><td>The full written reference — module map, feature detail, API contracts</td></tr>
+<tr><td class="mono">docs/tests.md</td><td>Test suite layout, commands, and what each test covers</td></tr>
+<tr><td class="mono">docs/changelog.md</td><td>Release history</td></tr>
+<tr><td class="mono">docs/design-docs/</td><td>Design notes, bug tracker, todo, llama.cpp compatibility report</td></tr>
+<tr><td class="mono">README.md</td><td>User-facing install, first-run, and troubleshooting guide</td></tr>
+</tbody>
+</table>
+</div>
+
+</main>
+</div>
+
+<footer>
+    Llama GUI architecture guide · generated from the source tree at <code>docs/architecture.html</code>.
+    Structural facts here are drawn from <code>backend/app.py</code>, <code>ui/index.html</code>, and
+    <code>docs/directory.md</code> — if you change the route registry, script load order, or module layout, update this
+    page alongside them.
+</footer>
+
+<script>
+(function () {
+    var root = document.documentElement;
+    var btn = document.getElementById("theme-toggle");
+    var KEY = "llama_gui_arch_theme";
+
+    function apply(theme) {
+        root.setAttribute("data-theme", theme);
+        btn.textContent = theme === "tokyo" ? "Light theme" : "Dark theme";
+    }
+
+    var stored = null;
+    try { stored = localStorage.getItem(KEY); } catch (e) { /* storage blocked */ }
+    if (stored !== "tokyo" && stored !== "cappuccino") {
+        stored = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+            ? "cappuccino" : "tokyo";
+    }
+    apply(stored);
+
+    btn.addEventListener("click", function () {
+        var next = root.getAttribute("data-theme") === "tokyo" ? "cappuccino" : "tokyo";
+        apply(next);
+        try { localStorage.setItem(KEY, next); } catch (e) { /* storage blocked */ }
+    });
+
+    // Highlight the current section in the table of contents.
+    var links = Array.prototype.slice.call(document.querySelectorAll("nav.toc a"));
+    var sections = links
+        .map(function (a) { return document.getElementById(a.getAttribute("href").slice(1)); })
+        .filter(Boolean);
+
+    if ("IntersectionObserver" in window && sections.length) {
+        var visible = new Map();
+        var observer = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+                if (entry.isIntersecting) { visible.set(entry.target.id, entry.intersectionRatio); }
+                else { visible.delete(entry.target.id); }
+            });
+            var best = null;
+            sections.forEach(function (section) {
+                if (visible.has(section.id) && best === null) { best = section.id; }
+            });
+            if (!best) { return; }
+            links.forEach(function (a) {
+                a.classList.toggle("active", a.getAttribute("href") === "#" + best);
+            });
+        }, { rootMargin: "-80px 0px -70% 0px", threshold: [0, 1] });
+        sections.forEach(function (section) { observer.observe(section); });
+    }
+})();
+</script>
+
+</body>
+</html>

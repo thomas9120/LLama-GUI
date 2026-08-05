@@ -28,7 +28,7 @@ Llama GUI provides a browser UI to:
 - chat with streaming Markdown, Focus mode, collapsed reasoning, and optional zero-key web search
 - benchmark with `llama-bench` / `llama-perplexity`, monitor live stats, and use OpenAI-compatible API snippets
 - manage launch presets, keep two server presets on configuration standby for quick switching, create Windows preset shortcuts, and run in-app GitHub updates
-- pick from four themes — **Tokyo** (dark), **Graphite** (mid-tone), **Cappuccino** and **Mint** (light) — all meeting WCAG AA contrast
+- pick from five themes — **Tokyo** and **Nebula** (dark), **Graphite** (mid-tone), **Cappuccino** and **Mint** (light) — all meeting WCAG AA contrast
 
 Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp).
 
