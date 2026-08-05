@@ -1,4 +1,0 @@
-interface:
-  display_name: "Check Llama-GUI Diff and PRs"
-  short_description: "Review Llama-GUI changes for errors"
-  default_prompt: "Use $check-llama-gui-diff-and-prs to review the current Llama-GUI diff and related pull request for errors."
