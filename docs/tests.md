@@ -110,8 +110,11 @@ Backend tests use Python `unittest` and mostly exercise route/service logic with
 - `test_server_baseline.py`: compatibility wrapper behavior, API dispatch, CORS, static asset versioning, and baseline server helpers.
 - `test_services.py`: service-level helpers for install specs, runtime validation, process/auth and active-runtime lifecycle, generation-bound health/stop behavior, downloads, file picker behavior, chat/search helpers, external-server registration (local-only validation, header-safe API keys, key never published or persisted, llama.cpp-aware probe identification, remembered-address round-tripping, unattended restore rules, runtime precedence), and HF validation.
 - `test_extracted_routes.py`: extracted route handlers and larger service flows, including preset secret scrubbing, launch preflight, active-runtime status, health/readiness, process launch/auth parsing, authoritative metrics/slots/chat targets, external chat-target registration and restore, HF download, tunnel, app update, and lifecycle routes.
+- `test_docs_sync.py`: documentation drift. Reads the live `API_ROUTER` and asserts the Route Modules table in `docs/directory.md` and the API surface table in `docs/architecture.html` list exactly the registered endpoints, in both directions, plus the stated endpoint count. Adding a route without documenting it fails here.
 
 Run backend tests after changes under `backend/`, route behavior changes, service helper changes, process management changes, install/update changes, or security-sensitive validation changes.
+
+**If `test_docs_sync.py` fails**, the fix is normally to add the missing row rather than to loosen the test. It names the exact offending method and path. When the route table or the HTML markup moves, update the section-locating helpers in that file — they raise a clear error rather than silently matching nothing, because a docs check that finds zero routes would pass vacuously.
 
 ## When Adding Tests
 

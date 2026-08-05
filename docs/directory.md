@@ -78,23 +78,27 @@
 
 ### Route Modules (`backend/routes/`)
 
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 42 exact routes plus one prefix route, 43 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+
 | Route | Endpoints |
 |-------|-----------|
-| `chat.py` | `/api/chat/completions` — SSE proxy with web search |
-| `external_server.py` | `/api/chat/target` — register (POST), read (GET), or clear (DELETE) an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session |
-| `benchmarks.py` | `/api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
-| `process.py` | `/api/launch`, `/api/launch/preflight`, `/api/presets/fingerprint`, `/api/llama/health`, generation-bound `/api/stop`, `/api/output`, `/api/send-input`, `/api/cleanup-llama` |
-| `install.py` | `/api/releases`, `/api/install`, `/api/update`, `/api/download-progress` |
-| `metrics.py` | `/api/llama/metrics`, `/api/llama/slots` — Prometheus proxy |
-| `models.py` | `/api/models` — list GGUF files recursively as `models/`-relative names |
-| `presets.py` | `/api/presets` CRUD + shortcut export |
-| `hf_download.py` | `/api/hf/repo-files`, `/api/hf/download`, `/api/hf/download-status`, `/api/hf/download-cancel` |
-| `tunnel.py` | `/api/remote-tunnel/start`, `/api/remote-tunnel/stop`, `/api/remote-tunnel/status` |
-| `git_update.py` | `/api/app-update-status`, `/api/app-update` |
-| `search.py` | `/api/web-search` |
-| `status.py` | `/api/status` |
-| `lifecycle.py` | `/api/shutdown`, `/api/restart`, `/api/open-folder` |
-| `file_picker.py` | `/api/select-file` — native tkinter dialog |
+| `chat.py` | `POST /api/chat/completions` — SSE proxy with web search |
+| `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
+| `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
+| `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
+| `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` |
+| `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots` — Prometheus proxy |
+| `models.py` | `GET /api/models` — list GGUF files recursively as `models/`-relative names |
+| `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
+| `hf_download.py` | `POST /api/hf/repo-files`, `POST /api/hf/download`, `POST /api/hf/download-cancel`, `GET /api/hf/download-status` |
+| `tunnel.py` | `POST /api/remote-tunnel/start`, `POST /api/remote-tunnel/stop`, `GET /api/remote-tunnel/status` |
+| `git_update.py` | `GET /api/app-update-status`, `POST /api/app-update` |
+| `search.py` | `POST /api/web-search` |
+| `status.py` | `GET /api/status` |
+| `lifecycle.py` | `POST /api/shutdown`, `POST /api/restart`, `POST /api/open-folder` |
+| `file_picker.py` | `POST /api/select-file` — native tkinter dialog |
+
+Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process.py`, not `presets.py` or a memory module — both answer questions about the *running or prospective process*, not about stored preset files.
 
 ### Service Modules (`backend/services/`)
 
@@ -715,7 +719,7 @@ When `LLAMA_GUI_SUPERVISED=1`, restart requests exit cleanly with status `75` in
 
 ### Dependency Installation
 
-`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. Called after the fast-forward to the release tag and exposed as `POST /api/install-deps`.
+`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. It is an internal step of `POST /api/app-update`, called after the fast-forward to the release tag and before Windows shortcut creation — there is no standalone endpoint for it. A dependency failure does not fail the update: the response returns `updated: true` with `dependencies_installed: false` and a `dependency_error`.
 
 ### Safe Dirty Path Classification
 
@@ -914,6 +918,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
 | `docs/directory.md` | This file — project structure and feature reference |
+| `docs/architecture.html` | Visual architecture guide — diagrams of the layers, request lifecycle, script-order dependency ladder, and key flows |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/design-docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
