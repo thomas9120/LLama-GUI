@@ -1,5 +1,7 @@
 # AGENTS.md
 
+When changes are made to llama-gui, update the /docs/changelog.md (summaries are fine)
+
 ## Project Reference
 
 - Full architecture / module map: **`docs/directory.md`** (read before non-trivial work)
