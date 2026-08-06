@@ -23,8 +23,10 @@ const DEFAULT_TOAST_DURATION_MS = 4000;
 // Slow-load warning outlives default toasts: the model may still come up.
 const SLOW_LOAD_WARNING_TOAST_MS = 10000;
 
-let chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
+let chatStatsBaseline = null;
 let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
+let chatStatsSampled = false;
+let chatStatsRate = { at: 0, slots: {} };
 const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
 // Shared Quick Launch and sampler data is defined in app-data.js.
 const apiTab = window.LlamaGui.apiTab;
@@ -877,11 +879,16 @@ function stopOutputPolling() {
     processOutputCursor.reset();
 }
 
-function startStatsPolling() {
+function startStatsPolling(_runtime, lifecycleState) {
     stopStatsPolling();
     const epoch = statsEpoch;
-    chatStatsBaseline = { promptTokens: 0, genTokens: 0 };
+    // Fresh processes start their counters at zero. Restored processes need a
+    // first-poll baseline so their lifetime counters do not become session totals.
+    const freshLaunch = lifecycleState && lifecycleState.operation !== "restore";
+    chatStatsBaseline = freshLaunch ? { promptTokens: 0, genTokens: 0 } : null;
     chatStatsRaw = { promptTokens: 0, genTokens: 0 };
+    chatStatsSampled = false;
+    chatStatsRate = { at: 0, slots: {} };
     document.getElementById("stats-bar").classList.remove("hidden");
     statsInitialTimer = setTimeout(() => {
         statsInitialTimer = null;
@@ -983,8 +990,11 @@ async function updateMemoryEstimate() {
 }
 
 function snapshotStatsBaseline() {
-    chatStatsBaseline.promptTokens = chatStatsRaw.promptTokens;
-    chatStatsBaseline.genTokens = chatStatsRaw.genTokens;
+    if (!chatStatsSampled) return;
+    chatStatsBaseline = {
+        promptTokens: chatStatsRaw.promptTokens,
+        genTokens: chatStatsRaw.genTokens,
+    };
 }
 
 async function pollStats(epoch = statsEpoch) {
@@ -1012,26 +1022,72 @@ async function pollStats(epoch = statsEpoch) {
         const promptSpeed = metrics["llamacpp:prompt_tokens_seconds"];
         const genTokens = metrics["llamacpp:tokens_predicted_total"];
         const genSpeed = metrics["llamacpp:predicted_tokens_seconds"];
+        const slotStats = await fetchSlotStats(host, port, controller.signal);
         let kvUsage = metrics["llamacpp:kv_cache_usage_ratio"];
-        if (kvUsage === undefined) {
-            kvUsage = await fetchSlotKvUsage(host, port, controller.signal);
-        }
+        if (kvUsage === undefined) kvUsage = slotStats?.kvUsage;
         if (epoch !== statsEpoch) return;
+        const now = Date.now();
+        const requestsProcessing = metrics["llamacpp:requests_processing"] ?? slotStats?.processing;
+        let livePromptSpeed;
+        let liveGenSpeed;
+        if (slotStats && chatStatsRate.at > 0) {
+            const elapsed = (now - chatStatsRate.at) / 1000;
+            if (elapsed >= 1) {
+                let promptDelta = 0;
+                let genDelta = 0;
+                let promptComparable = false;
+                let genComparable = false;
+                for (const sample of slotStats.samples) {
+                    const previous = chatStatsRate.slots[sample.key];
+                    if (!previous) continue;
+                    if (sample.promptTokens !== null && previous.promptTokens !== null
+                        && sample.promptTokens >= previous.promptTokens) {
+                        promptDelta += sample.promptTokens - previous.promptTokens;
+                        promptComparable = true;
+                    }
+                    if (sample.genTokens !== null && previous.genTokens !== null
+                        && sample.genTokens >= previous.genTokens) {
+                        genDelta += sample.genTokens - previous.genTokens;
+                        genComparable = true;
+                    }
+                }
+                if (promptComparable) livePromptSpeed = promptDelta / elapsed;
+                else if (requestsProcessing === 0) livePromptSpeed = 0;
+                if (genComparable) liveGenSpeed = genDelta / elapsed;
+                else if (requestsProcessing === 0) liveGenSpeed = 0;
+            }
+        }
+        if (slotStats) {
+            chatStatsRate = {
+                at: now,
+                slots: Object.fromEntries(slotStats.samples.map(sample => [sample.key, sample])),
+            };
+        }
         if (promptTokens !== undefined) chatStatsRaw.promptTokens = promptTokens;
         if (genTokens !== undefined) chatStatsRaw.genTokens = genTokens;
-        const deltaPrompt = promptTokens !== undefined ? Math.max(0, promptTokens - chatStatsBaseline.promptTokens) : null;
-        const deltaGen = genTokens !== undefined ? Math.max(0, genTokens - chatStatsBaseline.genTokens) : null;
+        if (promptTokens !== undefined || genTokens !== undefined) chatStatsSampled = true;
+        if (!chatStatsBaseline && chatStatsSampled) {
+            snapshotStatsBaseline();
+        }
+        const deltaPrompt = promptTokens !== undefined && chatStatsBaseline
+            ? Math.max(0, promptTokens - chatStatsBaseline.promptTokens)
+            : null;
+        const deltaGen = genTokens !== undefined && chatStatsBaseline
+            ? Math.max(0, genTokens - chatStatsBaseline.genTokens)
+            : null;
         if (deltaPrompt !== null) {
             document.getElementById("stats-prompt-tokens").textContent = deltaPrompt.toLocaleString();
         }
-        if (promptSpeed !== undefined) {
-            document.getElementById("stats-prompt-speed").textContent = promptSpeed.toFixed(1);
+        const effectivePromptSpeed = livePromptSpeed !== undefined ? livePromptSpeed : promptSpeed;
+        if (effectivePromptSpeed !== undefined) {
+            document.getElementById("stats-prompt-speed").textContent = effectivePromptSpeed.toFixed(1);
         }
         if (deltaGen !== null) {
             document.getElementById("stats-gen-tokens").textContent = deltaGen.toLocaleString();
         }
-        if (genSpeed !== undefined) {
-            document.getElementById("stats-gen-speed").textContent = genSpeed.toFixed(1);
+        const effectiveGenSpeed = liveGenSpeed !== undefined ? liveGenSpeed : genSpeed;
+        if (effectiveGenSpeed !== undefined) {
+            document.getElementById("stats-gen-speed").textContent = effectiveGenSpeed.toFixed(1);
         }
         if (deltaPrompt !== null && deltaGen !== null) {
             document.getElementById("stats-context").textContent = (deltaPrompt + deltaGen).toLocaleString();
@@ -1076,7 +1132,7 @@ async function reconcileAuthoritativeStatus(status) {
     return outcome;
 }
 
-async function fetchSlotKvUsage(host, port, signal) {
+async function fetchSlotStats(host, port, signal) {
     try {
         const params = new URLSearchParams({ host, port: String(port) });
         const resp = await fetch(`/api/llama/slots?${params.toString()}`, {
@@ -1085,26 +1141,47 @@ async function fetchSlotKvUsage(host, port, signal) {
         });
         if (!resp.ok) return undefined;
         const slots = await resp.json();
-        return getSlotKvUsage(slots);
+        return getSlotStats(slots);
     } catch (e) {
-        console.debug("Failed to fetch llama-server slots for KV usage", e);
+        console.debug("Failed to fetch llama-server slot stats", e);
         return undefined;
     }
 }
 
-function getSlotKvUsage(slots) {
+function getSlotStats(slots) {
     if (!Array.isArray(slots)) return undefined;
     let maxUsage;
+    let processing = 0;
+    const samples = [];
     for (const slot of slots) {
+        if (slot?.is_processing) processing += 1;
+        const nextToken = Array.isArray(slot?.next_token) ? slot.next_token[0] : slot?.next_token;
+        const promptTokens = Number(slot?.n_prompt_tokens_processed);
+        const genTokens = Number(nextToken?.n_decoded);
+        if (slot?.is_processing && slot?.id !== undefined && (slot?.id_task !== undefined
+            || Number.isFinite(promptTokens) || Number.isFinite(genTokens))) {
+            samples.push({
+                key: `${slot.id}:${slot.id_task ?? ""}`,
+                promptTokens: Number.isFinite(promptTokens) && promptTokens >= 0 ? promptTokens : null,
+                genTokens: Number.isFinite(genTokens) && genTokens >= 0 ? genTokens : null,
+            });
+        }
+
         const nCtx = Number(slot?.n_ctx);
         if (!Number.isFinite(nCtx) || nCtx <= 0) continue;
-        const tokenState = Array.isArray(slot.next_token) ? slot.next_token[0] : null;
-        const nDecoded = Number(tokenState?.n_decoded);
-        if (!Number.isFinite(nDecoded) || nDecoded < 0) continue;
-        const usage = Math.max(0, Math.min(1, nDecoded / nCtx));
+        // Current llama-server reports total tokens held by the slot as
+        // n_prompt_tokens (prompt + generated, including accepted MTP draft
+        // tokens). Older builds only expose generated tokens via next_token,
+        // which is an object in current builds and was an array before.
+        let used = Number(slot?.n_prompt_tokens);
+        if (!Number.isFinite(used) || used < 0) {
+            used = Number(nextToken?.n_decoded);
+        }
+        if (!Number.isFinite(used) || used < 0) continue;
+        const usage = Math.max(0, Math.min(1, used / nCtx));
         maxUsage = maxUsage === undefined ? usage : Math.max(maxUsage, usage);
     }
-    return maxUsage;
+    return { kvUsage: maxUsage, processing, samples };
 }
 
 async function pollOutput() {
