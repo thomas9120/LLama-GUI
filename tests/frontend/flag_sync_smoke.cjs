@@ -143,6 +143,32 @@ async function main() {
         const externalTargetRequests = [];
         let installedBackend = "cpu";
         let chatResponseMode = "ok";
+        let statsMetrics = {
+            promptTokens: 0,
+            promptSpeed: 0,
+            genTokens: 0,
+            genSpeed: 0,
+            processing: 0,
+        };
+        const idleStatsSlots = [
+            { id: 0, n_ctx: 1000, speculative: false, is_processing: false },
+            {
+                id: 1,
+                n_ctx: 1000,
+                speculative: false,
+                is_processing: false,
+                n_prompt_tokens: 125,
+                next_token: { has_next_token: true, n_decoded: 5, n_remain: 875 },
+            },
+            {
+                id: 2,
+                n_ctx: 1000,
+                speculative: false,
+                is_processing: false,
+                next_token: [{ n_decoded: 50, n_remain: 950 }],
+            },
+        ];
+        let statsSlots = idleStatsSlots;
 
         page.on("pageerror", (error) => {
             pageErrors.push(error.message || String(error));
@@ -337,10 +363,11 @@ async function main() {
                 status: 200,
                 contentType: "text/plain",
                 body: [
-                    "llamacpp:prompt_tokens_total 0",
-                    "llamacpp:prompt_tokens_seconds 0",
-                    "llamacpp:tokens_predicted_total 0",
-                    "llamacpp:predicted_tokens_seconds 0",
+                    `llamacpp:prompt_tokens_total ${statsMetrics.promptTokens}`,
+                    `llamacpp:prompt_tokens_seconds ${statsMetrics.promptSpeed}`,
+                    `llamacpp:tokens_predicted_total ${statsMetrics.genTokens}`,
+                    `llamacpp:predicted_tokens_seconds ${statsMetrics.genSpeed}`,
+                    `llamacpp:requests_processing ${statsMetrics.processing}`,
                 ].join("\n"),
             });
         });
@@ -350,16 +377,7 @@ async function main() {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify([
-                    { id: 0, n_ctx: 1000, speculative: false, is_processing: false },
-                    {
-                        id: 1,
-                        n_ctx: 1000,
-                        speculative: false,
-                        is_processing: false,
-                        next_token: [{ n_decoded: 125, n_remain: 875 }],
-                    },
-                ]),
+                body: JSON.stringify(statsSlots),
             });
         });
 
@@ -731,8 +749,68 @@ async function main() {
         await selectSection(page, "quick-launch");
         assert.equal(await page.inputValue("#quick-api-key"), "first-secret, second-secret");
 
-        await page.evaluate(() => startStatsPolling());
-        await page.waitForFunction(() => document.querySelector("#stats-kv-usage")?.textContent === "13%");
+        statsMetrics = {
+            promptTokens: 40,
+            promptSpeed: 4,
+            genTokens: 20,
+            genSpeed: 2,
+            processing: 1,
+        };
+        statsSlots = [{
+            id: 1,
+            id_task: 1,
+            n_ctx: 1000,
+            is_processing: true,
+            n_prompt_tokens: 60,
+            n_prompt_tokens_processed: 40,
+            next_token: { n_decoded: 20 },
+        }];
+        await page.evaluate(async () => {
+            startStatsPolling(null, { operation: "manual-launch" });
+            snapshotStatsBaseline();
+            await pollStats();
+        });
+        assert.equal(await page.textContent("#stats-prompt-tokens"), "40",
+            "fresh launches must retain tokens processed before the first stats poll");
+        assert.equal(await page.textContent("#stats-gen-tokens"), "20");
+
+        statsMetrics = {
+            promptTokens: 1000,
+            promptSpeed: 11,
+            genTokens: 500,
+            genSpeed: 7,
+            processing: 0,
+        };
+        statsSlots = idleStatsSlots;
+        await page.evaluate(async () => {
+            startStatsPolling();
+            snapshotStatsBaseline();
+            await pollStats();
+        });
+        assert.equal(await page.textContent("#stats-prompt-tokens"), "0",
+            "pre-poll chat resets must not expose lifetime prompt counters after reconnect");
+        assert.equal(await page.textContent("#stats-gen-tokens"), "0");
+        assert.equal(await page.textContent("#stats-kv-usage"), "13%");
+
+        statsMetrics.processing = 1;
+        statsSlots = [{
+            id: 1,
+            id_task: 77,
+            n_ctx: 1000,
+            is_processing: true,
+            n_prompt_tokens: 110,
+            n_prompt_tokens_processed: 100,
+            next_token: { n_decoded: 10 },
+        }];
+        await page.evaluate(() => pollStats());
+        await wait(1100);
+        statsSlots[0].n_prompt_tokens = 140;
+        statsSlots[0].next_token.n_decoded = 40;
+        await page.evaluate(() => pollStats());
+        const liveGenSpeed = Number(await page.textContent("#stats-gen-speed"));
+        assert.ok(liveGenSpeed > 20 && liveGenSpeed < 35,
+            `generation speed must use live slot deltas, got ${liveGenSpeed}`);
+
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");
         assert.equal(slotsHeaders.at(-1).authorization, "Bearer first-secret");

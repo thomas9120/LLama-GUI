@@ -2,6 +2,13 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-06
+
+- Fixed the server stats bar KV-usage cell, which was stuck at `--%` on current llama.cpp: upstream removed `llamacpp:kv_cache_usage_ratio` from `/metrics`, and the `/slots` fallback expected `next_token` as an array while current builds return it as an object. `getSlotStats()` (`ui/js/app.js`) now accepts both shapes and uses `n_prompt_tokens` (prompt + generated tokens, including accepted MTP draft tokens) as the numerator instead of generated-only `n_decoded`.
+- Stats bar speeds no longer freeze mid-generation: `pollStats()` derives live rates from per-task `/slots` deltas (`n_prompt_tokens_processed` and `next_token.n_decoded`), while retaining llama-server's completed-request gauges as a compatibility fallback.
+- Fresh launches keep a zero baseline so work completed before the first poll is counted; reconnects seed from their first successful counter sample, and chat resets cannot snapshot unsampled zeroes into lifetime totals.
+- Expanded the frontend smoke check to cover current and legacy `next_token` shapes, fresh-launch and reconnect baselines, and live generation speed while the global completion counter remains unchanged.
+
 ## 2026-08-04
 
 - Added `docs/architecture.html` — a self-contained visual architecture guide for users and developers, covering the system context, layer map, backend route/service pairing, request lifecycle, frontend script-order dependency ladder, the `flagCore` shared-state contract, key flows (launch, chat, install, app update), the full 43-endpoint API surface, persistence, security boundaries, and where to edit for common changes.
