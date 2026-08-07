@@ -46,10 +46,10 @@ npm run test:frontend
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
 ```powershell
-python -m unittest discover tests -v
+.venv\Scripts\python.exe -m unittest discover tests -v
 ```
 
-Runs the backend unittest suite. No install needed — `unittest` is in the standard library.
+Runs the backend unittest suite. Use the project venv, not the system Python: HF download tests need runtime deps like `huggingface_hub`, and a system interpreter errors with misleading "require the huggingface_hub package" failures.
 
 ```powershell
 .venv\Scripts\python.exe -m pytest tests/backend -q

@@ -97,8 +97,10 @@ Deeper maps (services, data flow, script order): `docs/directory.md`.
 | Flag definitions | `npm run test:flag-definitions` |
 | Custom launch-args parser | `node tests/frontend/custom_launch_args_unit.cjs` |
 | Mirrored controls / flag state / command preview / shared setters | `npm run test:frontend` |
-| Backend | `python -m unittest discover tests -v` |
+| Backend | `.venv/Scripts/python.exe -m unittest discover tests -v` |
 | New or removed backend route | Also update the Route Modules table in `docs/directory.md` (including its endpoint count) and the API surface table in `docs/architecture.html` — `tests/backend/test_docs_sync.py` fails on drift in either direction |
 | Full frontend suite / more detail | `docs/tests.md` |
+
+Run backend tests with the **project venv** (`.venv/Scripts/python.exe` on Windows, `.venv/bin/python` elsewhere), not the system Python. System interpreters lack runtime deps like `huggingface_hub`, and HF download tests then error with misleading "require the huggingface_hub package" failures.
 
 Minimal diffs; reuse existing helpers and patterns; fix root causes, not symptoms.
