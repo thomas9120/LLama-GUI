@@ -3004,7 +3004,7 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
             mmproj_path = pathlib.Path(snap["mmproj_path"])
             self.assertEqual(
                 mmproj_path,
-                ctx.paths.models / "mmproj" / "owner_model" / "mmproj-model.gguf",
+                ctx.paths.models / "owner_model" / "mmproj-model.gguf",
             )
             self.assertTrue(mmproj_path.is_file())
 

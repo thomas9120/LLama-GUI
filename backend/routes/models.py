@@ -1,7 +1,9 @@
 """Model file API routes."""
 
-# Reserved subfolder: vision projectors live here and are applied via the mmproj
-# flag, so they must never appear in the launch model list.
+from backend.services.hf_download import is_mmproj_filename
+
+
+# Keep the legacy projector folder hidden for existing installations.
 MMPROJ_DIR_NAME = "mmproj"
 
 
@@ -36,7 +38,11 @@ def _iter_gguf_files(models_dir):
                     if is_root and entry.name.lower() == MMPROJ_DIR_NAME:
                         continue
                     stack.append((entry, False))
-                elif entry.is_file() and entry.suffix.lower() == ".gguf":
+                elif (
+                    entry.is_file()
+                    and entry.suffix.lower() == ".gguf"
+                    and not is_mmproj_filename(entry.name)
+                ):
                     yield entry
             except OSError:
                 # A broken or unreadable link is simply not a model.

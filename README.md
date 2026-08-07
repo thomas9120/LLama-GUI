@@ -129,13 +129,13 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 
 ## Getting Models
 
-Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). They appear in **Quick Launch** and **Configure**. The `models/mmproj/` folder is reserved for vision projectors and is not listed as a launch model.
+Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). They appear in **Quick Launch** and **Configure**. Vision projector filenames are excluded from the launch-model list; the legacy `models/mmproj/` folder remains excluded too.
 
 Or download in-app from **Quick Launch**:
 1. Enter a Hugging Face repo ID such as `owner/model-GGUF`.
 2. Click **Find GGUF Files**, pick a file, then **Download**.
 
-Downloads land under `models/<owner_repo>/` (repo id with `/` → `_`). For vision/multimodal models, also download the matching `mmproj` file when the repo provides one. Projector files land in `models/mmproj/<owner_repo>/` and the Multimodal Projector setting is applied automatically.
+Downloads land under `models/<owner_repo>/` (repo id with `/` → `_`). For vision/multimodal models, also download the matching `mmproj` file when the repo provides one. The projector lands beside its model in the same folder, and the Multimodal Projector setting is applied automatically.
 
 ## First Run
 

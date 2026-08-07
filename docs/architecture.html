@@ -546,7 +546,7 @@ footer {
 
     <div class="row">
         <div class="node ghost"><div class="t">llama/</div><div class="d">Installed binaries + grammars</div></div>
-        <div class="node ghost"><div class="t">models/</div><div class="d">GGUF weights, <code>mmproj/</code> for projectors</div></div>
+        <div class="node ghost"><div class="t">models/</div><div class="d">GGUF weights and colocated projectors</div></div>
         <div class="node ghost"><div class="t">presets/</div><div class="d">Saved launch configurations (JSON)</div></div>
         <div class="node ghost"><div class="t">config.json</div><div class="d">Installed version, backend, remembered target</div></div>
         <div class="node ghost"><div class="t">tools/</div><div class="d">Auto-downloaded <code>cloudflared</code></div></div>
@@ -1167,7 +1167,7 @@ flagCore.setFlagValue("temperature", 0.5);
         <tbody>
         <tr><td class="mono">config.json</td><td>Installed version, active backend, release tag, remembered external target <em>(address only — never a key)</em></td></tr>
         <tr><td class="mono">presets/*.json</td><td>Saved launch configurations, plus <code>.preset-created-times</code></td></tr>
-        <tr><td class="mono">models/</td><td>GGUF weights in any subfolder; <code>models/mmproj/</code> reserved for projectors</td></tr>
+        <tr><td class="mono">models/</td><td>GGUF weights in any subfolder; downloaded projectors live beside their models</td></tr>
         <tr><td class="mono">llama/bin/</td><td>Installed binaries; <code>llama/custom/</code> for a user-supplied build</td></tr>
         <tr><td class="mono">tools/cloudflared/</td><td>Auto-downloaded tunnel binary</td></tr>
         </tbody>
