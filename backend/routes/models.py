@@ -1,6 +1,6 @@
 """Model file API routes."""
 
-from backend.services.hf_download import is_mmproj_filename
+from backend.services import hf_download
 
 
 # Keep the legacy projector folder hidden for existing installations.
@@ -41,7 +41,7 @@ def _iter_gguf_files(models_dir):
                 elif (
                     entry.is_file()
                     and entry.suffix.lower() == ".gguf"
-                    and not is_mmproj_filename(entry.name)
+                    and not hf_download.is_mmproj_filename(entry.name)
                 ):
                     yield entry
             except OSError:

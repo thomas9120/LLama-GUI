@@ -5,6 +5,7 @@ Please give a brief summary of changes made to the program, include the date the
 ## 2026-08-07
 
 - Hugging Face companion mmproj downloads now land beside their model in `models/<repo>/` instead of under `models/mmproj/<repo>/`. Projector filenames and the legacy top-level `models/mmproj/` folder stay out of the launch-model list.
+- Aligned `backend/routes/models.py` with the module-import style used by the other route modules (behavior unchanged).
 
 ## 2026-08-06
 
