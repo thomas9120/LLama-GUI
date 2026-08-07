@@ -36,7 +36,7 @@
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
 | `llama/` | Downloaded `llama.cpp` binaries at runtime |
-| `models/` | User model files (.gguf), in any subfolder; `models/mmproj/` is reserved for projectors |
+| `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
 | `tools/` | Auto-downloaded `cloudflared` binary |
 | `scripts/` | `create_windows_shortcuts.ps1` |
@@ -645,7 +645,7 @@ Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, a
 
 ### Download Layout
 
-- Models land in `models/<slug>/<file>.gguf`, projectors in `models/mmproj/<slug>/<file>.gguf`, where `<slug>` is `slugify_repo_id(repo_id)`.
+- Models and their projectors land together in `models/<slug>/`, where `<slug>` is `slugify_repo_id(repo_id)`. The legacy top-level `models/mmproj/` folder remains excluded from model discovery.
 - `model_name` in the status payload is the `models/`-relative path (`<slug>/<file>.gguf`), so it matches `/api/models` and `applyPresetModel()` can select it directly.
 - The slug is not injective: only `/` is substituted, so `owner/my_model` and `owner_my/model` share a folder. Accepted deliberately — an injective scheme would rename every existing download folder, and a shared folder is harmless because files keep their own names and a same-name clash hits the overwrite prompt below.
 

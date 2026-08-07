@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-07
+
+- Hugging Face companion mmproj downloads now land beside their model in `models/<repo>/` instead of under `models/mmproj/<repo>/`. Projector filenames and the legacy top-level `models/mmproj/` folder stay out of the launch-model list.
+- Aligned `backend/routes/models.py` with the module-import style used by the other route modules (behavior unchanged).
+
 ## 2026-08-06
 
 - Fixed the server stats bar KV-usage cell, which was stuck at `--%` on current llama.cpp: upstream removed `llamacpp:kv_cache_usage_ratio` from `/metrics`, and the `/slots` fallback expected `next_token` as an array while current builds return it as an object. `getSlotStats()` (`ui/js/app.js`) now accepts both shapes and uses `n_prompt_tokens` (prompt + generated tokens, including accepted MTP draft tokens) as the numerator instead of generated-only `n_decoded`.

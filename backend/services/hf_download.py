@@ -76,7 +76,7 @@ def is_mmproj_filename(filename: Any) -> bool:
 
 
 def slugify_repo_id(repo_id: str) -> str:
-    """Folder name for a repo's downloads, under models/ and models/mmproj/.
+    """Folder name for a repo's downloads under models/.
 
     Not injective: only "/" is substituted, so "owner/my_model" and
     "owner_my/model" both slugify to "owner_my_model" and share a folder. Left
@@ -300,18 +300,13 @@ def start_hf_model_download(
     model_dest = ctx.paths.models / repo_folder / model_basename
     mmproj_dest = None
     if mmproj_file:
-        mmproj_dest = (
-            ctx.paths.models
-            / "mmproj"
-            / repo_folder
-            / pathlib.PurePosixPath(mmproj_file).name
-        )
+        mmproj_dest = model_dest.parent / pathlib.PurePosixPath(mmproj_file).name
 
     existing = []
     if model_dest.exists():
         existing.append(model_name)
     if mmproj_dest and mmproj_dest.exists():
-        existing.append(f"mmproj/{repo_folder}/{mmproj_dest.name}")
+        existing.append(f"{repo_folder}/{mmproj_dest.name}")
     if existing and not overwrite:
         raise FileExistsError(f"Already exists: {', '.join(existing)}")
 
@@ -330,8 +325,6 @@ def start_hf_model_download(
             destinations.append(mmproj_dest)
         try:
             model_dest.parent.mkdir(parents=True, exist_ok=True)
-            if mmproj_dest:
-                mmproj_dest.parent.mkdir(parents=True, exist_ok=True)
             total = get_hf_file_size(repo_id, model_file, revision, token)
             if mmproj_file:
                 total += get_hf_file_size(repo_id, mmproj_file, revision, token)

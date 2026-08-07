@@ -234,11 +234,16 @@ class ExtractedRouteTests(unittest.TestCase):
                 ["vendor/nested.gguf"],
             )
 
-    def test_models_route_skips_reserved_mmproj_folder_only_at_top_level(self):
+    def test_models_route_skips_projectors_and_legacy_mmproj_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
             ctx.paths.models.mkdir(parents=True)
-            for rel in ("mmproj/proj.gguf", "vendor/mmproj/nested.gguf", "mmproj-extra/other.gguf"):
+            for rel in (
+                "mmproj/proj.gguf",
+                "vendor/mmproj-model.gguf",
+                "vendor/mmproj/nested.gguf",
+                "mmproj-extra/other.gguf",
+            ):
                 path = ctx.paths.models / rel
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"x" * 16)
