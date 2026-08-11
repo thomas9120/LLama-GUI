@@ -23,7 +23,7 @@
 Lightweight local launcher and control panel for `llama.cpp` on Windows, macOS, and Linux.
 
 Llama GUI provides a browser UI to:
-- install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/HIP; Lemonade ROCm on supported AMD targets)
+- install prebuilt `llama.cpp` releases by backend (CPU/CUDA/Vulkan/SYCL/ROCm; Lemonade ROCm on supported AMD targets)
 - launch `llama-server` or `llama-cli` from beginner **Quick Launch** or full **Configure**
 - chat with streaming Markdown, Focus mode, collapsed reasoning, and optional zero-key web search
 - benchmark with `llama-bench` / `llama-perplexity`, monitor live stats, and use OpenAI-compatible API snippets
@@ -56,7 +56,7 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - A supported OS/architecture for the prebuilt `llama.cpp` binaries you want
 
 Supported prebuilt backends (installer only offers matches for your OS/arch):
-- Windows: CPU, CUDA, Vulkan, SYCL, HIP
+- Windows: CPU, CUDA, Vulkan, SYCL, ROCm
 - macOS: Apple Silicon (`Metal`, optional `KleidiAI`) and Intel CPU
 - Linux: CPU, Vulkan, ROCm, OpenVINO (depends on architecture; some accelerators need vendor drivers)
 
@@ -281,7 +281,7 @@ App does not start at `http://127.0.0.1:5240`, or server launch fails on a taken
 
 Place `.gguf` files in `models/`, refresh the model list in Configure, or use `-hf` / HF repo flags for remote loading.
 
-### Backend mismatch (CUDA/Vulkan/SYCL/HIP/Metal/ROCm/OpenVINO)
+### Backend mismatch (CUDA/Vulkan/SYCL/Metal/ROCm/OpenVINO)
 
 Immediate crash or DLL/backend errors: reinstall a backend that matches your hardware/drivers, try **Install → Repair Install**, or test with `CPU` first.
 

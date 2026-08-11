@@ -3545,6 +3545,31 @@ class InstallRouteTests(unittest.TestCase):
         self.assertEqual(len(response.payload), 30)
         self.assertEqual(response.payload[-1]["tag"], "b29")
 
+    def test_install_get_releases_filters_selected_backend_to_compatible_assets(self):
+        self.ctx.services.backend_specs["rocm"] = {
+            "label": "ROCm 7.14 (AMD, Official)",
+            "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
+        }
+        fake_releases = [
+            {
+                "tag_name": tag,
+                "name": tag,
+                "published_at": "2026-08-11T00:00:00Z",
+                "assets": [{"name": asset}],
+            }
+            for tag, asset in [
+                ("b10356", "llama-b10356-bin-win-rocm-7.14-x64.zip"),
+                ("b10355", "llama-b10355-bin-win-hip-radeon-x64.zip"),
+            ]
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=fake_releases):
+            install.get_releases(
+                Request("GET", "/api/releases", "backend=rocm", {}), response, self.ctx
+            )
+
+        self.assertEqual([release["tag"] for release in response.payload], ["b10356"])
+
     def test_install_get_releases_error_returns_500(self):
         response = DummyResponse()
         with mock.patch.object(
