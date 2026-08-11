@@ -19,6 +19,7 @@ def _claim_install_slot(ctx):
 def get_releases(request, response, ctx):
     try:
         repo_api = None
+        spec = None
         query = urllib.parse.parse_qs(request.query or "")
         backend = (query.get("backend") or [""])[0].strip()
         if backend == "custom":
@@ -30,7 +31,11 @@ def get_releases(request, response, ctx):
                 repo_api = llama_manager.resolve_repo_api(spec, ctx)
         releases = llama_manager.get_releases(ctx, repo_api)
         result = []
-        for r in releases[:RELEASE_RESPONSE_LIMIT]:
+        for r in releases:
+            if spec and spec.get("asset"):
+                expected_asset = spec["asset"].format(tag=r["tag_name"])
+                if not any(a.get("name") == expected_asset for a in r["assets"]):
+                    continue
             result.append(
                 {
                     "tag": r["tag_name"],
@@ -39,6 +44,8 @@ def get_releases(request, response, ctx):
                     "assets": [a["name"] for a in r["assets"]],
                 }
             )
+            if len(result) == RELEASE_RESPONSE_LIMIT:
+                break
         response.json(result)
     except Exception as e:
         response.error(sanitize_error(e, 500), 500)

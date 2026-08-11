@@ -113,8 +113,8 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-sycl-x64.zip",
             },
             "hip": {
-                "label": "HIP (AMD Radeon)",
-                "asset": "llama-{tag}-bin-win-hip-radeon-x64.zip",
+                "label": "ROCm 7.14 (AMD, Official)",
+                "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
             },
             "openvino": {
                 "label": "OpenVINO",
@@ -150,8 +150,8 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "asset": "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz",
                 },
                 "rocm": {
-                    "label": "ROCm 7.2 (AMD)",
-                    "asset": "llama-{tag}-bin-ubuntu-rocm-7.2-x64.tar.gz",
+                    "label": "ROCm 7.14 (AMD, Official)",
+                    "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
                 },
                 "openvino": {
                     "label": "OpenVINO",

@@ -306,7 +306,7 @@ def make_service_context(root):
 
 
 class BuildBackendSpecsTests(unittest.TestCase):
-    def test_win32_x64_returns_cuda_vulkan_sycl_hip_backends(self):
+    def test_win32_x64_returns_cuda_vulkan_sycl_rocm_backends(self):
         specs = llama_manager.build_backend_specs("win32", "x64")
 
         self.assertIn("cpu", specs)
@@ -319,6 +319,11 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("openvino", specs)
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
+        self.assertEqual(specs["hip"]["label"], "ROCm 7.14 (AMD, Official)")
+        self.assertEqual(
+            specs["hip"]["asset"],
+            "llama-{tag}-bin-win-rocm-7.14-x64.zip",
+        )
         self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
     def test_win32_arm64_returns_cpu_and_opencl_adreno(self):
@@ -354,6 +359,11 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("vulkan", specs)
         self.assertIn("rocm", specs)
         self.assertIn("openvino", specs)
+        self.assertEqual(specs["rocm"]["label"], "ROCm 7.14 (AMD, Official)")
+        self.assertEqual(
+            specs["rocm"]["asset"],
+            "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
+        )
         self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
     def test_linux_arm64_returns_cpu_and_vulkan(self):
