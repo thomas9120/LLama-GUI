@@ -559,7 +559,7 @@ footer {
         <div class="node yellow"><div class="t">Hugging Face</div><div class="d">GGUF model downloads via <code>huggingface_hub</code></div></div>
         <div class="node yellow"><div class="t">DuckDuckGo / SearXNG</div><div class="d">Chat web search, zero-key</div></div>
         <div class="node yellow"><div class="t">Cloudflare</div><div class="d">Quick tunnel for remote access</div></div>
-        <div class="node yellow"><div class="t">git origin</div><div class="d">In-app app updates to the newest release tag</div></div>
+        <div class="node yellow"><div class="t">git origin</div><div class="d">Stable release or nightly main-branch app updates</div></div>
     </div>
 
     <div class="legend">
@@ -684,7 +684,7 @@ footer {
 <tr><td class="mono">presets.py</td><td class="mono">—</td><td>Preset CRUD on <code>presets/*.json</code>, rename with created-time carry, Windows shortcut export</td></tr>
 <tr><td class="mono">models.py</td><td class="mono">—</td><td>Recursive GGUF discovery under <code>models/</code>, returned as <code>models/</code>-relative names</td></tr>
 <tr><td class="mono">tunnel.py</td><td class="mono">tunnel.py</td><td>Download <code>cloudflared</code>, start/stop quick tunnel, poll for the public URL</td></tr>
-<tr><td class="mono">git_update.py</td><td class="mono">git_update.py</td><td>Fetch tags, classify dirty paths, fast-forward to the newest release tag, reinstall deps</td></tr>
+<tr><td class="mono">git_update.py</td><td class="mono">git_update.py</td><td>Fetch origin, classify dirty paths, fast-forward to a stable tag or nightly branch head, reinstall deps</td></tr>
 <tr><td class="mono">benchmarks.py</td><td class="mono">—</td><td>Ensure the official WikiText-2 raw test file exists for perplexity runs</td></tr>
 <tr><td class="mono">search.py</td><td class="mono">web_search.py</td><td>Standalone web-search endpoint</td></tr>
 <tr><td class="mono">lifecycle.py</td><td class="mono">lifecycle.py</td><td>Graceful shutdown, restart with port-availability polling, open a folder in the OS file manager</td></tr>
@@ -1054,17 +1054,18 @@ flagCore.setFlagValue("temperature", 0.5);
 
 <h3>Updating the app itself</h3>
 <p>
-    <code>GET /api/app-update-status?fetch=true</code> runs <code>git fetch origin --prune --prune-tags --tags</code>,
-    then finds the newest release tag reachable from <code>origin/main</code> —
-    <em>always the release branch, never the checked-out branch</em>, so a user on a development branch is still offered
-    the newest published release. Tags are selected by version sort, not date, because they are lightweight and a
+    <code>GET /api/app-update-status</code> runs <code>git fetch origin --prune --prune-tags --tags</code>.
+    The Stable channel finds the newest release tag reachable from <code>origin/main</code>; the Nightly channel targets
+    the latest <code>origin/main</code> commit directly —
+    <em>always the release branch, never the checked-out branch</em>, so a user on a development branch is still compared
+    with the selected Stable or Nightly target. Tags are selected by version sort, not date, because they are lightweight and a
     hotfix tagged onto an older commit would otherwise sort wrong.
 </p>
 <p>
     Dirty working-tree paths are classified: data and cache locations (<code>models/</code>, <code>presets/</code>,
     <code>llama/</code>, <code>config.json</code>, <code>__pycache__/</code>, log and backup suffixes) are
     <em>safe</em>; source changes are <em>blocking</em>. If the branch is behind and nothing blocks,
-    <code>POST /api/app-update</code> fast-forwards to the tag, reinstalls <code>requirements.txt</code>, restarts the
+    <code>POST /api/app-update</code> fast-forwards to the selected tag or branch head, reinstalls <code>requirements.txt</code>, restarts the
     server, and the page reloads with a cache-busting timestamp.
 </p>
 
@@ -1072,9 +1073,9 @@ flagCore.setFlagValue("temperature", 0.5);
 <table>
 <thead><tr><th class="mono">state</th><th>Meaning</th><th>Auto-update</th></tr></thead>
 <tbody>
-<tr><td class="mono">up_to_date</td><td>HEAD already contains the release tag, including local commits made after it</td><td>No</td></tr>
-<tr><td class="mono">behind</td><td>The release is a strict descendant of HEAD, so <code>merge --ff-only</code> can succeed</td><td>Yes, unless blocking changes exist</td></tr>
-<tr><td class="mono">diverged</td><td>HEAD and the release have both moved; manual merge or rebase required</td><td>No</td></tr>
+<tr><td class="mono">up_to_date</td><td>HEAD already contains the selected tag or branch head, including local commits made after it</td><td>No</td></tr>
+<tr><td class="mono">behind</td><td>The selected target is a strict descendant of HEAD, so <code>merge --ff-only</code> can succeed</td><td>Yes, unless blocking changes exist</td></tr>
+<tr><td class="mono">diverged</td><td>HEAD and the selected target have both moved; manual merge or rebase required</td><td>No</td></tr>
 <tr><td class="mono">no_release</td><td>No tag on the release branch matched the release pattern</td><td>No</td></tr>
 <tr><td class="mono">error</td><td>A git command failed or the upstream branch is missing; <code>reason</code> holds the detail</td><td>No</td></tr>
 </tbody>
@@ -1100,7 +1101,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under <code>models/</code></td></tr>
-<tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Git release-tag comparison</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Stable-tag or nightly-branch Git comparison</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/presets</td><td>List saved presets</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/launch/preflight</td><td>Pre-launch checks and slot resolution</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/launch</td><td>Spawn the selected llama.cpp tool</td></tr>
@@ -1126,7 +1127,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/rename</td><td>Rename, carrying the created-time entry</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/shortcut</td><td>Export a Windows shortcut</td></tr>
 <tr><td><span class="verb del">DELETE</span></td><td class="mono">/api/presets/&lt;name&gt;</td><td>Delete a preset (prefix route)</td></tr>
-<tr><td><span class="verb post">POST</span></td><td class="mono">/api/app-update</td><td>Fast-forward to the release tag and reinstall deps</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/app-update</td><td>Fast-forward to the selected update target and reinstall deps</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/shutdown</td><td>Graceful shutdown</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/restart</td><td>Restart, or exit 75 when supervised</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/open-folder</td><td>Open a folder in the OS file manager</td></tr>

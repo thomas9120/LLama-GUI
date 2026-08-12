@@ -825,6 +825,22 @@ function showAppUpdateStatus(type, message) {
     }
 }
 
+function selectedAppUpdateChannel() {
+    const select = document.getElementById("app-update-channel");
+    return select && select.value === "nightly" ? "nightly" : "stable";
+}
+
+function appUpdateStatusChannel(status) {
+    return status && status.update_channel === "nightly" ? "nightly" : "stable";
+}
+
+function describeAppUpdateTarget(status) {
+    if (appUpdateStatusChannel(status) === "nightly") {
+        return `latest nightly commit on origin/${status.release_branch || "main"}`;
+    }
+    return status.release_tag ? `release ${status.release_tag}` : "latest release";
+}
+
 function describeAppUpdateStatus(status) {
     if (!status) return "Unable to determine app update status.";
     if (status.reason && !status.available) return status.reason;
@@ -840,7 +856,7 @@ function describeAppUpdateStatus(status) {
     const blockingPaths = formatPaths(status.blocking_dirty_paths);
     const safePaths = formatPaths(status.safe_dirty_paths);
     const branch = status.branch ? `branch ${status.branch}` : "current branch";
-    const release = status.release_tag ? `release ${status.release_tag}` : "latest release";
+    const target = describeAppUpdateTarget(status);
     const behindCount = status.behind || 0;
     const behindNote = behindCount
         ? ` You are ${behindCount} commit${behindCount === 1 ? "" : "s"} behind it.`
@@ -854,21 +870,21 @@ function describeAppUpdateStatus(status) {
     }
     if (status.state === "up_to_date") {
         const safeNote = safePaths ? ` Local app data is present and ignored for updates: ${safePaths}.` : "";
-        return `Llama GUI already includes the ${release} on ${branch}.${safeNote}`;
+        return `Llama GUI already includes the ${target} on ${branch}.${safeNote}`;
     }
     if (status.state === "behind") {
         if (status.has_blocking_changes) {
             const detail = blockingPaths ? ` Blocking paths: ${blockingPaths}.` : "";
-            return `${release} is available, but source changes must be committed or stashed first.${behindNote}${detail}`;
+            return `${target} is available, but source changes must be committed or stashed first.${behindNote}${detail}`;
         }
         if (status.dirty) {
             const detail = safePaths ? ` Safe local app data will be left alone: ${safePaths}.` : "";
-            return `${release} is available.${behindNote}${detail}`;
+            return `${target} is available.${behindNote}${detail}`;
         }
-        return `${release} is available.${behindNote}`;
+        return `${target} is available.${behindNote}`;
     }
     if (status.state === "diverged") {
-        return `Local branch and ${release} diverged; update manually with git.`;
+        return `Local branch and the ${target} diverged; update manually with git.`;
     }
     if (status.state === "no_release") {
         return status.reason || `No tagged release was found for ${branch}.`;
@@ -906,27 +922,40 @@ function renderAppUpdateStatus(status) {
     if (updateBtn && status) {
         updateBtn.disabled = !status.can_update;
         updateBtn.title = status.can_update
-            ? `Install ${status.release_tag ? `release ${status.release_tag}` : "latest release"}`
+            ? `Install ${describeAppUpdateTarget(status)}`
             : msg;
     }
 }
 
 async function checkAppUpdateStatus() {
+    const channel = selectedAppUpdateChannel();
+    const updateBtn = document.getElementById("btn-update-app");
+    if (updateBtn) updateBtn.disabled = true;
     showAppUpdateStatus("info", "Checking app update status...");
     try {
-        const status = await fetchJson("/api/app-update-status");
+        const url = channel === "nightly"
+            ? "/api/app-update-status?channel=nightly"
+            : "/api/app-update-status";
+        const status = await fetchJson(url);
+        if (selectedAppUpdateChannel() !== channel) return;
         renderAppUpdateStatus(status);
     } catch (e) {
+        if (selectedAppUpdateChannel() !== channel) return;
         showAppUpdateStatus("error", "Failed to check app updates: " + e.message);
     }
 }
 
 async function updateAppFromGitHub() {
+    const channel = selectedAppUpdateChannel();
     let status = latestAppUpdateStatus;
-    if (!status) {
+    if (!status || appUpdateStatusChannel(status) !== channel) {
         showAppUpdateStatus("info", "Checking app update status...");
         try {
-            status = await fetchJson("/api/app-update-status");
+            const url = channel === "nightly"
+                ? "/api/app-update-status?channel=nightly"
+                : "/api/app-update-status";
+            status = await fetchJson(url);
+            if (selectedAppUpdateChannel() !== channel) return;
         } catch (e) {
             showAppUpdateStatus("error", "Failed to check app updates: " + e.message);
             return;
@@ -939,14 +968,18 @@ async function updateAppFromGitHub() {
 
     const ok = await confirmAction(
         "Update Llama GUI",
-        `Install ${status.release_tag ? `release ${status.release_tag}` : "the latest release"} from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.`,
+        `Install the ${describeAppUpdateTarget(status)} from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.`,
         "Update"
     );
     if (!ok) return;
 
-    showAppUpdateStatus("info", `Installing ${status.release_tag ? `release ${status.release_tag}` : "the latest release"} from GitHub...`);
+    showAppUpdateStatus("info", `Installing the ${describeAppUpdateTarget(status)} from GitHub...`);
     try {
-        const result = await fetchJson("/api/app-update", { method: "POST" });
+        const result = await fetchJson("/api/app-update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ channel }),
+        });
         if (result.updated) {
             if (result.dependency_error) {
                 showAppUpdateStatus("warning", "App updated, but dependency installation failed: " + result.dependency_error + " Restart Llama GUI after fixing dependencies.");

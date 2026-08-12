@@ -84,8 +84,10 @@ const elements = new Map();
     "release-group",
     "custom-backend-info",
     "app-update-status",
+    "app-update-channel",
     "btn-update-app",
 ].forEach((id) => elements.set(id, makeElement()));
+elements.get("app-update-channel").value = "stable";
 
 const fetchCalls = [];
 const fetchPayload = [{ tag: "b1294", published: "2024-01-01T00:00:00Z", assets: [] }];
@@ -330,6 +332,50 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     result = runClear("http://127.0.0.1:5240/?preset=Test");
     assert.equal(result.cleared, false, "a URL without appReload must not be rewritten");
     assert.deepEqual(result.replaced, [], "no history entry should be replaced when nothing changes");
+
+    const appUpdateChannel = elements.get("app-update-channel");
+    appUpdateChannel.value = "nightly";
+    let updateRequest;
+    context.fetch = async (url, options) => {
+        if (url === "/api/app-update-status?channel=nightly") {
+            return {
+                ok: true,
+                json: async () => ({
+                    available: true,
+                    can_update: true,
+                    state: "behind",
+                    update_channel: "nightly",
+                    release_branch: "main",
+                    branch: "main",
+                    behind: 4,
+                }),
+            };
+        }
+        assert.equal(url, "/api/app-update");
+        updateRequest = options;
+        return {
+            ok: true,
+            json: async () => ({
+                updated: false,
+                message: "Already up to date",
+                status: {
+                    available: true,
+                    can_update: false,
+                    state: "up_to_date",
+                    update_channel: "nightly",
+                    release_branch: "main",
+                    branch: "main",
+                },
+            }),
+        };
+    };
+    await context.window.LlamaGui.manager.checkAppUpdateStatus();
+    assert.match(elements.get("app-update-status").textContent, /latest nightly commit on origin\/main/);
+    vm.runInContext("confirmAction = async () => true", context);
+    await context.window.LlamaGui.manager.updateAppFromGitHub();
+    assert.deepEqual(JSON.parse(updateRequest.body), { channel: "nightly" });
+
+    appUpdateChannel.value = "stable";
 
     context.fetch = async (url) => {
         assert.equal(url, "/api/app-update-status");

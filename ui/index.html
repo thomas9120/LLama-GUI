@@ -252,6 +252,14 @@
 
                 <div class="card">
                     <h3>Llama GUI App Updates</h3>
+                    <div class="form-group">
+                        <label class="form-label" for="app-update-channel">Update channel</label>
+                        <select id="app-update-channel">
+                            <option value="stable">Stable releases</option>
+                            <option value="nightly">Nightly — latest commit on main (may be unstable)</option>
+                        </select>
+                        <p class="help-text">Stable installs tagged releases. Nightly includes unreleased commits from the main branch.</p>
+                    </div>
                     <div id="app-update-status" class="status-box"></div>
                     <div class="form-row">
                         <button id="btn-check-app-update" class="btn" type="button">Check App Updates</button>
