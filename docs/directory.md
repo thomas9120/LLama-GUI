@@ -903,7 +903,7 @@ Returns `{"selected": bool, "path": string}`.
 
 ### File Type Filters
 
-- Model files (purpose: model, model_draft, mmproj, model_vocoder): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
+- Model files (purpose: model, model_draft, mmproj): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
 - Other paths (grammar file, log file, etc.): `*.*`
 
 ---

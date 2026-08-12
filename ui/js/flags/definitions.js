@@ -98,15 +98,6 @@ const FLAGS = [
 		min: 1,
 	},
 	{
-		id: "model_vocoder",
-		flag: "-mv",
-		category: "model",
-		type: "path",
-		label: "Vocoder Model",
-		desc: "Vocoder model for audio generation (server only)",
-		tool: "server",
-	},
-	{
 		id: "no_mmproj",
 		flag: "--no-mmproj",
 		category: "model",
