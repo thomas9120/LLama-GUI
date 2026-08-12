@@ -1436,10 +1436,16 @@ async function main() {
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         await selectSection(page, "quick-launch");
+        await page.setViewportSize({ width: 1346, height: 674 });
         const initialSidebarSlider = await page.evaluate(() => {
+            const sidebar = document.querySelector("#sidebar");
+            const nav = document.querySelector(".sidebar-nav");
             const panel = document.querySelector("#sidebar-model-switcher");
             const theme = document.querySelector(".theme-menu");
             const slider = document.querySelector("#sidebar-model-switcher-slider");
+            const actionsBox = document.querySelector(".sidebar-runtime-actions").getBoundingClientRect();
+            const memoryBox = document.querySelector("#sidebar-memory-estimate").getBoundingClientRect();
+            const sidebarBox = sidebar.getBoundingClientRect();
             const panelBox = panel.getBoundingClientRect();
             const themeBox = theme.getBoundingClientRect();
             return {
@@ -1449,12 +1455,19 @@ async function main() {
                 themeTop: themeBox.top,
                 footerBottom: document.querySelector(".sidebar-footer").getBoundingClientRect().bottom,
                 viewportHeight: window.innerHeight,
+                actionsContained: actionsBox.right <= sidebarBox.right,
+                memoryContained: memoryBox.right <= sidebarBox.right,
+                navFits: nav.scrollHeight <= nav.clientHeight,
             };
         });
         assert.equal(initialSidebarSlider.disabled, "true");
         assert.equal(initialSidebarSlider.value, "0");
         assert.ok(initialSidebarSlider.panelBottom <= initialSidebarSlider.themeTop, "model and theme switchers must not overlap");
         assert.ok(initialSidebarSlider.footerBottom <= initialSidebarSlider.viewportHeight, "sidebar footer must remain in the viewport");
+        assert.equal(initialSidebarSlider.actionsContained, true, "runtime buttons must stay inside the sidebar");
+        assert.equal(initialSidebarSlider.memoryContained, true, "memory estimate must stay inside the sidebar");
+        assert.equal(initialSidebarSlider.navFits, true, "sidebar navigation should fit without scrolling at 1346x674");
+        await page.setViewportSize({ width: 1280, height: 720 });
 
         await page.evaluate(async () => {
             const entries = [

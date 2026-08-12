@@ -117,6 +117,12 @@ assert.ok(
     indexHtml.indexOf('id="sidebar-model-switcher"') < indexHtml.indexOf('class="theme-menu"'),
     "the compact model slider should sit above the theme menu"
 );
+const sidebarFooterMarkup = indexHtml.match(/<div class="sidebar-footer">[\s\S]*?<\/aside>/)?.[0] || "";
+assert.match(sidebarFooterMarkup, /class="sidebar-runtime-controls"/, "runtime controls should stay in the fixed sidebar footer");
+assert.match(sidebarFooterMarkup, /<details class="sidebar-memory-estimate"/, "memory details should collapse natively");
+assert.match(sidebarFooterMarkup, /class="sidebar-meta-row"[\s\S]*?class="theme-menu"[\s\S]*?id="version-badge"/, "theme and version should share one row");
+assert.match(styleSource, /\.sidebar-runtime-controls\s*{[^}]*min-width:\s*0/, "runtime controls must be allowed to shrink inside the sidebar");
+assert.match(styleSource, /\.sidebar-memory-reading\s*{[^}]*grid-template-columns:\s*30px/, "GPU and RAM values should use stacked rows");
 const sidebarSwitcherMarkup = indexHtml.match(/<section class="sidebar-model-switcher"[\s\S]*?<\/section>/)?.[0] || "";
 assert.doesNotMatch(sidebarSwitcherMarkup, /<svg/, "the sidebar switch thumb should not contain an icon");
 assert.match(source, /sidebarThumb\.addEventListener\("pointerdown", handleSidebarPointerDown\)/);
