@@ -4857,6 +4857,12 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(result["safe_dirty_paths"], ["models/new.gguf"])
         self.assertEqual(result["blocking_dirty_paths"], ["models/server.py"])
 
+    def test_normalize_update_channel_validates_allowlist(self):
+        self.assertEqual(srv.normalize_update_channel(None), "stable")
+        self.assertEqual(srv.normalize_update_channel(" NIGHTLY "), "nightly")
+        with self.assertRaisesRegex(ValueError, "stable.*nightly"):
+            srv.normalize_update_channel("preview")
+
     # --- install_python_dependencies tests ---
 
     def test_install_deps_no_requirements(self):
@@ -5068,6 +5074,21 @@ class GitUpdateRouteTests(unittest.TestCase):
             call_log,
         )
 
+    def test_get_nightly_status_targets_latest_release_branch_commit(self):
+        call_log = []
+        with self.patched_git(counts="0\t5", call_log=call_log):
+            status = srv.get_app_update_status(self.ctx, channel="nightly")
+        self.assertEqual(status["update_channel"], "nightly")
+        self.assertEqual(status["target_ref"], "origin/main")
+        self.assertEqual(status["release_tag"], "")
+        self.assertEqual(status["behind"], 5)
+        self.assertTrue(status["can_update"])
+        self.assertEqual(self.git_calls(call_log, "tags"), [])
+        self.assertIn(
+            ["rev-list", "--left-right", "--count", "HEAD...origin/main"],
+            call_log,
+        )
+
     def test_get_status_with_blocking_changes(self):
         with self.patched_git(dirty=" M server.py\x00", counts="0\t2"):
             status = srv.get_app_update_status(self.ctx)
@@ -5158,6 +5179,18 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertTrue(result["updated"])
         self.assertIn(["merge", "--ff-only", "refs/tags/v1.2.3"], call_log)
 
+    def test_update_nightly_fast_forwards_to_release_branch_head(self):
+        call_log = []
+        with (
+            self.patched_git(counts="0\t3", call_log=call_log),
+            self.patched_shortcuts(created=False),
+        ):
+            result = srv.update_app_from_git(self.ctx, channel="nightly")
+        self.assertTrue(result["updated"])
+        self.assertEqual(result["update_channel"], "nightly")
+        self.assertEqual(result["release_tag"], "")
+        self.assertIn(["merge", "--ff-only", "origin/main"], call_log)
+
     def test_update_release_success_keeps_shortcut_failure_nonfatal(self):
         with (
             self.patched_git(counts="0\t3", merge_stdout="Updating abc..def"),
@@ -5211,6 +5244,31 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(response.payload["available"])
         self.assertEqual(response.payload["repo_url"], self.ctx.config.app_repo_url)
 
+    def test_app_update_status_route_passes_nightly_channel(self):
+        with mock.patch.object(
+            srv,
+            "get_app_update_status",
+            return_value={"available": True, "update_channel": "nightly"},
+        ) as mock_status:
+            response = DummyResponse()
+            git_update.get_status(
+                Request("GET", "/api/app-update-status", "channel=nightly", {}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        mock_status.assert_called_once_with(self.ctx, fetch=True, channel="nightly")
+
+    def test_app_update_status_route_rejects_unknown_channel(self):
+        response = DummyResponse()
+        git_update.get_status(
+            Request("GET", "/api/app-update-status", "channel=preview", {}),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("stable", response.payload["error"])
+
     def test_app_update_status_route_handles_error(self):
         with mock.patch.object(
             srv,
@@ -5255,6 +5313,42 @@ class GitUpdateRouteTests(unittest.TestCase):
             )
         self.assertEqual(response.status, 200)
         self.assertTrue(response.payload["updated"])
+
+    def test_app_update_route_passes_nightly_channel(self):
+        with mock.patch.object(srv, "update_app_from_git", return_value={
+            "updated": True,
+            "update_channel": "nightly",
+        }) as mock_update:
+            response = DummyResponse()
+            git_update.start_update(
+                Request(
+                    "POST",
+                    "/api/app-update",
+                    "",
+                    {},
+                    body={"channel": "nightly"},
+                ),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 200)
+        mock_update.assert_called_once_with(self.ctx, channel="nightly")
+
+    def test_app_update_route_rejects_unknown_channel(self):
+        response = DummyResponse()
+        git_update.start_update(
+            Request(
+                "POST",
+                "/api/app-update",
+                "",
+                {},
+                body={"channel": "preview"},
+            ),
+            response,
+            self.ctx,
+        )
+        self.assertEqual(response.status, 400)
+        self.assertIn("nightly", response.payload["error"])
 
 
 class LifecycleTests(unittest.TestCase):

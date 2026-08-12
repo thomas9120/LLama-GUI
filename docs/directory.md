@@ -685,15 +685,17 @@ Frontend tunnel controls, status rendering, URL rendering, copy wiring, start/st
 
 ### How It Works
 
-1. `GET /api/app-update-status` (with `fetch=true`) runs `git fetch origin --prune --prune-tags --tags`, then finds the newest release tag reachable from `origin/<release branch>`.
+1. The Install tab offers **Stable releases** and **Nightly** update channels. `GET /api/app-update-status` runs `git fetch origin --prune --prune-tags --tags`, then selects the newest release tag reachable from `origin/<release branch>` for Stable or the current `origin/<release branch>` head for Nightly.
 2. Dirty git paths are classified as "safe" (ignored directories, cache dirs, data suffixes) or "blocking" (source file changes).
-3. If the local branch is behind that tagged release and has no blocking changes, auto-update is available. Untagged commits after the latest release do not trigger an update.
-4. `POST /api/app-update` fast-forwards the current branch to the release tag, then reinstalls `requirements.txt` via pip.
+3. If the local branch is behind the selected target and has no blocking changes, auto-update is available. Untagged commits trigger an update only on the Nightly channel.
+4. `POST /api/app-update` fast-forwards the current branch to the selected target, then reinstalls `requirements.txt` via pip.
 5. After success, the server restarts and the frontend reloads with cache busting.
 
 ### Release Tag Selection
 
 The release branch is `APP_RELEASE_BRANCH` in `backend/config.py` (default `main`), exposed as `ServerConfig.app_release_branch`. Tags are always looked up on `origin/<release branch>`, never on the checked-out branch, so a user sitting on a development branch is still offered the newest published release.
+
+The Stable channel targets the newest qualifying tag. The Nightly channel skips tag selection and targets `origin/<release branch>` directly, so a fast-forward includes every unreleased commit currently on that branch. The API accepts `channel=nightly` on `GET /api/app-update-status` and `{ "channel": "nightly" }` on `POST /api/app-update`; omitted channels default to Stable.
 
 `find_latest_release_tag()` runs `git for-each-ref --merged=origin/<release branch> --sort=-v:refname 'refs/tags/v[0-9]*'` and keeps the first tag matching `RELEASE_TAG_RE` (`^v\d+\.\d+\.\d+[a-z]?$`).
 
@@ -707,19 +709,19 @@ The release branch is `APP_RELEASE_BRANCH` in `backend/config.py` (default `main
 
 | State | Meaning | Auto-update |
 | --- | --- | --- |
-| `up_to_date` | HEAD already contains the release tag (including local commits made after it) | No |
-| `behind` | The release is a strict descendant of HEAD, so `merge --ff-only` can succeed | Yes, unless blocking changes exist |
-| `diverged` | HEAD and the release have both moved; manual merge/rebase required | No |
+| `up_to_date` | HEAD already contains the selected tag or branch head (including local commits made after it) | No |
+| `behind` | The selected target is a strict descendant of HEAD, so `merge --ff-only` can succeed | Yes, unless blocking changes exist |
+| `diverged` | HEAD and the selected target have both moved; manual merge/rebase required | No |
 | `no_release` | No tag on the release branch matched the release pattern | No |
 | `error` | A git command failed or the upstream branch is missing; `reason` holds the detail | No |
 
-Every failure path sets `state: "error"` and a human-readable `reason`. The frontend keys off `state`, so a path without it would fall through to a generic message and the git error would be lost. `release_tag` and `release_branch` are included on all states past the initial git checks.
+Every failure path sets `state: "error"` and a human-readable `reason`. The frontend keys off `state`, so a path without it would fall through to a generic message and the git error would be lost. `update_channel` identifies the selected channel; successful comparisons also include `release_branch`, `target_ref`, and the Stable channel's `release_tag`.
 
 When `LLAMA_GUI_SUPERVISED=1`, restart requests exit cleanly with status `75` instead of spawning a detached replacement process. An external launcher or service manager can use that status to relaunch `python server.py`; ordinary shutdowns still exit with status `0`. Standalone launches retain the existing self-restart behavior.
 
 ### Dependency Installation
 
-`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. It is an internal step of `POST /api/app-update`, called after the fast-forward to the release tag and before Windows shortcut creation — there is no standalone endpoint for it. A dependency failure does not fail the update: the response returns `updated: true` with `dependencies_installed: false` and a `dependency_error`.
+`install_python_dependencies()` runs `pip install -r requirements.txt` and reports success/failure. It is an internal step of `POST /api/app-update`, called after the fast-forward to the selected update target and before Windows shortcut creation — there is no standalone endpoint for it. A dependency failure does not fail the update: the response returns `updated: true` with `dependencies_installed: false` and a `dependency_error`.
 
 ### Safe Dirty Path Classification
 
@@ -901,7 +903,7 @@ Returns `{"selected": bool, "path": string}`.
 
 ### File Type Filters
 
-- Model files (purpose: model, model_draft, mmproj, model_vocoder): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
+- Model files (purpose: model, model_draft, mmproj): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
 - Other paths (grammar file, log file, etc.): `*.*`
 
 ---

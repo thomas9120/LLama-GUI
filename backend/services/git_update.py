@@ -24,6 +24,8 @@ RELEASE_TAG_GLOB = "refs/tags/v[0-9]*"
 # must never be handed to users as an automatic update.
 RELEASE_TAG_RE = re.compile(r"^v\d+\.\d+\.\d+[a-z]?$")
 
+UPDATE_CHANNELS = {"stable", "nightly"}
+
 SAFE_DIRTY_PATH_PREFIXES = (
     "llama/",
     "models/",
@@ -183,6 +185,13 @@ def is_release_tag(tag):
     return bool(RELEASE_TAG_RE.match(str(tag or "").strip()))
 
 
+def normalize_update_channel(value):
+    channel = str(value or "stable").strip().lower()
+    if channel not in UPDATE_CHANNELS:
+        raise ValueError("Update channel must be 'stable' or 'nightly'.")
+    return channel
+
+
 def find_latest_release_tag(base_dir, upstream_ref):
     """Return the newest release tag reachable from ``upstream_ref``.
 
@@ -279,13 +288,14 @@ def create_windows_shortcuts(ctx: AppContext) -> dict[str, Any]:
     }
 
 
-def unavailable_status(reason, repo_url):
+def unavailable_status(reason, repo_url, update_channel):
     return {
         "available": False,
         "can_update": False,
         "state": "error",
         "reason": reason,
         "repo_url": repo_url,
+        "update_channel": update_channel,
     }
 
 
@@ -305,28 +315,38 @@ def error_status(reason, **fields):
     }
 
 
-def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any]:
+def get_app_update_status(
+    ctx: AppContext,
+    fetch: bool = False,
+    channel: str = "stable",
+) -> dict[str, Any]:
     base_dir = ctx.paths.root
     repo_url = ctx.config.app_repo_url
+    update_channel = normalize_update_channel(channel)
 
     if not (base_dir / ".git").exists():
-        return unavailable_status("This folder is not a git repository.", repo_url)
+        return unavailable_status(
+            "This folder is not a git repository.", repo_url, update_channel
+        )
 
     git_version = run_git(["--version"], base_dir)
     if git_version.returncode != 0:
-        return unavailable_status("Git is not available on this system.", repo_url)
+        return unavailable_status(
+            "Git is not available on this system.", repo_url, update_channel
+        )
 
     branch_res = run_git(["rev-parse", "--abbrev-ref", "HEAD"], base_dir)
     if branch_res.returncode != 0:
         return error_status(
             (branch_res.stderr or "Unable to read current git branch").strip(),
             repo_url=repo_url,
+            update_channel=update_channel,
         )
     branch = branch_res.stdout.strip()
 
-    # Releases are cut from a single branch, so the comparison is always against
-    # that branch's tags. Using the checked-out branch instead would pin anyone
-    # on a development branch to whatever stale tag it happens to contain.
+    # Stable tags and nightly commits come from one configured branch. Using the
+    # checked-out branch instead would pin a development checkout to its own
+    # stale tags or commits.
     release_branch = (ctx.config.app_release_branch or "").strip() or branch
     upstream_ref = f"origin/{release_branch}"
 
@@ -338,6 +358,7 @@ def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any
         "origin_url": origin_url,
         "branch": branch,
         "release_branch": release_branch,
+        "update_channel": update_channel,
     }
 
     dirty_res = run_git(["status", "--porcelain=v1", "-z"], base_dir)
@@ -379,42 +400,47 @@ def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any
             **common,
         )
 
-    release_info = find_latest_release_tag(base_dir, upstream_ref)
-    if release_info["error"]:
-        return error_status(release_info["error"], **common)
+    release_tag = ""
+    target_ref = upstream_ref
+    if update_channel == "stable":
+        release_info = find_latest_release_tag(base_dir, upstream_ref)
+        if release_info["error"]:
+            return error_status(release_info["error"], **common)
 
-    release_tag = release_info["tag"]
-    if not release_tag:
-        return {
-            "available": True,
-            "can_update": False,
-            "reason": f"No tagged release was found on {upstream_ref}.",
-            **common,
-            "ahead": 0,
-            "behind": 0,
-            "state": "no_release",
-            "release_tag": "",
-        }
+        release_tag = release_info["tag"]
+        if not release_tag:
+            return {
+                "available": True,
+                "can_update": False,
+                "reason": f"No tagged release was found on {upstream_ref}.",
+                **common,
+                "ahead": 0,
+                "behind": 0,
+                "state": "no_release",
+                "release_tag": "",
+                "target_ref": "",
+            }
+        target_ref = f"refs/tags/{release_tag}"
 
-    release_ref = f"refs/tags/{release_tag}"
     behind_ahead_res = run_git(
-        ["rev-list", "--left-right", "--count", f"HEAD...{release_ref}"],
+        ["rev-list", "--left-right", "--count", f"HEAD...{target_ref}"],
         base_dir,
     )
     if behind_ahead_res.returncode != 0:
+        target_name = f"release {release_tag}" if release_tag else target_ref
         return error_status(
-            f"Unable to compare HEAD with release {release_tag}.",
+            f"Unable to compare HEAD with {target_name}.",
             **common,
             release_tag=release_tag,
+            target_ref=target_ref,
         )
 
     parts = behind_ahead_res.stdout.strip().split()
     ahead = int(parts[0]) if len(parts) > 0 else 0
     behind = int(parts[1]) if len(parts) > 1 else 0
 
-    # "behind" means the release is a strict descendant of HEAD, which is
-    # exactly the condition under which `merge --ff-only` can succeed. Commits
-    # made after the release (behind == 0) count as up to date.
+    # "behind" means the selected target is a strict descendant of HEAD, which
+    # is exactly the condition under which `merge --ff-only` can succeed.
     if behind > 0 and ahead > 0:
         state = "diverged"
     elif behind > 0:
@@ -432,12 +458,14 @@ def get_app_update_status(ctx: AppContext, fetch: bool = False) -> dict[str, Any
         "behind": behind,
         "state": state,
         "release_tag": release_tag,
+        "target_ref": target_ref,
     }
 
 
-def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
+def update_app_from_git(ctx: AppContext, channel: str = "stable") -> dict[str, Any]:
     base_dir = ctx.paths.root
-    status = get_app_update_status(ctx, fetch=True)
+    update_channel = normalize_update_channel(channel)
+    status = get_app_update_status(ctx, fetch=True, channel=update_channel)
     if not status.get("available"):
         return {
             "updated": False,
@@ -460,7 +488,7 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
         if state == "diverged":
             return {
                 "updated": False,
-                "error": "Branch has diverged from the latest release; manual merge/rebase required.",
+                "error": "Branch has diverged from the selected update target; manual merge/rebase required.",
                 "status": status,
             }
         return {
@@ -469,9 +497,10 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
             "status": status,
         }
 
-    release_tag = status["release_tag"]
+    release_tag = status.get("release_tag", "")
+    target_ref = status["target_ref"]
     update_res = run_git(
-        ["merge", "--ff-only", f"refs/tags/{release_tag}"],
+        ["merge", "--ff-only", target_ref],
         base_dir,
     )
     if update_res.returncode != 0:
@@ -480,10 +509,11 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
             "error": (
                 update_res.stderr or update_res.stdout or "git merge failed"
             ).strip(),
-            "status": get_app_update_status(ctx, fetch=False),
+            "status": get_app_update_status(ctx, fetch=False, channel=update_channel),
         }
 
     deps_res = install_python_dependencies(ctx)
+    target_name = release_tag or target_ref
     if deps_res.get("error"):
         shortcuts_res = create_windows_shortcuts(ctx)
         return {
@@ -494,8 +524,9 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
             "shortcuts_error": shortcuts_res.get("error", ""),
             "shortcuts_message": shortcuts_res.get("message", ""),
             "release_tag": release_tag,
-            "message": (update_res.stdout or f"Updated to {release_tag}").strip(),
-            "status": get_app_update_status(ctx, fetch=False),
+            "update_channel": update_channel,
+            "message": (update_res.stdout or f"Updated to {target_name}").strip(),
+            "status": get_app_update_status(ctx, fetch=False, channel=update_channel),
         }
 
     shortcuts_res = create_windows_shortcuts(ctx)
@@ -507,6 +538,7 @@ def update_app_from_git(ctx: AppContext) -> dict[str, Any]:
         "shortcuts_error": shortcuts_res.get("error", ""),
         "shortcuts_message": shortcuts_res.get("message", ""),
         "release_tag": release_tag,
-        "message": (update_res.stdout or f"Updated to {release_tag}").strip(),
-        "status": get_app_update_status(ctx, fetch=False),
+        "update_channel": update_channel,
+        "message": (update_res.stdout or f"Updated to {target_name}").strip(),
+        "status": get_app_update_status(ctx, fetch=False, channel=update_channel),
     }

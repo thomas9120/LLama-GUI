@@ -693,6 +693,7 @@ function initInstallButtons() {
     document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));
     document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
     document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);
+    document.getElementById("app-update-channel").addEventListener("change", checkAppUpdateStatus);
     if (typeof checkAppUpdateStatus === "function") {
         checkAppUpdateStatus();
     }
