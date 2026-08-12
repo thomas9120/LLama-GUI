@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-12
 
+- Added a manual GitHub Actions stable-release workflow that tests the current `main` tip, calculates the next UTC CalVer version, packages the app, generates release notes, and publishes the tagged archive while Nightly commits continue to bake untagged.
 - Removed the stale `-mv` / Vocoder Model server control and its unused file-picker purpose because current llama.cpp builds no longer accept that flag.
 - Added a Stable/Nightly selector for Llama GUI app updates. Stable keeps targeting the newest tagged release; Nightly safely fast-forwards to the latest commit on the configured release branch while retaining dirty-tree, divergence, dependency-install, and restart protections.
 - Reworked the left sidebar into a compact persistent runtime dock: Launch/Stop and the danger-styled Python shutdown control remain reachable without scrolling, memory usage is an expandable stacked GPU/RAM estimate, the Model Switcher remains intact in a shorter panel, and a narrow icon-only theme control leaves more room for the adjacent build version.

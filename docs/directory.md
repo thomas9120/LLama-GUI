@@ -34,6 +34,7 @@
 | `ui/js/flags/` | Ordered pure-data modules for flag definitions |
 | `ui/templates/` | 15 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
+| `.github/workflows/` | Continuous integration and the manual stable-release workflow |
 | `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
 | `llama/` | Downloaded `llama.cpp` binaries at runtime |
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
@@ -702,6 +703,12 @@ The Stable channel targets the newest qualifying tag. The Nightly channel skips 
 - Version sort, not date sort. The tags are lightweight, so `--sort=-creatordate` would compare commit dates and misplace a hotfix tagged onto an older commit. Version sort orders `v1.6.3 < v1.6.3b < v1.6.4 < v1.6.10`.
 - The glob drops non-version tags such as `Summer-2026`; the regex drops prerelease tags such as `v1.6.3-rc1` and `v1.6.3-beta`. A single-letter revision suffix (`v1.6.3b`) is a normal release and is kept.
 - `--prune-tags` is required alongside `--prune`; without it a tag deleted upstream stays local and can still be picked as newest.
+
+### Publishing a Stable Release
+
+`.github/workflows/release.yml` provides the manual **Create stable release** action. It can run only from `main`, executes the backend and frontend suites, confirms that the tested commit is still the current `origin/main` tip, calculates the next UTC `YY.MM.Micro` version with `scripts/next_calver.py`, builds the existing `release.ps1` archive, and publishes it with generated GitHub release notes. Workflow concurrency prevents two release runs from publishing the same Micro version.
+
+Nightly remains the bake-in channel for untagged `main` commits. Publishing the tag promotes that exact commit to Stable; it does not create a separate nightly artifact.
 
 ### Status States
 
