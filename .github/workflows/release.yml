@@ -1,0 +1,99 @@
+name: Create stable release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Require main branch
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne "refs/heads/main") {
+              throw "Stable releases must be run from the main branch."
+          }
+
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run backend tests
+        run: python -m unittest discover tests -v
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run frontend tests
+        run: npm test
+
+      - name: Verify and calculate release version
+        id: version
+        shell: pwsh
+        run: |
+          git fetch origin main --prune --prune-tags --tags
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+          $remoteMain = (git rev-parse origin/main).Trim()
+          if ($remoteMain -ne $env:GITHUB_SHA) {
+              throw "main advanced while this workflow was running. Run it again to release the new tip."
+          }
+
+          $version = python scripts/next_calver.py
+          if ($LASTEXITCODE -ne 0) {
+              exit $LASTEXITCODE
+          }
+          $version = $version.Trim()
+          if ($version -notmatch '^\d{2}\.\d{2}\.\d+$') {
+              throw "Calculated an invalid release version: $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build release package
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: .\release.ps1 -Version $env:RELEASE_VERSION
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          $asset = "releases/Llama-GUI-$env:RELEASE_VERSION.zip"
+          gh release create $env:RELEASE_TAG $asset `
+              --target $env:GITHUB_SHA `
+              --title "Llama GUI $env:RELEASE_VERSION" `
+              --generate-notes `
+              --latest `
+              --fail-on-no-commits
