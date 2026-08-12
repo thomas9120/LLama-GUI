@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-12
+
+- Reworked the left sidebar into a compact persistent runtime dock: Launch/Stop and the danger-styled Python shutdown control remain reachable without scrolling, memory usage is an expandable stacked GPU/RAM estimate, the Model Switcher remains intact in a shorter panel, and a narrow icon-only theme control leaves more room for the adjacent build version.
+
 ## 2026-08-11
 
 - Updated the official Windows and Linux AMD install options to llama.cpp's ROCm 7.14 release assets, first available in `b10356`, while retaining the architecture-specific Lemonade ROCm options. Release choices are now filtered to builds that actually contain the selected backend asset.
