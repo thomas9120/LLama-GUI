@@ -1,0 +1,20 @@
+# Ruff lint policy for Llama GUI.
+# CI runs Python 3.9/3.12/3.13; py39 is the floor. Local interpreters are
+# newer, so this target is the only guard against 3.9-incompatible rewrites.
+target-version = "py39"
+
+[lint]
+# No explicit `select`: the 221-finding baseline was produced with Ruff's
+# default rule set; an explicit family list enables ~64 additional untriaged
+# findings. Pin the Ruff version in CI to keep the default set stable.
+ignore = [
+    # Routes/services deliberately catch Exception to sanitize client errors
+    # while logging the real failure to stderr (see sanitize_error in
+    # backend/http.py and AGENTS.md "Error Handling Expectations").
+    "BLE001",
+    # Validation helpers raise ValueError by design; callers catch ValueError.
+    "TRY004",
+    # Deferred: adding `from __future__ import annotations` repo-wide is a
+    # separate decision; until then PEP 604 rewrites are invalid on py39.
+    "FA100",
+]

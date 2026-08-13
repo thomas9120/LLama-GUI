@@ -11,6 +11,7 @@ Please give a brief summary of changes made to the program, include the date the
 - Added a Stable/Nightly selector for Llama GUI app updates. Stable keeps targeting the newest tagged release; Nightly safely fast-forwards to the latest commit on the configured release branch while retaining dirty-tree, divergence, dependency-install, and restart protections.
 - Corrected the README backend list: removed the non-existent macOS `KleidiAI` option and added Lemonade ROCm to the Linux list.
 - Reworked the left sidebar into a compact persistent runtime dock: Launch/Stop and the danger-styled Python shutdown control remain reachable without scrolling, memory usage is an expandable stacked GPU/RAM estimate, the Model Switcher remains intact in a shorter panel, and a narrow icon-only theme control leaves more room for the adjacent build version.
+- Added `ruff.toml` pinning Ruff's target to Python 3.9 (the CI floor) so modernization rules can never produce 3.9-incompatible rewrites, and documenting intentional ignores for the sanitizing broad-except policy (BLE001), ValueError validation helpers (TRY004), and deferred future-annotations (FA100). No lint fixes were applied; the 89 remaining findings stay as the documented baseline.
 
 ## 2026-08-11
 

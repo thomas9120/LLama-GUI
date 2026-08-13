@@ -1,3 +1,42 @@
+## Update 08-12-2026 — Necessity review
+
+**Verdict: the plan is well-researched but not necessary. It is a hygiene
+exercise, not a fix — nothing in the codebase is broken, and the triage below
+shows none of the findings is a real bug.**
+
+Re-verified facts: no ruff config anywhere, CI floor is py3.9 with no lint
+job, zero `from __future__ import annotations`, and `sanitize_error` matches
+the BLE001 "intentional" claim exactly.
+
+**Baseline drift:** the 174-finding baseline is stale — a re-run on this date
+reports **221 findings** (+47: more BLE001, SIM117, UP045, UP035, PIE807, plus
+2 intentional B018s), and the projected post-config count is **~89**, not 67.
+All drift is style; still zero correctness findings. If implementation ever
+proceeds, Steps 2–4 must be re-derived from a fresh baseline (the per-finding
+triage of the singles remains valid).
+
+### Recommendations
+
+1. **Do only Step 1 — the `ruff.toml`.** It is the only part that prevents
+   actual harm: a bare `ruff check . --fix` under Ruff 0.16 defaults would let
+   UP045 rewrite `Optional[X]` → `X | None`, a runtime SyntaxError on the
+   py3.9 CI floor. The config defuses that landmine in ~15 lines and
+   documents the error-handling policy. Cheap; adopt when convenient.
+2. **Skip the bulk cleanup (Steps 2–4) unless the deferred CI lint job ships
+   with it.** ~90% of the fixes are cosmetics (import sorting churn across
+   17+ files, `typing` → `collections.abc`, `lambda: []` → `list`, `with`
+   merging, PEP 585 annotations). Without a CI gate the zero-finding state
+   decays at the next commit — the 174→221 drift above is the proof. The
+   cleanup alone is one-time polish that rots.
+3. **If lint value is ever wanted, adopt B904** (`raise ... from` inside
+   `except`) — the only finding in this document with genuine debugging
+   value. Currently deferred.
+
+**Bottom line:** keep this log, adopt the config when convenient, and treat
+the cleanup as something to pair with a CI lint job — not as standalone work.
+
+---
+
 ## Ruff Baseline Cleanup
 
 Deferred lint-maintenance task. A repository-wide `ruff check .` with Ruff 0.16.0 on 2026-07-25 reported 174 findings, 107 of which Ruff marked fixable with the default `--fix` behavior. This is a point-in-time baseline and will drift as the code changes.
