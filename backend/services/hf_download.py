@@ -9,6 +9,7 @@ from typing import Any, Callable, Mapping, Optional
 
 from backend.context import AppContext
 from backend.http import sanitize_error
+from backend.services import model_dir
 
 UrlOpen = Callable[..., Any]
 
@@ -293,26 +294,27 @@ def start_hf_model_download(
     if mmproj_file and not is_mmproj_filename(mmproj_file):
         raise ValueError("Choose an mmproj/projector file for the companion mmproj download.")
 
-    repo_folder = slugify_repo_id(repo_id)
-    model_basename = pathlib.PurePosixPath(model_file).name
-    # Relative id under models/ so discovery + applyPresetModel select the new file.
-    model_name = f"{repo_folder}/{model_basename}"
-    model_dest = ctx.paths.models / repo_folder / model_basename
-    mmproj_dest = None
-    if mmproj_file:
-        mmproj_dest = model_dest.parent / pathlib.PurePosixPath(mmproj_file).name
-
-    existing = []
-    if model_dest.exists():
-        existing.append(model_name)
-    if mmproj_dest and mmproj_dest.exists():
-        existing.append(f"{repo_folder}/{mmproj_dest.name}")
-    if existing and not overwrite:
-        raise FileExistsError(f"Already exists: {', '.join(existing)}")
-
     with ctx.state.model_download_lock:
         if ctx.state.model_download_in_progress:
             raise RuntimeError("A model download is already in progress.")
+        models_dir = model_dir.get_models_dir(ctx)
+        repo_folder = slugify_repo_id(repo_id)
+        model_basename = pathlib.PurePosixPath(model_file).name
+        # Relative id under the active model root so discovery and presets select it.
+        model_name = f"{repo_folder}/{model_basename}"
+        model_dest = models_dir / repo_folder / model_basename
+        mmproj_dest = None
+        if mmproj_file:
+            mmproj_dest = model_dest.parent / pathlib.PurePosixPath(mmproj_file).name
+
+        existing = []
+        if model_dest.exists():
+            existing.append(model_name)
+        if mmproj_dest and mmproj_dest.exists():
+            existing.append(f"{repo_folder}/{mmproj_dest.name}")
+        if existing and not overwrite:
+            raise FileExistsError(f"Already exists: {', '.join(existing)}")
+
         ctx.state.model_download_in_progress = True
         ctx.state.model_download_cancel.clear()
         reset_model_download_state(

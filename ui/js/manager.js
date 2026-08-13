@@ -4,6 +4,7 @@ let releasesBackendInFlight = null;
 let releaseFetchRequestId = 0;
 let statusRequestId = 0;
 let refreshModelsRequestId = 0;
+let refreshModelsInFlight = null;
 let acceptedStatusObserver = null;
 let installPollTimer = null;
 let installPollStartTime = null;
@@ -12,6 +13,8 @@ let installPollInFlight = false;
 let latestStatus = null;
 let latestAppUpdateStatus = null;
 let pendingInstallBackendId = null;
+let modelDirChangeInProgress = false;
+let modelDirOperationError = "";
 
 const INSTALL_POLL_TIMEOUT_MS = 10 * 60 * 1000;
 const INSTALL_POLL_MAX_FAILS = 5;
@@ -296,6 +299,7 @@ async function checkStatus() {
         const status = await fetchJson("/api/status");
         if (!status || requestId !== statusRequestId) return null;
         latestStatus = status;
+        applyModelDirInfo(status);
         updateStatusUI(status);
         await notifyAcceptedStatusObserver(status);
         if (requestId !== statusRequestId) {
@@ -666,7 +670,7 @@ function clearAppReloadParam() {
 async function waitForServerReady(maxRetries, intervalMs) {
     for (let i = 0; i < maxRetries; i++) {
         try {
-            await fetchJson("/api/models");
+            await fetchJson("/api/status");
             return true;
         } catch (e) {
             console.debug("Server readiness probe failed", e);
@@ -823,6 +827,111 @@ function showAppUpdateStatus(type, message) {
     } else {
         el.style.display = "";
     }
+}
+
+function renderModelDirInfo(info) {
+    const pathEl = document.getElementById("models-folder-path");
+    const changeBtn = document.getElementById("btn-change-models-folder");
+    const resetBtn = document.getElementById("btn-reset-models-folder");
+    const errorEl = document.getElementById("models-folder-error");
+    if (pathEl) pathEl.textContent = info && info.models_dir ? info.models_dir : "Loading...";
+    if (changeBtn) changeBtn.disabled = modelDirChangeInProgress;
+    if (resetBtn) {
+        resetBtn.hidden = !info || info.models_dir_is_default === true;
+        resetBtn.disabled = modelDirChangeInProgress;
+    }
+    if (errorEl) {
+        const unavailableError = info && info.models_dir_available === false
+            ? String(info.models_dir_error || "Models folder is unavailable.")
+            : "";
+        const message = modelDirOperationError || unavailableError;
+        errorEl.textContent = message;
+        errorEl.className = message ? "status-box error" : "status-box hidden";
+    }
+}
+
+function applyModelDirInfo(info) {
+    const core = window.LlamaGui && window.LlamaGui.flagCore;
+    if (core && typeof core.setModelDirInfo === "function") {
+        core.setModelDirInfo(info);
+        if (typeof core.updateCommandPreview === "function") core.updateCommandPreview();
+    }
+    renderModelDirInfo(info);
+}
+
+async function persistModelsDir(path) {
+    let postedInfo = null;
+    let displayInfo = latestStatus;
+    const statusBeforeSave = latestStatus;
+    modelDirChangeInProgress = true;
+    renderModelDirInfo(latestStatus);
+    try {
+        postedInfo = await fetchJson("/api/models-dir", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ path }),
+        });
+        displayInfo = postedInfo;
+        applyModelDirInfo(postedInfo);
+        const status = await checkStatus();
+        if (status) {
+            displayInfo = status;
+        } else if (latestStatus && latestStatus !== statusBeforeSave) {
+            displayInfo = latestStatus;
+        }
+        if (await refreshModels() !== true) {
+            throw new Error("The folder was saved, but its models could not be refreshed.");
+        }
+        const core = window.LlamaGui && window.LlamaGui.flagCore;
+        if (core && typeof core.updateCommandPreview === "function") core.updateCommandPreview();
+        modelDirOperationError = "";
+        if (typeof showToast === "function") showToast("Models folder updated.", "success");
+        return true;
+    } catch (error) {
+        const core = window.LlamaGui && window.LlamaGui.flagCore;
+        if (!postedInfo) {
+            if (core && typeof core.setModelDirInfo === "function") core.setModelDirInfo(null);
+            if (core && typeof core.updateCommandPreview === "function") core.updateCommandPreview();
+        }
+        modelDirOperationError = error && error.message ? error.message : "Could not update the models folder.";
+        renderModelDirInfo(displayInfo || latestStatus);
+        if (typeof showToast === "function") showToast(modelDirOperationError, "error");
+        return false;
+    } finally {
+        modelDirChangeInProgress = false;
+        renderModelDirInfo(displayInfo || latestStatus);
+    }
+}
+
+async function chooseModelsDir() {
+    let persistStarted = false;
+    modelDirChangeInProgress = true;
+    renderModelDirInfo(latestStatus);
+    try {
+        const selection = await fetchJson("/api/select-folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: "Select Models Folder" }),
+        });
+        if (!selection || !selection.selected) return false;
+        persistStarted = true;
+        return await persistModelsDir(selection.path);
+    } catch (error) {
+        modelDirOperationError = error && error.message ? error.message : "Could not open the folder picker.";
+        if (typeof showToast === "function") showToast(modelDirOperationError, "error");
+        return false;
+    } finally {
+        modelDirChangeInProgress = false;
+        if (!persistStarted) renderModelDirInfo(latestStatus);
+    }
+}
+
+function initModelDirControls() {
+    const changeBtn = document.getElementById("btn-change-models-folder");
+    const resetBtn = document.getElementById("btn-reset-models-folder");
+    if (changeBtn) changeBtn.addEventListener("click", chooseModelsDir);
+    if (resetBtn) resetBtn.addEventListener("click", () => persistModelsDir(null));
+    renderModelDirInfo(latestStatus);
 }
 
 function selectedAppUpdateChannel() {
@@ -1151,23 +1260,31 @@ function notifyModelPresenceChanged() {
     }
 }
 
-async function refreshModels() {
+function refreshModels() {
     const requestId = ++refreshModelsRequestId;
+    const request = refreshModelsForRequest(requestId);
+    refreshModelsInFlight = request;
+    return request;
+}
+
+async function refreshModelsForRequest(requestId) {
     const sel = document.getElementById("model-select");
-    if (!sel) return;
+    if (!sel) return false;
     try {
         const models = await fetchJson("/api/models");
-        if (requestId !== refreshModelsRequestId) return;
+        if (requestId !== refreshModelsRequestId) return refreshModelsInFlight || false;
         // Keep the current options in place while requests overlap. Clearing
         // them before the await made a second refresh snapshot an empty value,
         // so the winning response silently dropped the selected model.
         const selectedValue = sel.value;
         sel.innerHTML = '<option value="">-- Select Model --</option>';
         const names = new Set();
+        const optionValues = new Set();
         let added = 0;
         for (const m of models) {
             if (!m.name || !String(m.name).toLowerCase().endsWith(".gguf")) continue;
             names.add(String(m.name).toLowerCase());
+            optionValues.add(String(m.name));
             const opt = document.createElement("option");
             opt.value = m.name;
             opt.textContent = `${m.name}  (${m.size_mb} MB)`;
@@ -1178,10 +1295,10 @@ async function refreshModels() {
         if (added === 0) {
             const opt = document.createElement("option");
             opt.value = "";
-            opt.textContent = "No .gguf models found \u2014 add one to models/ or download from Quick Launch";
+            opt.textContent = "No .gguf models found in the active models folder \u2014 download one from Quick Launch";
             sel.appendChild(opt);
         }
-        if (selectedValue) sel.value = selectedValue;
+        sel.value = selectedValue && optionValues.has(selectedValue) ? selectedValue : "";
         if (window.LlamaGui && window.LlamaGui.flagCore) {
             window.LlamaGui.flagCore.setSelectedModelValue(sel.value || "");
         }
@@ -1189,8 +1306,13 @@ async function refreshModels() {
             syncQuickLaunchModelOptions();
         }
         notifyModelPresenceChanged();
+        if (window.LlamaGui && window.LlamaGui.flagCore
+            && typeof window.LlamaGui.flagCore.updateCommandPreview === "function") {
+            window.LlamaGui.flagCore.updateCommandPreview();
+        }
+        return true;
     } catch (e) {
-        if (requestId !== refreshModelsRequestId) return;
+        if (requestId !== refreshModelsRequestId) return refreshModelsInFlight || false;
         // Drop the cache rather than keeping a stale one: callers must not read
         // a failed refresh as proof that a model is missing.
         knownModelNames = null;
@@ -1214,6 +1336,7 @@ async function refreshModels() {
         // cache changes missing-model warnings from "none found" to "not
         // checked", and the Presets tab has to be told.
         notifyModelPresenceChanged();
+        return false;
     }
 }
 
@@ -1227,6 +1350,9 @@ if (window.LlamaGui) {
         fetchReleases,
         checkStatus,
         setAcceptedStatusObserver,
+        initModelDirControls,
+        chooseModelsDir,
+        persistModelsDir,
         refreshModels,
         getKnownModelNames,
         checkAppUpdateStatus,

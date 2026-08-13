@@ -2,6 +2,7 @@
     const root = window.LlamaGui = window.LlamaGui || {};
     let currentTool = "llama-server";
     let selectedModel = "";
+    let modelDirInfo = null;
     let flagValues = {};
     let getDefaultFlagValues = () => ({});
     let afterToolChange = null;
@@ -118,6 +119,45 @@
         const parts = name.split("/");
         if (parts.some((part) => !part || part === "." || part === "..")) return "";
         return parts.join("/");
+    }
+
+    function setModelDirInfo(info) {
+        if (
+            !info
+            || typeof info.models_dir_available !== "boolean"
+            || typeof info.models_dir_is_default !== "boolean"
+            || !Object.prototype.hasOwnProperty.call(info, "models_dir")
+            || !Object.prototype.hasOwnProperty.call(info, "models_arg_root")
+        ) {
+            modelDirInfo = null;
+            return null;
+        }
+        modelDirInfo = {
+            models_dir: String(info.models_dir || ""),
+            models_arg_root: String(info.models_arg_root || ""),
+            models_dir_is_default: info.models_dir_is_default,
+            models_dir_available: info.models_dir_available,
+            models_dir_error: String(info.models_dir_error || ""),
+        };
+        return { ...modelDirInfo };
+    }
+
+    function buildLocalModelPath(modelName) {
+        const name = normalizeModelRelPath(modelName);
+        if (!name) return { path: "", error: "Invalid model filename." };
+        if (!modelDirInfo) {
+            return { path: "", error: "Models folder status is not available yet." };
+        }
+        if (!modelDirInfo.models_dir_available) {
+            return {
+                path: "",
+                error: modelDirInfo.models_dir_error || "Models folder is unavailable.",
+            };
+        }
+        const argRoot = modelDirInfo.models_arg_root;
+        if (!argRoot) return { path: "", error: "Models folder launch path is unavailable." };
+        const separator = /[\\/]$/.test(argRoot) ? "" : "/";
+        return { path: argRoot + separator + name, error: null };
     }
 
     function setMultipleFlagValues(patch, options = {}) {
@@ -473,11 +513,9 @@
         }
 
         if (model) {
-            const modelName = normalizeModelRelPath(model);
-            if (!modelName) {
-                return { args, error: "Invalid model filename.", warnings };
-            }
-            args.push(["-m", "models/" + modelName]);
+            const localModel = buildLocalModelPath(model);
+            if (localModel.error) return { args, error: localModel.error, warnings };
+            args.push(["-m", localModel.path]);
         }
 
         return { args, error: null, warnings };
@@ -534,6 +572,8 @@
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
         normalizeModelRelPath,
+        setModelDirInfo,
+        buildLocalModelPath,
         quoteArg,
         redactSensitiveTokens,
         hasLaunchModelArg,

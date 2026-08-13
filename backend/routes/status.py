@@ -6,6 +6,7 @@ import sys
 from ..http import sanitize_error
 from ..config import LLAMA_HOST, LLAMA_PORT
 from ..services import external_server
+from ..services import model_dir
 from ..services import process_manager
 
 
@@ -31,6 +32,7 @@ def get_status(request, response, ctx):
         installed = has_config and core_tools_present and runtime_health.get("ok", True)
         config_stale = has_config and not installed
         process_status = process_manager.get_process_status_snapshot(ctx)
+        model_dir_info = model_dir.get_models_dir_info(ctx)
         backend_specs = services.backend_specs
         try:
             api_target = dict(services.get_llama_api_target())
@@ -49,7 +51,7 @@ def get_status(request, response, ctx):
                 "runtime_files_label": "Runtime libraries",
                 "runtime_health": runtime_health,
                 "missing_runtime_files": runtime_health.get("missing_runtime_files", []),
-                "models_dir": str(ctx.paths.models),
+                **model_dir_info,
                 "running": process_status["running"],
                 "active_process_tool": process_status["active_process_tool"],
                 "active_runtime": process_status["active_runtime"],

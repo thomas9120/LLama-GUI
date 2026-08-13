@@ -285,7 +285,7 @@ class LocalLlamaHttpTests(unittest.TestCase):
 
 def make_service_context(root):
     root = pathlib.Path(root)
-    return AppContext(
+    ctx = AppContext(
         paths=AppPaths(
             root=root,
             llama=root / "llama",
@@ -303,6 +303,15 @@ def make_service_context(root):
         ),
         config=ServerConfig(llama_host="127.0.0.1", llama_port=8080),
     )
+    config_store = {}
+
+    def save_config(config_data):
+        config_store.clear()
+        config_store.update(config_data)
+
+    ctx.services.load_config = lambda: dict(config_store)
+    ctx.services.save_config = save_config
+    return ctx
 
 
 class BuildBackendSpecsTests(unittest.TestCase):
@@ -2030,6 +2039,22 @@ class FilePickerServiceTests(unittest.TestCase):
 
         self.assertEqual(selected, "")
 
+    def test_macos_folder_picker_uses_osascript_and_returns_folder(self):
+        completed = SimpleNamespace(returncode=0, stdout="/Users/test/Models/\n", stderr="")
+        with mock.patch.object(file_picker_service.subprocess, "run", return_value=completed) as run:
+            selected = file_picker_service.select_folder_with_osascript(
+                title="Pick Folder",
+                initial_dir=pathlib.Path("/Users/test"),
+            )
+
+        self.assertEqual(selected, "/Users/test/Models")
+        self.assertIn("choose folder", run.call_args.args[0][2])
+
+    def test_macos_folder_picker_returns_empty_on_cancel(self):
+        completed = SimpleNamespace(returncode=0, stdout="__CANCEL__", stderr="")
+        with mock.patch.object(file_picker_service.subprocess, "run", return_value=completed):
+            self.assertEqual(file_picker_service.select_folder_with_osascript(), "")
+
 
 class GetLatestUserMessageTests(unittest.TestCase):
     def test_returns_last_user_message(self):
@@ -3036,6 +3061,48 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
                 )
 
             self.assertIn("owner_model/model.gguf", str(raised.exception))
+
+    def test_download_uses_active_custom_model_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            custom = pathlib.Path(tmp) / "custom-library"
+            custom.mkdir()
+            store = {"models_dir": str(custom)}
+            ctx.services.load_config = lambda: dict(store)
+            payload = b"gguf-bytes"
+
+            class ImmediateThread:
+                def __init__(self, *, target, daemon):
+                    self.target = target
+
+                def start(self):
+                    self.target()
+
+            with mock.patch.object(hf_service.threading, "Thread", ImmediateThread), mock.patch.object(
+                hf_service, "get_hf_file_size", return_value=len(payload)
+            ), mock.patch.object(
+                hf_service,
+                "build_hf_download_url",
+                return_value="https://example.test/model.gguf",
+            ):
+                hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="model.gguf",
+                    mmproj_file="",
+                    token=None,
+                    urlopen=lambda *_args, **_kwargs: FakeDownloadResponse(
+                        [payload], content_length=len(payload)
+                    ),
+                )
+
+            snapshot = hf_service.get_model_download_snapshot(ctx)
+            self.assertEqual(
+                pathlib.Path(snapshot["model_path"]),
+                custom / "owner_model" / "model.gguf",
+            )
+            self.assertEqual(snapshot["model_name"], "owner_model/model.gguf")
 
     def test_worker_logs_and_sanitizes_unexpected_errors(self):
         with tempfile.TemporaryDirectory() as tmp:

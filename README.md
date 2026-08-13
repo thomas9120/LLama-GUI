@@ -129,18 +129,18 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 
 ## Getting Models
 
-Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). They appear in **Quick Launch** and **Configure**. Vision projector filenames are excluded from the launch-model list; the legacy `models/mmproj/` folder remains excluded too.
+Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). To use an existing library elsewhere, open **Configure → Models Folder → Change…** and select that folder; **Reset to default** returns to `models/`. The active folder's models appear in **Quick Launch** and **Configure**. Vision projector filenames are excluded from the launch-model list; the legacy `models/mmproj/` folder remains excluded too.
 
 Or download in-app from **Quick Launch**:
 1. Enter a Hugging Face repo ID such as `owner/model-GGUF`.
 2. Click **Find GGUF Files**, pick a file, then **Download**.
 
-Downloads land under `models/<owner_repo>/` (repo id with `/` → `_`). For vision/multimodal models, also download the matching `mmproj` file when the repo provides one. The projector lands beside its model in the same folder, and the Multimodal Projector setting is applied automatically.
+Downloads land under `<active models folder>/<owner_repo>/` (repo id with `/` → `_`). For vision/multimodal models, also download the matching `mmproj` file when the repo provides one. The projector lands beside its model in the same folder, and the Multimodal Projector setting is applied automatically.
 
 ## First Run
 
 1. Install a backend in **Install** and confirm the badge shows an installed version (not `Not Installed`).
-2. Add at least one `.gguf` to `models/`.
+2. Add at least one `.gguf` to `models/`, or select an existing library from **Configure → Models Folder**.
 3. In **Quick Launch**: keep `API Server`, choose a model, keep defaults or pick a profile, click **Launch**.
 4. Confirm: header shows `Running`, output has startup logs, stats bar appears (if metrics enabled).
 5. Optional: **Chat** (enable **Web Search** for current-events questions), **API** snippets for `/v1/chat/completions`, or **Configure** for full flags.
@@ -279,7 +279,7 @@ App does not start at `http://127.0.0.1:5240`, or server launch fails on a taken
 
 ### No model / launch validation disabled
 
-Place `.gguf` files in `models/`, refresh the model list in Configure, or use `-hf` / HF repo flags for remote loading.
+Place `.gguf` files in the active models folder, refresh the model list in Configure, reset an unavailable custom folder, or use `-hf` / HF repo flags for remote loading.
 
 ### Backend mismatch (CUDA/Vulkan/SYCL/Metal/ROCm/OpenVINO)
 

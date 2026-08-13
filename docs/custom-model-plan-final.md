@@ -1,6 +1,6 @@
 # Custom Model Folder — Final Implementation Plan
 
-Status: deferred; no feature code has been implemented.
+Status: implemented on 2026-08-13; retained as the design and acceptance record.
 
 ## Goal
 
@@ -421,4 +421,3 @@ during an HF download.
 - `/api/models` remains backward compatible.
 - Folder changes cannot race active model downloads.
 - Backend, frontend, docs-sync, and syntax checks pass.
-

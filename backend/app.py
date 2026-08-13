@@ -51,6 +51,7 @@ from backend.routes import external_server as external_server_routes
 from backend.routes import file_picker as file_picker_routes
 from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
+from backend.routes import model_dir as model_dir_routes
 from backend.routes import models as models_routes
 from backend.routes import presets as presets_routes
 from backend.routes import install as install_routes
@@ -955,6 +956,8 @@ API_ROUTER = (
     .add("POST", "/api/presets/archive", presets_routes.archive_presets)
     .add("POST", "/api/open-folder", lifecycle_routes.post_open_folder)
     .add("POST", "/api/select-file", file_picker_routes.select_file)
+    .add("POST", "/api/select-folder", file_picker_routes.select_folder)
+    .add("POST", "/api/models-dir", model_dir_routes.set_models_dir)
     .add_prefix("DELETE", "/api/presets/", presets_routes.delete_preset, "name")
 )
 

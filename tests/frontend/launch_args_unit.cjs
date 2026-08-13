@@ -33,6 +33,13 @@ vm.runInContext(`
         shouldOmitSpeculativeFlag,
     });
     flagCore.setCurrentToolValue("llama-server");
+    flagCore.setModelDirInfo({
+        models_dir: "models",
+        models_arg_root: "models",
+        models_dir_is_default: true,
+        models_dir_available: true,
+        models_dir_error: "",
+    });
     flagCore.replaceFlagValues(getDefaultValues());
 `, context);
 
@@ -434,6 +441,66 @@ function launchResult() {
         flags: {},
     })`, context);
     assert.match(windowsAbsolute.error, /Invalid model filename/);
+
+    context.customModelDir = {
+        models_dir: String.raw`D:\My Models`,
+        models_arg_root: String.raw`D:\My Models`,
+        models_dir_is_default: false,
+        models_dir_available: true,
+        models_dir_error: "",
+    };
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(customModelDir)", context);
+    const custom = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "vendor/nested.gguf",
+        flags: {},
+    })`, context);
+    assert.ok(custom.args.flat().includes(String.raw`D:\My Models/vendor/nested.gguf`));
+
+    context.customModelDir = {
+        ...context.customModelDir,
+        models_dir: String.raw`\\server\models`,
+        models_arg_root: String.raw`\\server\models`,
+    };
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(customModelDir)", context);
+    const unc = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "vendor/nested.gguf",
+        flags: {},
+    })`, context);
+    assert.ok(unc.args.flat().includes(String.raw`\\server\models/vendor/nested.gguf`));
+
+    context.unavailableModelDir = {
+        models_dir: String.raw`D:\Offline Models`,
+        models_arg_root: "",
+        models_dir_is_default: false,
+        models_dir_available: false,
+        models_dir_error: "Configured models folder is offline.",
+    };
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(unavailableModelDir)", context);
+    const unavailable = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "vendor/nested.gguf",
+        flags: {},
+    })`, context);
+    assert.match(unavailable.error, /offline/);
+
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(null)", context);
+    const unknown = vm.runInContext(`window.LlamaGui.flagCore.buildLaunchArgs({
+        tool: "llama-server",
+        model: "vendor/nested.gguf",
+        flags: {},
+    })`, context);
+    assert.match(unknown.error, /status is not available/);
+    vm.runInContext(`window.LlamaGui.flagCore.setModelDirInfo({
+        models_dir: "models",
+        models_arg_root: "models",
+        models_dir_is_default: true,
+        models_dir_available: true,
+        models_dir_error: "",
+    })`, context);
+    delete context.customModelDir;
+    delete context.unavailableModelDir;
 }
 
 {
@@ -470,8 +537,7 @@ function launchResult() {
 }
 
 {
-    // Repo-relative with a space: normalizeModelRelPath rejects absolute paths,
-    // so a model in a subfolder is the realistic way to get a space into the args.
+    // A model-relative subfolder with a space must remain one preview argument.
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setSelectedModelValue("My Models/qwen.gguf");

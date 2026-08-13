@@ -17,13 +17,14 @@ from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
 from backend.http import Request
-from backend.routes import benchmarks, chat, external_server, file_picker, git_update, hf_download, install, lifecycle, metrics, models, presets, process, search, status, tunnel
+from backend.routes import benchmarks, chat, external_server, file_picker, git_update, hf_download, install, lifecycle, metrics, model_dir as model_dir_route, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
 from backend.services import external_server as external_server_service
 # The service layer; `git_update` imported from backend.routes above is the HTTP layer.
 from backend.services import git_update as srv
 from backend.services import lifecycle as lifecycle_service
 from backend.services import llama_manager
+from backend.services import model_dir as model_dir_service
 from backend.services import process_manager
 from backend.services import web_search
 
@@ -107,7 +108,7 @@ class FakeHealthUpstream:
 
 def make_context(root):
     root = Path(root)
-    return AppContext(
+    ctx = AppContext(
         paths=AppPaths(
             root=root,
             llama=root / "llama",
@@ -125,6 +126,15 @@ def make_context(root):
         ),
         config=ServerConfig(llama_host="127.0.0.1", llama_port=8080),
     )
+    config_store = {}
+
+    def save_config(config_data):
+        config_store.clear()
+        config_store.update(config_data)
+
+    ctx.services.load_config = lambda: dict(config_store)
+    ctx.services.save_config = save_config
+    return ctx
 
 
 def configure_status_services(ctx):
@@ -264,6 +274,36 @@ class ExtractedRouteTests(unittest.TestCase):
             models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
 
             self.assertEqual(response.payload, [])
+
+    def test_models_route_lists_names_relative_to_custom_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            custom = Path(tmp) / "custom-library"
+            nested = custom / "vendor" / "model.gguf"
+            nested.parent.mkdir(parents=True)
+            nested.write_bytes(b"x" * 1024)
+            model_dir_service.set_models_dir(ctx, str(custom))
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            self.assertEqual(response.status, 200)
+            self.assertIsInstance(response.payload, list)
+            self.assertEqual(response.payload[0]["name"], "vendor/model.gguf")
+
+    def test_models_route_blocks_when_custom_root_disappears(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            custom = Path(tmp) / "custom-library"
+            custom.mkdir()
+            model_dir_service.set_models_dir(ctx, str(custom))
+            custom.rmdir()
+            response = DummyResponse()
+
+            models.list_models(Request("GET", "/api/models", "", {}), response, ctx)
+
+            self.assertEqual(response.status, 409)
+            self.assertIn("does not exist", response.payload["error"])
 
     def test_benchmark_wikitext2_route_reuses_existing_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1140,12 +1180,80 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertTrue(response.payload["installed"])
             self.assertEqual(response.payload["models_dir"], str(ctx.paths.models))
+            self.assertEqual(response.payload["models_arg_root"], "models")
+            self.assertTrue(response.payload["models_dir_is_default"])
+            self.assertTrue(response.payload["models_dir_available"])
             self.assertEqual(response.payload["available_backends"], [{"id": "cpu", "label": "CPU"}])
             self.assertIsNone(response.payload["active_process_tool"])
             self.assertIsNone(response.payload["active_runtime"])
             self.assertEqual(response.payload["runtime_generation"], 0)
             self.assertFalse(response.payload["api_auth_configured"])
             self.assertEqual(response.payload["last_exit_code"], 7)
+
+    def test_status_route_reports_unavailable_custom_models_folder(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            custom = Path(tmp) / "custom-library"
+            custom.mkdir()
+            model_dir_service.set_models_dir(ctx, str(custom))
+            custom.rmdir()
+            configure_status_services(ctx)
+            ctx.services.load_config = lambda: {
+                "tag": "b1",
+                "backend": "cpu",
+                "models_dir": str(custom),
+            }
+            response = DummyResponse()
+
+            status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.payload["models_dir"], str(custom))
+            self.assertFalse(response.payload["models_dir_is_default"])
+            self.assertFalse(response.payload["models_dir_available"])
+            self.assertIn("does not exist", response.payload["models_dir_error"])
+
+    def test_models_dir_route_sets_resets_and_rejects_busy_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            custom = Path(tmp) / "custom-library"
+            custom.mkdir()
+            response = DummyResponse()
+
+            model_dir_route.set_models_dir(
+                Request("POST", "/api/models-dir", "", {}, body={"path": str(custom)}),
+                response,
+                ctx,
+            )
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.payload["models_dir"], str(custom.resolve()))
+
+            response = DummyResponse()
+            model_dir_route.set_models_dir(
+                Request("POST", "/api/models-dir", "", {}, body={"path": None}),
+                response,
+                ctx,
+            )
+            self.assertEqual(response.status, 200)
+            self.assertTrue(response.payload["models_dir_is_default"])
+
+            ctx.state.model_download_in_progress = True
+            response = DummyResponse()
+            model_dir_route.set_models_dir(
+                Request("POST", "/api/models-dir", "", {}, body={"path": str(custom)}),
+                response,
+                ctx,
+            )
+            self.assertEqual(response.status, 409)
+
+            ctx.state.model_download_in_progress = False
+            response = DummyResponse()
+            model_dir_route.set_models_dir(
+                Request("POST", "/api/models-dir", "", {}, body={}),
+                response,
+                ctx,
+            )
+            self.assertEqual(response.status, 400)
 
     def test_status_route_marks_non_executable_unix_tools_unavailable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3642,6 +3750,71 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn(("All files", "*.*"), kwargs["filetypes"])
             self.assertEqual(response.payload, {"selected": True, "path": str(ctx.paths.models / "model.gguf")})
 
+    def test_file_picker_route_uses_active_custom_model_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            custom = Path(tmp) / "custom-library"
+            custom.mkdir()
+            model_dir_service.set_models_dir(ctx, str(custom))
+            response = DummyResponse()
+
+            with mock.patch.object(
+                file_picker.file_picker,
+                "select_file_in_native_dialog",
+                return_value="",
+            ) as select_file:
+                file_picker.select_file(
+                    Request("POST", "/api/select-file", "", {}, body={"purpose": "model"}),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 200)
+            self.assertEqual(select_file.call_args.kwargs["initial_dir"], custom.resolve())
+
+    def test_folder_picker_route_reports_selection_and_cancellation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            selected = str(Path(tmp) / "custom-library")
+            for native_result, expected in ((selected, True), ("", False)):
+                with self.subTest(native_result=native_result):
+                    response = DummyResponse()
+                    with mock.patch.object(
+                        file_picker.file_picker,
+                        "select_folder_in_native_dialog",
+                        return_value=native_result,
+                    ):
+                        file_picker.select_folder(
+                            Request("POST", "/api/select-folder", "", {}, body={}),
+                            response,
+                            ctx,
+                        )
+                    self.assertEqual(
+                        response.payload,
+                        {"selected": expected, "path": native_result},
+                    )
+
+    def test_folder_picker_route_sanitizes_native_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                file_picker.file_picker,
+                "select_folder_in_native_dialog",
+                side_effect=RuntimeError("private picker failure"),
+            ):
+                file_picker.select_folder(
+                    Request("POST", "/api/select-folder", "", {}, body={}),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("private picker failure", stderr.getvalue())
+
     def test_file_picker_route_handles_initial_directory_creation_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -3667,9 +3840,8 @@ class ExtractedRouteTests(unittest.TestCase):
                     ctx,
                 )
 
-            self.assertEqual(response.status, 500)
-            self.assertEqual(response.payload["error"], "Internal server error")
-            self.assertIn("private path denied", stderr.getvalue())
+            self.assertEqual(response.status, 409)
+            self.assertIn("Models folder is unavailable", response.payload["error"])
             select_file.assert_not_called()
 
 
@@ -5840,16 +6012,29 @@ class LifecycleTests(unittest.TestCase):
         mock_of.assert_called_once_with(self.ctx.paths.models)
 
     def test_post_open_folder_route_llama(self):
+        self.assertFalse(self.ctx.paths.llama.exists())
         with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
-            target = self.ctx.paths.llama / "subdir"
-            self.ctx.paths.llama.mkdir(parents=True, exist_ok=True)
             lifecycle.post_open_folder(
                 Request("POST", "/api/open-folder", "", {}, body={"folder": "llama"}),
                 self.response,
                 self.ctx,
             )
         self.assertEqual(self.response.payload, {"opened": True})
+        self.assertTrue(self.ctx.paths.llama.is_dir())
         mock_of.assert_called_once_with(self.ctx.paths.llama)
+
+    def test_post_open_folder_route_uses_custom_models_root(self):
+        custom = Path(self.tmp.name) / "custom-library"
+        custom.mkdir()
+        model_dir_service.set_models_dir(self.ctx, str(custom))
+        with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:
+            lifecycle.post_open_folder(
+                Request("POST", "/api/open-folder", "", {}, body={"folder": "models"}),
+                self.response,
+                self.ctx,
+            )
+        self.assertEqual(self.response.payload, {"opened": True})
+        mock_of.assert_called_once_with(custom.resolve())
 
     def test_post_open_folder_route_invalid_falls_back(self):
         with mock.patch.object(lifecycle_service, "open_folder_in_file_manager") as mock_of:

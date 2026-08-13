@@ -136,12 +136,21 @@ async function main() {
         const releaseRequests = [];
         const activateCustomRequests = [];
         const presetSaveBodies = [];
+        const modelsDirRequests = [];
         let statusRunning = false;
         let activeProcessTool = "";
         let externalChatTarget = null;
         let rememberedTarget = null;
         const externalTargetRequests = [];
         let installedBackend = "cpu";
+        let modelsDirInfo = {
+            models_dir: "models",
+            models_arg_root: "models",
+            models_dir_is_default: true,
+            models_dir_available: true,
+            models_dir_error: "",
+        };
+        let availableModels = [{ name: "smoke-model.gguf", size_mb: 1 }];
         let chatResponseMode = "ok";
         let statsMetrics = {
             promptTokens: 0,
@@ -220,7 +229,44 @@ async function main() {
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify([{ name: "smoke-model.gguf", size_mb: 1 }]),
+                    body: JSON.stringify(availableModels),
+                });
+                return;
+            }
+            if (pathName === "/api/select-folder") {
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({ selected: true, path: "D:\\Smoke & Models" }),
+                });
+                return;
+            }
+            if (pathName === "/api/models-dir") {
+                const body = JSON.parse(route.request().postData() || "{}");
+                modelsDirRequests.push(body);
+                if (body.path) {
+                    modelsDirInfo = {
+                        models_dir: body.path,
+                        models_arg_root: body.path,
+                        models_dir_is_default: false,
+                        models_dir_available: true,
+                        models_dir_error: "",
+                    };
+                    availableModels = [{ name: "custom-model.gguf", size_mb: 2 }];
+                } else {
+                    modelsDirInfo = {
+                        models_dir: "models",
+                        models_arg_root: "models",
+                        models_dir_is_default: true,
+                        models_dir_available: true,
+                        models_dir_error: "",
+                    };
+                    availableModels = [{ name: "smoke-model.gguf", size_mb: 1 }];
+                }
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify(modelsDirInfo),
                 });
                 return;
             }
@@ -286,6 +332,7 @@ async function main() {
                             "llama-server": true,
                             "llama-bench": installedBackend !== "custom",
                         },
+                        ...modelsDirInfo,
                     }),
                 });
                 return;
@@ -1764,6 +1811,31 @@ async function main() {
             expectedPrevious,
             "ArrowUp must step back from the clicked row, not from where the keyboard last was"
         );
+
+        // --- Models folder: picker -> setting -> status -> model refresh ---
+        await selectSection(page, "configure");
+        await page.selectOption("#model-select", "smoke-model.gguf");
+        await page.dispatchEvent("#model-select", "change");
+        await page.click("#btn-change-models-folder");
+        await page.waitForFunction(() => document.querySelector("#models-folder-path")?.textContent === "D:\\Smoke & Models");
+        await page.waitForFunction(() => Array.from(document.querySelector("#model-select")?.options || [])
+            .some(option => option.value === "custom-model.gguf"));
+        assert.equal(await page.inputValue("#model-select"), "", "folder change must clear a missing selection");
+        assert.equal(await page.inputValue("#quick-model-select"), "");
+        assert.equal(modelsDirRequests.length, 1);
+        assert.equal(modelsDirRequests[0].path, "D:\\Smoke & Models");
+        assert.doesNotMatch(
+            await page.textContent("#command-preview-text"),
+            /smoke-model\.gguf/,
+            "the command preview must drop the old model after the selection is cleared"
+        );
+
+        await page.click("#btn-reset-models-folder");
+        await page.waitForFunction(() => document.querySelector("#models-folder-path")?.textContent === "models");
+        await page.waitForFunction(() => Array.from(document.querySelector("#model-select")?.options || [])
+            .some(option => option.value === "smoke-model.gguf"));
+        assert.equal(modelsDirRequests.length, 2);
+        assert.equal(modelsDirRequests[1].path, null);
 
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 

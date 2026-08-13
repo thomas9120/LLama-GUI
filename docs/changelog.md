@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-13
+
+- Fixed custom-model-folder follow-up issues found in diff review: successful saves retain authoritative launch state through status/model refresh races, stale model refreshes await the winning request, restart readiness uses status instead of model discovery, benchmark model-load errors are visible, status polls preserve operation errors, and Open llama.cpp recreates its missing directory.
+- Added one user-configurable models folder with native Change/Reset controls and no restart required. The active root is validated and atomically persisted without overwriting unrelated config, published through status, and used consistently by model discovery, Open Models, model file pickers, Hugging Face model/projector downloads, normal launches, Model Switcher, command previews, and benchmarks. Presets remain root-relative, the default still emits `-m models/<id>`, unavailable custom folders fail closed, and folder changes cannot race active model downloads. Added focused backend/frontend tests and browser smoke coverage while preserving the `/api/models` array contract and keeping WikiText-2 in the default application data location.
+
 ## 2026-08-12
 
 - Added `docs/custom-model-plan-final.md`, a deferred implementation plan for a single user-configurable model folder that preserves relative preset IDs and the `/api/models` contract, blocks unsafe fallback and active-download races, centralizes launch-path generation, and documents validation, synchronization, testing, and implementation pitfalls. No feature code was implemented.

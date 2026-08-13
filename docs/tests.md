@@ -65,11 +65,11 @@ one failure. Not required by CI or by any test.
 Fast Node tests:
 
 - `custom_launch_args_unit.cjs`: custom launch arg tokenization, quote handling, duplicate flag warnings, and preset preservation.
-- `launch_args_unit.cjs`: launch argument generation for inert defaults, sampler-related flag behavior, model-source recognition, and sensitive-value redaction.
+- `launch_args_unit.cjs`: launch argument generation for inert defaults, default/custom/unavailable model roots, traversal rejection, sampler-related flag behavior, model-source recognition, and sensitive-value redaction.
 - `output_cursor_unit.cjs`: generation-aware process output cursor consumption and stale-response rejection.
 - `process_lifecycle_unit.cjs`: guarded launch/stop/switch ordering, readiness progression, generation conflicts, out-of-band replacement reconciliation, refused-stop recovery, stop-during-load, and stale transition handling.
 - `model_switch_ui_unit.cjs`: two-slot persistence, assignment validation, recoverable slot states, cancellation/failure cleanup, active-runtime display precedence, sidebar slider availability/drag thresholds/markup, safe rendering helpers, and storage fallback.
-- `benchmark_args_unit.cjs`: benchmark/perplexity argument adaptation without mutating source presets.
+- `benchmark_args_unit.cjs`: benchmark/perplexity argument adaptation through the shared local-model path builder without mutating source presets, plus visible model-folder load failures in the manual-model selector.
 - `chat_rendering_unit.cjs`: markdown escaping, fenced code safety, and safe source-link rendering.
 - `chat_ui_unit.cjs`: abort-mid-stream ordering for `loadConversation` / `startNewChat` / `clearChat` — the aborted reply must not be finalized into the conversation being switched to (pins the `await abortActiveStream()` fix), plus stream completion persistence. The fetch stub rejects on a real microtask; reverting the three `await`s makes these tests fail. Also covers chat payload hygiene (empty-string sampler values omitted, no dead `host`/`port` fields), `regenerateResponse` persisting the popped message on its early return (delete-when-empty, mirroring `undoMessage`), and sidebar slider fallbacks for empty/non-numeric flag values (no stale or `NaN` displays).
 - `sampler_presets_unit.cjs`: sampler preset storage fallback, normalization, applying defaults, and built-in/custom preset shape.
@@ -79,7 +79,8 @@ Fast Node tests:
 - `external_server_ui_unit.cjs`: the API tab's external-server panel — connect/disconnect request payloads, the blank-port guard that never reaches the network, backend warning and error rendering, clearing the key field on disconnect, prefilling the form from a registered target, the status refresh that unlocks Chat, and load-time restore of a remembered address (auto-reconnect when keyless, prefill-and-explain when a key is needed, adopting an already-live target, and reporting a failed reconnect).
 - `presets_unit.cjs`: preset storage failure fallback, non-default override calculation, imported preset normalization, stale flag filtering, sensitive Custom Launch Args rejection, bulk favorite write batching, missing-model detection, library summary scoping, health copy under filters and an unchecked model list, and search across overridden flag names and labels.
 - `preset_roving_focus_unit.cjs`: the preset list focus sequence, skipping rows in collapsed groups, roving `tabindex` bookkeeping including each row's inner controls, clamped Up/Down and Home/End movement, restoring position across a re-render, and syncing the roving position when focus arrives by click or programmatic `focus()`.
-- `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, and the presets-tab notification firing on both the success and failure paths.
+- `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, stale callers adopting the winning refresh result, and the presets-tab notification firing on both the success and failure paths.
+- `manager_model_dir_unit.cjs`: native-picker cancellation, set/status/model-refresh sequencing and races, retained launch state after partial save failures, persistent operation errors, status-based restart readiness, stale-selection clearing, shared root-state updates, command-preview rebuilding, and safe folder/error rendering.
 - `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering.
 - `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, unknown-theme normalization, and registry-driven color-scheme hints (asserted for every entry in `THEMES`, so a new theme with the wrong `scheme` fails here). Also covers the sidebar theme menu against a DOM stub: rendering one row per registry entry, `aria-checked`/roving `tabindex`, arrow-key wrapping, Home/End, Escape returning focus to the trigger, and outside-click dismissal. Asserts every `THEMES` entry has a matching palette block in `tokens.css`, so a theme cannot be offered in the menu while rendering as the fallback. Also enforces contrast floors for every theme, which is what makes adding a theme safe rather than merely cheap:
 
@@ -94,7 +95,7 @@ Fast Node tests:
 
 Browser smoke test:
 
-- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
+- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 
@@ -105,6 +106,7 @@ Use fast Node tests for focused debugging. Use the Playwright smoke test when a 
 Backend tests use Python `unittest` and mostly exercise route/service logic without starting the real app server.
 
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
+- `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.
 - `test_http_adapters.py`: request/response helpers and CORS origin handling.
 - `test_server_baseline.py`: compatibility wrapper behavior, API dispatch, CORS, static asset versioning, and baseline server helpers.
