@@ -197,7 +197,7 @@ const FLAGS = [
 		label: "Memory Map Model",
 		desc: "Deprecated by llama.cpp in favor of --load-mode mmap. Load the model using memory-mapped files for faster loading and lower RAM usage.",
 		tool: "both",
-		default: true,
+		default: false,
 	},
 	{
 		id: "direct_io",
