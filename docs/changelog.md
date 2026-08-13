@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-13
 
+- Made the custom model-folder path-resolution test POSIX-portable by creating its normalized directory before checking an equivalent path containing `..`.
 - Fixed custom-model-folder follow-up issues found in diff review: successful saves retain authoritative launch state through status/model refresh races, stale model refreshes await the winning request, restart readiness uses status instead of model discovery, benchmark model-load errors are visible, status polls preserve operation errors, and Open llama.cpp recreates its missing directory.
 - Added one user-configurable models folder with native Change/Reset controls and no restart required. The active root is validated and atomically persisted without overwriting unrelated config, published through status, and used consistently by model discovery, Open Models, model file pickers, Hugging Face model/projector downloads, normal launches, Model Switcher, command previews, and benchmarks. Presets remain root-relative, the default still emits `-m models/<id>`, unavailable custom folders fail closed, and folder changes cannot race active model downloads. Added focused backend/frontend tests and browser smoke coverage while preserving the `/api/models` array contract and keeping WikiText-2 in the default application data location.
 

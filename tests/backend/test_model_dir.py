@@ -44,8 +44,9 @@ class ModelDirServiceTests(unittest.TestCase):
     def test_custom_root_is_resolved_and_preserves_unrelated_config(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx, store = make_context(tmp)
-            custom = pathlib.Path(tmp) / "library" / ".." / "library"
-            custom.mkdir(parents=True)
+            library = pathlib.Path(tmp) / "library"
+            library.mkdir()
+            custom = library / ".." / "library"
 
             info = model_dir.set_models_dir(ctx, str(custom))
 
