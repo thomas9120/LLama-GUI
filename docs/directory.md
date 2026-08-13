@@ -79,7 +79,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 42 exact routes plus one prefix route, 43 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 43 exact routes plus one prefix route, 44 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -90,7 +90,7 @@
 | `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` |
 | `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots` — Prometheus proxy |
 | `models.py` | `GET /api/models` — list GGUF files recursively as `models/`-relative names |
-| `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
+| `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/archive` (bulk archive/restore), `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
 | `hf_download.py` | `POST /api/hf/repo-files`, `POST /api/hf/download`, `POST /api/hf/download-cancel`, `GET /api/hf/download-status` |
 | `tunnel.py` | `POST /api/remote-tunnel/start`, `POST /api/remote-tunnel/stop`, `GET /api/remote-tunnel/status` |
 | `git_update.py` | `GET /api/app-update-status`, `POST /api/app-update` |
@@ -176,7 +176,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/flag-core.js` | `window.LlamaGui.flagCore` | Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
-| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
+| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; an archive view that hides unused presets until restored; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
 | `ui/js/searchable-select.js` | `window.LlamaGui.searchableSelect` | Searchable combobox wrapper that visually replaces a native `<select>` (button + popup with search) while keeping the select in the DOM as the source of truth for options, value, and change events |
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |

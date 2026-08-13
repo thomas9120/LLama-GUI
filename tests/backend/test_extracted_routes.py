@@ -415,6 +415,81 @@ class ExtractedRouteTests(unittest.TestCase):
                 {},
             )
 
+    def test_presets_archive_route_flags_restores_and_validates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            for name in ("Keep", "Shelve"):
+                presets.save_preset(
+                    Request("POST", "/api/presets", "", {}, body={"name": name, "data": {"temperature": 0.5}}),
+                    DummyResponse(),
+                    ctx,
+                )
+
+            archive_response = DummyResponse()
+            presets.archive_presets(
+                Request("POST", "/api/presets/archive", "", {}, body={"names": ["Shelve"], "archived": True}),
+                archive_response,
+                ctx,
+            )
+            self.assertEqual(archive_response.payload, {"archived": True, "count": 1})
+
+            list_response = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), list_response, ctx)
+            flags = {entry["name"]: entry["archived"] for entry in list_response.payload}
+            self.assertEqual(flags, {"Keep": False, "Shelve": True})
+
+            restore_response = DummyResponse()
+            presets.archive_presets(
+                Request("POST", "/api/presets/archive", "", {}, body={"names": ["Shelve"], "archived": False}),
+                restore_response,
+                ctx,
+            )
+            self.assertEqual(restore_response.payload, {"archived": False, "count": 1})
+            list_response = DummyResponse()
+            presets.list_presets(Request("GET", "/api/presets", "", {}), list_response, ctx)
+            self.assertFalse(any(entry["archived"] for entry in list_response.payload))
+
+            missing_response = DummyResponse()
+            presets.archive_presets(
+                Request("POST", "/api/presets/archive", "", {}, body={"names": ["Missing"], "archived": True}),
+                missing_response,
+                ctx,
+            )
+            self.assertEqual(missing_response.status, 404)
+
+            empty_response = DummyResponse()
+            presets.archive_presets(
+                Request("POST", "/api/presets/archive", "", {}, body={"names": [], "archived": True}),
+                empty_response,
+                ctx,
+            )
+            self.assertEqual(empty_response.status, 400)
+
+    def test_delete_preset_clears_archive_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request("POST", "/api/presets", "", {}, body={"name": "Shelve", "data": {"temperature": 0.5}}),
+                DummyResponse(),
+                ctx,
+            )
+            presets.archive_presets(
+                Request("POST", "/api/presets/archive", "", {}, body={"names": ["Shelve"], "archived": True}),
+                DummyResponse(),
+                ctx,
+            )
+
+            presets.delete_preset(
+                Request("DELETE", "/api/presets/Shelve", "", {}, params={"name": "Shelve"}),
+                DummyResponse(),
+                ctx,
+            )
+
+            self.assertEqual(
+                json.loads((ctx.paths.presets / ".preset-archived").read_text(encoding="utf-8")),
+                [],
+            )
+
     def test_list_presets_reads_utf8_explicitly(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

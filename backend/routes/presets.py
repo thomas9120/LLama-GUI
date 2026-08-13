@@ -8,6 +8,7 @@ import urllib.parse
 
 
 _PRESET_CREATED_TIMES_FILE = ".preset-created-times"
+_PRESET_ARCHIVED_FILE = ".preset-archived"
 _SENSITIVE_PRESET_KEYS = {"api_key"}
 _SENSITIVE_CUSTOM_ARG_RE = re.compile(r"(?<![A-Za-z0-9_-])--api-key(?=$|[=\s])")
 
@@ -120,6 +121,37 @@ def _save_preset_created_times(presets_dir, created_times):
         )
 
 
+def _load_preset_archived(presets_dir):
+    metadata_file = presets_dir / _PRESET_ARCHIVED_FILE
+    try:
+        data = json.loads(metadata_file.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return set()
+        return {str(name) for name in data}
+    except FileNotFoundError:
+        return set()
+    except (json.JSONDecodeError, OSError) as exc:
+        print(
+            f"[presets] failed to read archive metadata: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        return set()
+
+
+def _save_preset_archived(presets_dir, archived_names):
+    metadata_file = presets_dir / _PRESET_ARCHIVED_FILE
+    try:
+        metadata_file.write_text(
+            json.dumps(sorted(archived_names), indent=2),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        print(
+            f"[presets] failed to save archive metadata: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+
+
 def _initial_preset_created_time(stat_result):
     birth_time = getattr(stat_result, "st_birthtime", None)
     if _is_valid_timestamp(birth_time):
@@ -194,6 +226,7 @@ def list_presets(request, response, ctx):
     presets_dir = ctx.paths.presets
     if presets_dir.exists():
         created_times = _load_preset_created_times(presets_dir)
+        archived_names = _load_preset_archived(presets_dir)
         existing_names = set()
         metadata_changed = False
         for path in sorted(presets_dir.glob("*.json")):
@@ -217,6 +250,7 @@ def list_presets(request, response, ctx):
                     "data": data,
                     "created": created,
                     "modified": path.stat().st_mtime,
+                    "archived": path.name in archived_names,
                 })
             except (json.JSONDecodeError, OSError) as exc:
                 print(
@@ -230,6 +264,9 @@ def list_presets(request, response, ctx):
             metadata_changed = True
         if metadata_changed:
             _save_preset_created_times(presets_dir, created_times)
+        stale_archived = archived_names - existing_names
+        if stale_archived:
+            _save_preset_archived(presets_dir, archived_names - stale_archived)
     response.json(presets)
 
 
@@ -374,6 +411,40 @@ def delete_preset(request, response, ctx):
         if preset_file.name in created_times:
             del created_times[preset_file.name]
             _save_preset_created_times(ctx.paths.presets, created_times)
+        archived_names = _load_preset_archived(ctx.paths.presets)
+        if preset_file.name in archived_names:
+            archived_names.discard(preset_file.name)
+            _save_preset_archived(ctx.paths.presets, archived_names)
         response.json({"deleted": True})
     else:
         response.error("Preset not found", 404)
+
+
+def archive_presets(request, response, ctx):
+    body = request.body or {}
+    names = body.get("names")
+    archived = bool(body.get("archived"))
+    if not isinstance(names, list) or not names:
+        response.error("names list required", 400)
+        return
+
+    presets_dir = ctx.paths.presets
+    file_names = []
+    for name in names:
+        safe_name = sanitize_preset_name(name)
+        preset_file = get_preset_file_path(presets_dir, safe_name) if safe_name else None
+        if preset_file is None:
+            response.error("Invalid preset name", 400)
+            return
+        if not preset_file.exists():
+            response.error("Preset not found", 404)
+            return
+        file_names.append(preset_file.name)
+
+    archived_names = _load_preset_archived(presets_dir)
+    if archived:
+        archived_names.update(file_names)
+    else:
+        archived_names.difference_update(file_names)
+    _save_preset_archived(presets_dir, archived_names)
+    response.json({"archived": archived, "count": len(file_names)})
