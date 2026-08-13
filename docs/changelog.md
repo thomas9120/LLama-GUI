@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-12
 
+- Added `docs/custom-model-plan-final.md`, a deferred implementation plan for a single user-configurable model folder that preserves relative preset IDs and the `/api/models` contract, blocks unsafe fallback and active-download races, centralizes launch-path generation, and documents validation, synchronization, testing, and implementation pitfalls. No feature code was implemented.
 - Shortened the Nightly app-update channel label while retaining its instability warning.
 - Added preset archiving to the Presets tab: per-row, detail-panel, and bulk Archive/Restore controls move presets out of the main list into a 📦 Archived view without touching their files, so rename, delete, export, and `?preset=` shortcuts keep working. Archive state lives in an atomically written `.preset-archived` metadata file beside the presets, stays linked through renames, serializes concurrent changes, and is exposed via a validated `POST /api/presets/archive` route and an `archived` flag on `GET /api/presets`.
 - Added a manual GitHub Actions stable-release workflow that tests the current `main` tip, calculates the next UTC CalVer version, packages the app, generates release notes, and publishes the tagged archive while Nightly commits continue to bake untagged.
