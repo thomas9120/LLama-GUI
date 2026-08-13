@@ -990,7 +990,60 @@ async function testPresetLoadFailureClearsAuxiliaryState() {
     assert.equal(elements.get("presets-count-line").textContent, "0 presets · 0 models");
 }
 
-testPresetLoadFailureClearsAuxiliaryState()
+// --- Archive view ------------------------------------------------------------
+// Archived presets stay in the library (still loadable by name or shortcut)
+// but are hidden from the main list; the archive view shows only them.
+{
+    const ctx = createModelContext(new Set(["kept.gguf"]));
+    ctx.__presets = [
+        { name: "daily", archived: false, data: { model: "kept.gguf", flags: {} } },
+        { name: "shelved", archived: true, data: { model: "kept.gguf", flags: {} } },
+    ];
+    // joined before compare: a vm-context array is not host Array, so
+    // deepStrictEqual would fail on the prototype even with equal contents
+    const visibleNames = () => vm.runInContext("getVisiblePresetEntries().map((e) => e.name).join(',')", ctx);
+
+    vm.runInContext("currentPresetGroups = buildPresetGroups(__presets)", ctx);
+    assert.equal(visibleNames(), "daily", "archived presets are hidden from the main list");
+    assert.equal(vm.runInContext("getPresetLibrarySummary().filtered", ctx), false);
+
+    vm.runInContext("presetArchiveViewActive = true; currentPresetGroups = buildPresetGroups(__presets)", ctx);
+    assert.equal(visibleNames(), "shelved", "the archive view shows only archived presets");
+    assert.equal(
+        vm.runInContext("getPresetLibrarySummary().filtered", ctx),
+        true,
+        "the archive view reports itself as filtered so the summary stays scoped"
+    );
+
+    vm.runInContext("presetArchiveViewActive = false", ctx);
+}
+
+async function testSetPresetArchivedPostsBatchPayload() {
+    const ctx = createModelContext(new Set(["kept.gguf"]));
+    const calls = [];
+    ctx.fetchJson = async (url, options) => {
+        calls.push({ url, body: JSON.parse(options.body) });
+        return { archived: options ? JSON.parse(options.body).archived : true, count: 1 };
+    };
+    vm.runInContext("selectedPresetNames = new Set(['shelved'])", ctx);
+
+    await vm.runInContext("setPresetArchived(['shelved'], true)", ctx);
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "/api/presets/archive");
+    assert.deepEqual(calls[0].body, { names: ["shelved"], archived: true });
+    assert.equal(
+        vm.runInContext("selectedPresetNames.size", ctx),
+        0,
+        "presets moved to the archive leave the current view, so they must leave the selection"
+    );
+
+    await vm.runInContext("setPresetArchived('solo', false)", ctx);
+    assert.deepEqual(calls[1].body, { names: ["solo"], archived: false }, "a bare name is wrapped into a batch");
+}
+
+testSetPresetArchivedPostsBatchPayload()
+    .then(() => testPresetLoadFailureClearsAuxiliaryState())
     .then(() => console.log("presets unit tests passed"))
     .catch((error) => {
         console.error(error);

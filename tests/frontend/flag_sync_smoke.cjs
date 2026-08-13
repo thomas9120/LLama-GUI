@@ -1705,8 +1705,8 @@ async function main() {
         assert.equal(state.tabbable, 1, "still exactly one item in the tab order after moving");
         assert.equal(
             state.tabbableDescendants,
-            3,
-            "only the focused row's checkbox, favorite, and Load button stay tabbable"
+            4,
+            "only the focused row's checkbox, favorite, archive, and Load button stay tabbable"
         );
 
         // Enter selects without collapsing the roving state.

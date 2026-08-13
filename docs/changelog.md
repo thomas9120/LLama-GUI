@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-12
 
+- Added preset archiving to the Presets tab: per-row, detail-panel, and bulk Archive/Restore controls move presets out of the main list into a 📦 Archived view without touching their files, so rename, delete, export, and `?preset=` shortcuts keep working. Archive state lives in an atomically written `.preset-archived` metadata file beside the presets, stays linked through renames, serializes concurrent changes, and is exposed via a validated `POST /api/presets/archive` route and an `archived` flag on `GET /api/presets`.
 - Added a manual GitHub Actions stable-release workflow that tests the current `main` tip, calculates the next UTC CalVer version, packages the app, generates release notes, and publishes the tagged archive while Nightly commits continue to bake untagged.
 - Removed the stale `-mv` / Vocoder Model server control and its unused file-picker purpose because current llama.cpp builds no longer accept that flag.
 - Added a Stable/Nightly selector for Llama GUI app updates. Stable keeps targeting the newest tagged release; Nightly safely fast-forwards to the latest commit on the configured release branch while retaining dirty-tree, divergence, dependency-install, and restart protections.

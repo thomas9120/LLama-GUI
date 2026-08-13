@@ -83,6 +83,7 @@ class AtomicDict:
 class ServerState:
     process: Any = None
     process_lock: threading.Lock = field(default_factory=threading.Lock)
+    preset_lock: threading.Lock = field(default_factory=threading.Lock)
     output_buffer: list[str] = field(default_factory=list)
     output_buffer_lock: threading.Lock = field(default_factory=threading.Lock)
     output_buffer_start: int = 0

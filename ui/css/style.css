@@ -2558,6 +2558,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .presets-filters {
     display: flex;
     flex: none;
+    flex-wrap: wrap;
     align-items: center;
     gap: 6px;
     padding: 9px var(--space-3);
@@ -2575,6 +2576,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
     border: 1px solid var(--border-strong);
     cursor: pointer;
     transition: all var(--ease-fast);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
 .preset-chip:hover {
@@ -2837,6 +2840,27 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .preset-row-favorite.active {
     color: var(--favorite);
     background: var(--favorite-subtle);
+}
+
+.preset-row-archive {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--fg-faint);
+    cursor: pointer;
+}
+
+.preset-row-archive:hover,
+.preset-row-archive:focus-visible {
+    color: var(--accent-text);
+    background: var(--accent-subtle);
 }
 
 .preset-row-warn {

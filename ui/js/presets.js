@@ -352,6 +352,8 @@ let presetSearchQuery = "";
 let presetWarningFilterActive = false;
 let presetSortMode = loadPresetSortMode();
 let presetFavoritesMode = loadPresetFavoritesMode();
+let presetArchiveViewActive = false;
+let presetArchivedCount = 0;
 let currentPresetGroups = [];
 let selectedPresetName = "";
 let selectedPresetNames = new Set();
@@ -629,6 +631,7 @@ function buildPresetGroups(presets) {
             created: typeof preset.created === "number" ? preset.created * 1000 : 0,
             lastUsed: getPresetLastUsed(preset.name),
             favorite: isPresetFavorite(preset.name),
+            archived: preset.archived === true,
         };
         // Built once here, not once per entry per keystroke in the filter below.
         entry.searchText = buildPresetSearchText(entry);
@@ -658,6 +661,7 @@ function buildPresetGroups(presets) {
             .filter((entry) => !query || getPresetSearchText(entry).includes(query))
             .filter((entry) => !presetWarningFilterActive || entry.warnings.length > 0)
             .filter((entry) => presetFavoritesMode !== "only" || entry.favorite)
+            .filter((entry) => (presetArchiveViewActive ? entry.archived : !entry.archived))
             .sort(compareEntries);
         return {
             ...group,
@@ -769,6 +773,8 @@ const PRESET_ICON_CHEVRON = '<svg width="11" height="11" viewBox="0 0 24 24" fil
 const PRESET_ICON_EMPTY = '<svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>';
 const PRESET_ICON_STAR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
 const PRESET_ICON_STAR_OUTLINE = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>';
+const PRESET_ICON_ARCHIVE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M10 12h4"/></svg>';
+const PRESET_ICON_RESTORE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8"/><path d="M12 16v-5"/><path d="m9.5 13.5 2.5-2.5 2.5 2.5"/></svg>';
 
 function createPresetIcon(svgMarkup) {
     const wrap = document.createElement("span");
@@ -808,7 +814,7 @@ function formatPresetTimestamp(ts) {
 }
 
 function isPresetFilterActive() {
-    return Boolean(presetSearchQuery.trim()) || presetWarningFilterActive || presetFavoritesMode === "only";
+    return Boolean(presetSearchQuery.trim()) || presetWarningFilterActive || presetFavoritesMode === "only" || presetArchiveViewActive;
 }
 
 // Describes the presets currently visible rather than every preset on disk, so
@@ -1017,6 +1023,14 @@ function renderPresetDetailPanel() {
         loadPresets();
     });
     actions.appendChild(favoriteBtn);
+    actions.appendChild(createPresetButton(
+        entry.archived ? "Restore" : "Archive",
+        "btn btn-sm",
+        () => setPresetArchived([entry.name], !entry.archived),
+        entry.archived
+            ? "Restore this preset from the archive back into the main list"
+            : "Move this preset to the archive to clean up the list; it can be restored any time"
+    ));
 
     const spacer = document.createElement("span");
     spacer.className = "preset-detail-actions-spacer";
@@ -1114,9 +1128,31 @@ function renderPresetBulkControls() {
     if (unfavoriteButton) {
         unfavoriteButton.disabled = selectedPresetNames.size === 0;
     }
+    const archiveButton = document.getElementById("btn-presets-archive-selected");
+    if (archiveButton) {
+        archiveButton.disabled = selectedPresetNames.size === 0;
+    }
+    const restoreButton = document.getElementById("btn-presets-restore-selected");
+    if (restoreButton) {
+        restoreButton.disabled = selectedPresetNames.size === 0;
+    }
     if (browser) {
         browser.classList.toggle("has-checked", selectedPresetNames.size > 0);
     }
+}
+
+function renderPresetArchiveChip() {
+    const chip = document.getElementById("preset-archive-view");
+    if (!chip) return;
+    const countText = presetArchivedCount > 0 ? ` (${presetArchivedCount})` : "";
+    chip.textContent = presetArchiveViewActive
+        ? `\uD83D\uDCE6 Viewing archive${countText}`
+        : `\uD83D\uDCE6 Archived${countText}`;
+    chip.title = presetArchiveViewActive
+        ? "Viewing archived presets. Click to return to the main list"
+        : "Show presets hidden from the main list by archiving";
+    chip.classList.toggle("active", presetArchiveViewActive);
+    chip.setAttribute("aria-pressed", String(presetArchiveViewActive));
 }
 
 function renderPresetCountLine() {
@@ -1249,6 +1285,18 @@ function renderPresetEntry(entry) {
         loadPresets();
     });
     el.appendChild(rowFavorite);
+
+    const rowArchive = document.createElement("button");
+    rowArchive.type = "button";
+    rowArchive.className = "preset-row-archive";
+    rowArchive.title = entry.archived ? "Restore from archive" : "Archive preset";
+    rowArchive.setAttribute("aria-label", `${entry.archived ? "Restore" : "Archive"} ${entry.name}`);
+    rowArchive.appendChild(createPresetIcon(entry.archived ? PRESET_ICON_RESTORE : PRESET_ICON_ARCHIVE));
+    rowArchive.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setPresetArchived([entry.name], !entry.archived);
+    });
+    el.appendChild(rowArchive);
 
     el.appendChild(createPresetButton("Load", "btn btn-sm btn-primary preset-row-load", () => loadPreset(entry.name)));
     return el;
@@ -1426,11 +1474,13 @@ function renderPresetGroups(container, groups) {
         empty.className = "presets-empty";
         empty.textContent = presetSearchQuery
             ? "No presets match your search."
-            : presetWarningFilterActive
-                ? "No presets with warnings."
-                : presetFavoritesMode === "only"
-                    ? "No favorite presets yet. Star a preset to keep it here."
-                    : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
+            : presetArchiveViewActive
+                ? "The archive is empty. Archive a preset to move it out of the main list."
+                : presetWarningFilterActive
+                    ? "No presets with warnings."
+                    : presetFavoritesMode === "only"
+                        ? "No favorite presets yet. Star a preset to keep it here."
+                        : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
         container.appendChild(empty);
         renderPresetAuxiliaryPanels();
         return;
@@ -1439,7 +1489,8 @@ function renderPresetGroups(container, groups) {
     // when searching or filtering, force groups open so matches are visible
     const forceExpanded = Boolean(presetSearchQuery.trim())
         || presetWarningFilterActive
-        || presetFavoritesMode === "only";
+        || presetFavoritesMode === "only"
+        || presetArchiveViewActive;
 
     for (const group of groups) {
         const groupEl = document.createElement("section");
@@ -1568,6 +1619,8 @@ async function loadPresets() {
     try {
         const presets = await fetchPresetEntries();
         if (requestId !== loadPresetsRequestId) return;
+        presetArchivedCount = presets.filter((preset) => preset.archived === true).length;
+        renderPresetArchiveChip();
         prunePresetLocalState(new Set(presets.map((preset) => preset.name)));
         currentPresetGroups = buildPresetGroups(presets);
         const visibleEntries = getVisiblePresetEntries();
@@ -1676,6 +1729,26 @@ function initPresetLibraryControls() {
     const exportSelected = document.getElementById("btn-presets-export-selected");
     if (exportSelected) {
         exportSelected.addEventListener("click", exportSelectedPresets);
+    }
+
+    const archiveSelected = document.getElementById("btn-presets-archive-selected");
+    if (archiveSelected) {
+        archiveSelected.addEventListener("click", () => archiveSelectedPresets(true));
+    }
+
+    const restoreSelected = document.getElementById("btn-presets-restore-selected");
+    if (restoreSelected) {
+        restoreSelected.addEventListener("click", () => archiveSelectedPresets(false));
+    }
+
+    const archiveView = document.getElementById("preset-archive-view");
+    if (archiveView) {
+        renderPresetArchiveChip();
+        archiveView.addEventListener("click", () => {
+            presetArchiveViewActive = !presetArchiveViewActive;
+            renderPresetArchiveChip();
+            loadPresets();
+        });
     }
 
     const filterAll = document.getElementById("preset-filter-all");
@@ -1890,6 +1963,45 @@ async function deletePreset(name) {
         showPresetActionStatus("Failed to delete preset", "error", 3200);
         console.warn("Failed to delete preset", e);
     }
+}
+
+async function setPresetArchived(names, archived) {
+    const list = Array.isArray(names) ? names : [names];
+    if (list.length === 0) return;
+    try {
+        await fetchJson("/api/presets/archive", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ names: list, archived }),
+        });
+        for (const name of list) {
+            selectedPresetNames.delete(name);
+        }
+        if (list.includes(selectedPresetName)) {
+            selectedPresetName = "";
+        }
+        await loadPresets();
+        showPresetActionStatus(
+            `${archived ? "Archived" : "Restored"} ${list.length} preset${list.length === 1 ? "" : "s"}`,
+            "success"
+        );
+    } catch (e) {
+        showPresetActionStatus(
+            archived ? "Failed to archive presets" : "Failed to restore presets",
+            "error",
+            3200
+        );
+        console.warn("Failed to update preset archive state", e);
+    }
+}
+
+function archiveSelectedPresets(archived) {
+    const names = Array.from(selectedPresetNames);
+    if (names.length === 0) {
+        showPresetActionStatus("No presets selected", "error", 3200);
+        return;
+    }
+    setPresetArchived(names, archived);
 }
 
 async function favoriteSelectedPresets(favorite) {

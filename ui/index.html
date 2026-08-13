@@ -1353,6 +1353,7 @@
                         <button id="preset-filter-all" class="preset-chip active" type="button">All</button>
                         <button id="preset-filter-warnings" class="preset-chip preset-chip-warn" type="button">&#9888; Warnings</button>
                         <button id="preset-favorites-first" class="preset-chip preset-chip-favorite active" type="button" aria-pressed="true" title="Keep favorite presets and model groups above other results">&#9733; Favorites first</button>
+                        <button id="preset-archive-view" class="preset-chip" type="button" aria-pressed="false" title="Show presets hidden from the main list by archiving">&#128230; Archived</button>
                         <span id="presets-count-line" class="presets-count-line"></span>
                     </div>
                     <div id="presets-list" class="presets-browser-list"></div>
@@ -1366,6 +1367,8 @@
                         <button id="btn-presets-unfavorite-selected" class="presets-icon-btn" type="button" title="Remove selected presets from favorites" aria-label="Remove selected presets from favorites">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01z"/></svg>
                         </button>
+                        <button id="btn-presets-archive-selected" class="btn btn-sm" type="button" title="Move selected presets to the archive">Archive</button>
+                        <button id="btn-presets-restore-selected" class="btn btn-sm" type="button" title="Restore selected presets from the archive">Restore</button>
                         <button id="btn-presets-export-selected" class="btn btn-sm" type="button" title="Export selected presets as a JSON file">Export</button>
                         <button id="btn-presets-delete-selected" class="btn btn-sm btn-danger" type="button">Delete</button>
                     </div>
