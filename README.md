@@ -56,9 +56,9 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - A supported OS/architecture for the prebuilt `llama.cpp` binaries you want
 
 Supported prebuilt backends (installer only offers matches for your OS/arch):
-- Windows: CPU, CUDA, Vulkan, SYCL, ROCm
-- macOS: Apple Silicon (`Metal`, optional `KleidiAI`) and Intel CPU
-- Linux: CPU, Vulkan, ROCm, OpenVINO (depends on architecture; some accelerators need vendor drivers)
+- Windows: CPU, CUDA, Vulkan, SYCL, ROCm, and more
+- macOS: Apple Silicon (`Metal`) and Intel CPU
+- Linux: CPU, Vulkan, ROCm, OpenVINO, Lemonade ROCm (depends on architecture; some accelerators need vendor drivers)
 
 ## Quick Start
 
