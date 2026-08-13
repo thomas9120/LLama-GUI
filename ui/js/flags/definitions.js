@@ -218,7 +218,7 @@ const FLAGS = [
 		short_desc: "Choose llama.cpp's model loading strategy.",
 		desc: "Preferred replacement for the deprecated mmap, mlock, and Direct I/O switches. Selecting a mode suppresses those legacy arguments in the generated command.",
 		tool: "both",
-		default: "",
+		default: "mmap",
 		options: [
 			{ value: "", label: "Legacy controls" },
 			{ value: "none", label: "None" },
