@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-14
+
+- Made `--load-mode mmap` the default model-load setting and disabled the redundant deprecated `--mmap` control by default.
+- Synced `docs/architecture.html` with the source tree: corrected the `app.py` (1011) and `state.py` (145) line counts, the `definitions.js` (1,816) and `index.html` (1.5k) figures, the backend test count (9 files, adding `test_docs_sync.py`, `test_model_dir.py`, `test_release_version.py`), the frontend test count (24 `.cjs` files, adding `test:flags` and `test:frontend:modules` commands), the service module count (13, documenting `backend/services/subprocess_utils.py`), and completed the localStorage key table with the six missing keys.
+
 ## 2026-08-13
 
 - Made the custom model-folder path-resolution test POSIX-portable by creating its normalized directory before checking an equivalent path containing `..`.

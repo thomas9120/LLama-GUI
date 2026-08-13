@@ -506,7 +506,7 @@ footer {
             </div>
             <div class="node accent">
                 <div class="t">Services</div>
-                <div class="d">12 modules holding the actual logic</div>
+                <div class="d">13 modules holding the actual logic</div>
                 <div class="p">backend/services/</div>
             </div>
             <div class="node accent">
@@ -587,7 +587,7 @@ footer {
     <div class="band" style="margin-bottom:10px">
         <div class="band-label">Presentation <span class="pill">ui/</span></div>
         <div class="row">
-            <div class="node cyan"><div class="t">index.html</div><div class="d">All 7 tab panels as static markup, 1.4k lines</div></div>
+            <div class="node cyan"><div class="t">index.html</div><div class="d">All 7 tab panels as static markup, 1.5k lines</div></div>
             <div class="node cyan"><div class="t">tab UI modules</div><div class="d">quick-launch · config-flags · chat · benchmark · presets · api-tab</div></div>
             <div class="node cyan"><div class="t">widgets</div><div class="d">searchable-select · theme-ui · chat-rendering · model-switch</div></div>
             <div class="node cyan"><div class="t">css</div><div class="d">style.css (no colors) + tokens.css (all colors)</div></div>
@@ -627,6 +627,7 @@ footer {
             <div class="node green"><div class="t">hf_download</div><div class="d">Repo listing, cancellable download, path validation</div></div>
             <div class="node green"><div class="t">external_server</div><div class="d">Target resolution, health probe, remembered address</div></div>
             <div class="node green"><div class="t">tunnel · git_update · lifecycle · file_picker</div><div class="d">cloudflared, app updates, shutdown, tkinter dialogs</div></div>
+            <div class="node green"><div class="t">subprocess_utils</div><div class="d">CREATE_NO_WINDOW spawn helpers for short-lived probe processes</div></div>
         </div>
     </div>
     <div class="vline">│</div>
@@ -655,11 +656,11 @@ footer {
 <table>
 <thead><tr><th class="mono">Module</th><th>Responsibility</th><th style="text-align:right">Lines</th></tr></thead>
 <tbody>
-<tr><td class="mono">backend/app.py</td><td>HTTP handler, CORS validation, static asset serving with cache busting, the route registry, and <code>main()</code></td><td style="text-align:right">1007</td></tr>
+<tr><td class="mono">backend/app.py</td><td>HTTP handler, CORS validation, static asset serving with cache busting, the route registry, and <code>main()</code></td><td style="text-align:right">1011</td></tr>
 <tr><td class="mono">backend/routing.py</td><td><code>Router</code> — chained <code>.add(method, path, fn)</code> exact matches plus <code>.add_prefix()</code> for path parameters</td><td style="text-align:right">75</td></tr>
 <tr><td class="mono">backend/http.py</td><td><code>Request</code> / <code>Response</code> / <code>SseWriter</code> wrappers, body reading with size + timeout limits, <code>sanitize_error()</code></td><td style="text-align:right">282</td></tr>
 <tr><td class="mono">backend/context.py</td><td><code>AppContext</code> — frozen <code>AppPaths</code> and <code>ServerConfig</code>, mutable <code>ServerState</code>, injected <code>BackendServices</code></td><td style="text-align:right">86</td></tr>
-<tr><td class="mono">backend/state.py</td><td><code>ServerState</code> dataclass and <code>AtomicDict</code>; all mutable runtime state and every threading lock</td><td style="text-align:right">144</td></tr>
+<tr><td class="mono">backend/state.py</td><td><code>ServerState</code> dataclass and <code>AtomicDict</code>; all mutable runtime state and every threading lock</td><td style="text-align:right">145</td></tr>
 <tr><td class="mono">backend/config.py</td><td>Path constants, port defaults, env-var parsing, web-search limits, release-branch name</td><td style="text-align:right">108</td></tr>
 </tbody>
 </table>
@@ -925,7 +926,7 @@ flagCore.setFlagValue("temperature", 0.5);
 
 <p>
     <code>ui/js/flags/definitions.js</code> holds <code>FLAGS</code>, the single source of truth for every
-    <code>llama.cpp</code> option the UI exposes — 1,825 lines of pure data with no rendering logic. Each entry carries
+    <code>llama.cpp</code> option the UI exposes — 1,816 lines of pure data with no rendering logic. Each entry carries
     an <code>id</code>, the CLI <code>flag</code>, a <code>category</code>, a <code>type</code>, label and description
     text, a <code>tool</code> scope, and a <code>default</code>.
 </p>
@@ -1191,6 +1192,12 @@ flagCore.setFlagValue("temperature", 0.5);
         <tr><td class="mono">llama_gui_preset_last_used_v1</td><td>Recency sort timestamps</td></tr>
         <tr><td class="mono">llama_gui_preset_sort_v1</td><td>Active sort mode</td></tr>
         <tr><td class="mono">llama_gui_chat_web_search_max_results</td><td>Result count, clamped 1–10</td></tr>
+        <tr><td class="mono">llama_gui_chat_settings_collapsed</td><td>Chat sidebar collapse state</td></tr>
+        <tr><td class="mono">llama_gui_chat_web_search_enabled</td><td>Chat web-search toggle</td></tr>
+        <tr><td class="mono">llama_gui_model_switcher_slots_v1</td><td>Model Switcher standby slots</td></tr>
+        <tr><td class="mono">llama_gui_theme</td><td>Selected theme</td></tr>
+        <tr><td class="mono">llama_gui_theme_scheme</td><td>Dark/light scheme preference</td></tr>
+        <tr><td class="mono">llama_gui_preset_favorites_first_v1</td><td>Favorites-first preset sort flag</td></tr>
         </tbody>
         </table>
         </div>
@@ -1282,7 +1289,7 @@ flagCore.setFlagValue("temperature", 0.5);
 
 <div class="two">
     <div class="card">
-        <h4 style="margin-top:0">Backend — 6 files, stdlib <code>unittest</code></h4>
+        <h4 style="margin-top:0">Backend — 9 files, stdlib <code>unittest</code></h4>
         <pre style="margin:8px 0 0">python -m unittest discover tests -v</pre>
         <ul class="tight" style="font-size:13px;margin-top:10px">
             <li><code>test_backend_foundation.py</code> — context, state, config</li>
@@ -1291,13 +1298,18 @@ flagCore.setFlagValue("temperature", 0.5);
             <li><code>test_extracted_routes.py</code> — route behavior</li>
             <li><code>test_services.py</code> — install, process, download, git</li>
             <li><code>test_server_baseline.py</code> — end-to-end server behavior</li>
+            <li><code>test_docs_sync.py</code> — architecture docs vs the live route registry</li>
+            <li><code>test_model_dir.py</code> — model-root validation</li>
+            <li><code>test_release_version.py</code> — release version comparison</li>
         </ul>
     </div>
     <div class="card">
-        <h4 style="margin-top:0">Frontend — 23 <code>.cjs</code> files</h4>
+        <h4 style="margin-top:0">Frontend — 24 <code>.cjs</code> files</h4>
         <pre style="margin:8px 0 0">npm test              <span class="c"># everything</span>
 npm run test:syntax   <span class="c"># node --check all JS</span>
 npm run test:flag-definitions
+npm run test:flags    <span class="c"># upstream flag support check</span>
+npm run test:frontend:modules
 npm run test:frontend <span class="c"># Playwright smoke</span></pre>
         <p class="sub" style="margin:10px 0 0">
             Unit tests run module source in a <code>node:vm</code> context with stub dependencies — no browser. Only

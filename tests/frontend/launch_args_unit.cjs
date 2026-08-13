@@ -102,8 +102,13 @@ function launchResult() {
 
 {
     const args = flatLaunchArgs();
-    assert.ok(args.includes("--mmap"), "default launch args should enable mmap");
-    assert.ok(!args.includes("--no-mmap"), "default launch args should not disable mmap");
+    assert.equal(
+        vm.runInContext("window.LlamaGui.flagCore.getFlagValues().mmap", context),
+        false,
+        "deprecated mmap control should be disabled by default"
+    );
+    assert.ok(args.includes("--load-mode") && args.includes("mmap"), "default launch args should use mmap load mode");
+    assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"), "default launch args should not use deprecated mmap flags");
     assert.ok(args.includes("--jinja"), "default launch args should reflect llama.cpp's enabled Jinja default");
     assert.ok(!args.includes("--no-jinja"), "default launch args should not disable Jinja");
     const timeoutIndex = args.indexOf("-to");
