@@ -8,6 +8,7 @@ import sys
 from typing import Any, Optional, Sequence, Tuple
 
 from backend.context import AppContext
+from backend.services import model_dir
 
 FileTypes = Sequence[Tuple[str, str]]
 
@@ -103,6 +104,66 @@ def select_file_in_native_dialog(
         root.destroy()
 
 
+def select_folder_with_osascript(
+    title: str = "Select Folder",
+    initial_dir: Optional[Path] = None,
+) -> str:
+    initial = Path(initial_dir or Path.home()).expanduser()
+    script = (
+        "set dialogTitle to item 1 of argv\n"
+        "set initialDir to item 2 of argv\n"
+        "try\n"
+        "    set selectedFolder to choose folder with prompt dialogTitle "
+        "default location (POSIX file initialDir)\n"
+        "    return POSIX path of selectedFolder\n"
+        "on error number -128\n"
+        "    return \"__CANCEL__\"\n"
+        "end try\n"
+    )
+    result = subprocess.run(
+        ["osascript", "-e", f"on run argv\n{script}end run", str(title), str(initial)],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    if result.returncode == 0 and result.stdout.strip() == "__CANCEL__":
+        return ""
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or "macOS folder picker failed.").strip()
+        raise RuntimeError(message)
+    return result.stdout.strip().rstrip("/") or "/"
+
+
+def select_folder_in_native_dialog(
+    title: str = "Select Folder",
+    initial_dir: Optional[Path] = None,
+) -> str:
+    if platform.system() == "Darwin":
+        return select_folder_with_osascript(title, initial_dir)
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        raise RuntimeError(f"Native folder picker unavailable: {exc}") from exc
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except Exception as exc:
+        print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
+
+    options: dict[str, Any] = {"title": title, "parent": root, "mustexist": True}
+    if initial_dir:
+        options["initialdir"] = str(initial_dir)
+    try:
+        root.update()
+        return filedialog.askdirectory(**options) or ""
+    finally:
+        root.destroy()
+
+
 # `purpose` is the flag id (see getPathPickerRequest in ui/js/app.js). "model" has
 # no path flag today - the main model is a dropdown over models/ - but it is kept
 # here so a future model path flag gets the models/ folder and filter by default.
@@ -114,7 +175,7 @@ def get_select_file_options(ctx: AppContext, purpose: Any, title: Any) -> tuple[
     normalized_title = str(title or "Select File").strip() or "Select File"
 
     is_model_file = normalized_purpose in MODEL_FILE_PURPOSES
-    initial_dir = ctx.paths.models if is_model_file else ctx.paths.root
+    initial_dir = model_dir.get_models_dir(ctx) if is_model_file else ctx.paths.root
 
     filetypes: FileTypes = [("All files", "*.*")]
     if is_model_file:

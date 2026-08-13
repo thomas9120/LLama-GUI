@@ -104,6 +104,15 @@ function createContext({ models, failFetch = false } = {}) {
     assert.ok(isSetLike(emptyNames) && emptyNames.size === 0, "an empty folder caches an empty Set");
     assert.equal(empty.presenceCalls.length, 1);
 
+    const changedFolder = createContext({ models: [{ name: "new.gguf", size_mb: 1 }] });
+    changedFolder.modelSelect.value = "old.gguf";
+    await changedFolder.context.refreshModels();
+    assert.equal(
+        changedFolder.modelSelect.value,
+        "",
+        "a folder refresh must clear a selected relative model that no longer exists"
+    );
+
     // A failed refresh must clear the cache rather than leave a stale one, and
     // must still notify: "none found" becoming "not checked" changes the UI.
     const failed = createContext({ failFetch: true });
@@ -161,7 +170,11 @@ function createContext({ models, failFetch = false } = {}) {
     assert.equal(race.context.getKnownModelNames().size, 1, "newer success must populate the cache");
     assert.equal(race.presenceCalls.length, 1, "only the winning refresh notifies");
     resolveSlowFail();
-    await stale;
+    assert.equal(
+        await stale,
+        true,
+        "a stale caller must wait for and report the winning refresh result"
+    );
     assert.equal(
         race.context.getKnownModelNames() && race.context.getKnownModelNames().size,
         1,

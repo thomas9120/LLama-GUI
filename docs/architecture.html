@@ -435,7 +435,7 @@ footer {
     <div class="fact"><div class="k">llama-server</div><div class="v">127.0.0.1:8080<small>separate subprocess</small></div></div>
     <div class="fact"><div class="k">Runtime deps</div><div class="v">3 packages<small>certifi, ddgs, huggingface_hub</small></div></div>
     <div class="fact"><div class="k">Source size</div><div class="v">~30k lines<small>Python + JS + CSS</small></div></div>
-    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">43 routes<small>15 route modules</small></div></div>
+    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">46 routes<small>16 route modules</small></div></div>
 </div>
 
 <h2 id="overview">Overview</h2>
@@ -546,9 +546,9 @@ footer {
 
     <div class="row">
         <div class="node ghost"><div class="t">llama/</div><div class="d">Installed binaries + grammars</div></div>
-        <div class="node ghost"><div class="t">models/</div><div class="d">GGUF weights and colocated projectors</div></div>
+        <div class="node ghost"><div class="t">models/ or custom root</div><div class="d">GGUF weights and colocated projectors</div></div>
         <div class="node ghost"><div class="t">presets/</div><div class="d">Saved launch configurations (JSON)</div></div>
-        <div class="node ghost"><div class="t">config.json</div><div class="d">Installed version, backend, remembered target</div></div>
+        <div class="node ghost"><div class="t">config.json</div><div class="d">Installed version, backend, model root, remembered target</div></div>
         <div class="node ghost"><div class="t">tools/</div><div class="d">Auto-downloaded <code>cloudflared</code></div></div>
     </div>
 
@@ -680,16 +680,17 @@ footer {
 <tr><td class="mono">chat.py</td><td class="mono">chat.py · web_search.py</td><td>SSE proxy to <code>/v1/chat/completions</code>, optional web-search context injection</td></tr>
 <tr><td class="mono">external_server.py</td><td class="mono">external_server.py</td><td>Register / read / clear an externally started llama-server; resolve the proxy target</td></tr>
 <tr><td class="mono">metrics.py</td><td class="mono">local_llama_http.py</td><td>Proxy llama-server's Prometheus <code>/metrics</code> and <code>/slots</code></td></tr>
-<tr><td class="mono">hf_download.py</td><td class="mono">hf_download.py</td><td>List repo GGUF files, background download with cancel, progress status</td></tr>
+<tr><td class="mono">hf_download.py</td><td class="mono">hf_download.py · model_dir.py</td><td>List repo GGUF files, background download into the active model root with cancel, progress status</td></tr>
 <tr><td class="mono">presets.py</td><td class="mono">—</td><td>Preset CRUD on <code>presets/*.json</code>, rename with created-time carry, Windows shortcut export</td></tr>
-<tr><td class="mono">models.py</td><td class="mono">—</td><td>Recursive GGUF discovery under <code>models/</code>, returned as <code>models/</code>-relative names</td></tr>
+<tr><td class="mono">models.py</td><td class="mono">model_dir.py</td><td>Recursive GGUF discovery under the active model root, returned as root-relative names</td></tr>
+<tr><td class="mono">model_dir.py</td><td class="mono">model_dir.py</td><td>Validate, persist, report, and reset the active model root without unsafe fallback</td></tr>
 <tr><td class="mono">tunnel.py</td><td class="mono">tunnel.py</td><td>Download <code>cloudflared</code>, start/stop quick tunnel, poll for the public URL</td></tr>
 <tr><td class="mono">git_update.py</td><td class="mono">git_update.py</td><td>Fetch origin, classify dirty paths, fast-forward to a stable tag or nightly branch head, reinstall deps</td></tr>
 <tr><td class="mono">benchmarks.py</td><td class="mono">—</td><td>Ensure the official WikiText-2 raw test file exists for perplexity runs</td></tr>
 <tr><td class="mono">search.py</td><td class="mono">web_search.py</td><td>Standalone web-search endpoint</td></tr>
 <tr><td class="mono">lifecycle.py</td><td class="mono">lifecycle.py</td><td>Graceful shutdown, restart with port-availability polling, open a folder in the OS file manager</td></tr>
-<tr><td class="mono">file_picker.py</td><td class="mono">file_picker.py</td><td>Native tkinter open dialog with purpose-based folder and filter</td></tr>
-<tr><td class="mono">status.py</td><td class="mono">—</td><td>The aggregate status snapshot the frontend polls and reconciles against</td></tr>
+<tr><td class="mono">file_picker.py</td><td class="mono">file_picker.py</td><td>Native file and directory dialogs with purpose-based roots and filters</td></tr>
+<tr><td class="mono">status.py</td><td class="mono">process_manager.py · model_dir.py</td><td>The aggregate runtime and active-model-root snapshot the frontend polls and reconciles against</td></tr>
 </tbody>
 </table>
 </div>
@@ -971,7 +972,7 @@ flagCore.setFlagValue("temperature", 0.5);
         <div class="seq-step"><div class="n">3</div><div class="who">flagValues</div><div class="what"><b>Skip speculative flags unless enabled</b></div></div>
         <div class="seq-step"><div class="n">4</div><div class="who">—</div><div class="what"><b>Build <code>[flag, value]</code> pairs</b> in definition order</div></div>
         <div class="seq-step"><div class="n">5</div><div class="who">custom_args</div><div class="what"><b>Parse and append Custom Launch Args</b><em>Shell-like tokenizer: quotes, escapes, and preserved Windows backslashes. A parse error blocks the launch and surfaces beside the textarea.</em></div></div>
-        <div class="seq-step"><div class="n">6</div><div class="who">model</div><div class="what"><b>Append <code>-m models/&lt;name&gt;</code> last</b><em><code>normalizeModelRelPath()</code> rejects absolute paths, <code>.</code>/<code>..</code> segments, empty segments, and anything not ending in <code>.gguf</code>. Benchmarking reuses the same exported function so the two <code>-m</code> values cannot drift.</em></div></div>
+        <div class="seq-step"><div class="n">6</div><div class="who">model</div><div class="what"><b>Append <code>-m &lt;active-root&gt;/&lt;name&gt;</code> last</b><em><code>buildLocalModelPath()</code> validates the root-relative ID, requires accepted available root metadata, and preserves the exact <code>models/&lt;name&gt;</code> default. Benchmarking uses the same builder so the two <code>-m</code> values cannot drift.</em></div></div>
         <div class="seq-step"><div class="n">7</div><div class="who">→ caller</div><div class="what"><b>Return <code>{ args, error, warnings }</code></b></div></div>
     </div>
 </div>
@@ -1083,7 +1084,7 @@ flagCore.setFlagValue("temperature", 0.5);
 </div>
 
 <h2 id="api">API surface</h2>
-<p class="sub">All 43 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+<p class="sub">All 46 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
 
 <div class="tablewrap">
 <table>
@@ -1100,7 +1101,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
-<tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under <code>models/</code></td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under the active model root</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Stable-tag or nightly-branch Git comparison</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/presets</td><td>List saved presets</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/launch/preflight</td><td>Pre-launch checks and slot resolution</td></tr>
@@ -1132,7 +1133,9 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/shutdown</td><td>Graceful shutdown</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/restart</td><td>Restart, or exit 75 when supervised</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/open-folder</td><td>Open a folder in the OS file manager</td></tr>
-<tr><td><span class="verb post">POST</span></td><td class="mono">/api/select-file</td><td>Native tkinter file dialog</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/select-file</td><td>Native file dialog</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/select-folder</td><td>Native model-directory dialog</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/models-dir</td><td>Set or reset the active model root</td></tr>
 </tbody>
 </table>
 </div>
@@ -1167,9 +1170,9 @@ flagCore.setFlagValue("temperature", 0.5);
         <div class="tablewrap" style="margin:8px 0 0">
         <table>
         <tbody>
-        <tr><td class="mono">config.json</td><td>Installed version, active backend, release tag, remembered external target <em>(address only — never a key)</em></td></tr>
+        <tr><td class="mono">config.json</td><td>Installed version, active backend, release tag, optional active model root, remembered external target <em>(address only — never a key)</em></td></tr>
         <tr><td class="mono">presets/*.json</td><td>Saved launch configurations, plus <code>.preset-created-times</code></td></tr>
-        <tr><td class="mono">models/</td><td>GGUF weights in any subfolder; downloaded projectors live beside their models</td></tr>
+        <tr><td class="mono">models/</td><td>Default GGUF library and application-managed benchmark data; a custom GGUF root may be selected</td></tr>
         <tr><td class="mono">llama/bin/</td><td>Installed binaries; <code>llama/custom/</code> for a user-supplied build</td></tr>
         <tr><td class="mono">tools/cloudflared/</td><td>Auto-downloaded tunnel binary</td></tr>
         </tbody>

@@ -521,8 +521,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     initQuickLaunch();
     initChatTab();
     benchmarkUi.init();
+    window.LlamaGui.manager.initModelDirControls();
     configFlagsUi.renderFlags();
-    refreshModels();
     fetchReleases();
     flagCore.updateCommandPreview();
     updateApiEndpoints();
@@ -562,6 +562,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showToast("Llama GUI ready", "info");
 
     const initStatus = await checkStatus();
+    await refreshModels();
     if (initStatus && initStatus.running) {
         await restoreRunningState(initStatus);
     }

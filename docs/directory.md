@@ -73,13 +73,13 @@
 - Built-in web search via DuckDuckGo (`ddgs` + page fetching with HTML-to-text parsing), with an optional self-hosted SearXNG backend (`LLAMA_GUI_SEARXNG_URL`) that is preferred when set and falls back to `ddgs`.
 - Cloudflare tunnel management (auto-downloads `cloudflared`, starts/stops tunnel, returns public URL).
 - Git-based app auto-updating (checks status, pulls, reinstalls dependencies, restarts server).
-- Native file picker (tkinter) for selecting model files and paths.
+- Native file/directory pickers (tkinter on Windows/Linux, `osascript` on macOS) for selecting model files, paths, and the active model root.
 - CORS origin validation restricts API access to loopback origins for the configured GUI port, trusted `LLAMA_GUI_ALLOWED_HOSTS` entries when wildcard-bound, and the active tunnel URL.
 - Graceful shutdown/restart with port availability polling.
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 43 exact routes plus one prefix route, 44 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 45 exact routes plus one prefix route, 46 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -89,7 +89,8 @@
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
 | `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` |
 | `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots` — Prometheus proxy |
-| `models.py` | `GET /api/models` — list GGUF files recursively as `models/`-relative names |
+| `models.py` | `GET /api/models` — list GGUF files recursively as names relative to the active model root |
+| `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |
 | `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/archive` (bulk archive/restore), `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
 | `hf_download.py` | `POST /api/hf/repo-files`, `POST /api/hf/download`, `POST /api/hf/download-cancel`, `GET /api/hf/download-status` |
 | `tunnel.py` | `POST /api/remote-tunnel/start`, `POST /api/remote-tunnel/stop`, `GET /api/remote-tunnel/status` |
@@ -97,7 +98,7 @@
 | `search.py` | `POST /api/web-search` |
 | `status.py` | `GET /api/status` |
 | `lifecycle.py` | `POST /api/shutdown`, `POST /api/restart`, `POST /api/open-folder` |
-| `file_picker.py` | `POST /api/select-file` — native tkinter dialog |
+| `file_picker.py` | `POST /api/select-file` — native file dialog, `POST /api/select-folder` — native directory dialog |
 
 Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process.py`, not `presets.py` or a memory module — both answer questions about the *running or prospective process*, not about stored preset files.
 
@@ -108,6 +109,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `llama_manager.py` | GitHub release fetch, install, SHA256 verify, binary extraction |
 | `process_manager.py` | Process launch/stop, output streaming, arg flattening, API target parsing |
 | `hf_download.py` | HF repo listing, file download with cancel, path validation |
+| `model_dir.py` | Active model-root validation, metadata, and merged atomic config persistence |
 | `web_search.py` | DuckDuckGo (`ddgs`) and optional SearXNG search, HTML-to-text, page fetching |
 | `tunnel.py` | Cloudflare tunnel lifecycle, binary download, status polling |
 | `git_update.py` | Git fetch/pull/status, safe dirty path classification |
@@ -115,7 +117,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics and slots HTTP fetching |
-| `file_picker.py` | Native tkinter file dialog |
+| `file_picker.py` | Native file and directory dialogs |
 
 ### State Pattern
 
@@ -261,7 +263,7 @@ A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to co
 3. Skip speculative flags when not enabled.
 4. Build `[flag, value]` pairs.
 5. Parse + append custom args.
-6. Append model path as `-m models/<name>` (relative path under `models/`, including subfolders; `mmproj/` is excluded from discovery).
+6. Build the local model argument from accepted active-root metadata plus the root-relative model ID. The default remains exactly `-m models/<name>`; `mmproj/` is excluded from discovery.
 7. Return `{ args, error, warnings }`.
 
 `<name>` is checked by `flagCore.normalizeModelRelPath()`, which rejects absolute paths, `.`/`..` segments, empty segments, and anything not ending in `.gguf`. It is exported on the `flagCore` API and reused by `benchmark-ui.js` rather than restated, so the launch and benchmark `-m` values cannot drift apart; `benchmark-ui` fails closed if the export is missing. It stays in `flag-core.js` rather than being injected through `configure()`, so a missing `configure()` call can never disable the check.
@@ -517,7 +519,7 @@ Select All, Clear, `★ Favorite`, `☆ Unfavorite`, Export, Delete. Favorite/un
 - An outdated or unsupported chat template.
 - Custom launch args, which may override UI controls.
 
-Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full `models/`-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
+Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full active-root-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
 
 `resolvePresetModelName()` is shared by normal preset loads, Model Switcher launch preparation, and saved-preset benchmarks so every path uses the same nested filename. It matches against live model options or the benchmark model list because those carry the exact spelling the launch needs; an unresolved value is selected as-is and marked `(missing)` in the dropdown, matching what the preset warns about. When these drifted apart, a preset could report healthy while its launch emitted a path that did not exist.
 
@@ -627,6 +629,20 @@ Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, a
 
 ---
 
+## Custom Model Folder
+
+The Configure tab can select one model-library folder without restarting Llama GUI. `config.json` stores an optional absolute `models_dir`; a missing or empty value means the application-managed default `models/` directory. Presets and both model selectors continue storing only model-root-relative IDs such as `Qwen/model.gguf`.
+
+`backend/services/model_dir.py` is the only interpreter of this setting. It publishes `models_dir`, the backend-authoritative `models_arg_root`, default/available booleans, and a safe error through `GET /api/status`; `POST /api/models-dir` validates and atomically merges a set/reset under `config_lock`. A configured custom directory that disappears is reported unavailable and never falls back to `models/`. Changes are rejected while an HF model download owns `model_download_lock`.
+
+`flagCore.setModelDirInfo()` holds the accepted status, and `buildLocalModelPath()` is the single builder used by normal launches, command previews, Model Switcher preset launches, benchmarks, and perplexity. Default installs still emit exactly `models/<relative-id>`; custom installs emit the backend-provided absolute root plus that relative ID. Unknown or unavailable root state blocks command generation.
+
+Model discovery, Open Models, model-related file pickers, and HF model/projector downloads use the active root. WikiText-2 deliberately remains under the immutable default `ctx.paths.models`, because it is application-managed benchmark data rather than part of the user's model library. `GET /api/models` remains the original array of `{name, size_mb}` objects.
+
+`POST /api/select-folder` only opens the native picker. Cancellation changes nothing; persistence and validation still go through `POST /api/models-dir`. After a successful change/reset, the frontend accepts fresh status before refreshing the model list, preserves the selected relative ID only when it exists in the new list, refreshes preset warnings and both model controls, and rebuilds command previews.
+
+---
+
 ## Hugging Face Model Downloader
 
 ### Backend API
@@ -646,8 +662,8 @@ Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, a
 
 ### Download Layout
 
-- Models and their projectors land together in `models/<slug>/`, where `<slug>` is `slugify_repo_id(repo_id)`. The legacy top-level `models/mmproj/` folder remains excluded from model discovery.
-- `model_name` in the status payload is the `models/`-relative path (`<slug>/<file>.gguf`), so it matches `/api/models` and `applyPresetModel()` can select it directly.
+- Models and their projectors land together in `<active-model-root>/<slug>/`, where `<slug>` is `slugify_repo_id(repo_id)`. The legacy top-level `models/mmproj/` folder remains excluded from model discovery.
+- `model_name` in the status payload is the active-root-relative path (`<slug>/<file>.gguf`), so it matches `/api/models` and `applyPresetModel()` can select it directly.
 - The slug is not injective: only `/` is substituted, so `owner/my_model` and `owner_my/model` share a folder. Accepted deliberately — an injective scheme would rename every existing download folder, and a shared folder is harmless because files keep their own names and a same-name clash hits the overwrite prompt below.
 
 ### Safety
@@ -898,7 +914,7 @@ Playwright is a dev/CI-only Node dependency:
 
 ## Native File Picker
 
-Path-type flags (model, mmproj, draft model, etc.) have a "Browse" button that opens a native OS file dialog via tkinter.
+Path-type flags (model, mmproj, draft model, etc.) have a "Browse" button that opens a native OS file dialog. The models-folder Change button uses the matching native directory picker. Windows/Linux use tkinter; macOS uses `osascript`.
 
 ### Backend
 
@@ -908,9 +924,11 @@ Path-type flags (model, mmproj, draft model, etc.) have a "Browse" button that o
 
 Returns `{"selected": bool, "path": string}`.
 
+`POST /api/select-folder` accepts an optional `title` and returns the same shape. Cancellation returns an empty path and never changes `models_dir`; the caller must persist a selected folder through `POST /api/models-dir`.
+
 ### File Type Filters
 
-- Model files (purpose: model, model_draft, mmproj): `*.gguf`, plus `*.*` as an escape hatch. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown over `models/`) and is listed so a future one gets the right folder and filter.
+- Model files (purpose: model, model_draft, mmproj): `*.gguf`, plus `*.*` as an escape hatch. Their initial directory is the active model root. `purpose` is the flag id; `model` has no path flag today (the main model is a dropdown) and is listed so a future one gets the right folder and filter.
 - Other paths (grammar file, log file, etc.): `*.*`
 
 ---
@@ -929,6 +947,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/directory.md` | This file — project structure and feature reference |
 | `docs/architecture.html` | Visual architecture guide — diagrams of the layers, request lifecycle, script-order dependency ladder, and key flows |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
+| `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
 | `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
 | `docs/design-docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |

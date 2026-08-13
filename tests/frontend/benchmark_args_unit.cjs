@@ -27,7 +27,7 @@ const context = {
             classList: { toggle: () => {}, add: () => {}, remove: () => {} },
         }),
     },
-    console,
+    console: { ...console, debug: () => {} },
     setInterval,
     clearInterval,
 };
@@ -37,6 +37,13 @@ vm.createContext(context);
 vm.runInContext(outputCursorSource, context, { filename: "ui/js/output-cursor.js" });
 vm.runInContext(flagHelpersSource, context, { filename: "ui/js/flags/helpers.js" });
 vm.runInContext(flagCoreSource, context, { filename: "ui/js/flag-core.js" });
+vm.runInContext(`window.LlamaGui.flagCore.setModelDirInfo({
+    models_dir: "models",
+    models_arg_root: "models",
+    models_dir_is_default: true,
+    models_dir_available: true,
+    models_dir_error: "",
+})`, context);
 vm.runInContext(source, context, { filename: "ui/js/benchmark-ui.js" });
 
 const adapter = context.window.LlamaGui.benchmarkUi;
@@ -123,6 +130,37 @@ function flat(result) {
         source: { model: "../secret.gguf", flags: {} },
     });
     assert.match(escaped.error, /Invalid model filename/);
+
+    context.customModelDir = {
+        models_dir: "/mnt/My Models",
+        models_arg_root: "/mnt/My Models",
+        models_dir_is_default: false,
+        models_dir_available: true,
+        models_dir_error: "",
+    };
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(customModelDir)", context);
+    const custom = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "vendor/nested.gguf", flags: {} },
+    });
+    assert.ok(flat(custom).includes("/mnt/My Models/vendor/nested.gguf"));
+
+    vm.runInContext("window.LlamaGui.flagCore.setModelDirInfo(null)", context);
+    const unknown = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "vendor/nested.gguf", flags: {} },
+    });
+    assert.match(unknown.error, /status is not available/);
+    vm.runInContext(`window.LlamaGui.flagCore.setModelDirInfo({
+        models_dir: "models",
+        models_arg_root: "models",
+        models_dir_is_default: true,
+        models_dir_available: true,
+        models_dir_error: "",
+    })`, context);
+    delete context.customModelDir;
 }
 
 {
@@ -352,6 +390,26 @@ function trackedClassList(initial = []) {
 }
 
 (async () => {
+    const manualModelSelect = {
+        value: "",
+        children: [],
+        appendChild(option) { this.children.push(option); },
+    };
+    Object.defineProperty(manualModelSelect, "textContent", {
+        set() { this.children = []; },
+    });
+    context.document.getElementById = id => (
+        id === "benchmark-manual-model" ? manualModelSelect : null
+    );
+    adapter.configure({
+        fetchJson: async () => { throw new Error("Configured models folder is offline."); },
+    });
+    await adapter._testLoadModelsForSelect();
+    assert.equal(
+        manualModelSelect.children[0].textContent,
+        "Models unavailable: Configured models folder is offline."
+    );
+
     const runButton = { classList: trackedClassList(["hidden"]) };
     const stopButton = { classList: trackedClassList() };
     context.document.getElementById = id => ({

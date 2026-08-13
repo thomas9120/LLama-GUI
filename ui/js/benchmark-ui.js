@@ -267,19 +267,16 @@
         const excluded = [];
 
         if (model) {
-            // Reuse flag-core's validator rather than restating the rules, so the
-            // benchmark and launch paths cannot drift apart. Missing means the
-            // module failed to load: fail closed instead of skipping the check.
-            const normalize = root.flagCore && root.flagCore.normalizeModelRelPath;
-            if (typeof normalize !== "function") {
-                return { tool, args, applied, excluded, error: "Model path validation is unavailable." };
+            const buildModelPath = root.flagCore && root.flagCore.buildLocalModelPath;
+            if (typeof buildModelPath !== "function") {
+                return { tool, args, applied, excluded, error: "Model path generation is unavailable." };
             }
-            const modelPath = normalize(model);
-            if (!modelPath) {
-                return { tool, args, applied, excluded, error: "Invalid model filename." };
+            const localModel = buildModelPath(model);
+            if (localModel.error) {
+                return { tool, args, applied, excluded, error: localModel.error };
             }
-            args.push(["-m", "models/" + modelPath]);
-            applied.push({ label: "Model", value: modelPath });
+            args.push(["-m", localModel.path]);
+            applied.push({ label: "Model", value: model });
         }
 
         if (benchmarkType === "perplexity" && !hasSelectedModelArg(args)) {
@@ -687,11 +684,13 @@
 
     async function loadModelsForSelect() {
         if (!fetchJson) return;
+        let loadError = "";
         try {
             cachedModels = await fetchJson("/api/models") || [];
         } catch (e) {
             console.debug("Benchmark models failed to load", e);
             cachedModels = [];
+            loadError = e && e.message ? e.message : "Models could not be loaded.";
         }
         const select = byId("benchmark-manual-model");
         if (!select) return;
@@ -699,7 +698,7 @@
         select.textContent = "";
         const empty = document.createElement("option");
         empty.value = "";
-        empty.textContent = "-- Select Model --";
+        empty.textContent = loadError ? `Models unavailable: ${loadError}` : "-- Select Model --";
         select.appendChild(empty);
         for (const model of cachedModels) {
             const name = getModelName(model);
@@ -996,5 +995,6 @@
     // evaluated. Same gate as chat-ui.js.
     if (window.__LLAMA_GUI_TEST_HOOKS__) {
         root.benchmarkUi._testPollOutput = pollOutput;
+        root.benchmarkUi._testLoadModelsForSelect = loadModelsForSelect;
     }
 })();

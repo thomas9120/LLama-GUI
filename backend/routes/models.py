@@ -1,6 +1,6 @@
 """Model file API routes."""
 
-from backend.services import hf_download
+from backend.services import hf_download, model_dir
 
 
 # Keep the legacy projector folder hidden for existing installations.
@@ -50,9 +50,10 @@ def _iter_gguf_files(models_dir):
 
 
 def list_models(request, response, ctx):
-    models_dir = ctx.paths.models
-    if not models_dir.exists():
-        response.json([])
+    try:
+        models_dir = model_dir.get_models_dir(ctx)
+    except ValueError as exc:
+        response.error(str(exc), 409)
         return
 
     found = []
