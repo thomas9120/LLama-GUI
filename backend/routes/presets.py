@@ -6,6 +6,8 @@ import sys
 import time
 import urllib.parse
 
+from ..http import sanitize_error
+
 
 _PRESET_CREATED_TIMES_FILE = ".preset-created-times"
 _PRESET_ARCHIVED_FILE = ".preset-archived"
@@ -140,16 +142,7 @@ def _load_preset_archived(presets_dir):
 
 def _save_preset_archived(presets_dir, archived_names):
     metadata_file = presets_dir / _PRESET_ARCHIVED_FILE
-    try:
-        metadata_file.write_text(
-            json.dumps(sorted(archived_names), indent=2),
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        print(
-            f"[presets] failed to save archive metadata: {type(exc).__name__}: {exc}",
-            file=sys.stderr,
-        )
+    _write_preset_json(metadata_file, sorted(archived_names))
 
 
 def _initial_preset_created_time(stat_result):
@@ -224,49 +217,56 @@ def build_preset_shortcut_script(root_dir, preset_name, gui_host="127.0.0.1", gu
 def list_presets(request, response, ctx):
     presets = []
     presets_dir = ctx.paths.presets
-    if presets_dir.exists():
-        created_times = _load_preset_created_times(presets_dir)
-        archived_names = _load_preset_archived(presets_dir)
-        existing_names = set()
-        metadata_changed = False
-        for path in sorted(presets_dir.glob("*.json")):
-            try:
-                with open(path, "r", encoding="utf-8") as preset_file:
-                    data = json.load(preset_file)
-                if is_preset_bundle(data):
-                    continue
-                stat_result = path.stat()
-                data, removed_sensitive_values = sanitize_preset_data(data)
-                if removed_sensitive_values:
-                    _write_preset_json(path, data)
-                existing_names.add(path.name)
-                created = created_times.get(path.name)
-                if not _is_valid_timestamp(created):
-                    created = _initial_preset_created_time(stat_result)
-                    created_times[path.name] = created
-                    metadata_changed = True
-                presets.append({
-                    "name": path.stem,
-                    "data": data,
-                    "created": created,
-                    "modified": path.stat().st_mtime,
-                    "archived": path.name in archived_names,
-                })
-            except (json.JSONDecodeError, OSError) as exc:
-                print(
-                    f"[presets] skipping unreadable preset {path.name}: {type(exc).__name__}: {exc}",
-                    file=sys.stderr,
-                )
-        stale_names = set(created_times) - existing_names
-        if stale_names:
-            for name in stale_names:
-                del created_times[name]
-            metadata_changed = True
-        if metadata_changed:
-            _save_preset_created_times(presets_dir, created_times)
-        stale_archived = archived_names - existing_names
-        if stale_archived:
-            _save_preset_archived(presets_dir, archived_names - stale_archived)
+    with ctx.state.preset_lock:
+        if presets_dir.exists():
+            created_times = _load_preset_created_times(presets_dir)
+            archived_names = _load_preset_archived(presets_dir)
+            existing_names = set()
+            metadata_changed = False
+            for path in sorted(presets_dir.glob("*.json")):
+                try:
+                    with open(path, "r", encoding="utf-8") as preset_file:
+                        data = json.load(preset_file)
+                    if is_preset_bundle(data):
+                        continue
+                    stat_result = path.stat()
+                    data, removed_sensitive_values = sanitize_preset_data(data)
+                    if removed_sensitive_values:
+                        _write_preset_json(path, data)
+                    existing_names.add(path.name)
+                    created = created_times.get(path.name)
+                    if not _is_valid_timestamp(created):
+                        created = _initial_preset_created_time(stat_result)
+                        created_times[path.name] = created
+                        metadata_changed = True
+                    presets.append({
+                        "name": path.stem,
+                        "data": data,
+                        "created": created,
+                        "modified": path.stat().st_mtime,
+                        "archived": path.name in archived_names,
+                    })
+                except (json.JSONDecodeError, OSError) as exc:
+                    print(
+                        f"[presets] skipping unreadable preset {path.name}: {type(exc).__name__}: {exc}",
+                        file=sys.stderr,
+                    )
+            stale_names = set(created_times) - existing_names
+            if stale_names:
+                for name in stale_names:
+                    del created_times[name]
+                metadata_changed = True
+            if metadata_changed:
+                _save_preset_created_times(presets_dir, created_times)
+            stale_archived = archived_names - existing_names
+            if stale_archived:
+                try:
+                    _save_preset_archived(presets_dir, archived_names - stale_archived)
+                except OSError as exc:
+                    print(
+                        f"[presets] failed to clean archive metadata: {type(exc).__name__}: {exc}",
+                        file=sys.stderr,
+                    )
     response.json(presets)
 
 
@@ -285,29 +285,31 @@ def save_preset(request, response, ctx):
         return
 
     presets_dir = ctx.paths.presets
-    presets_dir.mkdir(parents=True, exist_ok=True)
     safe_name = sanitize_preset_name(name)
     if not safe_name:
         response.error("Invalid preset name", 400)
         return
-    preset_file = get_preset_file_path(presets_dir, safe_name)
-    if preset_file is None:
-        response.error("Invalid preset name", 400)
-        return
-    if body.get("overwrite", True) is False and preset_file.exists():
-        response.error("A preset with that name already exists", 409)
-        return
 
-    created_times = _load_preset_created_times(presets_dir)
-    if not _is_valid_timestamp(created_times.get(preset_file.name)):
-        if preset_file.exists():
-            created_times[preset_file.name] = _initial_preset_created_time(preset_file.stat())
-        else:
-            created_times[preset_file.name] = time.time()
+    with ctx.state.preset_lock:
+        presets_dir.mkdir(parents=True, exist_ok=True)
+        preset_file = get_preset_file_path(presets_dir, safe_name)
+        if preset_file is None:
+            response.error("Invalid preset name", 400)
+            return
+        if body.get("overwrite", True) is False and preset_file.exists():
+            response.error("A preset with that name already exists", 409)
+            return
 
-    data, _ = sanitize_preset_data(data)
-    _write_preset_json(preset_file, data)
-    _save_preset_created_times(presets_dir, created_times)
+        created_times = _load_preset_created_times(presets_dir)
+        if not _is_valid_timestamp(created_times.get(preset_file.name)):
+            if preset_file.exists():
+                created_times[preset_file.name] = _initial_preset_created_time(preset_file.stat())
+            else:
+                created_times[preset_file.name] = time.time()
+
+        data, _ = sanitize_preset_data(data)
+        _write_preset_json(preset_file, data)
+        _save_preset_created_times(presets_dir, created_times)
     response.json({"saved": True, "name": safe_name})
 
 
@@ -333,34 +335,40 @@ def rename_preset(request, response, ctx):
         return
 
     presets_dir = ctx.paths.presets
-    preset_file = get_preset_file_path(presets_dir, safe_name)
-    # validation only: the resolved path is unusable as a rename target because
-    # Windows collapses its casing onto any existing file
-    validated_target = get_preset_file_path(presets_dir, safe_new_name)
-    if preset_file is None or validated_target is None:
-        response.error("Invalid preset name", 400)
-        return
-    if not preset_file.exists():
-        response.error("Preset not found", 404)
-        return
-    if safe_name == safe_new_name:
-        response.json({"renamed": True, "name": safe_new_name})
-        return
+    with ctx.state.preset_lock:
+        preset_file = get_preset_file_path(presets_dir, safe_name)
+        # validation only: the resolved path is unusable as a rename target because
+        # Windows collapses its casing onto any existing file
+        validated_target = get_preset_file_path(presets_dir, safe_new_name)
+        if preset_file is None or validated_target is None:
+            response.error("Invalid preset name", 400)
+            return
+        if not preset_file.exists():
+            response.error("Preset not found", 404)
+            return
+        if safe_name == safe_new_name:
+            response.json({"renamed": True, "name": safe_new_name})
+            return
 
-    # On Windows both Path equality and resolve() are case-insensitive, so a case-only
-    # rename would collapse onto the source and silently do nothing. Rename against the
-    # requested spelling instead, inside the parent get_preset_file_path already validated.
-    renamed_file = preset_file.parent / f"{safe_new_name}.json"
-    if renamed_file.exists() and not _is_same_file(renamed_file, preset_file):
-        response.error("A preset with that name already exists", 409)
-        return
+        # On Windows both Path equality and resolve() are case-insensitive, so a case-only
+        # rename would collapse onto the source and silently do nothing. Rename against the
+        # requested spelling instead, inside the parent get_preset_file_path already validated.
+        renamed_file = preset_file.parent / f"{safe_new_name}.json"
+        if renamed_file.exists() and not _is_same_file(renamed_file, preset_file):
+            response.error("A preset with that name already exists", 409)
+            return
 
-    preset_file.rename(renamed_file)
-    created_times = _load_preset_created_times(presets_dir)
-    if preset_file.name in created_times:
-        # carry the original creation time so "Date added" sorting survives a rename
-        created_times[renamed_file.name] = created_times.pop(preset_file.name)
-        _save_preset_created_times(presets_dir, created_times)
+        preset_file.rename(renamed_file)
+        created_times = _load_preset_created_times(presets_dir)
+        if preset_file.name in created_times:
+            # carry the original creation time so "Date added" sorting survives a rename
+            created_times[renamed_file.name] = created_times.pop(preset_file.name)
+            _save_preset_created_times(presets_dir, created_times)
+        archived_names = _load_preset_archived(presets_dir)
+        if preset_file.name in archived_names:
+            archived_names.remove(preset_file.name)
+            archived_names.add(renamed_file.name)
+            _save_preset_archived(presets_dir, archived_names)
     response.json({"renamed": True, "name": safe_new_name})
 
 
@@ -401,50 +409,59 @@ def delete_preset(request, response, ctx):
     if not safe_name:
         response.error("Invalid preset name", 400)
         return
-    preset_file = get_preset_file_path(ctx.paths.presets, safe_name)
-    if preset_file is None:
-        response.error("Invalid preset name", 400)
-        return
-    if preset_file.exists():
-        preset_file.unlink()
-        created_times = _load_preset_created_times(ctx.paths.presets)
-        if preset_file.name in created_times:
-            del created_times[preset_file.name]
-            _save_preset_created_times(ctx.paths.presets, created_times)
-        archived_names = _load_preset_archived(ctx.paths.presets)
-        if preset_file.name in archived_names:
-            archived_names.discard(preset_file.name)
-            _save_preset_archived(ctx.paths.presets, archived_names)
-        response.json({"deleted": True})
-    else:
-        response.error("Preset not found", 404)
+    with ctx.state.preset_lock:
+        preset_file = get_preset_file_path(ctx.paths.presets, safe_name)
+        if preset_file is None:
+            response.error("Invalid preset name", 400)
+            return
+        if preset_file.exists():
+            preset_file.unlink()
+            created_times = _load_preset_created_times(ctx.paths.presets)
+            if preset_file.name in created_times:
+                del created_times[preset_file.name]
+                _save_preset_created_times(ctx.paths.presets, created_times)
+            archived_names = _load_preset_archived(ctx.paths.presets)
+            if preset_file.name in archived_names:
+                archived_names.discard(preset_file.name)
+                _save_preset_archived(ctx.paths.presets, archived_names)
+            response.json({"deleted": True})
+        else:
+            response.error("Preset not found", 404)
 
 
 def archive_presets(request, response, ctx):
     body = request.body or {}
     names = body.get("names")
-    archived = bool(body.get("archived"))
     if not isinstance(names, list) or not names:
         response.error("names list required", 400)
         return
+    archived = body.get("archived")
+    if not isinstance(archived, bool):
+        response.error("archived boolean required", 400)
+        return
 
     presets_dir = ctx.paths.presets
-    file_names = []
-    for name in names:
-        safe_name = sanitize_preset_name(name)
-        preset_file = get_preset_file_path(presets_dir, safe_name) if safe_name else None
-        if preset_file is None:
-            response.error("Invalid preset name", 400)
-            return
-        if not preset_file.exists():
-            response.error("Preset not found", 404)
-            return
-        file_names.append(preset_file.name)
+    try:
+        with ctx.state.preset_lock:
+            file_names = []
+            for name in names:
+                safe_name = sanitize_preset_name(name)
+                preset_file = get_preset_file_path(presets_dir, safe_name) if safe_name else None
+                if preset_file is None:
+                    response.error("Invalid preset name", 400)
+                    return
+                if not preset_file.exists():
+                    response.error("Preset not found", 404)
+                    return
+                file_names.append(preset_file.name)
 
-    archived_names = _load_preset_archived(presets_dir)
-    if archived:
-        archived_names.update(file_names)
-    else:
-        archived_names.difference_update(file_names)
-    _save_preset_archived(presets_dir, archived_names)
+            archived_names = _load_preset_archived(presets_dir)
+            if archived:
+                archived_names.update(file_names)
+            else:
+                archived_names.difference_update(file_names)
+            _save_preset_archived(presets_dir, archived_names)
+    except OSError as exc:
+        response.error(sanitize_error(exc, 500), 500)
+        return
     response.json({"archived": archived, "count": len(file_names)})

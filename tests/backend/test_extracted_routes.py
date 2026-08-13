@@ -465,6 +465,108 @@ class ExtractedRouteTests(unittest.TestCase):
             )
             self.assertEqual(empty_response.status, 400)
 
+            for archived in (None, 0, 1, "false"):
+                with self.subTest(archived=archived):
+                    invalid_response = DummyResponse()
+                    presets.archive_presets(
+                        Request(
+                            "POST",
+                            "/api/presets/archive",
+                            "",
+                            {},
+                            body={"names": ["Shelve"], "archived": archived},
+                        ),
+                        invalid_response,
+                        ctx,
+                    )
+                    self.assertEqual(invalid_response.status, 400)
+
+    def test_presets_archive_route_reports_metadata_write_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            presets.save_preset(
+                Request("POST", "/api/presets", "", {}, body={"name": "Shelve", "data": {}}),
+                DummyResponse(),
+                ctx,
+            )
+            response = DummyResponse()
+            stderr = io.StringIO()
+
+            with mock.patch.object(
+                presets, "_write_preset_json", side_effect=OSError("disk full")
+            ), contextlib.redirect_stderr(stderr):
+                presets.archive_presets(
+                    Request(
+                        "POST",
+                        "/api/presets/archive",
+                        "",
+                        {},
+                        body={"names": ["Shelve"], "archived": True},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            self.assertEqual(response.status, 500)
+            self.assertEqual(response.payload["error"], "Internal server error")
+            self.assertIn("disk full", stderr.getvalue())
+
+    def test_presets_archive_route_serializes_concurrent_updates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            for name in ("First", "Second"):
+                presets.save_preset(
+                    Request("POST", "/api/presets", "", {}, body={"name": name, "data": {}}),
+                    DummyResponse(),
+                    ctx,
+                )
+
+            real_load = presets._load_preset_archived
+            load_count = 0
+            load_count_lock = threading.Lock()
+            both_loaded = threading.Event()
+            errors = []
+
+            def slow_load(presets_dir):
+                nonlocal load_count
+                archived_names = real_load(presets_dir)
+                with load_count_lock:
+                    load_count += 1
+                    if load_count == 2:
+                        both_loaded.set()
+                both_loaded.wait(0.15)
+                return archived_names
+
+            def archive(name):
+                try:
+                    presets.archive_presets(
+                        Request(
+                            "POST",
+                            "/api/presets/archive",
+                            "",
+                            {},
+                            body={"names": [name], "archived": True},
+                        ),
+                        DummyResponse(),
+                        ctx,
+                    )
+                except Exception as exc:
+                    errors.append(exc)
+
+            with mock.patch.object(presets, "_load_preset_archived", side_effect=slow_load):
+                threads = [threading.Thread(target=archive, args=(name,)) for name in ("First", "Second")]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join(2)
+
+            self.assertFalse(errors)
+            self.assertFalse(any(thread.is_alive() for thread in threads))
+            self.assertEqual(
+                json.loads((ctx.paths.presets / ".preset-archived").read_text(encoding="utf-8")),
+                ["First.json", "Second.json"],
+            )
+
     def test_delete_preset_clears_archive_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -560,6 +662,17 @@ class ExtractedRouteTests(unittest.TestCase):
             list_response = DummyResponse()
             presets.list_presets(Request("GET", "/api/presets", "", {}), list_response, ctx)
             created = list_response.payload[0]["created"]
+            presets.archive_presets(
+                Request(
+                    "POST",
+                    "/api/presets/archive",
+                    "",
+                    {},
+                    body={"names": ["Original"], "archived": True},
+                ),
+                DummyResponse(),
+                ctx,
+            )
 
             response = DummyResponse()
             presets.rename_preset(
@@ -578,9 +691,14 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(renamed_list.payload[0]["name"], "Renamed")
             self.assertEqual(renamed_list.payload[0]["data"], {"temperature": 0.7})
             self.assertEqual(renamed_list.payload[0]["created"], created)
+            self.assertTrue(renamed_list.payload[0]["archived"])
             self.assertEqual(
                 json.loads((ctx.paths.presets / ".preset-created-times").read_text(encoding="utf-8")),
                 {"Renamed.json": created},
+            )
+            self.assertEqual(
+                json.loads((ctx.paths.presets / ".preset-archived").read_text(encoding="utf-8")),
+                ["Renamed.json"],
             )
 
     def test_rename_preset_applies_a_case_only_change(self):
