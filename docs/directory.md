@@ -849,9 +849,12 @@ Flags for reasoning/thinking models:
 - `-rea` (enum: auto/on/off): Enable or disable reasoning/thinking mode.
 - `--reasoning-budget` (int): Token budget for thinking (-1 = unlimited, 0 = off).
 - `--reasoning-preserve` (bool): Preserve reasoning traces across the full chat history when the selected template supports llama.cpp's preserve-reasoning capability.
+- **Default Reasoning Effort** (enum: Auto/Low/Medium/High/XHigh): Server-wide template default for Chat, API clients, and external harnesses. Auto omits `reasoning_effort`; other values emit it through `--chat-template-kwargs`. Per-request `chat_template_kwargs` can override the launch default.
 - `--chat-template-kwargs` (bool, flag: `preserve_thinking`): Legacy compatibility path. When enabled, passes `{"preserve_thinking":true}` to the chat template engine.
 
-If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. If legacy `preserve_thinking` is true, the launch arg is `--chat-template-kwargs {"preserve_thinking":true}`.
+If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. Legacy `preserve_thinking` and Default Reasoning Effort share one `--chat-template-kwargs` JSON object when both are enabled.
+
+The Chat settings sidebar also provides a per-conversation **Reasoning Effort** selector: Auto, Off, Low, Medium, High, or XHigh. Auto omits request overrides. Off sends top-level `reasoning_effort=none` plus matching `enable_thinking=false` / `reasoning_effort=none` template kwargs; the effort levels send `enable_thinking=true` plus `reasoning_effort` through `chat_template_kwargs`, allowing compatible model-provided Jinja templates to apply their native reasoning controls without mapping them to llama.cpp token budgets. Stored assistant reasoning is returned as `reasoning_content` on later turns, including when web-search context is injected, so templates with preserved-thinking support receive the complete trace.
 
 ---
 
@@ -949,7 +952,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
 | `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
-| `docs/design-docs/todo.md` | Known planned work |
+| `docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
 | `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
 | `docs/design-docs/router-mode.md` | Router mode design notes |

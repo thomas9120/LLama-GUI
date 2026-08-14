@@ -241,6 +241,7 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
         "chat-messages",
         "chat-empty",
         "chat-history-list",
+        "chat-thinking-effort",
         "chat-slider-temp",
         "chat-val-temp",
         "chat-slider-max-tokens",
@@ -248,6 +249,7 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
     ]) {
         addElement(id);
     }
+    elements.get("chat-thinking-effort").value = "auto";
 
     const documentStub = {
         createElement,
@@ -540,6 +542,73 @@ async function runAbortScenario(action) {
         await api._testSendMessage("hello");
         assert.ok(!("temperature" in payloads[0]), "non-numeric sampler value must be omitted");
         assert.strictEqual(payloads[0].top_p, 0.9, "valid neighbours still go through");
+    }
+
+    // Native thinking controls belong in chat_template_kwargs. Auto must stay
+    // absent so models without compatible template variables keep their defaults.
+    {
+        const payloads = [];
+        const { api, elements, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("complete", { onRequest: (body) => payloads.push(body) }),
+        });
+        await api._testSendMessage("auto");
+        assert.ok(!("chat_template_kwargs" in payloads[0]), "Auto must omit template kwargs");
+
+        await api._testStartNewChat();
+        elements.get("chat-thinking-effort").value = "medium";
+        await api._testSendMessage("think");
+        assert.deepEqual(payloads[1].chat_template_kwargs, {
+            enable_thinking: true,
+            reasoning_effort: "medium",
+        });
+        assert.equal(getStoredConversations()[0].thinkingEffort, "medium");
+
+        await api._testStartNewChat();
+        assert.equal(elements.get("chat-thinking-effort").value, "auto", "new chats reset to Auto");
+        elements.get("chat-thinking-effort").value = "high";
+        await api._testSendMessage("deeper");
+        assert.deepEqual(payloads[2].chat_template_kwargs, {
+            enable_thinking: true,
+            reasoning_effort: "high",
+        });
+
+        await api._testStartNewChat();
+        elements.get("chat-thinking-effort").value = "off";
+        await api._testSendMessage("direct");
+        assert.equal(payloads[3].reasoning_effort, "none");
+        assert.deepEqual(payloads[3].chat_template_kwargs, {
+            enable_thinking: false,
+            reasoning_effort: "none",
+        });
+    }
+
+    // Preserved reasoning must return to llama-server as reasoning_content, and
+    // loading a conversation must restore its per-chat effort selection.
+    {
+        const payloads = [];
+        const { api, elements } = makeContext({
+            fetchImpl: makeFetch("complete", { onRequest: (body) => payloads.push(body) }),
+            seedConversations: [{
+                id: "reasoning-chat",
+                title: "Reasoning",
+                messages: [
+                    { role: "user", content: "question" },
+                    { role: "assistant", content: "answer", reasoning: "hidden trace" },
+                ],
+                systemPrompt: "",
+                thinkingEffort: "low",
+                timestamp: Date.now(),
+            }],
+        });
+        await api._testLoadConversation("reasoning-chat");
+        assert.equal(elements.get("chat-thinking-effort").value, "low");
+        await api._testSendMessage("follow up");
+        const assistant = payloads[0].messages.find((message) => message.role === "assistant");
+        assert.equal(assistant.reasoning_content, "hidden trace");
+        assert.deepEqual(payloads[0].chat_template_kwargs, {
+            enable_thinking: true,
+            reasoning_effort: "low",
+        });
     }
 
     // regenerateResponse: when the pop leaves no user message to regenerate

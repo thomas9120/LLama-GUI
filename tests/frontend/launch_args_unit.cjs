@@ -306,6 +306,41 @@ function launchResult() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+    let args = flatLaunchArgs();
+    assert.ok(!args.includes("--chat-template-kwargs"), "Auto effort should leave the template default unchanged");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setFlagValue("preserve_thinking", true);
+    `, context);
+    args = flatLaunchArgs();
+    assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
+    assert.ok(args.includes('{"preserve_thinking":true}'));
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template_reasoning_effort: "high",
+            preserve_thinking: false,
+        });
+    `, context);
+    args = flatLaunchArgs();
+    assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
+    assert.ok(args.includes('{"reasoning_effort":"high"}'));
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template_reasoning_effort: "xhigh",
+            preserve_thinking: true,
+        });
+    `, context);
+    args = flatLaunchArgs();
+    assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
+    assert.ok(args.includes('{"preserve_thinking":true,"reasoning_effort":"xhigh"}'));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setMultipleFlagValues({
             spec_type: "draft-eagle3",
             draft_max: 8,

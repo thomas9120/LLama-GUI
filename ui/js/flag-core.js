@@ -430,15 +430,27 @@
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
             if (shouldOmitLegacyLoadFlag(f, values)) continue;
             const val = values[f.id];
+
+            if (f.id === "chat_template_reasoning_effort") {
+                const kwargs = {};
+                if (values.preserve_thinking === true) kwargs.preserve_thinking = true;
+                if (val && val !== "auto") kwargs.reasoning_effort = val;
+                if (Object.keys(kwargs).length > 0) {
+                    args.push([f.flag, JSON.stringify(kwargs)]);
+                }
+                continue;
+            }
+            if (f.id === "preserve_thinking") {
+                if (toolBase !== "server" && val === true) {
+                    args.push([f.flag, '{"preserve_thinking":true}']);
+                }
+                continue;
+            }
             if (val === undefined || val === null || val === "") continue;
 
             if (f.type === "bool") {
                 if (val === true && !f.flag.startsWith("--no-")) {
-                    if (f.id === "preserve_thinking") {
-                        args.push([f.flag, '{"preserve_thinking":true}']);
-                    } else {
-                        args.push([f.flag]);
-                    }
+                    args.push([f.flag]);
                 } else if (val === false && f.false_flag) {
                     args.push([f.false_flag]);
                 } else if (val === true && f.flag.startsWith("--no-")) {

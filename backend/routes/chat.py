@@ -106,21 +106,16 @@ def completions(request, response, ctx):
             proxied_messages = []
             inserted_context = False
             for msg in messages:
+                proxied_message = dict(msg)
                 merged = (
                     chat_service.merge_system_context(msg.get("content", ""), context)
                     if msg.get("role") == "system" and not inserted_context
                     else None
                 )
                 if merged is not None:
-                    proxied_messages.append({"role": "system", "content": merged})
+                    proxied_message["content"] = merged
                     inserted_context = True
-                else:
-                    proxied_messages.append(
-                        {
-                            "role": msg.get("role", "user"),
-                            "content": msg.get("content", ""),
-                        }
-                    )
+                proxied_messages.append(proxied_message)
             if not inserted_context:
                 proxied_messages.insert(0, {"role": "system", "content": context})
 
