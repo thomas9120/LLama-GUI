@@ -1152,7 +1152,7 @@ const FLAGS = [
 		category: "conversation",
 		type: "enum",
 		label: "Default Reasoning Effort",
-		desc: "Server-wide default for Chat, API clients, and external harnesses. Auto leaves the model template default unchanged; request-level chat_template_kwargs can override it. Supported levels depend on the model.",
+		desc: "Reasoning Effort — server-wide default for Chat, API clients, and external harnesses. Auto leaves the model template default unchanged; request-level chat_template_kwargs can override it. Supported levels depend on the model.",
 		tool: "server",
 		allow_duplicate_cli_flag: true,
 		default: "auto",
