@@ -699,6 +699,28 @@ async function main() {
         await page.selectOption("#tool-select", "llama-server");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-server");
 
+        await page.fill("#config-search", "default reasoning effort");
+        await page.waitForSelector("#flag-chat_template_reasoning_effort", { state: "visible" });
+        assert.deepEqual(
+            await page.locator("#flag-chat_template_reasoning_effort option").evaluateAll((options) => (
+                options.map((option) => option.value)
+            )),
+            ["auto", "low", "medium", "high", "xhigh"]
+        );
+        assert.match(
+            await page.textContent('.flag-row[data-flag-id="chat_template_reasoning_effort"] .flag-desc'),
+            /server-wide/i
+        );
+        await page.selectOption("#flag-chat_template_reasoning_effort", "xhigh");
+        await page.waitForFunction(() => (
+            window.LlamaGui.flagCore.getFlagValues().chat_template_reasoning_effort === "xhigh"
+        ));
+        let reasoningArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
+        assert.ok(reasoningArgs.includes('{"reasoning_effort":"xhigh"}'));
+        await page.selectOption("#flag-chat_template_reasoning_effort", "auto");
+        reasoningArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
+        assert.ok(!reasoningArgs.includes("--chat-template-kwargs"));
+
         await page.fill("#config-search", "gpu layers");
         await page.waitForSelector("#flag-gpu_layers", { state: "visible" });
         await page.fill("#flag-gpu_layers", "7");

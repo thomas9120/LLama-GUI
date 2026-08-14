@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-14
 
+- Added a server-wide Default Reasoning Effort launch control with Auto, Low, Medium, High, and XHigh. Non-Auto choices emit `reasoning_effort` through `--chat-template-kwargs` for API clients and external harnesses, with request-level kwargs able to override the default; legacy Preserve Thinking now shares the same JSON argument.
 - Added per-conversation Chat thinking controls for Auto, Off, Low, Medium, High, and XHigh. Compatible templates receive native `enable_thinking` / `reasoning_effort` kwargs per request, Off also sends the standardized top-level `reasoning_effort=none`, and Auto remains inert; assistant reasoning history now returns to llama-server as `reasoning_content` and survives web-search context injection so preserved-thinking templates can use the full trace.
 - Made `--load-mode mmap` the default model-load setting and disabled the redundant deprecated `--mmap` control by default.
 - Synced `docs/architecture.html` with the source tree: corrected the `app.py` (1011) and `state.py` (145) line counts, the `definitions.js` (1,816) and `index.html` (1.5k) figures, the backend test count (9 files, adding `test_docs_sync.py`, `test_model_dir.py`, `test_release_version.py`), the frontend test count (24 `.cjs` files, adding `test:flags` and `test:frontend:modules` commands), the service module count (13, documenting `backend/services/subprocess_utils.py`), and completed the localStorage key table with the six missing keys.
