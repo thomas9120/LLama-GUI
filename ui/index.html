@@ -899,6 +899,21 @@
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
                         </div>
                         <div class="sidebar-section">
+                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5C14.5 15.3 14 16.2 14 18h-4c0-1.8-.5-2.7-1.5-3.5z"/></svg></span> Thinking</div>
+                            <div class="sidebar-field">
+                                <label class="sidebar-field-label" for="chat-thinking-effort">Reasoning Effort</label>
+                                <select id="chat-thinking-effort">
+                                    <option value="auto">Auto (model default)</option>
+                                    <option value="off">Off</option>
+                                    <option value="low">Low</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="high">High</option>
+                                    <option value="xhigh">XHigh</option>
+                                </select>
+                                <div class="sidebar-field-desc">Sent per request through chat template kwargs. Unsupported models ignore it or may reject non-default values.</div>
+                            </div>
+                        </div>
+                        <div class="sidebar-section">
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> Web Search</div>
                             <div class="sidebar-field">
                                 <label class="sidebar-field-label" for="chat-web-search-max-results">Result Count</label>

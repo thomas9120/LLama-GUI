@@ -23,6 +23,7 @@
     const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
     const CHAT_WEB_SEARCH_MIN_RESULTS = 1;
     const CHAT_WEB_SEARCH_MAX_RESULTS = 10;
+    const CHAT_THINKING_EFFORTS = ["auto", "off", "low", "medium", "high", "xhigh"];
     const CHAT_MAX_STORED_CONVERSATIONS = 50;
     const CHAT_CONSTRAINED_LAYOUT_QUERY = "(max-width: 1320px)";
 
@@ -132,11 +133,55 @@
         return clampChatWebSearchMaxResults(input ? input.value : localStorage.getItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY));
     }
 
+    function normalizeChatThinkingEffort(value) {
+        const normalized = String(value || "").toLowerCase();
+        return CHAT_THINKING_EFFORTS.includes(normalized) ? normalized : "auto";
+    }
+
+    function getChatThinkingEffort() {
+        const select = document.getElementById("chat-thinking-effort");
+        return normalizeChatThinkingEffort(select ? select.value : "auto");
+    }
+
+    function setChatThinkingEffort(value) {
+        const select = document.getElementById("chat-thinking-effort");
+        if (select) select.value = normalizeChatThinkingEffort(value);
+    }
+
+    function getChatThinkingParams() {
+        const effort = getChatThinkingEffort();
+        if (effort === "auto") return {};
+        if (effort === "off") {
+            return {
+                reasoning_effort: "none",
+                chat_template_kwargs: {
+                    enable_thinking: false,
+                    reasoning_effort: "none",
+                },
+            };
+        }
+        return {
+            chat_template_kwargs: {
+                enable_thinking: true,
+                reasoning_effort: effort,
+            },
+        };
+    }
+
     function getChatRequestMessages(messages) {
-        return messages.map((msg) => ({
-            role: msg.role,
-            content: msg.content,
-        }));
+        return messages.map((msg) => {
+            const requestMessage = {
+                role: msg.role,
+                content: msg.content,
+            };
+            const reasoning = typeof msg.reasoning === "string"
+                ? msg.reasoning
+                : (typeof msg.reasoning_content === "string" ? msg.reasoning_content : "");
+            if (msg.role === "assistant" && reasoning) {
+                requestMessage.reasoning_content = reasoning;
+            }
+            return requestMessage;
+        });
     }
 
     function getChatDeltaText(delta, keys) {
@@ -382,6 +427,7 @@
             messages,
             stream: true,
             ...getChatSamplerParams(),
+            ...getChatThinkingParams(),
         };
         if (isChatWebSearchEnabled()) {
             body.web_search = true;
@@ -623,6 +669,7 @@
         if (existing) {
             existing.messages = chatMessages.slice();
             existing.systemPrompt = sysPrompt ? sysPrompt.value : "";
+            existing.thinkingEffort = getChatThinkingEffort();
             existing.timestamp = Date.now();
             existing.title = generateConversationTitle(chatMessages);
         } else {
@@ -636,6 +683,7 @@
                 title: generateConversationTitle(chatMessages),
                 messages: chatMessages.slice(),
                 systemPrompt: sysPrompt ? sysPrompt.value : "",
+                thinkingEffort: getChatThinkingEffort(),
                 timestamp: Date.now()
             };
             conversations.unshift(convo);
@@ -675,6 +723,7 @@
             sysPrompt.value = convo.systemPrompt || "";
             if (sysCharCount) sysCharCount.textContent = (convo.systemPrompt || "").length + " chars";
         }
+        setChatThinkingEffort(convo.thinkingEffort);
 
         const container = document.getElementById("chat-messages");
         container.querySelectorAll(".chat-message").forEach(el => el.remove());
@@ -726,6 +775,7 @@
         const sysCharCount = document.getElementById("chat-sys-char-count");
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
+        setChatThinkingEffort("auto");
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
@@ -815,6 +865,7 @@
         const sysCharCount = document.getElementById("chat-sys-char-count");
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
+        setChatThinkingEffort("auto");
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
 
@@ -832,6 +883,7 @@
         const btnOpen = document.getElementById("btn-open-sidebar");
         const webSearchToggle = document.getElementById("chat-web-search-toggle");
         const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
+        const thinkingEffort = document.getElementById("chat-thinking-effort");
         const openQuickLaunchBtn = document.getElementById("btn-chat-open-quick-launch");
 
         updateStatusBadge();
@@ -855,6 +907,14 @@
             webSearchMaxResults.addEventListener("input", () => {
                 const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
                 localStorage.setItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+            });
+        }
+
+        if (thinkingEffort) {
+            setChatThinkingEffort(thinkingEffort.value);
+            thinkingEffort.addEventListener("change", () => {
+                setChatThinkingEffort(thinkingEffort.value);
+                saveCurrentConversation();
             });
         }
 

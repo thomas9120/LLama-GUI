@@ -853,6 +853,8 @@ Flags for reasoning/thinking models:
 
 If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. If legacy `preserve_thinking` is true, the launch arg is `--chat-template-kwargs {"preserve_thinking":true}`.
 
+The Chat settings sidebar also provides a per-conversation **Reasoning Effort** selector: Auto, Off, Low, Medium, High, or XHigh. Auto omits request overrides. Off sends top-level `reasoning_effort=none` plus matching `enable_thinking=false` / `reasoning_effort=none` template kwargs; the effort levels send `enable_thinking=true` plus `reasoning_effort` through `chat_template_kwargs`, allowing compatible model-provided Jinja templates to apply their native reasoning controls without mapping them to llama.cpp token budgets. Stored assistant reasoning is returned as `reasoning_content` on later turns, including when web-search context is injected, so templates with preserved-thinking support receive the complete trace.
+
 ---
 
 ## Custom Launch Args

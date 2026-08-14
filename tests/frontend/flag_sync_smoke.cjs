@@ -888,6 +888,10 @@ async function main() {
 
         assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("min"), "1");
         assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("max"), "10");
+        assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
+            "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
+        ]);
+        await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
         await page.fill("#chat-web-search-max-results", "7");
         await page.dispatchEvent("#chat-web-search-max-results", "input");
@@ -900,8 +904,17 @@ async function main() {
         );
         assert.equal(chatCompletionBodies.at(-1).web_search, true);
         assert.equal(chatCompletionBodies.at(-1).web_search_max_results, 7);
+        assert.deepEqual(chatCompletionBodies.at(-1).chat_template_kwargs, {
+            enable_thinking: true,
+            reasoning_effort: "medium",
+        });
+        assert.equal(
+            await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations") || "[]")[0]?.thinkingEffort),
+            "medium"
+        );
         assert.equal(chatCompletionHeaders.at(-1).authorization, "Bearer first-secret");
         await page.click("#btn-chat-new");
+        assert.equal(await page.locator("#chat-thinking-effort").inputValue(), "auto");
 
         chatResponseMode = "reasoning-only";
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "deepseek"));
@@ -923,6 +936,12 @@ async function main() {
         assert.equal(reasoningOnlyMessage.content, "");
         assert.equal(reasoningOnlyMessage.reasoning, "hidden thought");
         assert.equal(reasoningOnlyMessage.preview, "hidden thought");
+        chatResponseMode = "ok";
+        await page.fill("#chat-input", "Use the earlier reasoning");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("ok"));
+        const preservedAssistant = chatCompletionBodies.at(-1).messages.find(message => message.role === "assistant");
+        assert.equal(preservedAssistant.reasoning_content, "hidden thought");
         await page.click("#btn-chat-new");
 
         chatResponseMode = "think-content";

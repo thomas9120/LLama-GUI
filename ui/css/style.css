@@ -4151,8 +4151,10 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
     line-height: 1.3;
 }
 
-.chat-sidebar input[type="number"] {
+.chat-sidebar input[type="number"],
+.chat-sidebar select {
     width: 100%;
+    min-width: 0;
     height: 30px;
     background: var(--bg-base);
     border: 1px solid var(--border-strong);
@@ -4165,7 +4167,8 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
     transition: border-color var(--ease-fast), box-shadow var(--ease-fast);
 }
 
-.chat-sidebar input[type="number"]:focus {
+.chat-sidebar input[type="number"]:focus,
+.chat-sidebar select:focus {
     border-color: var(--accent);
     box-shadow: 0 0 0 3px var(--accent-subtle);
 }

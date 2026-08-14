@@ -3383,8 +3383,17 @@ class ExtractedRouteTests(unittest.TestCase):
                             "web_search": True,
                             "messages": [
                                 {"role": "system", "content": "Original system."},
+                                {
+                                    "role": "assistant",
+                                    "content": "Earlier answer.",
+                                    "reasoning_content": "Earlier reasoning.",
+                                },
                                 {"role": "user", "content": "What changed?"},
                             ],
+                            "chat_template_kwargs": {
+                                "enable_thinking": True,
+                                "reasoning_effort": "medium",
+                            },
                         },
                     ),
                     response,
@@ -3395,6 +3404,14 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(system_message["role"], "system")
             self.assertIn("Original system.", system_message["content"])
             self.assertIn("Fresh page text", system_message["content"])
+            self.assertEqual(
+                captured["body"]["messages"][1]["reasoning_content"],
+                "Earlier reasoning.",
+            )
+            self.assertEqual(
+                captured["body"]["chat_template_kwargs"],
+                {"enable_thinking": True, "reasoning_effort": "medium"},
+            )
             self.assertNotIn("web_search", captured["body"])
             self.assertNotIn("web_search_max_results", captured["body"])
 
