@@ -483,6 +483,13 @@
         sel.addEventListener("change", () => {
             if (f.id === "chat_template") {
                 dependencies.setChatTemplateValue(sel.value);
+            } else if (f.id === "load_mode") {
+                // "" ("Legacy controls") is a deliberate choice, not "unset":
+                // undefined would delete the key, so a saved preset would lose
+                // it and loading would resurrect the "mmap" default, silently
+                // suppressing the legacy mlock/mmap/direct_io switches saved
+                // alongside it.
+                getFlagCore().setFlagValue(f.id, sel.value);
             } else {
                 getFlagCore().setFlagValue(f.id, sel.value || undefined);
             }

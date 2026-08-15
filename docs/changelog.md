@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-15
+
+- Fixed preset round-trip losing the `--load-mode` "Legacy controls" choice: the Configure dropdown's change handler collapsed the empty-string option to unset, so a saved preset omitted the key and loading resurrected the new "mmap" default, silently suppressing the preset's legacy `--mlock`/`--mmap`/`-dio` switches in the launch command. The option is now stored as a real value and survives save/load (regression-tested in `launch_args_unit.cjs`; re-save any preset currently showing the wrong mode).
+
 ## 2026-08-14
 
 - Documented llama.cpp's newly merged native `--reasoning-effort`, top-level API handling, template capability reporting, override precedence, compatibility constraints, and the planned Llama-GUI migration in `docs/upstream-changes.md`.

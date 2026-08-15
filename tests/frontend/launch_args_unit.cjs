@@ -595,3 +595,95 @@ function launchResult() {
 }
 
 console.log("launch args unit tests passed");
+
+{
+    // Regression: --load-mode "Legacy controls" ("") must survive the Configure
+    // dropdown, preset save, and preset load. `sel.value || undefined` used to
+    // delete the key, so the "mmap" default resurrected on preset load and
+    // shouldOmitLegacyLoadFlag silently dropped the saved legacy switches.
+    const byId = new Map();
+    const makeElement = (tag = "div") => {
+        const el = {
+            tagName: tag.toUpperCase(),
+            children: [],
+            className: "",
+            value: "",
+            textContent: "",
+            dataset: {},
+            listeners: {},
+            appendChild(child) { el.children.push(child); return child; },
+            addEventListener(type, fn) { (el.listeners[type] = el.listeners[type] || []).push(fn); },
+            fire(type) { for (const fn of el.listeners[type] || []) fn(); },
+            classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+        };
+        Object.defineProperty(el, "id", {
+            set(id) { if (id) byId.set(id, el); },
+            get() { return ""; },
+        });
+        return el;
+    };
+    context.document = {
+        createElement: makeElement,
+        getElementById: (id) => byId.get(id) || null,
+        querySelectorAll: () => [],
+    };
+    context.localStorage = { getItem: () => null, setItem: () => {} };
+    byId.set("flags-container", makeElement());
+
+    for (const file of ["ui/js/config-flags-ui.js", "ui/js/presets.js"]) {
+        vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
+    }
+
+    const loadModeFlag = vm.runInContext(
+        "FLAGS.find((flag) => flag.id === 'load_mode')",
+        context
+    );
+    const numaFlag = vm.runInContext("FLAGS.find((flag) => flag.id === 'numa')", context);
+    context.window.LlamaGui.configFlagsUi.configure({
+        getFlagsByCategory: () => ({ context: { name: "Context", flags: [loadModeFlag, numaFlag] } }),
+        getFlags: () => [loadModeFlag, numaFlag],
+        refreshQuickLaunchUI: () => {},
+    });
+    vm.runInContext("window.LlamaGui.configFlagsUi.renderFlags()", context);
+    const loadModeSelect = byId.get("flag-load_mode");
+    const numaSelect = byId.get("flag-numa");
+    assert.ok(loadModeSelect && numaSelect, "renderFlags must create the enum dropdowns");
+
+    // Pick "Legacy controls" and enable the legacy mlock switch, like a real session.
+    loadModeSelect.value = "";
+    loadModeSelect.fire("change");
+    vm.runInContext("window.LlamaGui.flagCore.setFlagValue('mlock', true)", context);
+    assert.equal(
+        vm.runInContext("window.LlamaGui.flagCore.getFlagValues().load_mode", context),
+        "",
+        "the Legacy controls option must be stored as a real value, not deleted"
+    );
+
+    // Sibling enums with a "" option still treat it as unset (numa has no default).
+    numaSelect.value = "";
+    numaSelect.fire("change");
+    assert.ok(
+        !Object.prototype.hasOwnProperty.call(
+            vm.runInContext("window.LlamaGui.flagCore.getFlagValues()", context),
+            "numa"
+        ),
+        "empty enum options without a non-empty default must still collapse to unset"
+    );
+
+    const saved = vm.runInContext("buildCurrentPresetData()", context);
+    assert.equal(saved.flags.load_mode, "", "a saved preset must keep load_mode: \"\"");
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.presets.applyPresetData(${JSON.stringify(saved)});
+    `, context);
+    assert.equal(
+        vm.runInContext("window.LlamaGui.flagCore.getFlagValues().load_mode", context),
+        "",
+        "loading the preset must restore Legacy controls, not the mmap default"
+    );
+    const roundTripArgs = flatLaunchArgs();
+    assert.ok(roundTripArgs.includes("--mlock"), "legacy mlock must survive a Legacy-controls preset round-trip");
+    assert.ok(!roundTripArgs.includes("--load-mode"), "Legacy controls must not emit --load-mode");
+}
+
+console.log("load-mode preset round-trip tests passed");
