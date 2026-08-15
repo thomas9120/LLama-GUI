@@ -2,8 +2,13 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-15
+
+- Fixed preset round-trip losing the `--load-mode` "Legacy controls" choice: the Configure dropdown's change handler collapsed the empty-string option to unset, so a saved preset omitted the key and loading resurrected the new "mmap" default, silently suppressing the preset's legacy `--mlock`/`--mmap`/`-dio` switches in the launch command. The option is now stored as a real value and survives save/load (regression-tested in `launch_args_unit.cjs`; re-save any preset currently showing the wrong mode).
+
 ## 2026-08-14
 
+- Documented llama.cpp's newly merged native `--reasoning-effort`, top-level API handling, template capability reporting, override precedence, compatibility constraints, and the planned Llama-GUI migration in `docs/upstream-changes.md`.
 - Added a server-wide Default Reasoning Effort launch control with Auto, Low, Medium, High, and XHigh. Non-Auto choices emit `reasoning_effort` through `--chat-template-kwargs` for API clients and external harnesses, with request-level kwargs able to override the default; legacy Preserve Thinking now shares the same JSON argument.
 - Added per-conversation Chat thinking controls for Auto, Off, Low, Medium, High, and XHigh. Compatible templates receive native `enable_thinking` / `reasoning_effort` kwargs per request, Off also sends the standardized top-level `reasoning_effort=none`, and Auto remains inert; assistant reasoning history now returns to llama-server as `reasoning_content` and survives web-search context injection so preserved-thinking templates can use the full trace.
 - Made `--load-mode mmap` the default model-load setting and disabled the redundant deprecated `--mmap` control by default.
