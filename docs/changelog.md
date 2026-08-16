@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-15
 
+- Updated the Speculative Decoding "Draft GPU Layers" control to emit llama.cpp's canonical `--spec-draft-ngl` argument and clarified that it accepts an exact layer count, `auto`, or `all`.
 - Fixed preset round-trip losing the `--load-mode` "Legacy controls" choice: the Configure dropdown's change handler collapsed the empty-string option to unset, so a saved preset omitted the key and loading resurrected the new "mmap" default, silently suppressing the preset's legacy `--mlock`/`--mmap`/`-dio` switches in the launch command. The option is now stored as a real value and survives save/load (regression-tested in `launch_args_unit.cjs`; re-save any preset currently showing the wrong mode).
 
 ## 2026-08-14

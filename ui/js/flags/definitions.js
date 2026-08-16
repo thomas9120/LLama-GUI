@@ -1340,11 +1340,11 @@ const FLAGS = [
 	},
 	{
 		id: "gpu_layers_draft",
-		flag: "-ngld",
+		flag: "--spec-draft-ngl",
 		category: "speculative",
 		type: "text",
 		label: "Draft GPU Layers",
-		desc: "Max draft model layers in VRAM",
+		desc: "Maximum number of draft model layers to store in VRAM. Accepts an exact count, auto, or all.",
 		tool: "both",
 		placeholder: "auto",
 	},
