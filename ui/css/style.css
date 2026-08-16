@@ -1596,6 +1596,11 @@ input[type="range"].sampler-range::-moz-range-thumb {
 #hf-download-progress { margin: var(--space-3) 0; }
 #hf-progress-text { font-size: 12px; color: var(--fg-muted); margin-top: var(--space-1); display: inline-block; }
 
+/* Finished HF download: solid green fill, shimmer stopped. Scoped to the HF
+   card — the Install tab bar shares .progress-fill and never gains .done. */
+#hf-download-progress .progress-fill.done { background: var(--green); }
+#hf-download-progress .progress-fill.done::after { content: none; }
+
 .quick-launch-status {
     display: none;
     margin-top: var(--space-3);

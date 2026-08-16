@@ -59,8 +59,15 @@
         const status = String(prog.status || "");
         const active = ["starting", "downloading", "cancelling"].includes(status);
         wrap.classList.toggle("hidden", !active && status !== "done");
+        // The backend keeps reporting downloaded == total after finishing and
+        // clears current_file — without an explicit done branch the bar sits at
+        // "Downloading 100%" forever (and again on a reload of a finished run).
+        fill.classList.toggle("done", status === "done");
 
-        if (prog.total > 0) {
+        if (status === "done") {
+            fill.style.width = "100%";
+            text.textContent = `Download complete (${formatHfBytes(prog.total)})`;
+        } else if (prog.total > 0) {
             const pct = Math.min(100, Math.round((prog.downloaded / prog.total) * 100));
             fill.style.width = pct + "%";
             text.textContent = `${prog.current_file || "Downloading"} ${pct}% (${formatHfBytes(prog.downloaded)} / ${formatHfBytes(prog.total)})`;
