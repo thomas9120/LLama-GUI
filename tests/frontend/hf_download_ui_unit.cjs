@@ -157,6 +157,19 @@ function addElement(elements, id, tagName = "div", value = "") {
     assert.equal(progress.classList.contains("hidden"), false);
     assert.equal(fill.style.width, "50%");
     assert.equal(text.textContent, "model.gguf 50% (1.0 MB / 2.0 MB)");
+
+    // The backend keeps reporting downloaded == total after finishing; the bar
+    // must switch to a finished state instead of sitting at "Downloading 100%".
+    ui.updateProgress({ status: "done", downloaded: 2097152, total: 2097152, current_file: "" });
+    assert.equal(progress.classList.contains("hidden"), false);
+    assert.equal(fill.classList.contains("done"), true);
+    assert.equal(fill.style.width, "100%");
+    assert.equal(text.textContent, "Download complete (2.0 MB)");
+
+    // A new download clears the finished styling again.
+    ui.updateProgress({ status: "downloading", downloaded: 524288, total: 2097152, current_file: "model.gguf" });
+    assert.equal(fill.classList.contains("done"), false);
+    assert.equal(fill.style.width, "25%");
 }
 
 {

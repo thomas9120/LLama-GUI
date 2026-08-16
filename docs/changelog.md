@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-16
+
+- The Quick Launch Hugging Face progress bar now shows a finished state once a download completes: the bar fills solid green, the animated shimmer stops, and the label switches from "Downloading 100%" to "Download complete". The finished state also renders correctly when the page is reloaded after a completed download.
+
 ## 2026-08-15
 
 - Updated the Speculative Decoding "Draft GPU Layers" control to emit llama.cpp's canonical `--spec-draft-ngl` argument and clarified that it accepts an exact layer count, `auto`, or `all`.
