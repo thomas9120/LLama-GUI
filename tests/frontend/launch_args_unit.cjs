@@ -350,7 +350,7 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.ok(args.includes("--spec-type") && args.includes("draft-eagle3"));
     assert.ok(args.includes("--spec-draft-n-max") && args.includes("8"));
-    assert.ok(args.includes("-ngld") && args.includes("auto"));
+    assert.ok(args.includes("--spec-draft-ngl") && args.includes("auto"));
 }
 
 {
