@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program, include the date the changes were made.
 
+## 2026-08-18
+
+- Split ngram-mod out of the Speculative Type selector so it can stack with draft methods, added the three ngram-mod tuning controls, and preserved legacy `spec_type: "ngram-mod"` presets through shared launch-state migration.
+
 ## 2026-08-16
 
 - Reworked `docs/custom_forks.md` around the intended flag-pack product: one fixed pack beside the custom backend, an immutable official/runtime registry split, namespaced pack IDs, safe preset and unknown-enum round-tripping, fail-closed validation, and explicit activation lifecycle and acceptance criteria. Custom-argument overrides and `--help` discovery remain optional follow-ups. No feature code was implemented.

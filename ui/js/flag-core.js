@@ -46,8 +46,66 @@
         return flagValues;
     }
 
+    const draftSpeculativeTypes = new Set([
+        "draft-simple",
+        "draft-eagle3",
+        "draft-dflash",
+        "draft-dspark",
+        "draft-mtp",
+    ]);
+
+    function getSpeculativeTypeParts(values) {
+        const raw = String((values || {}).spec_type || "none").trim();
+        return raw.split(",").map(value => value.trim()).filter(Boolean);
+    }
+
+    function isNgramModValue(value) {
+        return value === true || String(value || "").trim() === "ngram-mod";
+    }
+
+    function isNgramModEnabled(values) {
+        const cfg = values || {};
+        const explicit = cfg.ngram_mod !== undefined ? cfg.ngram_mod : cfg.spec_ngram_mod;
+        return isNgramModValue(explicit) || getSpeculativeTypeParts(cfg).includes("ngram-mod");
+    }
+
+    function getCombinedSpeculativeType(values) {
+        const specTypes = getSpeculativeTypeParts(values);
+        const draftType = specTypes.find(type => draftSpeculativeTypes.has(type));
+        return [draftType, isNgramModEnabled(values) ? "ngram-mod" : ""]
+            .filter(Boolean)
+            .join(",");
+    }
+
+    function normalizeSpeculativeFlagValues(values) {
+        const source = values && typeof values === "object" && !Array.isArray(values) ? values : {};
+        const normalized = { ...source };
+        const specTypes = getSpeculativeTypeParts(source);
+        const hasExplicitNgram = Object.prototype.hasOwnProperty.call(source, "ngram_mod")
+            || Object.prototype.hasOwnProperty.call(source, "spec_ngram_mod");
+        if (hasExplicitNgram) {
+            const explicit = Object.prototype.hasOwnProperty.call(source, "ngram_mod")
+                ? source.ngram_mod
+                : source.spec_ngram_mod;
+            normalized.ngram_mod = isNgramModValue(explicit);
+            delete normalized.spec_ngram_mod;
+        } else if (specTypes.includes("ngram-mod")) {
+            // Legacy presets stored ngram-mod in spec_type. Keep that preset
+            // working while moving the UI to the independent shared control.
+            normalized.ngram_mod = true;
+        }
+        if (specTypes.includes("ngram-mod")) {
+            const withoutNgram = specTypes.filter(type => type !== "ngram-mod");
+            normalized.spec_type = withoutNgram.join(",") || "none";
+        }
+        return normalized;
+    }
+
     function buildEffectiveFlagValues(values) {
-        const effective = { ...getDefaultFlagValues(), ...(values || {}) };
+        const effective = {
+            ...getDefaultFlagValues(),
+            ...normalizeSpeculativeFlagValues(values),
+        };
         const cloned = {};
         for (const [key, value] of Object.entries(effective)) {
             cloned[key] = cloneFlagValue(value);
@@ -427,9 +485,16 @@
 
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
+            if (f.id === "ngram_mod") continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
             if (shouldOmitLegacyLoadFlag(f, values)) continue;
             const val = values[f.id];
+
+            if (f.id === "spec_type") {
+                const specType = getCombinedSpeculativeType(values);
+                if (specType) args.push([f.flag, specType]);
+                continue;
+            }
 
             if (f.id === "chat_template_reasoning_effort") {
                 const kwargs = {};
@@ -573,6 +638,8 @@
         getFlagValues: collectFlagValues,
         replaceFlagValues,
         buildEffectiveFlagValues,
+        normalizeSpeculativeFlagValues,
+        getCombinedSpeculativeType,
         patchFlagValues,
         configure,
         setMultipleFlagValues,
