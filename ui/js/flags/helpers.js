@@ -18,17 +18,30 @@ function getFlagsByCategory(tool) {
     return groups;
 }
 
+function getSpeculativeTypeParts(values) {
+    const raw = String((values || {}).spec_type || "none").trim();
+    return raw.split(",").map(value => value.trim()).filter(Boolean);
+}
+
+function isNgramModEnabled(values) {
+    const cfg = values || {};
+    const explicit = cfg.ngram_mod !== undefined ? cfg.ngram_mod : cfg.spec_ngram_mod;
+    return explicit === true
+        || String(explicit || "").trim() === "ngram-mod"
+        || getSpeculativeTypeParts(cfg).includes("ngram-mod");
+}
+
 function isSpeculativeDecodingEnabled(values) {
     const cfg = values || {};
-    const specType = String(cfg.spec_type || "none").trim();
-    return Boolean(cfg.model_draft || cfg.hf_repo_draft || (specType && specType !== "none"));
+    const specTypes = getSpeculativeTypeParts(cfg);
+    return Boolean(cfg.model_draft || cfg.hf_repo_draft || specTypes.some(type => type !== "none") || isNgramModEnabled(cfg));
 }
 
 function hasDraftModelSpeculation(values) {
     const cfg = values || {};
     if (cfg.model_draft || cfg.hf_repo_draft) return true;
-    const specType = String(cfg.spec_type || "none").trim();
-    return new Set(["draft-simple", "draft-eagle3", "draft-dflash", "draft-dspark", "draft-mtp"]).has(specType);
+    return getSpeculativeTypeParts(cfg)
+        .some(type => new Set(["draft-simple", "draft-eagle3", "draft-dflash", "draft-dspark", "draft-mtp"]).has(type));
 }
 
 function shouldOmitSpeculativeFlag(f, values) {
@@ -36,8 +49,14 @@ function shouldOmitSpeculativeFlag(f, values) {
     if (!isSpeculativeDecodingEnabled(values)) return true;
 
     if (f.id === "spec_type") {
-        const specType = String((values || {}).spec_type || "none").trim();
-        return !specType || specType === "none";
+        const specTypes = getSpeculativeTypeParts(values).filter(type => type !== "none" && type !== "ngram-mod");
+        return specTypes.length === 0 && !isNgramModEnabled(values);
+    }
+
+    if (f.id === "ngram_mod") return true;
+
+    if (new Set(["ngram_mod_n_match", "ngram_mod_n_min", "ngram_mod_n_max"]).has(f.id)) {
+        return !isNgramModEnabled(values);
     }
 
     const draftModelOnlyFlags = new Set([

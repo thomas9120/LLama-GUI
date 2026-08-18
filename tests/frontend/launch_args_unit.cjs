@@ -386,6 +386,60 @@ function launchResult() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            spec_type: "draft-eagle3",
+            ngram_mod: true,
+            ngram_mod_n_match: 24,
+            ngram_mod_n_min: 48,
+            ngram_mod_n_max: 64,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.equal(args.filter((arg) => arg === "--spec-type").length, 1);
+    assert.ok(args.includes("draft-eagle3,ngram-mod"), "draft and ngram methods must share one --spec-type value");
+    assert.ok(args.includes("--spec-ngram-mod-n-match") && args.includes("24"));
+    assert.ok(args.includes("--spec-ngram-mod-n-min") && args.includes("48"));
+    assert.ok(args.includes("--spec-ngram-mod-n-max") && args.includes("64"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            ngram_mod: true,
+            ngram_mod_n_match: 12,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.equal(args.filter((arg) => arg === "--spec-type").length, 1);
+    assert.ok(args.includes("ngram-mod"), "ngram-only speculation must emit ngram-mod");
+    assert.ok(args.includes("--spec-ngram-mod-n-match") && args.includes("12"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            ngram_mod: false,
+            ngram_mod_n_match: 12,
+            ngram_mod_n_min: 48,
+            ngram_mod_n_max: 64,
+        });
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(!args.includes("--spec-type"), "disabled ngram-mod must not emit --spec-type");
+    for (const flag of [
+        "--spec-ngram-mod-n-match",
+        "--spec-ngram-mod-n-min",
+        "--spec-ngram-mod-n-max",
+    ]) {
+        assert.ok(!args.includes(flag), `${flag} must be inert while ngram-mod is disabled`);
+    }
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setSelectedModelValue("live-a.gguf");
         window.LlamaGui.flagCore.setFlagValue("temperature", 0.11);
     `, context);
@@ -684,6 +738,19 @@ console.log("launch args unit tests passed");
     const roundTripArgs = flatLaunchArgs();
     assert.ok(roundTripArgs.includes("--mlock"), "legacy mlock must survive a Legacy-controls preset round-trip");
     assert.ok(!roundTripArgs.includes("--load-mode"), "Legacy controls must not emit --load-mode");
+
+    const legacyNgram = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server",
+        model: "",
+        flags: { spec_type: "ngram-mod", ngram_mod_n_match: 12 },
+    })`, context);
+    assert.equal(legacyNgram.flags.spec_type, "none", "legacy ngram spec_type should migrate to the draft-only field");
+    assert.equal(legacyNgram.flags.ngram_mod, true, "legacy ngram spec_type should enable the shared ngram control");
+    assert.equal(
+        legacyNgram.flags.ngram_mod_n_match,
+        12,
+        "legacy ngram tuning values should survive preset migration"
+    );
 }
 
 console.log("load-mode preset round-trip tests passed");
