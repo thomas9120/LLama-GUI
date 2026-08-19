@@ -1,6 +1,6 @@
 --Changelog--
 
-Please give a brief summary of changes made to the program, include the date the changes were made.
+Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-19
 
