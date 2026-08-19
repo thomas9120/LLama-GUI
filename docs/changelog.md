@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program, include the date the
 
 ## 2026-08-18
 
+- Documented upstream llama.cpp PR #27210 (adaptive MTP draft depth) in `docs/upstream-changes.md`: the new `--spec-type draft-mtp-adaptive` enum value, the new `--spec-draft-n-min-adaptive N` flag (default 3, env `LLAMA_ARG_SPEC_DRAFT_N_MIN_ADAPTIVE`), the changed roles of `--spec-draft-n-max` (adaptive ceiling) and `--spec-draft-n-min` (ignored by the adaptive type), the controller algorithm, and the planned definitions.js implementation steps. No feature code was implemented.
 - Split ngram-mod out of the Speculative Type selector so it can stack with draft methods, added the three ngram-mod tuning controls, and preserved legacy `spec_type: "ngram-mod"` presets through shared launch-state migration.
 
 ## 2026-08-16
