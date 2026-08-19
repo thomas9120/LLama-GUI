@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-08-19
 
+- Migrated reasoning effort to llama.cpp's native support (upstream PR #26941, first release b10434). The server-wide Default Reasoning Effort control now emits the native `--reasoning-effort LEVEL` launch flag on builds b10434+, gated by the installed build tag from `/api/status`; the custom backend and older installs keep the previous merged `--chat-template-kwargs` path, and Preserve Thinking returns to its own kwargs object on native builds. Chat requests now send the effort level as top-level `reasoning_effort` (final precedence over the server default on new builds) while keeping the `chat_template_kwargs` fallback for older servers. Added a `GET /api/llama/props` proxy (mirroring the slots proxy) and a Chat sidebar hint when the loaded template reports `chat_template_caps.supports_reasoning_effort: false` — the control stays enabled because the capability is boolean-only. Capability probes retry after transient failures and ignore stale model generations.
+
 - Added the llama.cpp defaults to the three ngram-mod tuning descriptions in Configure.
 
 ## 2026-08-18

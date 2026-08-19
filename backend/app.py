@@ -220,6 +220,7 @@ def configure_services(ctx=APP_CONTEXT):
     ctx.services.set_llama_api_target = set_llama_api_target
     ctx.services.get_local_llama_metrics = get_local_llama_metrics
     ctx.services.get_local_llama_slots = get_local_llama_slots
+    ctx.services.get_local_llama_props = get_local_llama_props
     ctx.services.validate_runtime_dependencies = validate_runtime_dependencies
 
 
@@ -472,6 +473,12 @@ def get_local_llama_metrics(host, port, authorization=""):
 
 def get_local_llama_slots(host, port, authorization=""):
     return local_llama_http_service.get_local_llama_slots(
+        host, port, authorization
+    )
+
+
+def get_local_llama_props(host, port, authorization=""):
+    return local_llama_http_service.get_local_llama_props(
         host, port, authorization
     )
 
@@ -924,6 +931,7 @@ API_ROUTER = (
     .add("GET", "/api/chat/target", external_server_routes.get_target)
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/llama/slots", metrics_routes.get_slots)
+    .add("GET", "/api/llama/props", metrics_routes.get_props)
     .add("GET", "/api/models", models_routes.list_models)
     .add("GET", "/api/app-update-status", git_update_routes.get_status)
     .add("GET", "/api/presets", presets_routes.list_presets)

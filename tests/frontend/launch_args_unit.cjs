@@ -304,11 +304,15 @@ function launchResult() {
 }
 
 {
+    // Legacy binaries (pre-b10434 installs, custom backends, unknown tags)
+    // keep the single merged --chat-template-kwargs object.
     vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("b10375");
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
     `, context);
     let args = flatLaunchArgs();
     assert.ok(!args.includes("--chat-template-kwargs"), "Auto effort should leave the template default unchanged");
+    assert.ok(!args.includes("--reasoning-effort"), "Auto effort must not emit the native flag");
 
     vm.runInContext(`
         window.LlamaGui.flagCore.setFlagValue("preserve_thinking", true);
@@ -336,6 +340,62 @@ function launchResult() {
     args = flatLaunchArgs();
     assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
     assert.ok(args.includes('{"preserve_thinking":true,"reasoning_effort":"xhigh"}'));
+
+    // Non-release tags stay on the legacy path too.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("custom");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("chat_template_reasoning_effort", "medium");
+    `, context);
+    args = flatLaunchArgs();
+    assert.ok(args.includes('{"reasoning_effort":"medium"}'), "custom backend keeps the kwargs fallback");
+    assert.ok(!args.includes("--reasoning-effort"));
+}
+
+{
+    // llama.cpp b10434+ gets the native --reasoning-effort launch flag, and
+    // Preserve Thinking returns to its own --chat-template-kwargs object.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("b10502");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+    let args = flatLaunchArgs();
+    assert.ok(!args.includes("--reasoning-effort"), "Auto effort omits the native flag");
+    assert.ok(!args.includes("--chat-template-kwargs"), "Auto effort emits no template kwargs");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setFlagValue("chat_template_reasoning_effort", "high");
+    `, context);
+    args = flatLaunchArgs();
+    assert.ok(args.includes("--reasoning-effort"), "native flag emitted on current builds");
+    assert.ok(args.includes("high"));
+    assert.ok(!args.includes("--chat-template-kwargs"));
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template_reasoning_effort: "xhigh",
+            preserve_thinking: true,
+        });
+    `, context);
+    args = flatLaunchArgs();
+    assert.ok(args.includes("--reasoning-effort") && args.includes("xhigh"));
+    assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
+    assert.ok(args.includes('{"preserve_thinking":true}'), "preserve thinking keeps its own kwargs object");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setMultipleFlagValues({
+            chat_template_reasoning_effort: "auto",
+            preserve_thinking: true,
+        });
+    `, context);
+    args = flatLaunchArgs();
+    assert.ok(!args.includes("--reasoning-effort"));
+    assert.equal(args.filter((arg) => arg === "--chat-template-kwargs").length, 1);
+    assert.ok(args.includes('{"preserve_thinking":true}'));
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
 }
 
 {

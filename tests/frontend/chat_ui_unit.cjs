@@ -168,7 +168,24 @@ function findById(node, id) {
 // mode "complete": chunk, then [DONE], then done.
 
 function makeFetch(mode, hooks = {}) {
-    const fetchImpl = (_url, options) => {
+    const fetchImpl = (url, options) => {
+        const urlString = String(url);
+        // Non-stream endpoints get quiet no-op responses so capability probes
+        // (and any future sibling fetches) never pollute captured payloads.
+        if (urlString.includes("/api/llama/props")) {
+            if (hooks.onPropsRequest) return hooks.onPropsRequest();
+            if (hooks.propsResponse === undefined) {
+                return Promise.resolve({ ok: false, status: 404 });
+            }
+            return Promise.resolve({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve(hooks.propsResponse),
+            });
+        }
+        if (!urlString.includes("/api/chat/completions")) {
+            return Promise.resolve({ ok: false, status: 404 });
+        }
         if (hooks.onRequest) {
             let parsedBody = null;
             try {
@@ -221,7 +238,7 @@ function makeFetch(mode, hooks = {}) {
 
 // --- context ---
 
-function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
+function makeContext({ fetchImpl, seedConversations = [], flagValues = {}, status }) {
     const elements = new Map();
     const storageMap = new Map();
     if (seedConversations.length) {
@@ -242,6 +259,7 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
         "chat-empty",
         "chat-history-list",
         "chat-thinking-effort",
+        "chat-thinking-effort-cap-hint",
         "chat-slider-temp",
         "chat-val-temp",
         "chat-slider-max-tokens",
@@ -292,7 +310,14 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
 
     const api = context.window.LlamaGui.chatUi;
-    const mutable = { flagValues };
+    const mutable = {
+        flagValues,
+        status: status === undefined ? {
+            running: true,
+            active_process_tool: "llama-server",
+            active_runtime: { tool: "llama-server", model: "test-model" },
+        } : status,
+    };
     api.configure({
         flagCore: {
             getFlagValues: () => mutable.flagValues,
@@ -300,11 +325,7 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
             setFlagValue: () => {},
         },
         confirmAction: async () => true,
-        getLatestStatus: () => ({
-            running: true,
-            active_process_tool: "llama-server",
-            active_runtime: { tool: "llama-server", model: "test-model" },
-        }),
+        getLatestStatus: () => mutable.status,
         getLifecycleSnapshot: () => null,
         snapshotStatsBaseline: () => {},
         getApiAuthorizationHeaders: (headers) => headers,
@@ -317,10 +338,17 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {} }) {
         elements,
         getStoredConversations,
         setFlagValues: (values) => { mutable.flagValues = values; },
+        setStatus: (value) => { mutable.status = value; },
     };
 }
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+function deferred() {
+    let resolve;
+    const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
+    return { promise, resolve };
+}
 
 // flush() never blocks the event loop, so an unbounded wait on a condition that
 // can no longer become true would spin forever instead of failing the suite.
@@ -544,8 +572,10 @@ async function runAbortScenario(action) {
         assert.strictEqual(payloads[0].top_p, 0.9, "valid neighbours still go through");
     }
 
-    // Native thinking controls belong in chat_template_kwargs. Auto must stay
-    // absent so models without compatible template variables keep their defaults.
+    // Effort levels go out as top-level reasoning_effort (native since
+    // llama.cpp b10434, final precedence) with the nested chat_template_kwargs
+    // copy retained as the older-build fallback. Auto must stay absent so
+    // models without compatible template variables keep their defaults.
     {
         const payloads = [];
         const { api, elements, getStoredConversations } = makeContext({
@@ -553,10 +583,12 @@ async function runAbortScenario(action) {
         });
         await api._testSendMessage("auto");
         assert.ok(!("chat_template_kwargs" in payloads[0]), "Auto must omit template kwargs");
+        assert.ok(!("reasoning_effort" in payloads[0]), "Auto must omit top-level reasoning_effort");
 
         await api._testStartNewChat();
         elements.get("chat-thinking-effort").value = "medium";
         await api._testSendMessage("think");
+        assert.equal(payloads[1].reasoning_effort, "medium");
         assert.deepEqual(payloads[1].chat_template_kwargs, {
             enable_thinking: true,
             reasoning_effort: "medium",
@@ -567,6 +599,7 @@ async function runAbortScenario(action) {
         assert.equal(elements.get("chat-thinking-effort").value, "auto", "new chats reset to Auto");
         elements.get("chat-thinking-effort").value = "high";
         await api._testSendMessage("deeper");
+        assert.equal(payloads[2].reasoning_effort, "high");
         assert.deepEqual(payloads[2].chat_template_kwargs, {
             enable_thinking: true,
             reasoning_effort: "high",
@@ -605,10 +638,89 @@ async function runAbortScenario(action) {
         await api._testSendMessage("follow up");
         const assistant = payloads[0].messages.find((message) => message.role === "assistant");
         assert.equal(assistant.reasoning_content, "hidden trace");
+        assert.equal(payloads[0].reasoning_effort, "low");
         assert.deepEqual(payloads[0].chat_template_kwargs, {
             enable_thinking: true,
             reasoning_effort: "low",
         });
+    }
+
+    // /props template-capability hint: an unsupported template earns an
+    // explanatory warning; a supported (or silent) template hides it.
+    {
+        const unsupported = makeFetch("complete", {
+            propsResponse: { chat_template_caps: { supports_reasoning_effort: false } },
+        });
+        const { api, elements } = makeContext({ fetchImpl: unsupported });
+        const hint = elements.get("chat-thinking-effort-cap-hint");
+        await api.refreshTemplateCaps();
+        await flushUntil(() => hint.textContent !== "", "cap hint renders for unsupported template");
+        assert.ok(!hint.classList.contains("hidden"), "unsupported template shows the hint");
+
+        const supported = makeFetch("complete", {
+            propsResponse: { chat_template_caps: { supports_reasoning_effort: true } },
+        });
+        const supportedContext = makeContext({ fetchImpl: supported });
+        const supportedHint = supportedContext.elements.get("chat-thinking-effort-cap-hint");
+        await supportedContext.api.refreshTemplateCaps();
+        await flush();
+        await flush();
+        assert.equal(supportedHint.textContent, "", "supported template leaves the hint empty");
+        assert.ok(supportedHint.classList.contains("hidden"), "supported template keeps the hint hidden");
+
+        let attempts = 0;
+        const retrying = makeFetch("complete", {
+            onPropsRequest: () => {
+                attempts += 1;
+                if (attempts === 1) return Promise.resolve({ ok: false, status: 502 });
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        chat_template_caps: { supports_reasoning_effort: false },
+                    }),
+                });
+            },
+        });
+        const retryContext = makeContext({ fetchImpl: retrying });
+        await retryContext.api.refreshTemplateCaps();
+        await retryContext.api.refreshTemplateCaps();
+        assert.equal(attempts, 2, "a failed capability probe must remain retryable");
+        assert.ok(!retryContext.elements.get("chat-thinking-effort-cap-hint").classList.contains("hidden"));
+
+        const oldProbe = deferred();
+        const newProbe = deferred();
+        let probeCount = 0;
+        const delayed = makeFetch("complete", {
+            onPropsRequest: () => (++probeCount === 1 ? oldProbe.promise : newProbe.promise),
+        });
+        const staleContext = makeContext({
+            fetchImpl: delayed,
+            status: {
+                running: true,
+                active_process_tool: "llama-server",
+                runtime_generation: 1,
+            },
+        });
+        const staleHint = staleContext.elements.get("chat-thinking-effort-cap-hint");
+        const oldRefresh = staleContext.api.refreshTemplateCaps();
+        staleContext.setStatus({
+            running: true,
+            active_process_tool: "llama-server",
+            runtime_generation: 2,
+        });
+        const newRefresh = staleContext.api.refreshTemplateCaps();
+        newProbe.resolve({
+            ok: true,
+            json: () => Promise.resolve({ chat_template_caps: { supports_reasoning_effort: true } }),
+        });
+        await newRefresh;
+        oldProbe.resolve({
+            ok: true,
+            json: () => Promise.resolve({ chat_template_caps: { supports_reasoning_effort: false } }),
+        });
+        await oldRefresh;
+        assert.equal(staleHint.textContent, "", "an older generation must not overwrite the current hint");
+        assert.ok(staleHint.classList.contains("hidden"));
     }
 
     // regenerateResponse: when the pop leaves no user message to regenerate

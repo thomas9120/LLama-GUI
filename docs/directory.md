@@ -79,7 +79,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 45 exact routes plus one prefix route, 46 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 46 exact routes plus one prefix route, 47 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -88,7 +88,7 @@
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
 | `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` |
-| `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots` — Prometheus proxy |
+| `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots`, `GET /api/llama/props` — Prometheus proxy and template-capability props |
 | `models.py` | `GET /api/models` — list GGUF files recursively as names relative to the active model root |
 | `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |
 | `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/archive` (bulk archive/restore), `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
@@ -116,7 +116,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `lifecycle.py` | Server shutdown, restart, cleanup |
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
-| `local_llama_http.py` | Shared local llama-server metrics and slots HTTP fetching |
+| `local_llama_http.py` | Shared local llama-server metrics, slots, and props HTTP fetching |
 | `file_picker.py` | Native file and directory dialogs |
 
 ### State Pattern
@@ -191,7 +191,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/remote-tunnel-ui.js` | `window.LlamaGui.remoteTunnelUi` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling; receives shared utilities and endpoint helpers from `app.js` |
 | `ui/js/external-server-ui.js` | `window.LlamaGui.externalServerUi` | API tab controls for registering a llama-server started outside this GUI: connect/disconnect actions, target rendering, and the status refresh that unlocks Chat; receives `fetchJson` and status helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
-| `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, and status badge updates; reads and writes launch-relevant sampler state through injected `flagCore` |
+| `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared template helpers, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Stylesheet and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
@@ -577,7 +577,7 @@ The backend proxies `/api/chat/completions` to `llama-server`'s `/v1/chat/comple
 
 ### Chat Proxy Target
 
-`external_server.resolve_llama_target()` picks the destination for both the chat proxy and the metrics/slots proxies, in order:
+`external_server.resolve_llama_target()` picks the destination for the chat proxy and the metrics/slots/props proxies, in order:
 
 1. A `llama-server` this GUI launched (`ctx.state.active_runtime`).
 2. A `llama-server` the operator registered through `POST /api/chat/target` (API tab → "Connect to a Running Server").
@@ -849,12 +849,12 @@ Flags for reasoning/thinking models:
 - `-rea` (enum: auto/on/off): Enable or disable reasoning/thinking mode.
 - `--reasoning-budget` (int): Token budget for thinking (-1 = unlimited, 0 = off).
 - `--reasoning-preserve` (bool): Preserve reasoning traces across the full chat history when the selected template supports llama.cpp's preserve-reasoning capability.
-- **Default Reasoning Effort** (enum: Auto/Low/Medium/High/XHigh): Server-wide template default for Chat, API clients, and external harnesses. Auto omits `reasoning_effort`; other values emit it through `--chat-template-kwargs`. Per-request `chat_template_kwargs` can override the launch default.
+- **Default Reasoning Effort** (enum: Auto/Low/Medium/High/XHigh): Server-wide template default for Chat, API clients, and external harnesses. Auto omits the flag; other values emit the native `--reasoning-effort` flag on llama.cpp b10434+ (gated by the installed build tag from `/api/status`; the custom backend and older installs stay on the legacy path). Per-request `reasoning_effort` overrides the launch default.
 - `--chat-template-kwargs` (bool, flag: `preserve_thinking`): Legacy compatibility path. When enabled, passes `{"preserve_thinking":true}` to the chat template engine.
 
-If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. Legacy `preserve_thinking` and Default Reasoning Effort share one `--chat-template-kwargs` JSON object when both are enabled.
+If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. On pre-b10434 binaries (and the custom backend), legacy `preserve_thinking` and Default Reasoning Effort share one merged `--chat-template-kwargs` JSON object when both are enabled, because those builds reject the native flag; on b10434+ each emits its own flag.
 
-The Chat settings sidebar also provides a per-conversation **Reasoning Effort** selector: Auto, Off, Low, Medium, High, or XHigh. Auto omits request overrides. Off sends top-level `reasoning_effort=none` plus matching `enable_thinking=false` / `reasoning_effort=none` template kwargs; the effort levels send `enable_thinking=true` plus `reasoning_effort` through `chat_template_kwargs`, allowing compatible model-provided Jinja templates to apply their native reasoning controls without mapping them to llama.cpp token budgets. Stored assistant reasoning is returned as `reasoning_content` on later turns, including when web-search context is injected, so templates with preserved-thinking support receive the complete trace.
+The Chat settings sidebar also provides a per-conversation **Reasoning Effort** selector: Auto, Off, Low, Medium, High, or XHigh. Auto omits request overrides. Off sends top-level `reasoning_effort=none` plus matching `enable_thinking=false` / `reasoning_effort=none` template kwargs; the effort levels send top-level `reasoning_effort` (native since llama.cpp b10434, where it takes final precedence over the server default) together with the `enable_thinking=true` / `reasoning_effort` `chat_template_kwargs` fallback for older builds, allowing compatible model-provided Jinja templates to apply their native reasoning controls without mapping them to llama.cpp token budgets. When the running server reports `chat_template_caps.supports_reasoning_effort: false` on `/props` (proxied as `GET /api/llama/props`), the selector shows an explanatory hint; the control stays enabled because the capability is boolean-only and cannot say which levels a given model accepts. Stored assistant reasoning is returned as `reasoning_content` on later turns, including when web-search context is injected, so templates with preserved-thinking support receive the complete trace.
 
 ---
 

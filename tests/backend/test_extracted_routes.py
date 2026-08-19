@@ -1152,6 +1152,49 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.status, 502)
             self.assertEqual(response.payload["error"], "llama-server slots returned HTTP 404.")
 
+    def test_props_route_uses_context_service(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            calls = []
+
+            def get_local_llama_props(host, port, authorization):
+                calls.append((host, port, authorization))
+                return '{"chat_template_caps":{"supports_reasoning_effort":true}}', ""
+
+            ctx.services.get_local_llama_props = get_local_llama_props
+            response = DummyResponse()
+
+            metrics.get_props(
+                Request("GET", "/api/llama/props", "host=localhost&port=9090", {"Authorization": "Bearer secret"}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(calls, [("localhost", "9090", "Bearer secret")])
+            self.assertEqual(
+                response.text_payload,
+                '{"chat_template_caps":{"supports_reasoning_effort":true}}',
+            )
+
+    def test_props_route_returns_proxy_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def get_local_llama_props(host, port, authorization):
+                return None, "llama-server props returned HTTP 404."
+
+            ctx.services.get_local_llama_props = get_local_llama_props
+            response = DummyResponse()
+
+            metrics.get_props(
+                Request("GET", "/api/llama/props", "host=localhost&port=9090", {}),
+                response,
+                ctx,
+            )
+
+            self.assertEqual(response.status, 502)
+            self.assertEqual(response.payload["error"], "llama-server props returned HTTP 404.")
+
     def test_status_route_uses_context_services(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

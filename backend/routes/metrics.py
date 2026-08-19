@@ -50,3 +50,21 @@ def get_slots(request, response, ctx):
         response.error(error, 502)
         return
     response.text(slots_text, content_type="application/json; charset=utf-8")
+
+
+def get_props(request, response, ctx):
+    query = urllib.parse.parse_qs(request.query)
+    target, host, port = _get_metrics_target(ctx, query)
+    props_text, error = ctx.services.get_local_llama_props(
+        host,
+        port,
+        external_server.resolve_llama_authorization(
+            ctx,
+            target,
+            request.headers.get("Authorization", ""),
+        ),
+    )
+    if props_text is None:
+        response.error(error, 502)
+        return
+    response.text(props_text, content_type="application/json; charset=utf-8")

@@ -435,7 +435,7 @@ footer {
     <div class="fact"><div class="k">llama-server</div><div class="v">127.0.0.1:8080<small>separate subprocess</small></div></div>
     <div class="fact"><div class="k">Runtime deps</div><div class="v">3 packages<small>certifi, ddgs, huggingface_hub</small></div></div>
     <div class="fact"><div class="k">Source size</div><div class="v">~30k lines<small>Python + JS + CSS</small></div></div>
-    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">46 routes<small>16 route modules</small></div></div>
+    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">47 routes<small>16 route modules</small></div></div>
 </div>
 
 <h2 id="overview">Overview</h2>
@@ -1085,7 +1085,7 @@ flagCore.setFlagValue("temperature", 0.5);
 </div>
 
 <h2 id="api">API surface</h2>
-<p class="sub">All 46 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+<p class="sub">All 47 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
 
 <div class="tablewrap">
 <table>
@@ -1098,6 +1098,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/health</td><td>Generation-keyed readiness probe</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/metrics</td><td>Prometheus metrics proxy</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/slots</td><td>Slots proxy (KV/context fallback)</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/props</td><td>Props proxy (chat-template capabilities)</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/download-progress</td><td>Release install progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>

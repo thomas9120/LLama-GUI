@@ -715,10 +715,14 @@ async function main() {
         await page.waitForFunction(() => (
             window.LlamaGui.flagCore.getFlagValues().chat_template_reasoning_effort === "xhigh"
         ));
+        // Deterministic native path regardless of when /api/status landed.
+        await page.evaluate(() => window.LlamaGui.flagCore.setBinaryTag("b10502"));
         let reasoningArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
-        assert.ok(reasoningArgs.includes('{"reasoning_effort":"xhigh"}'));
+        assert.ok(reasoningArgs.includes("--reasoning-effort"));
+        assert.ok(reasoningArgs.includes("xhigh"));
         await page.selectOption("#flag-chat_template_reasoning_effort", "auto");
         reasoningArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.flat());
+        assert.ok(!reasoningArgs.includes("--reasoning-effort"));
         assert.ok(!reasoningArgs.includes("--chat-template-kwargs"));
 
         await page.fill("#config-search", "gpu layers");

@@ -4,6 +4,7 @@
     let selectedModel = "";
     let modelDirInfo = null;
     let flagValues = {};
+    let binaryTag = "";
     let getDefaultFlagValues = () => ({});
     let afterToolChange = null;
     let beforePathPatch = null;
@@ -469,6 +470,20 @@
         });
     }
 
+    // Gate for llama.cpp b10434+, where --reasoning-effort became a native
+    // launch flag (upstream PR 26941). The tag comes from /api/status
+    // (config.json "tag"): installed releases are "bNNNNN", the custom
+    // backend is "custom". Anything unrecognized stays on the legacy
+    // --chat-template-kwargs path, which every build accepts.
+    function setBinaryTag(tag) {
+        binaryTag = String(tag || "");
+    }
+
+    function supportsNativeReasoningEffort() {
+        const match = /^b(\d+)$/.exec(binaryTag);
+        return Boolean(match) && Number(match[1]) >= 10434;
+    }
+
     function buildLaunchArgs(state) {
         const args = [];
         const warnings = [];
@@ -497,16 +512,26 @@
             }
 
             if (f.id === "chat_template_reasoning_effort") {
-                const kwargs = {};
-                if (values.preserve_thinking === true) kwargs.preserve_thinking = true;
-                if (val && val !== "auto") kwargs.reasoning_effort = val;
-                if (Object.keys(kwargs).length > 0) {
-                    args.push([f.flag, JSON.stringify(kwargs)]);
+                if (val && val !== "auto") {
+                    if (supportsNativeReasoningEffort()) {
+                        args.push([f.flag, val]);
+                    } else {
+                        const kwargs = {};
+                        if (values.preserve_thinking === true) kwargs.preserve_thinking = true;
+                        kwargs.reasoning_effort = val;
+                        args.push(["--chat-template-kwargs", JSON.stringify(kwargs)]);
+                    }
                 }
                 continue;
             }
             if (f.id === "preserve_thinking") {
-                if (toolBase !== "server" && val === true) {
+                // On the legacy path with a non-auto effort, preserve_thinking
+                // is merged into the single kwargs object emitted above.
+                const mergedIntoEffortKwargs = toolBase === "server"
+                    && !supportsNativeReasoningEffort()
+                    && values.chat_template_reasoning_effort
+                    && values.chat_template_reasoning_effort !== "auto";
+                if (val === true && !mergedIntoEffortKwargs) {
                     args.push([f.flag, '{"preserve_thinking":true}']);
                 }
                 continue;
@@ -658,6 +683,8 @@
         hasLaunchModelArg,
         buildLaunchArgs,
         getLaunchArgs,
+        setBinaryTag,
+        supportsNativeReasoningEffort,
         updateCommandPreview,
         registerApi,
     };
