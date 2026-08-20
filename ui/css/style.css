@@ -4156,6 +4156,17 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
     line-height: 1.3;
 }
 
+.chat-effort-cap-warning {
+    margin-top: var(--space-2);
+    padding: var(--space-2);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--yellow-border);
+    background: var(--yellow-subtle);
+    color: var(--yellow);
+    font-size: 10px;
+    line-height: 1.3;
+}
+
 .chat-sidebar input[type="number"],
 .chat-sidebar select {
     width: 100%;

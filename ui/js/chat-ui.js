@@ -160,7 +160,13 @@
                 },
             };
         }
+        // Top-level reasoning_effort is honored natively by llama.cpp b10434+
+        // (and takes final precedence over the server default); the nested
+        // chat_template_kwargs copy stays as the fallback for older builds
+        // that ignored top-level values other than "none". Both are harmless
+        // together, so we send them through the whole compatibility window.
         return {
+            reasoning_effort: effort,
             chat_template_kwargs: {
                 enable_thinking: true,
                 reasoning_effort: effort,
@@ -279,6 +285,65 @@
         noServerBadge.style.display = isRunning ? "none" : "";
         noServerBadge.textContent = isLoading ? "Loading Model" : "No Server";
         updateChatAvailability(isRunning);
+        void refreshTemplateCaps();
+    }
+
+    // llama.cpp b10434+ reports chat_template_caps.supports_reasoning_effort
+    // on /props. The cap is boolean-only (it cannot say which levels a model
+    // accepts), so an unsupported template only earns an explanatory hint —
+    // never a disabled control. Fetched once per server generation.
+    let templateCapsKey = null;
+    let templateCapsRequest = null;
+
+    function setThinkingEffortCapHint(unsupported) {
+        const hint = document.getElementById("chat-thinking-effort-cap-hint");
+        if (!hint) return;
+        hint.textContent = unsupported
+            ? "The loaded chat template does not advertise reasoning-effort support \u2014 effort levels may have no effect."
+            : "";
+        hint.classList.toggle("hidden", !unsupported);
+    }
+
+    function getTemplateCapsKey() {
+        if (!isServerRunning()) return null;
+        const lifecycle = getLifecycleSnapshot ? getLifecycleSnapshot() : null;
+        const lifecycleGeneration = lifecycle && lifecycle.activeRuntime
+            ? lifecycle.activeRuntime.generation
+            : null;
+        const latestStatus = getLatestStatus ? getLatestStatus() : null;
+        const statusGeneration = latestStatus ? latestStatus.runtime_generation : null;
+        return String(lifecycleGeneration !== null && lifecycleGeneration !== undefined
+            ? lifecycleGeneration
+            : (statusGeneration !== null && statusGeneration !== undefined ? statusGeneration : "running"));
+    }
+
+    async function refreshTemplateCaps() {
+        if (!document.getElementById("chat-thinking-effort-cap-hint")) return;
+        const key = getTemplateCapsKey();
+        if (key === null) {
+            templateCapsKey = null;
+            templateCapsRequest = null;
+            setThinkingEffortCapHint(false);
+            return;
+        }
+        if (key === templateCapsKey || (templateCapsRequest && templateCapsRequest.key === key)) return;
+        const request = { key };
+        templateCapsRequest = request;
+        try {
+            const resp = await fetch("/api/llama/props", {
+                headers: getApiAuthorizationHeaders({}),
+            });
+            if (!resp || !resp.ok || typeof resp.json !== "function") return;
+            const props = await resp.json();
+            if (templateCapsRequest !== request || getTemplateCapsKey() !== key) return;
+            const caps = props && props.chat_template_caps;
+            templateCapsKey = key;
+            setThinkingEffortCapHint(Boolean(caps && caps.supports_reasoning_effort === false));
+        } catch (error) {
+            console.debug("Could not read chat template capabilities", error);
+        } finally {
+            if (templateCapsRequest === request) templateCapsRequest = null;
+        }
     }
 
     function setChatPanelCollapsed(panel, openButton, collapseButton, collapsed) {
@@ -1041,6 +1106,7 @@
         onTabChanged,
         refreshSidebarUI,
         updateStatusBadge,
+        refreshTemplateCaps,
         abortActiveStream,
         addModelTransitionDivider,
     };

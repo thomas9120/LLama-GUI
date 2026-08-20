@@ -299,6 +299,12 @@ async function checkStatus() {
         const status = await fetchJson("/api/status");
         if (!status || requestId !== statusRequestId) return null;
         latestStatus = status;
+        // Feeds the launch-arg gate for build-dependent flags such as native
+        // --reasoning-effort (llama.cpp b10434+); custom backends and older
+        // installs stay on their compatible fallback path.
+        if (window.LlamaGui.flagCore && typeof window.LlamaGui.flagCore.setBinaryTag === "function") {
+            window.LlamaGui.flagCore.setBinaryTag(status.version);
+        }
         applyModelDirInfo(status);
         updateStatusUI(status);
         await notifyAcceptedStatusObserver(status);

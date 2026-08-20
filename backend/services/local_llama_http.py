@@ -73,3 +73,14 @@ def get_local_llama_slots(host, port, authorization=""):
         "slots",
         authorization,
     )
+
+
+def get_local_llama_props(host, port, authorization=""):
+    return _fetch_local_llama_endpoint(
+        host,
+        port,
+        "/props",
+        "application/json",
+        "props",
+        authorization,
+    )

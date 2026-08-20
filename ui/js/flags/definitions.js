@@ -1148,13 +1148,12 @@ const FLAGS = [
 	},
 	{
 		id: "chat_template_reasoning_effort",
-		flag: "--chat-template-kwargs",
+		flag: "--reasoning-effort",
 		category: "conversation",
 		type: "enum",
 		label: "Default Reasoning Effort",
-		desc: "Reasoning Effort — server-wide default for Chat, API clients, and external harnesses. Auto leaves the model template default unchanged; request-level chat_template_kwargs can override it. Supported levels depend on the model.",
+		desc: "Reasoning Effort — server-wide default for Chat, API clients, and external harnesses. Auto omits the flag and leaves the model template default unchanged. Uses the native --reasoning-effort flag on llama.cpp b10434+, falling back to chat template kwargs on older binaries; request-level values override it. Supported levels depend on the model.",
 		tool: "server",
-		allow_duplicate_cli_flag: true,
 		default: "auto",
 		options: [
 			{ value: "auto", label: "Auto" },
@@ -1172,7 +1171,6 @@ const FLAGS = [
 		label: "Preserve Thinking (Legacy)",
 		desc: 'Legacy template-kwargs path for preserving thinking/reasoning tokens in response output. Prefer Preserve Reasoning for current llama.cpp builds. Passes {"preserve_thinking":true} to the chat template engine.',
 		tool: "both",
-		allow_duplicate_cli_flag: true,
 		default: false,
 	},
 	{

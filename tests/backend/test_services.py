@@ -159,9 +159,14 @@ class LocalLlamaHttpTests(unittest.TestCase):
     def test_app_delegates_and_default_service_wiring_are_preserved(self):
         from backend import app
 
+        self.assertTrue(callable(AppContext().services.get_local_llama_props))
         self.assertIs(
             app.APP_CONTEXT.services.get_local_llama_metrics,
             app.get_local_llama_metrics,
+        )
+        self.assertIs(
+            app.APP_CONTEXT.services.get_local_llama_props,
+            app.get_local_llama_props,
         )
         self.assertIs(
             app.APP_CONTEXT.services.get_local_llama_slots,
@@ -178,6 +183,11 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 "get_local_llama_slots",
                 return_value=("slots", ""),
             ) as get_slots,
+            mock.patch.object(
+                local_llama_http,
+                "get_local_llama_props",
+                return_value=("props", ""),
+            ) as get_props,
         ):
             self.assertEqual(
                 app.get_local_llama_metrics("localhost", 8080, "Bearer key"),
@@ -187,9 +197,14 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 app.get_local_llama_slots("localhost", 8080, "Bearer key"),
                 ("slots", ""),
             )
+            self.assertEqual(
+                app.get_local_llama_props("localhost", 8080, "Bearer key"),
+                ("props", ""),
+            )
 
         get_metrics.assert_called_once_with("localhost", 8080, "Bearer key")
         get_slots.assert_called_once_with("localhost", 8080, "Bearer key")
+        get_props.assert_called_once_with("localhost", 8080, "Bearer key")
 
     def test_endpoint_specific_port_errors_are_preserved(self):
         cases = (
