@@ -4,7 +4,7 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
-### Native reasoning-effort support — residual compatibility window
+### Native reasoning-effort support — residual compatibility window - - - Done
 
 - **Upstream:** [ggml-org/llama.cpp#26941](https://github.com/ggml-org/llama.cpp/pull/26941), merged on 2026-08-14 as commit `7e4c0a9`, first release `b10434`.
 - **Status:** Implemented (2026-08-19). The Default Reasoning Effort control emits native `--reasoning-effort LEVEL` on b10434+ (gated by the installed build tag from `/api/status`), Chat sends top-level `reasoning_effort` with the nested `chat_template_kwargs` fallback, and `/props` `chat_template_caps.supports_reasoning_effort` drives a Chat sidebar hint via the new `GET /api/llama/props` proxy.
