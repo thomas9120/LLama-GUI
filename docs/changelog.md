@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-08-22
 
+- Renamed the left sidebar's Install navigation item to Install and Update.
 - Fixed backend-filtered llama.cpp release discovery stopping at GitHub's first page: the Install version list now checks up to three 100-release pages until it finds compatible assets, so Linux ROCm builds remain selectable after gaps in upstream publishing without exhausting GitHub's API quota when an asset is discontinued.
 
 ## 2026-08-19
