@@ -3995,6 +3995,45 @@ class InstallRouteTests(unittest.TestCase):
 
         self.assertEqual([release["tag"] for release in response.payload], ["b10356"])
 
+    def test_install_get_releases_pages_past_incompatible_release_window(self):
+        self.ctx.services.backend_specs["rocm"] = {
+            "label": "ROCm 7.14 (AMD, Official)",
+            "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
+        }
+        first_page = [
+            {
+                "tag_name": f"b{i}",
+                "name": f"b{i}",
+                "published_at": "2026-08-22T00:00:00Z",
+                "assets": [{"name": f"llama-b{i}-bin-win-rocm-7.14-x64.zip"}],
+            }
+            for i in range(100)
+        ]
+        compatible = {
+            "tag_name": "b10375",
+            "name": "b10375",
+            "published_at": "2026-08-12T12:18:24Z",
+            "assets": [
+                {"name": "llama-b10375-bin-ubuntu-rocm-7.14-x64.tar.gz"}
+            ],
+        }
+        response = DummyResponse()
+        with mock.patch.object(
+            llama_manager, "get_releases", side_effect=[first_page, [compatible]]
+        ) as get_releases:
+            install.get_releases(
+                Request("GET", "/api/releases", "backend=rocm", {}), response, self.ctx
+            )
+
+        self.assertEqual([release["tag"] for release in response.payload], ["b10375"])
+        self.assertEqual(
+            get_releases.call_args_list,
+            [
+                mock.call(self.ctx, self.ctx.config.github_api, page=1, per_page=100),
+                mock.call(self.ctx, self.ctx.config.github_api, page=2, per_page=100),
+            ],
+        )
+
     def test_install_get_releases_error_returns_500(self):
         response = DummyResponse()
         with mock.patch.object(
@@ -4320,7 +4359,12 @@ class InstallRouteTests(unittest.TestCase):
                 self.ctx,
             )
         self.assertEqual(response.status, 200)
-        gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
+        gr.assert_called_once_with(
+            self.ctx,
+            llama_manager.LEMONADE_ROCM_REPO_API,
+            page=1,
+            per_page=100,
+        )
 
     def test_get_releases_without_backend_param_uses_default(self):
         response = DummyResponse()
@@ -4330,7 +4374,7 @@ class InstallRouteTests(unittest.TestCase):
                 response,
                 self.ctx,
             )
-        gr.assert_called_once_with(self.ctx, None)
+        gr.assert_called_once_with(self.ctx, None, page=1, per_page=100)
 
     def test_get_releases_ignores_unknown_backend(self):
         response = DummyResponse()
@@ -4340,7 +4384,7 @@ class InstallRouteTests(unittest.TestCase):
                 response,
                 self.ctx,
             )
-        gr.assert_called_once_with(self.ctx, None)
+        gr.assert_called_once_with(self.ctx, None, page=1, per_page=100)
 
     def test_get_releases_returns_empty_for_custom_backend(self):
         response = DummyResponse()
