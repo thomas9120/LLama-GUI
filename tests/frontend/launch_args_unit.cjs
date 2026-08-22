@@ -452,14 +452,24 @@ function launchResult() {
             ngram_mod_n_match: 24,
             ngram_mod_n_min: 48,
             ngram_mod_n_max: 64,
+            ngram_map_k4v: true,
+            ngram_map_k4v_size_n: 12,
+            ngram_map_k4v_size_m: 48,
+            ngram_map_k4v_min_hits: 1,
         });
     `, context);
     const args = flatLaunchArgs();
     assert.equal(args.filter((arg) => arg === "--spec-type").length, 1);
-    assert.ok(args.includes("draft-eagle3,ngram-mod"), "draft and ngram methods must share one --spec-type value");
+    assert.ok(
+        args.includes("draft-eagle3,ngram-mod,ngram-map-k4v"),
+        "draft and ngram methods must share one --spec-type value"
+    );
     assert.ok(args.includes("--spec-ngram-mod-n-match") && args.includes("24"));
     assert.ok(args.includes("--spec-ngram-mod-n-min") && args.includes("48"));
     assert.ok(args.includes("--spec-ngram-mod-n-max") && args.includes("64"));
+    assert.ok(args.includes("--spec-ngram-map-k4v-size-n") && args.includes("12"));
+    assert.ok(args.includes("--spec-ngram-map-k4v-size-m") && args.includes("48"));
+    assert.ok(args.includes("--spec-ngram-map-k4v-min-hits") && args.includes("1"));
 }
 
 {
@@ -484,6 +494,10 @@ function launchResult() {
             ngram_mod_n_match: 12,
             ngram_mod_n_min: 48,
             ngram_mod_n_max: 64,
+            ngram_map_k4v: false,
+            ngram_map_k4v_size_n: 12,
+            ngram_map_k4v_size_m: 48,
+            ngram_map_k4v_min_hits: 1,
         });
     `, context);
     const args = flatLaunchArgs();
@@ -492,8 +506,11 @@ function launchResult() {
         "--spec-ngram-mod-n-match",
         "--spec-ngram-mod-n-min",
         "--spec-ngram-mod-n-max",
+        "--spec-ngram-map-k4v-size-n",
+        "--spec-ngram-map-k4v-size-m",
+        "--spec-ngram-map-k4v-min-hits",
     ]) {
-        assert.ok(!args.includes(flag), `${flag} must be inert while ngram-mod is disabled`);
+        assert.ok(!args.includes(flag), `${flag} must be inert while its ngram mode is disabled`);
     }
 }
 
@@ -810,6 +827,19 @@ console.log("launch args unit tests passed");
         legacyNgram.flags.ngram_mod_n_match,
         12,
         "legacy ngram tuning values should survive preset migration"
+    );
+
+    const legacyNgramMap = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server",
+        model: "",
+        flags: { spec_type: "ngram-map-k4v", ngram_map_k4v_size_n: 10 },
+    })`, context);
+    assert.equal(legacyNgramMap.flags.spec_type, "none", "legacy map spec_type should migrate to the draft-only field");
+    assert.equal(legacyNgramMap.flags.ngram_map_k4v, true, "legacy map spec_type should enable the shared map control");
+    assert.equal(
+        legacyNgramMap.flags.ngram_map_k4v_size_n,
+        10,
+        "legacy map tuning values should survive preset migration"
     );
 }
 

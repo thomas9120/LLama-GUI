@@ -31,10 +31,24 @@ function isNgramModEnabled(values) {
         || getSpeculativeTypeParts(cfg).includes("ngram-mod");
 }
 
+function isNgramMapK4vEnabled(values) {
+    const cfg = values || {};
+    const explicit = cfg.ngram_map_k4v !== undefined ? cfg.ngram_map_k4v : cfg.spec_ngram_map_k4v;
+    return explicit === true
+        || String(explicit || "").trim() === "ngram-map-k4v"
+        || getSpeculativeTypeParts(cfg).includes("ngram-map-k4v");
+}
+
 function isSpeculativeDecodingEnabled(values) {
     const cfg = values || {};
     const specTypes = getSpeculativeTypeParts(cfg);
-    return Boolean(cfg.model_draft || cfg.hf_repo_draft || specTypes.some(type => type !== "none") || isNgramModEnabled(cfg));
+    return Boolean(
+        cfg.model_draft
+        || cfg.hf_repo_draft
+        || specTypes.some(type => type !== "none")
+        || isNgramModEnabled(cfg)
+        || isNgramMapK4vEnabled(cfg)
+    );
 }
 
 function hasDraftModelSpeculation(values) {
@@ -49,14 +63,19 @@ function shouldOmitSpeculativeFlag(f, values) {
     if (!isSpeculativeDecodingEnabled(values)) return true;
 
     if (f.id === "spec_type") {
-        const specTypes = getSpeculativeTypeParts(values).filter(type => type !== "none" && type !== "ngram-mod");
-        return specTypes.length === 0 && !isNgramModEnabled(values);
+        const specTypes = getSpeculativeTypeParts(values)
+            .filter(type => type !== "none" && type !== "ngram-mod" && type !== "ngram-map-k4v");
+        return specTypes.length === 0 && !isNgramModEnabled(values) && !isNgramMapK4vEnabled(values);
     }
 
-    if (f.id === "ngram_mod") return true;
+    if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") return true;
 
     if (new Set(["ngram_mod_n_match", "ngram_mod_n_min", "ngram_mod_n_max"]).has(f.id)) {
         return !isNgramModEnabled(values);
+    }
+
+    if (new Set(["ngram_map_k4v_size_n", "ngram_map_k4v_size_m", "ngram_map_k4v_min_hits"]).has(f.id)) {
+        return !isNgramMapK4vEnabled(values);
     }
 
     const draftModelOnlyFlags = new Set([

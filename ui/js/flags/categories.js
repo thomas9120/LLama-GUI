@@ -30,7 +30,7 @@ const FLAG_CATEGORIES = [
 	{ id: "conversation", name: "Conversation & Chat", icon: "💬" },
 	{ id: "lora", name: "LoRA & Control Vectors", icon: "🔗" },
 	{ id: "kv", name: "KV Cache", icon: "💾" },
-	{ id: "speculative", name: "Speculative Decoding", icon: "⚡", submenuOrder: ["Ngram Mod"] },
+	{ id: "speculative", name: "Speculative Decoding", icon: "⚡", submenuOrder: ["Ngram Mod", "Ngram Map K4V"] },
 	{ id: "server", name: "Server Settings", icon: "🌐" },
 	{ id: "mcp", name: "MCP Settings" },
 	{ id: "grammar", name: "Grammar & Constraints", icon: "📝" },
