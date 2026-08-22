@@ -70,10 +70,24 @@
         return isNgramModValue(explicit) || getSpeculativeTypeParts(cfg).includes("ngram-mod");
     }
 
+    function isNgramMapK4vValue(value) {
+        return value === true || String(value || "").trim() === "ngram-map-k4v";
+    }
+
+    function isNgramMapK4vEnabled(values) {
+        const cfg = values || {};
+        const explicit = cfg.ngram_map_k4v !== undefined ? cfg.ngram_map_k4v : cfg.spec_ngram_map_k4v;
+        return isNgramMapK4vValue(explicit) || getSpeculativeTypeParts(cfg).includes("ngram-map-k4v");
+    }
+
     function getCombinedSpeculativeType(values) {
         const specTypes = getSpeculativeTypeParts(values);
         const draftType = specTypes.find(type => draftSpeculativeTypes.has(type));
-        return [draftType, isNgramModEnabled(values) ? "ngram-mod" : ""]
+        return [
+            draftType,
+            isNgramModEnabled(values) ? "ngram-mod" : "",
+            isNgramMapK4vEnabled(values) ? "ngram-map-k4v" : "",
+        ]
             .filter(Boolean)
             .join(",");
     }
@@ -95,8 +109,21 @@
             // working while moving the UI to the independent shared control.
             normalized.ngram_mod = true;
         }
-        if (specTypes.includes("ngram-mod")) {
-            const withoutNgram = specTypes.filter(type => type !== "ngram-mod");
+        const hasExplicitNgramMap = Object.prototype.hasOwnProperty.call(source, "ngram_map_k4v")
+            || Object.prototype.hasOwnProperty.call(source, "spec_ngram_map_k4v");
+        if (hasExplicitNgramMap) {
+            const explicit = Object.prototype.hasOwnProperty.call(source, "ngram_map_k4v")
+                ? source.ngram_map_k4v
+                : source.spec_ngram_map_k4v;
+            normalized.ngram_map_k4v = isNgramMapK4vValue(explicit);
+            delete normalized.spec_ngram_map_k4v;
+        } else if (specTypes.includes("ngram-map-k4v")) {
+            // Legacy presets stored ngram-map-k4v in spec_type. Keep that preset
+            // working while moving the UI to the independent shared control.
+            normalized.ngram_map_k4v = true;
+        }
+        if (specTypes.includes("ngram-mod") || specTypes.includes("ngram-map-k4v")) {
+            const withoutNgram = specTypes.filter(type => type !== "ngram-mod" && type !== "ngram-map-k4v");
             normalized.spec_type = withoutNgram.join(",") || "none";
         }
         return normalized;
@@ -500,7 +527,7 @@
 
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
-            if (f.id === "ngram_mod") continue;
+            if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
             if (shouldOmitLegacyLoadFlag(f, values)) continue;
             const val = values[f.id];
