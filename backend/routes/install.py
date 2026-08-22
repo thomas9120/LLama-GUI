@@ -9,6 +9,10 @@ from ..services import process_manager
 
 
 RELEASE_RESPONSE_LIMIT = 30
+RELEASE_PAGE_SIZE = 100
+# Bound lookback so a renamed or discontinued asset cannot exhaust GitHub's
+# unauthenticated API quota. Three pages covers roughly 300 nightly builds.
+RELEASE_PAGE_LIMIT = 3
 
 
 def _claim_install_slot(ctx):
@@ -29,23 +33,30 @@ def get_releases(request, response, ctx):
             spec = ctx.services.backend_specs.get(backend)
             if spec is not None:
                 repo_api = llama_manager.resolve_repo_api(spec, ctx)
-        releases = llama_manager.get_releases(ctx, repo_api)
         result = []
-        for r in releases:
-            if spec and spec.get("asset"):
-                expected_asset = spec["asset"].format(tag=r["tag_name"])
-                if not any(a.get("name") == expected_asset for a in r["assets"]):
-                    continue
-            result.append(
-                {
-                    "tag": r["tag_name"],
-                    "name": r.get("name", r["tag_name"]),
-                    "published": r["published_at"],
-                    "assets": [a["name"] for a in r["assets"]],
-                }
+        page = 1
+        while page <= RELEASE_PAGE_LIMIT:
+            releases = llama_manager.get_releases(
+                ctx, repo_api, page=page, per_page=RELEASE_PAGE_SIZE
             )
-            if len(result) == RELEASE_RESPONSE_LIMIT:
+            for r in releases:
+                if spec and spec.get("asset"):
+                    expected_asset = spec["asset"].format(tag=r["tag_name"])
+                    if not any(a.get("name") == expected_asset for a in r["assets"]):
+                        continue
+                result.append(
+                    {
+                        "tag": r["tag_name"],
+                        "name": r.get("name", r["tag_name"]),
+                        "published": r["published_at"],
+                        "assets": [a["name"] for a in r["assets"]],
+                    }
+                )
+                if len(result) == RELEASE_RESPONSE_LIMIT:
+                    break
+            if result or len(releases) < RELEASE_PAGE_SIZE:
                 break
+            page += 1
         response.json(result)
     except Exception as e:
         response.error(sanitize_error(e, 500), 500)

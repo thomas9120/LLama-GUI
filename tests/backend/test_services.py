@@ -634,7 +634,6 @@ class ResolveRepoApiTests(unittest.TestCase):
                 llama_manager.resolve_repo_api(spec, ctx), ctx.config.github_api
             )
 
-
 class NormalizeArchTests(unittest.TestCase):
     def test_amd64_maps_to_x64(self):
         from backend.app import normalize_arch
@@ -1684,7 +1683,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             )
             ctx.services.save_config.assert_called_once()
 
-    def test_get_releases_uses_repo_api_when_provided(self):
+    def test_get_releases_uses_repo_api_and_pagination_when_provided(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
             payload = json.dumps([{"tag_name": "b1294", "assets": []}]).encode()
@@ -1693,12 +1692,17 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             )
 
             result = llama_manager.get_releases(
-                ctx, llama_manager.LEMONADE_ROCM_REPO_API
+                ctx,
+                llama_manager.LEMONADE_ROCM_REPO_API + "?channel=nightly",
+                page=2,
+                per_page=100,
             )
 
             request = ctx.services.urlopen_with_ssl.call_args.args[0]
             self.assertEqual(
-                request.full_url, llama_manager.LEMONADE_ROCM_REPO_API
+                request.full_url,
+                llama_manager.LEMONADE_ROCM_REPO_API
+                + "?channel=nightly&page=2&per_page=100",
             )
             self.assertEqual(result[0]["tag_name"], "b1294")
 

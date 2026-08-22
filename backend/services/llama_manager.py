@@ -13,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 import zipfile
 from typing import Any, Callable, Iterable, Mapping, Optional
@@ -182,8 +183,22 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
     return with_custom({})
 
 
-def get_releases(ctx: AppContext, repo_api: Optional[str] = None) -> list[dict[str, Any]]:
+def get_releases(
+    ctx: AppContext,
+    repo_api: Optional[str] = None,
+    *,
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+) -> list[dict[str, Any]]:
     api_url = repo_api or ctx.config.github_api
+    pagination = {
+        key: value
+        for key, value in (("page", page), ("per_page", per_page))
+        if value is not None
+    }
+    if pagination:
+        separator = "&" if "?" in api_url else "?"
+        api_url = f"{api_url}{separator}{urllib.parse.urlencode(pagination)}"
     req = urllib.request.Request(
         api_url,
         headers={"Accept": "application/vnd.github+json"},
