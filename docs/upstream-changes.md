@@ -11,6 +11,13 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Remaining:** the dual paths stay until the supported binary floor makes them dead code — the legacy merged-kwargs launch path (`flag-core.js`) and the nested `chat_template_kwargs` copy in Chat requests (`chat-ui.js` `getChatThinkingParams`) can then be removed in one sweep.
 - **Upstream caution:** [ggml-org/llama.cpp#27023](https://github.com/ggml-org/llama.cpp/issues/27023) remains open and reports Low/High having no effect on some models in an earlier build. Smoke-test levels visibly before treating them as verified on a given model.
 
+### Fork-only acceptance-based draft sizing (`--spec-draft-adaptive`)
+
+- **Implementation:** [LaurentZuijdwijk/llama.cpp `common/arg.cpp`](https://github.com/LaurentZuijdwijk/llama.cpp/blob/master/common/arg.cpp#L3999-L4005).
+- **Status:** Implemented in that fork but absent from upstream `ggml-org/llama.cpp` as of 2026-08-25. It is a default-off boolean available to `llama-speculative`, `llama-server`, and `llama-cli`, with env `LLAMA_ARG_SPEC_DRAFT_ADAPTIVE`.
+- **Behavior:** Sizes each draft from measured acceptance instead of always drafting the `--spec-draft-n-max` token count. This is separate from the open upstream adaptive-MTP proposal tracked below.
+- **Local handling:** Llama-GUI exposes the checkbox in the temporary **Experimental** Configure category. When this exact feature merges upstream, re-verify its spelling and semantics, then move the control into **Speculative Decoding**.
+
 ### Adaptive MTP draft depth (`draft-mtp-adaptive`)
 
 - **Upstream:** [ggml-org/llama.cpp#27210](https://github.com/ggml-org/llama.cpp/pull/27210) (branch `stew675:adaptive-mtp`, 3 commits, head `77cd0e8`). The range `08ae079..77cd0e8` linked in tracking is the final commit: it gates the adaptive range validation on adaptive mode so plain `draft-mtp` no longer aborts when the effective `n_max` is below the default floor of 3 (e.g. `--spec-draft-n-max 2`), and improves the abort message when `n_max` was capped by the model's MTP layer count.
@@ -42,4 +49,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Recheck when:** Upstream changes the actual default or a bundled llama.cpp release includes that change.
 - **Local decision:** Either keep Llama-GUI's explicit 8080 default or change the frontend, backend target fallback, external-server form, tests, and documentation to 9931 together.
 
-Last checked: 2026-08-19.
+Last checked: 2026-08-25.

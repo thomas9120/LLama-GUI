@@ -239,6 +239,9 @@ assert.deepEqual(validateFlags(current.flags, current.categories), {
     ],
 });
 
+const advancedCategoryIndex = current.categories.findIndex((category) => category.id === "advanced");
+assert.equal(current.categories[advancedCategoryIndex + 1].id, "experimental");
+
 {
     const jinja = current.flags.find((flag) => flag.id === "jinja");
     assert.equal(jinja.default, true);

@@ -1926,4 +1926,16 @@ const FLAGS = [
 		tool: "both",
 		default: false,
 	},
+
+	// Experimental
+	{
+		id: "spec_draft_adaptive",
+		flag: "--spec-draft-adaptive",
+		category: "experimental",
+		type: "bool",
+		label: "Adaptive Draft Size",
+		desc: "Size each speculative draft from measured acceptance instead of always drafting --spec-draft-n-max tokens. Available in the LaurentZuijdwijk llama.cpp fork; upstream builds may reject this flag.",
+		tool: "both",
+		default: false,
+	},
 ];
