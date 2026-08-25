@@ -57,6 +57,16 @@ function launchResult() {
 }
 
 {
+    assert.ok(!flatLaunchArgs().includes("--spec-draft-adaptive"));
+    vm.runInContext(
+        'window.LlamaGui.flagCore.setFlagValue("spec_draft_adaptive", true)',
+        context
+    );
+    assert.ok(flatLaunchArgs().includes("--spec-draft-adaptive"));
+    vm.runInContext("window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues())", context);
+}
+
+{
     const recognizedModelArgs = [
         [["-m", "models/local.gguf"]],
         [["--model", "models/local.gguf"]],

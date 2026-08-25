@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-08-25
+
+- Added an Experimental Configure accordion below Advanced with an off-by-default Adaptive Draft Size checkbox that emits the fork-only `--spec-draft-adaptive` flag.
+
 ## 2026-08-22
 
 - Added an independent Ngram Map K4V speculative-decoding submenu with lookup size, draft size, and minimum-hit controls; it stacks with draft and Ngram Mod modes through one shared `--spec-type`, shows llama.cpp defaults in each description, and migrates legacy presets.

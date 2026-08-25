@@ -36,4 +36,5 @@ const FLAG_CATEGORIES = [
 	{ id: "grammar", name: "Grammar & Constraints", icon: "📝" },
 	{ id: "logging", name: "Logging", icon: "📋" },
 	{ id: "advanced", name: "Advanced", icon: "🔧" },
+	{ id: "experimental", name: "Experimental", icon: "🧪" },
 ];
