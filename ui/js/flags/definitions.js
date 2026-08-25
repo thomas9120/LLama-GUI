@@ -56,6 +56,17 @@ const FLAGS = [
 		tool: "both",
 	},
 	{
+		id: "mmproj_device",
+		flag: "--mmproj-device",
+		category: "model",
+		type: "text",
+		label: "Multimodal Projector Device",
+		short_desc: "Choose which backend device runs the multimodal projector.",
+		desc: "Select one backend device for the multimodal projector, such as an iGPU while the main model stays on a dGPU. Use a name from --list-devices; only one device is accepted, and none disables projector offload. Short alias: -mmdev. Available in llama.cpp b10541 and v0.2.0+.",
+		tool: "both",
+		placeholder: "auto; none = don't offload",
+	},
+	{
 		id: "mmproj_url",
 		flag: "--mmproj-url",
 		category: "model",

@@ -5,6 +5,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 ## 2026-08-25
 
 - Added an Experimental Configure accordion below Advanced with an off-by-default Adaptive Draft Size checkbox that emits the fork-only `--spec-draft-adaptive` flag.
+- Added a Multimodal Projector Device control directly below `-mm` in Model; it emits the new `--mmproj-device DEVICE` argument introduced in llama.cpp b10541 and included in v0.2.0.
 
 ## 2026-08-22
 
