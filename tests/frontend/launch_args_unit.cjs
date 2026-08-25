@@ -67,6 +67,17 @@ function launchResult() {
 }
 
 {
+    vm.runInContext(
+        'window.LlamaGui.flagCore.setFlagValue("mmproj_device", "Vulkan0")',
+        context
+    );
+    const args = flatLaunchArgs();
+    const flagIndex = args.indexOf("--mmproj-device");
+    assert.equal(args[flagIndex + 1], "Vulkan0");
+    vm.runInContext("window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues())", context);
+}
+
+{
     const recognizedModelArgs = [
         [["-m", "models/local.gguf"]],
         [["--model", "models/local.gguf"]],
