@@ -788,6 +788,19 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("assets", shortcut_script)
         self.assertIn("assets", items, "create_windows_shortcuts.ps1 reads assets\\Llama-GUI.ico")
 
+    def test_fresh_installs_create_custom_backend_directories(self):
+        root, _items = self._release_items()
+        windows_installer = (root / "windows_install.bat").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        unix_installer = (root / "install.sh").read_text(encoding="utf-8")
+        release_script = (root / "release.ps1").read_text(encoding="utf-8")
+
+        for directory in ("llama\\custom\\bin", "llama\\custom\\grammars"):
+            self.assertIn(directory, windows_installer)
+            self.assertIn(f'"{directory}"', release_script)
+        self.assertIn("mkdir -p llama/custom/bin llama/custom/grammars", unix_installer)
+
 
 class ImportSmokeTests(unittest.TestCase):
     def test_server_py_is_compatibility_entrypoint(self):

@@ -1,5 +1,6 @@
 """Routes for llama.cpp install/update management."""
 
+import sys
 import threading
 import urllib.parse
 
@@ -70,7 +71,8 @@ def start_install(request, response, ctx):
     body = request.body or {}
     tag = body.get("tag")
     backend = body.get("backend")
-    if not tag or not backend:
+    activate_existing = body.get("activate_existing") is True
+    if not backend or (not activate_existing and not tag):
         response.error("tag and backend required", 400)
         return
     if backend == "custom":
@@ -82,6 +84,22 @@ def start_install(request, response, ctx):
     claim_error = _claim_install_slot(ctx)
     if claim_error is not None:
         response.error(*claim_error)
+        return
+
+    if activate_existing:
+        try:
+            result = llama_manager.activate_official_backend(ctx, backend)
+            if result.get("ok"):
+                response.json(result)
+            else:
+                response.error(
+                    result.get("error") or "Could not activate existing backend", 400
+                )
+        except Exception as exc:
+            print(f"[install] activate existing backend failed: {exc}", file=sys.stderr)
+            response.error(sanitize_error(exc, 500), 500)
+        finally:
+            process_manager.release_install_slot(ctx)
         return
 
     def _install(tag, backend):

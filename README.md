@@ -256,9 +256,9 @@ Quick Launch, Configure, and Chat samplers share one state. Loading a full app p
 
 ### Custom pre-compiled binaries
 
-1. Put binaries (and needed `.dll` / `.so` / `.dylib`) in `llama/custom/bin/` (`llama-server`, `llama-cli`, optionally `llama-bench`, `llama-perplexity`, etc.). The directory is created if you click **Activate Custom**.
+1. Put binaries (and needed `.dll` / `.so` / `.dylib`) in `llama/custom/bin/` (`llama-server`, `llama-cli`, optionally `llama-bench`, `llama-perplexity`, etc.). Fresh installs create this directory automatically; **Activate Custom** also creates it if needed.
 2. In **Install**, choose **Custom (User-Provided)** → **Activate Custom**.
-3. Switch back by installing any official backend.
+3. Switch back by selecting the preserved official backend and clicking **Activate Existing**; no download is required.
 
 `llama/custom/` is preserved when removing official llama.cpp files.
 

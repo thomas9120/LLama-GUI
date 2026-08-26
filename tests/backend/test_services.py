@@ -539,6 +539,137 @@ class ActivateCustomBackendTests(unittest.TestCase):
                 {"tag": "custom", "backend": "custom", "version": "custom"}
             )
 
+    def test_preserves_official_install_when_custom_is_activated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.llama_tools = ["llama-cli", "llama-server"]
+            ctx.services.current_platform = "win32"
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            ctx.services.load_config = lambda: {
+                "tag": "b10502",
+                "backend": "vulkan",
+                "version": "Build 10502",
+            }
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_custom_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                (ctx.paths.llama_custom_bin / f"{tool}.exe").write_text("")
+
+            result = llama_manager.activate_custom_backend(ctx)
+
+            self.assertTrue(result["ok"])
+            ctx.services.save_config.assert_called_once_with(
+                {
+                    "tag": "custom",
+                    "backend": "custom",
+                    "version": "custom",
+                    "official_install": {
+                        "backend": "vulkan",
+                        "tag": "b10502",
+                        "version": "Build 10502",
+                    },
+                }
+            )
+
+    def test_activates_preserved_official_install_without_downloading(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "win32"
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            store = {
+                "backend": "custom",
+                "tag": "custom",
+                "version": "custom",
+                "official_install": {
+                    "backend": "vulkan",
+                    "tag": "b10502",
+                    "version": "Build 10502",
+                },
+            }
+            ctx.services.load_config = lambda: dict(store)
+            ctx.services.save_config = lambda cfg: (store.clear(), store.update(cfg))
+            ctx.paths.llama_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                (ctx.paths.llama_bin / f"{tool}.exe").write_text("")
+
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="version: 0.1.2-dev (build 10502, commit abc)",
+                stderr="",
+            )
+            with mock.patch.object(llama_manager.subprocess, "run", return_value=completed):
+                result = llama_manager.activate_official_backend(ctx, "vulkan")
+
+            self.assertEqual(
+                result,
+                {
+                    "ok": True,
+                    "backend": "vulkan",
+                    "tag": "b10502",
+                    "version": "Build 10502",
+                },
+            )
+            self.assertEqual(store["backend"], "vulkan")
+            self.assertEqual(store["tag"], "b10502")
+
+    def test_rejects_preserved_official_install_when_binary_cannot_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "win32"
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            store = {
+                "backend": "custom",
+                "tag": "custom",
+                "version": "custom",
+                "official_install": {
+                    "backend": "vulkan",
+                    "tag": "b10502",
+                    "version": "Build 10502",
+                },
+            }
+            ctx.services.load_config = lambda: dict(store)
+            ctx.services.save_config = mock.Mock()
+            ctx.paths.llama_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                (ctx.paths.llama_bin / f"{tool}.exe").write_text("")
+
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr="missing runtime library"
+            )
+            with mock.patch.object(llama_manager.subprocess, "run", return_value=completed):
+                result = llama_manager.activate_official_backend(ctx, "vulkan")
+
+            self.assertFalse(result["ok"])
+            self.assertIn("could not be started", result["error"])
+            ctx.services.save_config.assert_not_called()
+            self.assertEqual(store["backend"], "custom")
+
+    def test_legacy_official_install_recovers_tag_from_binary_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "win32"
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            store = {"backend": "custom", "tag": "custom", "version": "custom"}
+            ctx.services.load_config = lambda: dict(store)
+            ctx.services.save_config = lambda cfg: (store.clear(), store.update(cfg))
+            ctx.paths.llama_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                (ctx.paths.llama_bin / f"{tool}.exe").write_text("")
+
+            completed = subprocess.CompletedProcess(
+                args=[],
+                returncode=0,
+                stdout="version: 0.1.2-dev (build 10502, commit abc)",
+                stderr="",
+            )
+            with mock.patch.object(llama_manager.subprocess, "run", return_value=completed):
+                result = llama_manager.activate_official_backend(ctx, "vulkan")
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["tag"], "b10502")
+            self.assertEqual(store["official_install"]["backend"], "vulkan")
+
     def test_rejects_non_executable_core_tools_on_unix(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)
@@ -1366,6 +1497,11 @@ class LlamaManagerDownloadTests(unittest.TestCase):
                         "version": "Build 1234",
                         "backend": "cpu",
                         "tag": "b1234",
+                        "official_install": {
+                            "backend": "cpu",
+                            "tag": "b1234",
+                            "version": "Build 1234",
+                        },
                     }
                 ],
             )
@@ -2011,7 +2147,18 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             )
             self.assertEqual(
                 saved_configs,
-                [{"version": "b1294", "backend": "lemonade-rocm-gfx110X", "tag": "b1294"}],
+                [
+                    {
+                        "version": "b1294",
+                        "backend": "lemonade-rocm-gfx110X",
+                        "tag": "b1294",
+                        "official_install": {
+                            "backend": "lemonade-rocm-gfx110X",
+                            "tag": "b1294",
+                            "version": "b1294",
+                        },
+                    }
+                ],
             )
             self.assertEqual(ctx.state.download_progress.snapshot()["status"], "done")
             self.assertIn("SHA256 digest metadata is missing", stderr.getvalue())

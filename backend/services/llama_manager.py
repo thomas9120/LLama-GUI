@@ -510,6 +510,12 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
 
         with ctx.state.config_lock:
             cfg = dict(ctx.services.load_config())
+            if cfg.get("backend") and cfg.get("backend") != "custom" and cfg.get("tag"):
+                cfg["official_install"] = {
+                    "backend": cfg["backend"],
+                    "tag": cfg["tag"],
+                    "version": cfg.get("version") or cfg["tag"],
+                }
             cfg["version"] = "custom"
             cfg["backend"] = "custom"
             cfg["tag"] = "custom"
@@ -526,6 +532,100 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
     except Exception as e:
         print(f"[llama_manager] activate_custom_backend failed: {e}", file=sys.stderr)
         return {"ok": False, "error": str(e)}
+
+
+def get_official_install_status(
+    ctx: AppContext, cfg: Optional[Mapping[str, Any]] = None
+) -> dict[str, Any]:
+    cfg = cfg or ctx.services.load_config()
+    stored = cfg.get("official_install")
+    stored = stored if isinstance(stored, Mapping) else {}
+
+    backend = stored.get("backend")
+    tag = stored.get("tag")
+    version = stored.get("version")
+    if cfg.get("backend") and cfg.get("backend") != "custom" and cfg.get("tag"):
+        backend = cfg.get("backend")
+        tag = cfg.get("tag")
+        version = cfg.get("version") or tag
+
+    current_platform = ctx.services.current_platform or sys.platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    files_present = all(
+        (ctx.paths.llama_bin / ctx.services.get_tool_filename(tool)).is_file()
+        and (
+            current_platform == "win32"
+            or os.access(
+                ctx.paths.llama_bin / ctx.services.get_tool_filename(tool), os.X_OK
+            )
+        )
+        for tool in ("llama-cli", "llama-server")
+    )
+    return {
+        "backend": str(backend).strip() if backend else None,
+        "tag": str(tag).strip() if tag else None,
+        "version": str(version).strip() if version else None,
+        "files_present": files_present,
+    }
+
+
+def _probe_official_build(ctx: AppContext) -> tuple[bool, Optional[str]]:
+    executable = ctx.paths.llama_bin / ctx.services.get_tool_filename("llama-cli")
+    try:
+        result = subprocess.run(
+            [str(executable), "--version"],
+            cwd=ctx.paths.llama_bin,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False, None
+    if result.returncode != 0:
+        return False, None
+    match = re.search(r"\bbuild\s+(\d+)\b", result.stdout + "\n" + result.stderr, re.I)
+    return True, f"b{match.group(1)}" if match else None
+
+
+def activate_official_backend(ctx: AppContext, backend: str) -> dict[str, Any]:
+    cfg = dict(ctx.services.load_config())
+    official = get_official_install_status(ctx, cfg)
+    if not official["files_present"]:
+        return {
+            "ok": False,
+            "error": "Existing official llama.cpp files were not found.",
+        }
+    if official["backend"] and official["backend"] != backend:
+        return {
+            "ok": False,
+            "error": f"The existing official installation is {official['backend']}, not {backend}.",
+        }
+
+    runtime_ok, detected_tag = _probe_official_build(ctx)
+    if not runtime_ok:
+        return {
+            "ok": False,
+            "error": "The existing official llama.cpp runtime could not be started.",
+        }
+
+    tag = official["tag"] or detected_tag
+    if not tag:
+        return {
+            "ok": False,
+            "error": "Could not determine the version of the existing official installation.",
+        }
+
+    version = official["version"] or tag
+    record = {"backend": backend, "tag": tag, "version": version}
+    with ctx.state.config_lock:
+        cfg = dict(ctx.services.load_config())
+        cfg.update({"backend": backend, "tag": tag, "version": version})
+        cfg["official_install"] = record
+        ctx.services.save_config(cfg)
+    ctx.state.clear_runtime_health_cache()
+    return {"ok": True, **record}
 
 
 def _validate_custom_runtime_dependencies(
@@ -958,8 +1058,18 @@ def install_release(
 
         with ctx.state.config_lock:
             config_data = dict(ctx.services.load_config())
+            version = release.get("name", tag)
             config_data.update(
-                {"version": release.get("name", tag), "backend": backend, "tag": tag}
+                {
+                    "version": version,
+                    "backend": backend,
+                    "tag": tag,
+                    "official_install": {
+                        "backend": backend,
+                        "tag": tag,
+                        "version": version,
+                    },
+                }
             )
             ctx.services.save_config(config_data)
         ctx.state.clear_runtime_health_cache()

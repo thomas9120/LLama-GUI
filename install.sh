@@ -41,6 +41,8 @@ echo "Upgrading pip..."
 echo "Installing Python dependencies from requirements.txt..."
 "$VENV_PYTHON" -m pip install -r requirements.txt
 
+mkdir -p llama/custom/bin llama/custom/grammars
+
 echo
 echo "Install complete."
 echo "Start the app with ./mac_linux_start.sh or ./mac_linux_silent_start.sh"

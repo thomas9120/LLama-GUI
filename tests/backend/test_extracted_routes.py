@@ -1828,7 +1828,12 @@ class ExtractedRouteTests(unittest.TestCase):
                 "api_key_required": False,
             }
             ctx.services.load_config = lambda: {
-                "external_chat_target": remembered_target
+                "external_chat_target": remembered_target,
+                "official_install": {
+                    "backend": "cpu",
+                    "tag": "b1",
+                    "version": "b1",
+                },
             }
             saved = []
             ctx.services.save_config = saved.append
@@ -3950,6 +3955,40 @@ class InstallRouteTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(len(response.payload), 1)
         self.assertEqual(response.payload[0]["tag"], "b1")
+
+    def test_install_can_activate_existing_backend_without_starting_download(self):
+        response = DummyResponse()
+        activated = {
+            "ok": True,
+            "backend": "cpu",
+            "tag": "b1",
+            "version": "b1",
+        }
+        with (
+            mock.patch.object(
+                llama_manager, "activate_official_backend", return_value=activated
+            ) as activate,
+            mock.patch.object(install.threading, "Thread") as thread,
+            mock.patch.object(llama_manager, "install_release") as download,
+        ):
+            install.start_install(
+                Request(
+                    "POST",
+                    "/api/install",
+                    "",
+                    {},
+                    body={"backend": "cpu", "activate_existing": True},
+                ),
+                response,
+                self.ctx,
+            )
+
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload, activated)
+        activate.assert_called_once_with(self.ctx, "cpu")
+        thread.assert_not_called()
+        download.assert_not_called()
+        self.assertFalse(self.ctx.state.install_in_progress)
 
     def test_install_get_releases_caps_response_at_thirty(self):
         fake_releases = [

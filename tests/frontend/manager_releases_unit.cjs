@@ -197,6 +197,12 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
             "llama-cli": true,
             "llama-server": true,
         },
+        official_install: {
+            backend: "vulkan",
+            tag: "b10502",
+            version: "b10502",
+            files_present: true,
+        },
     };
     context.updateStatusUI(customStatus);
     assert.equal(backendSelect.value, "custom");
@@ -214,7 +220,9 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         "vulkan",
         "pending install backend should survive status refresh while installed backend is still custom"
     );
-    assert.equal(elements.get("btn-install").textContent, "Install");
+    assert.equal(elements.get("btn-install").textContent, "Activate Existing");
+    assert.equal(context.canActivateOfficialBackend(customStatus, "vulkan"), true);
+    assert.equal(context.canActivateOfficialBackend(customStatus, "cpu"), false);
     assert.equal(
         elements.get("btn-update").disabled,
         true,
