@@ -3,7 +3,8 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-25
-
+- Preserved one downloaded official backend alongside a custom backend, allowing the Install tab to reactivate its existing `llama/bin` files without downloading them again; activation verifies that `llama-cli` can start, and legacy custom configurations recover its installed build tag from `--version`.
+- Fresh installs now create `llama/custom/bin` and `llama/custom/grammars` automatically.
 - Added an Experimental Configure accordion below Advanced with an off-by-default Adaptive Draft Size checkbox that emits the fork-only `--spec-draft-adaptive` flag.
 - Added a Multimodal Projector Device control directly below `-mm` in Model; it emits the new `--mmproj-device DEVICE` argument introduced in llama.cpp b10541 and included in v0.2.0.
 

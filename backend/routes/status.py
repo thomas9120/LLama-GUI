@@ -6,6 +6,7 @@ import sys
 from ..http import sanitize_error
 from ..config import LLAMA_HOST, LLAMA_PORT
 from ..services import external_server
+from ..services import llama_manager
 from ..services import model_dir
 from ..services import process_manager
 
@@ -34,6 +35,7 @@ def get_status(request, response, ctx):
         process_status = process_manager.get_process_status_snapshot(ctx)
         model_dir_info = model_dir.get_models_dir_info(ctx)
         backend_specs = services.backend_specs
+        official_install = llama_manager.get_official_install_status(ctx, cfg)
         try:
             api_target = dict(services.get_llama_api_target())
         except Exception as exc:
@@ -46,6 +48,7 @@ def get_status(request, response, ctx):
                 "config_stale": config_stale,
                 "version": cfg.get("tag"),
                 "backend": cfg.get("backend"),
+                "official_install": official_install,
                 "executables": exes,
                 "runtime_files": [path.name for path in runtime_files],
                 "runtime_files_label": "Runtime libraries",

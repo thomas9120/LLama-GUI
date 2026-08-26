@@ -85,6 +85,8 @@ foreach ($item in $items) {
 
 $placeholderDirs = @(
     "llama\bin",
+    "llama\custom\bin",
+    "llama\custom\grammars",
     "llama\dll",
     "llama\grammars",
     "models",

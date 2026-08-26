@@ -1487,6 +1487,7 @@ def remove_llama_files(ctx: AppContext) -> int:
     with ctx.state.config_lock:
         config_data = _load_config_safe(ctx)
         config_data.update({"version": None, "backend": None, "tag": None})
+        config_data.pop("official_install", None)
         ctx.services.save_config(config_data)
     ctx.state.clear_runtime_health_cache()
 

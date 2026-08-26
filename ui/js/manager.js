@@ -43,6 +43,21 @@ function installedBackendIdFromStatus(status) {
     return normalizeBackendId(status && status.backend);
 }
 
+function canActivateOfficialBackend(status, backendId) {
+    const target = normalizeBackendId(backendId);
+    const official = status && status.official_install;
+    const recordedBackend = normalizeBackendId(official && official.backend);
+    return Boolean(
+        status
+        && status.backend === "custom"
+        && target
+        && target !== "custom"
+        && official
+        && official.files_present
+        && (!recordedBackend || recordedBackend === target)
+    );
+}
+
 function renderBackendOptions(status) {
     const backendSelect = document.getElementById("backend-select");
     if (!backendSelect) return;
@@ -108,6 +123,7 @@ function updateInstalledBackendSummary(status) {
 }
 
 function syncInstallActionButtons(status, selectedInstallBackend) {
+    const installBtn = document.getElementById("btn-install");
     const updateBtn = document.getElementById("btn-update");
     const repairBtn = document.getElementById("btn-repair");
     const installTarget = normalizeBackendId(selectedInstallBackend);
@@ -115,6 +131,14 @@ function syncInstallActionButtons(status, selectedInstallBackend) {
     const hasInstalledBackend = Boolean(status && status.installed && installedBackend);
     const hasStaleBackendConfig = Boolean(status && status.config_stale && installedBackend);
     const customTargetSelected = installTarget === "custom";
+    const canActivateExisting = canActivateOfficialBackend(status, installTarget);
+
+    if (installBtn && !customTargetSelected) {
+        installBtn.textContent = canActivateExisting ? "Activate Existing" : "Install";
+        installBtn.title = canActivateExisting
+            ? "Use the official llama.cpp files already installed in llama/bin"
+            : "Download and install the selected llama.cpp release";
+    }
 
     if (updateBtn) {
         const canUpdate = !customTargetSelected && hasInstalledBackend && installedBackend !== "custom";
@@ -248,6 +272,25 @@ async function activateCustomBackend() {
         showStatus("error", "Failed to activate custom backend: " + e.message);
     } finally {
         setInstallButtonsDisabled(false);
+    }
+}
+
+async function activateOfficialBackend(backend) {
+    setInstallButtonsDisabled(true);
+    showStatus("info", `Activating existing ${backend} backend...`);
+    try {
+        const result = await fetchJson("/api/install", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ backend, activate_existing: true }),
+        });
+        showStatus("success", `Existing ${result.tag} (${result.backend}) installation activated.`);
+        await checkStatus();
+    } catch (e) {
+        showStatus("error", "Failed to activate existing backend: " + e.message);
+    } finally {
+        setInstallButtonsDisabled(false);
+        syncInstallActionButtons(latestStatus, selectedBackendId());
     }
 }
 
@@ -505,8 +548,11 @@ async function installRelease() {
     if (backendEl && backendEl.value === "custom") {
         return activateCustomBackend();
     }
-    const tag = document.getElementById("release-select").value;
     const backend = backendEl ? backendEl.value : "";
+    if (canActivateOfficialBackend(latestStatus, backend)) {
+        return activateOfficialBackend(backend);
+    }
+    const tag = document.getElementById("release-select").value;
     if (!tag) {
         showStatus("error", "Select a version first");
         return;

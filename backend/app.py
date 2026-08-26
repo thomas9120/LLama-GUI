@@ -17,6 +17,7 @@ from backend.config import (
     GUI_PORT,
     LLAMA_BIN_DIR,
     LLAMA_CUSTOM_BIN_DIR,
+    LLAMA_CUSTOM_GRAMMARS_DIR,
     LLAMA_GRAMMARS_DIR,
     LLAMA_HOST,
     LLAMA_PORT,
@@ -978,6 +979,8 @@ def main():
         PRESETS_DIR,
         LLAMA_BIN_DIR,
         LLAMA_GRAMMARS_DIR,
+        LLAMA_CUSTOM_BIN_DIR,
+        LLAMA_CUSTOM_GRAMMARS_DIR,
     ]:
         d.mkdir(parents=True, exist_ok=True)
 

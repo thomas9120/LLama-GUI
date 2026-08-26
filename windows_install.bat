@@ -47,6 +47,11 @@ echo Installing Python dependencies from requirements.txt...
 call "%VENV_PYTHON%" -m pip install -r requirements.txt
 if errorlevel 1 goto :install_error
 
+if not exist "llama\custom\bin" mkdir "llama\custom\bin"
+if errorlevel 1 goto :install_error
+if not exist "llama\custom\grammars" mkdir "llama\custom\grammars"
+if errorlevel 1 goto :install_error
+
 where powershell >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
     echo Creating desktop shortcut...
