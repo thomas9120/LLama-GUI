@@ -245,6 +245,12 @@ assert.equal(current.categories[advancedCategoryIndex + 1].id, "experimental");
 const mmprojFlagIndex = current.flags.findIndex((flag) => flag.id === "mmproj");
 assert.equal(current.flags[mmprojFlagIndex + 1].id, "mmproj_device");
 
+const nCpuFfn = current.flags.find((flag) => flag.id === "n_cpu_ffn");
+assert.equal(nCpuFfn.flag, "-ncffn");
+assert.equal(nCpuFfn.type, "int");
+assert.equal(nCpuFfn.min, 0);
+assert.equal(nCpuFfn.tool, "both");
+
 {
     const jinja = current.flags.find((flag) => flag.id === "jinja");
     assert.equal(jinja.default, true);

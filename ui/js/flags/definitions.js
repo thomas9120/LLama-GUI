@@ -553,6 +553,16 @@ const FLAGS = [
 		min: 0,
 	},
 	{
+		id: "n_cpu_ffn",
+		flag: "-ncffn",
+		category: "gpu",
+		type: "int",
+		label: "CPU FFN Layers",
+		desc: "Keep dense FFN weights of first N layers in CPU",
+		tool: "both",
+		min: 0,
+	},
+	{
 		id: "mmproj_offload",
 		flag: "--mmproj-offload",
 		false_flag: "--no-mmproj-offload",

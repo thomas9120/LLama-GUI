@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-08-27
+- Added the new llama.cpp `-ncffn` / `--n-cpu-ffn` control for keeping dense FFN weights from the first N model layers on CPU.
+
 ## 2026-08-25
 - Preserved one downloaded official backend alongside a custom backend, allowing the Install tab to reactivate its existing `llama/bin` files without downloading them again; activation verifies that `llama-cli` can start, and legacy custom configurations recover its installed build tag from `--version`.
 - Fresh installs now create `llama/custom/bin` and `llama/custom/grammars` automatically.
