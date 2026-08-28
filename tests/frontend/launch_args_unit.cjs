@@ -159,6 +159,24 @@ function launchResult() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("fit", "off");
+    `, context);
+    let args = flatLaunchArgs();
+    const fitIndex = args.indexOf("-fit");
+    assert.notEqual(fitIndex, -1);
+    assert.equal(args[fitIndex + 1], "off");
+    assert.ok(!args.includes("-fitt"), "disabled auto-fit should omit its target margin");
+    assert.ok(!args.includes("-fitc"), "disabled auto-fit should omit its context floor");
+
+    vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("fit", "on")`, context);
+    args = flatLaunchArgs();
+    assert.ok(args.includes("-fitt"), "re-enabled auto-fit should restore its target margin");
+    assert.ok(args.includes("-fitc"), "re-enabled auto-fit should restore its context floor");
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setMultipleFlagValues({
             dry_multiplier: 0.8,
             dry_penalty_last_n: 2048,
