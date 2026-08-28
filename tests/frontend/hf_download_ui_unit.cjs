@@ -398,6 +398,42 @@ function addElement(elements, id, tagName = "div", value = "") {
     );
 }
 
+{
+    // ModelScope source: same form, different endpoints; status/cancel shared.
+    const { elements, ui } = makeContext();
+    addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    addElement(elements, "hf-source-select", "select", "ms");
+    addElement(elements, "hf-repo-input", "input", "Qwen/Qwen2.5-0.5B-Instruct-GGUF");
+    addElement(elements, "hf-revision-input", "input", "");
+    addElement(elements, "hf-token-input", "input", "");
+    addElement(elements, "hf-file-options");
+    addElement(elements, "hf-model-file-select", "select");
+    addElement(elements, "hf-mmproj-file-select", "select");
+
+    const calls = [];
+    ui.configure({
+        fetchJson: async (url, optionsArg) => {
+            calls.push({ url, body: JSON.parse(optionsArg.body) });
+            return {
+                models: [{ name: "model.gguf", size: 2048 }],
+                mmproj: [],
+            };
+        },
+        confirmAction: async () => false,
+    });
+
+    await ui.findFiles();
+    assert.equal(calls[0].url, "/api/ms/repo-files");
+
+    await ui.startDownload(false);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(calls[1].url, "/api/ms/download");
+    assert.equal(calls[1].body.repo_id, "Qwen/Qwen2.5-0.5B-Instruct-GGUF");
+}
+
 console.log("hf download ui unit tests passed");
 })().catch((error) => {
     console.error(error);

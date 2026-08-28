@@ -1,6 +1,9 @@
---Changelog--
+# --Changelog--
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
+
+## 2026-08-28
+- Added ModelScope (魔搭) as a second model source in the HF download panel: a Source dropdown switches between Hugging Face and ModelScope, backed by new `POST /api/ms/repo-files` and `POST /api/ms/download` routes (`backend/services/modelscope_download.py`). ModelScope downloads use parallel HTTP Range chunks (up to 8 workers) with automatic single-stream fallback; progress, cancel, and completion state are shared with the HF flow, so the same progress bar, cancel button, and model auto-selection work for both sources. Revision and token inputs are disabled for ModelScope (not part of its API). The downloaded file passed an end-to-end check: listed via the ModelScope API, downloaded, discovered by the models API, and loaded by llama-server.
 
 ## 2026-08-27
 - Added the new llama.cpp `-ncffn` / `--n-cpu-ffn` control for keeping dense FFN weights from the first N model layers on CPU.

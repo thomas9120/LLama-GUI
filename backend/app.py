@@ -51,6 +51,7 @@ from backend.routes import benchmarks as benchmarks_routes
 from backend.routes import external_server as external_server_routes
 from backend.routes import file_picker as file_picker_routes
 from backend.routes import hf_download as hf_download_routes
+from backend.routes import modelscope_download as modelscope_download_routes
 from backend.routes import metrics as metrics_routes
 from backend.routes import model_dir as model_dir_routes
 from backend.routes import models as models_routes
@@ -946,6 +947,8 @@ API_ROUTER = (
     .add("POST", "/api/hf/repo-files", hf_download_routes.list_repo_files)
     .add("POST", "/api/hf/download", hf_download_routes.start_download)
     .add("POST", "/api/hf/download-cancel", hf_download_routes.cancel_download)
+    .add("POST", "/api/ms/repo-files", modelscope_download_routes.list_repo_files)
+    .add("POST", "/api/ms/download", modelscope_download_routes.start_download)
     .add("POST", "/api/install", install_routes.start_install)
     .add("POST", "/api/update", install_routes.start_update)
     .add("POST", "/api/activate-custom", install_routes.activate_custom)
