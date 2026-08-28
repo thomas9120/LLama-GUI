@@ -202,7 +202,7 @@ def cancel_hf_model_download(ctx: AppContext) -> Mapping[str, Any]:
             return snapshot
         ctx.state.model_download_cancel.set()
         return ctx.state.model_download.update(
-            status="cancelling", message="Cancelling download..."
+            status="cancelling", message="正在取消下载…"
         )
 
 
@@ -239,7 +239,7 @@ def download_hf_file(
         expected_bytes = _content_length(resp)
         while True:
             if ctx.state.model_download_cancel.is_set():
-                raise InterruptedError("Download cancelled.")
+                raise InterruptedError("下载已取消。")
             chunk = resp.read(1024 * 1024)
             if not chunk:
                 break
@@ -296,7 +296,7 @@ def start_hf_model_download(
 
     with ctx.state.model_download_lock:
         if ctx.state.model_download_in_progress:
-            raise RuntimeError("A model download is already in progress.")
+            raise RuntimeError("已有模型下载正在进行。")
         models_dir = model_dir.get_models_dir(ctx)
         repo_folder = slugify_repo_id(repo_id)
         model_basename = pathlib.PurePosixPath(model_file).name
@@ -313,12 +313,12 @@ def start_hf_model_download(
         if mmproj_dest and mmproj_dest.exists():
             existing.append(f"{repo_folder}/{mmproj_dest.name}")
         if existing and not overwrite:
-            raise FileExistsError(f"Already exists: {', '.join(existing)}")
+            raise FileExistsError(f"已存在：{', '.join(existing)}")
 
         ctx.state.model_download_in_progress = True
         ctx.state.model_download_cancel.clear()
         reset_model_download_state(
-            ctx, status="starting", message="Preparing Hugging Face download..."
+            ctx, status="starting", message="正在准备 Hugging Face 下载…"
         )
 
     def _worker() -> None:
@@ -333,14 +333,14 @@ def start_hf_model_download(
             reset_model_download_state(
                 ctx,
                 status="downloading",
-                message=f"Downloading {model_name}...",
+                message=f"正在下载 {model_name}…",
                 total=total,
                 downloaded=0,
             )
             completed = download_hf_file(ctx, repo_id, model_file, revision, token, model_dest, 0, total, urlopen)
             mmproj_path = ""
             if mmproj_file and mmproj_dest:
-                set_model_download_state(ctx, message=f"Downloading {mmproj_dest.name}...")
+                set_model_download_state(ctx, message=f"正在下载 {mmproj_dest.name}…")
                 completed += download_hf_file(
                     ctx,
                     repo_id,
@@ -356,7 +356,7 @@ def start_hf_model_download(
             set_model_download_state(
                 ctx,
                 status="done",
-                message=f"Downloaded {model_name}.",
+                message=f"已下载 {model_name}。",
                 downloaded=total or completed,
                 total=total or completed,
                 current_file="",

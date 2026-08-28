@@ -915,7 +915,7 @@ async function main() {
         assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("min"), "1");
         assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("max"), "10");
         assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
-            "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
+            "自动（模型默认）", "关", "低", "中", "高", "超高",
         ]);
         await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
@@ -1679,7 +1679,7 @@ async function main() {
                 quickLabelText: quickLabel?.textContent?.trim() || "",
             };
         });
-        assert.match(searchableSelectAccessibility.buttonLabel, /^Model A preset:/);
+        assert.match(searchableSelectAccessibility.buttonLabel, /^模型 A 预设:/);
         assert.ok(searchableSelectAccessibility.activeOptionExists, "active searchable option must be exposed to assistive technology");
         assert.match(searchableSelectAccessibility.quickButtonLabel, /^Model:/);
         assert.equal(searchableSelectAccessibility.quickLabelText, "Model");
