@@ -528,6 +528,7 @@
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
             if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") continue;
+            if (values.fit === "off" && (f.id === "fit_target" || f.id === "fit_ctx")) continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
             if (shouldOmitLegacyLoadFlag(f, values)) continue;
             const val = values[f.id];

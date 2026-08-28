@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-28
+- Turning Auto Fit off now omits its inactive `-fitt` target-margin and `-fitc` context-floor helpers from generated launch commands while preserving their configured values for later reuse.
 - Added an Advanced Configure control for llama.cpp b10653+'s `--tensor-read-lazy` mode, with inert Auto-by-default behavior plus explicit lower-RAM On and keep-resident Off choices.
 
 ## 2026-08-27
