@@ -63,7 +63,7 @@ function isSupportedChatTemplateValue(value) {
 }
 
 const CHAT_TEMPLATE_PRESETS = [
-    { value: "", label: "Auto (from model)", mode: "auto" },
+    { value: "", label: "自动（跟随模型）", mode: "auto" },
     { value: "__alpaca__", label: "Alpaca", mode: "bundled", path: "ui/templates/alpaca.jinja" },
     { value: "chatml", label: "ChatML", mode: "builtin", builtin: "chatml" },
     { value: "__chatml_nonthinking__", label: "ChatML Non-Thinking", mode: "bundled", path: "ui/templates/chatml-nonthinking.jinja" },

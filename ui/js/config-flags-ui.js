@@ -783,21 +783,21 @@
         const showButton = document.createElement("button");
         showButton.type = "button";
         showButton.className = "btn btn-sm btn-ghost";
-        showButton.textContent = "Show";
+        showButton.textContent = "显示";
         showButton.dataset.sensitiveRequiresValue = "true";
         showButton.addEventListener("click", () => {
             const isHidden = textField.dataset.sensitiveMaskMode === "css"
                 ? textField.classList.contains("sensitive-input-masked")
                 : textField.type === "password";
             setSensitiveTextInputRevealed(textField, isHidden);
-            showButton.textContent = isHidden ? "Hide" : "Show";
+            showButton.textContent = isHidden ? "隐藏" : "显示";
             showButton.setAttribute("aria-pressed", String(isHidden));
         });
 
         const generateButton = document.createElement("button");
         generateButton.type = "button";
         generateButton.className = "btn btn-sm";
-        generateButton.textContent = "Generate";
+        generateButton.textContent = "生成";
         generateButton.addEventListener("click", () => {
             try {
                 const value = generateSensitiveValue();
@@ -814,7 +814,7 @@
         const copyButton = document.createElement("button");
         copyButton.type = "button";
         copyButton.className = "btn btn-sm btn-ghost";
-        copyButton.textContent = "Copy key";
+        copyButton.textContent = "复制密钥";
         copyButton.dataset.sensitiveRequiresValue = "true";
         copyButton.addEventListener("click", () => {
             if (!textField.value) return;
