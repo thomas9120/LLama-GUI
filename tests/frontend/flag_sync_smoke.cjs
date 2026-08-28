@@ -799,7 +799,7 @@ async function main() {
             assert.equal(field.masked, passwordManagerHints.cssMasking);
             if (passwordManagerHints.cssMasking) assert.equal(field.textSecurity, "disc");
         }
-        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Generate" }).click();
+        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "生成" }).click();
         assert.match(await page.inputValue("#flag-api_key"), /^[A-Za-z0-9_-]{43}$/);
         const showApiKey = page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Show" });
         await showApiKey.click();
