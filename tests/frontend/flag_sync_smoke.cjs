@@ -801,11 +801,11 @@ async function main() {
         }
         await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "生成" }).click();
         assert.match(await page.inputValue("#flag-api_key"), /^[A-Za-z0-9_-]{43}$/);
-        const showApiKey = page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Show" });
+        const showApiKey = page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "显示" });
         await showApiKey.click();
         assert.equal(await page.locator("#flag-api_key").getAttribute("type"), "text");
         assert.equal(await page.locator("#flag-api_key").evaluate((input) => input.classList.contains("sensitive-input-masked")), false);
-        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "Hide" }).click();
+        await page.locator("#flag-api_key + .sensitive-input-actions button", { hasText: "隐藏" }).click();
         assert.equal(
             await page.locator("#flag-api_key").getAttribute("type"),
             passwordManagerHints.cssMasking ? "text" : "password"
