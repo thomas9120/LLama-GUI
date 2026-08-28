@@ -633,7 +633,7 @@ async function main() {
         // unconditionally, type="number" reported the partial "0." as "" and the
         // decimal point was wiped as fast as it was typed. page.fill() sets the
         // value in one shot and would not have caught it.
-        await page.fill("#config-search", "temperature");
+        await page.fill("#config-search", "温度");
         await page.waitForSelector("#flag-temperature", { state: "visible" });
         await page.click("#flag-temperature");
         await page.evaluate(() => { document.getElementById("flag-temperature").value = ""; });
@@ -674,7 +674,7 @@ async function main() {
             });
             window.LlamaGui.quickLaunchUi.afterApply(window.LlamaGui.flagCore.getFlagValues());
         });
-        await page.fill("#config-search", "sampling");
+        await page.fill("#config-search", "采样");
         await page.waitForFunction(() => {
             const headers = Array.from(document.querySelectorAll(
                 '.accordion[data-category-id="sampling"] .flag-submenu-header'
@@ -699,7 +699,7 @@ async function main() {
         await page.selectOption("#tool-select", "llama-server");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getCurrentTool() === "llama-server");
 
-        await page.fill("#config-search", "default reasoning effort");
+        await page.fill("#config-search", "默认推理努力");
         await page.waitForSelector("#flag-chat_template_reasoning_effort", { state: "visible" });
         assert.deepEqual(
             await page.locator("#flag-chat_template_reasoning_effort option").evaluateAll((options) => (
@@ -709,7 +709,7 @@ async function main() {
         );
         assert.match(
             await page.textContent('.flag-row[data-flag-id="chat_template_reasoning_effort"] .flag-desc'),
-            /server-wide/i
+            /服务器级默认值/
         );
         await page.selectOption("#flag-chat_template_reasoning_effort", "xhigh");
         await page.waitForFunction(() => (
@@ -725,7 +725,7 @@ async function main() {
         assert.ok(!reasoningArgs.includes("--reasoning-effort"));
         assert.ok(!reasoningArgs.includes("--chat-template-kwargs"));
 
-        await page.fill("#config-search", "gpu layers");
+        await page.fill("#config-search", "GPU 层数");
         await page.waitForSelector("#flag-gpu_layers", { state: "visible" });
         await page.fill("#flag-gpu_layers", "7");
         await page.dispatchEvent("#flag-gpu_layers", "input");
@@ -763,14 +763,14 @@ async function main() {
             /-ot blk\.\*\.ffn_\.\*_exps\.weight=CUDA0/
         );
 
-        await page.fill("#config-search", "metrics");
+        await page.fill("#config-search", "指标");
         await page.waitForSelector("#flag-metrics", { state: "visible" });
         await page.click("#flag-metrics");
         await page.waitForFunction(() => document.querySelector("#quick-metrics-toggle")?.checked === false);
         await page.click("#flag-metrics");
         await page.waitForFunction(() => document.querySelector("#quick-metrics-toggle")?.checked === true);
 
-        await page.fill("#config-search", "api key");
+        await page.fill("#config-search", "API 密钥");
         await page.waitForSelector("#flag-api_key", { state: "visible" });
         const passwordManagerHints = await page.evaluate(() => {
             const fieldState = (id) => {
@@ -1086,7 +1086,7 @@ async function main() {
         await page.waitForFunction(() => document.querySelector("#flag-presence_penalty")?.value === "0.3");
         assert.equal(await page.locator("#flag-presence_penalty").evaluate((el) => el.step), "0.1");
         assert.equal(await page.locator("#flag-presence_penalty").evaluate((el) => el.validity.valid), true);
-        await page.fill("#config-search", "temperature");
+        await page.fill("#config-search", "温度");
         await page.waitForSelector("#flag-temperature", { state: "visible" });
         await page.waitForFunction(() => document.querySelector("#flag-temperature")?.value === "0.96");
         assert.equal(await page.locator("#flag-temperature").evaluate((el) => el.step), "0.01");
@@ -1104,7 +1104,7 @@ async function main() {
         assert.equal(await page.locator("#quick-temperature").getAttribute("data-unset"), "false");
         await selectSection(page, "configure");
 
-        await page.fill("#config-search", "checkpoint min");
+        await page.fill("#config-search", "检查点最小间隔");
         await page.waitForSelector("#flag-checkpoint_every_n_tokens", { state: "visible" });
         assert.equal(await page.locator("#flag-checkpoint_every_n_tokens").getAttribute("min"), "0");
         await page.fill("#flag-checkpoint_every_n_tokens", "0");
