@@ -119,7 +119,7 @@
         const repoId = repoInput.value.trim();
         const source = selectedSource();
         if (!repoId) {
-            showStatus("warning", `Enter a ${SOURCE_LABELS[source]} repo ID first.`);
+            showStatus("warning", `请先输入${SOURCE_LABELS[source]}仓库 ID。`);
             return;
         }
 
@@ -150,7 +150,7 @@
             );
         } catch (e) {
             if (options) options.classList.add("hidden");
-            showStatus("error", `${SOURCE_LABELS[source]} lookup failed: ` + e.message);
+            showStatus("error", `${SOURCE_LABELS[source]} 查找失败: ` + e.message);
         } finally {
             setBusy(false);
         }

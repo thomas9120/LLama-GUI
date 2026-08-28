@@ -240,7 +240,7 @@ function addElement(elements, id, tagName = "div", value = "") {
     await ui.findFiles();
     assert.equal(options.classList.contains("hidden"), true);
     assert.equal(status.className, "hf-download-status error");
-    assert.equal(status.textContent, "Hugging Face lookup failed: network down");
+    assert.equal(status.textContent, "Hugging Face 查找失败: network down");
 }
 
 {
@@ -260,7 +260,7 @@ function addElement(elements, id, tagName = "div", value = "") {
     ui.configure({
         fetchJson: async (url, optionsArg) => {
             calls.push({ url, body: JSON.parse(optionsArg.body) });
-            if (!calls.at(-1).body.overwrite) throw new Error("Already exists: model.gguf");
+            if (!calls.at(-1).body.overwrite) throw new Error("已存在：model.gguf");
             return { status: "starting" };
         },
         confirmAction: async (message) => {
@@ -272,7 +272,7 @@ function addElement(elements, id, tagName = "div", value = "") {
     await ui.startDownload(false);
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(confirmations.length, 1);
-    assert.match(confirmations[0], /Already exists: model\.gguf/);
+    assert.match(confirmations[0], /已存在：model\.gguf/);
     assert.equal(calls.length, 2);
     assert.equal(calls[0].body.overwrite, false);
     assert.equal(calls[1].body.overwrite, true);
@@ -294,7 +294,7 @@ function addElement(elements, id, tagName = "div", value = "") {
     ui.configure({
         fetchJson: async () => {
             fetchCount += 1;
-            throw new Error("Already exists: model.gguf");
+            throw new Error("已存在：model.gguf");
         },
         confirmAction: async () => false,
     });
@@ -302,7 +302,7 @@ function addElement(elements, id, tagName = "div", value = "") {
     await ui.startDownload(false);
     assert.equal(fetchCount, 1, "declining overwrite must not start a replacement request");
     assert.equal(status.className, "hf-download-status info");
-    assert.equal(status.textContent, "Download cancelled. Existing file was kept.");
+    assert.equal(status.textContent, "已取消下载，保留现有文件。");
 }
 
 {

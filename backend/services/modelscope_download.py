@@ -133,7 +133,7 @@ def _download_chunk(
     span = end - start + 1
     for attempt in range(CHUNK_RETRIES):
         if _cancel_requested(ctx):
-            raise InterruptedError("Download cancelled.")
+            raise InterruptedError("下载已取消。")
         if got >= span:
             return
         try:
@@ -150,7 +150,7 @@ def _download_chunk(
                         got = 0
                     while True:
                         if _cancel_requested(ctx):
-                            raise InterruptedError("Download cancelled.")
+                            raise InterruptedError("下载已取消。")
                         chunk = resp.read(READ_SIZE)
                         if not chunk:
                             break
@@ -181,7 +181,7 @@ def _single_stream(
     with urlopen(request, timeout=60) as resp, open(tmp_path, "wb") as f:
         while True:
             if _cancel_requested(ctx):
-                raise InterruptedError("Download cancelled.")
+                raise InterruptedError("下载已取消。")
             chunk = resp.read(READ_SIZE)
             if not chunk:
                 break
@@ -298,7 +298,7 @@ def start_ms_model_download(
 
     with ctx.state.model_download_lock:
         if ctx.state.model_download_in_progress:
-            raise RuntimeError("A model download is already in progress.")
+            raise RuntimeError("已有模型下载正在进行。")
         models_dir = model_dir.get_models_dir(ctx)
         repo_folder = slugify_repo_id(repo_id)
         model_basename = pathlib.PurePosixPath(model_file).name
@@ -314,12 +314,12 @@ def start_ms_model_download(
         if mmproj_dest and mmproj_dest.exists():
             existing.append(f"{repo_folder}/{mmproj_dest.name}")
         if existing and not overwrite:
-            raise FileExistsError(f"Already exists: {', '.join(existing)}")
+            raise FileExistsError(f"已存在：{', '.join(existing)}")
 
         ctx.state.model_download_in_progress = True
         ctx.state.model_download_cancel.clear()
         reset_model_download_state(
-            ctx, status="starting", message="Preparing ModelScope download..."
+            ctx, status="starting", message="正在准备魔搭下载…"
         )
 
     def _worker() -> None:
@@ -334,7 +334,7 @@ def start_ms_model_download(
             reset_model_download_state(
                 ctx,
                 status="downloading",
-                message=f"Downloading {model_name}...",
+                message=f"正在下载 {model_name}…",
                 total=total,
                 downloaded=0,
             )
@@ -343,7 +343,7 @@ def start_ms_model_download(
             )
             mmproj_path = ""
             if mmproj_file and mmproj_dest:
-                set_model_download_state(ctx, message=f"Downloading {mmproj_dest.name}...")
+                set_model_download_state(ctx, message=f"正在下载 {mmproj_dest.name}…")
                 completed += download_ms_file(
                     ctx,
                     repo_id,
@@ -357,7 +357,7 @@ def start_ms_model_download(
             set_model_download_state(
                 ctx,
                 status="done",
-                message=f"Downloaded {model_name}.",
+                message=f"已下载 {model_name}。",
                 downloaded=total or completed,
                 total=total or completed,
                 current_file="",

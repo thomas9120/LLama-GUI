@@ -3074,7 +3074,7 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertTrue(ctx.state.model_download_cancel.is_set())
             self.assertEqual(response.payload["status"], "cancelling")
-            self.assertEqual(response.payload["message"], "Cancelling download...")
+            self.assertEqual(response.payload["message"], "正在取消下载…")
 
     def test_hf_download_cancel_is_a_no_op_while_idle(self):
         with tempfile.TemporaryDirectory() as tmp:
