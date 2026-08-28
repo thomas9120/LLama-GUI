@@ -61,7 +61,7 @@
             </div>
             <div>
                 <div class="sidebar-title">Llama GUI</div>
-                <div class="sidebar-subtitle">llama.cpp Launcher</div>
+                <div class="sidebar-subtitle">llama.cpp 启动器</div>
             </div>
         </div>
 
@@ -73,17 +73,17 @@
             </button>
             <button class="nav-item active" data-section="quick-launch">
                 <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-                Quick Launch
+                快速启动
             </button>
             <button class="nav-item" data-section="configure">
                 <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-                Configure
+                配置
             </button>
 
             <div class="nav-section-label">交互</div>
             <button class="nav-item" data-section="chat">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-                Chat
+                对话
             </button>
             <button class="nav-item" data-section="api">
                 <span class="icon"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
@@ -93,11 +93,11 @@
             <div class="nav-section-label">管理</div>
             <button class="nav-item" data-section="benchmarking">
                 <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
-                Benchmarking
+                基准测试
             </button>
             <button class="nav-item" data-section="presets">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
-                Presets
+                预设
             </button>
 
         </nav>
@@ -107,7 +107,7 @@
                 <div class="sidebar-runtime-actions">
                     <button id="btn-sidebar-launch" class="btn btn-primary sidebar-runtime-btn" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                        Launch
+                        启动
                     </button>
                     <button id="btn-sidebar-stop" class="btn btn-danger sidebar-runtime-btn hidden" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span>
@@ -411,14 +411,14 @@
                             <label class="quick-choice">
                                 <span class="quick-choice-title">
                                     <input type="radio" name="quick-launch-mode" value="llama-server" checked />
-                                    Web / API Server
+                                    网页 / API 服务器
                                 </span>
                                 <span class="quick-choice-desc">浏览器对话与 OpenAI 兼容 API 端点。</span>
                             </label>
                             <label class="quick-choice">
                                 <span class="quick-choice-title">
                                     <input type="radio" name="quick-launch-mode" value="llama-cli" />
-                                    Terminal Chat
+                                    终端对话
                                 </span>
                                 <span class="quick-choice-desc">在控制台窗口进行 llama-cli 交互对话。</span>
                             </label>
@@ -432,7 +432,7 @@
                                 <div id="quick-api-key-control"></div>
                                 <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
                             </div>
-                            <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
+                            <p class="help-text">留空保持当前的开放访问行为。密钥不会保存进预设。</p>
                         </div>
 
                         <div class="quick-template-section">
@@ -448,7 +448,7 @@
                     <div class="card">
                         <div class="card-header">
                             <div>
-                                <div class="card-title">Memory &amp; Fit</div>
+                                <div class="card-title">内存与适配</div>
                             </div>
                             <div class="card-icon icon-cyan">
                                 <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="12" x2="6" y2="12.01"/><line x1="10" y1="12" x2="10" y2="12.01"/><line x1="14" y1="12" x2="14" y2="12.01"/><line x1="18" y1="12" x2="18" y2="12.01"/></svg></span>
@@ -461,14 +461,14 @@
                                     <option value="8192">8K</option>
                                     <option value="16000">16K</option>
                                     <option value="32768">32K</option>
-                                    <option value="64000">64K (recommended)</option>
+                                    <option value="64000">64K（推荐）</option>
                                     <option value="128000">128K</option>
                                     <option value="256000">256K</option>
                                     <option value="custom">自定义…</option>
                                 </select>
                                 <input type="number" id="quick-context-custom" min="0" step="1" placeholder="自定义 Token" />
                             </div>
-                            <p class="help-text">64K is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
+                            <p class="help-text">对大多数本地对话，64K 是稳妥的默认值。更高的值会占用更多内存或显存。</p>
                         </div>
 
                         <div class="form-group">
@@ -772,7 +772,7 @@
             <div class="launch-bar">
                 <button id="btn-launch" class="btn btn-primary btn-lg">
                     <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                    Launch
+                    启动
                 </button>
                 <button id="btn-stop" class="btn btn-danger btn-lg hidden">
                     <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>

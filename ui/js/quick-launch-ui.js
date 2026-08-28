@@ -118,7 +118,7 @@
 
         const placeholder = document.createElement("option");
         placeholder.value = "";
-        placeholder.textContent = entries.length ? "-- Select Sampler Preset --" : "No sampler presets";
+        placeholder.textContent = entries.length ? "— 请选择采样器预设 —" : "暂无采样器预设";
         select.appendChild(placeholder);
 
         if (builtins.length) {

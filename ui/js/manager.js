@@ -444,7 +444,7 @@ function updateStatusUI(status) {
         badge.textContent = "Install Incomplete";
         badge.className = "badge badge-yellow";
     } else {
-        badge.textContent = "Not Installed";
+        badge.textContent = "未安装";
         badge.className = "badge";
     }
 
@@ -1329,7 +1329,7 @@ async function refreshModelsForRequest(requestId) {
         // them before the await made a second refresh snapshot an empty value,
         // so the winning response silently dropped the selected model.
         const selectedValue = sel.value;
-        sel.innerHTML = '<option value="">-- Select Model --</option>';
+        sel.innerHTML = '<option value="">— 请选择模型 —</option>';
         const names = new Set();
         const optionValues = new Set();
         let added = 0;
@@ -1368,7 +1368,7 @@ async function refreshModelsForRequest(requestId) {
         // Drop the cache rather than keeping a stale one: callers must not read
         // a failed refresh as proof that a model is missing.
         knownModelNames = null;
-        sel.innerHTML = '<option value="">-- Select Model --</option>';
+        sel.innerHTML = '<option value="">— 请选择模型 —</option>';
         const opt = document.createElement("option");
         opt.value = "";
         opt.textContent = "Failed to load models";

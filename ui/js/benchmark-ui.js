@@ -698,7 +698,7 @@
         select.textContent = "";
         const empty = document.createElement("option");
         empty.value = "";
-        empty.textContent = loadError ? `Models unavailable: ${loadError}` : "-- Select Model --";
+        empty.textContent = loadError ? `模型列表不可用：${loadError}` : "— 请选择模型 —";
         select.appendChild(empty);
         for (const model of cachedModels) {
             const name = getModelName(model);

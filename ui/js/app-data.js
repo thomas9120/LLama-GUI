@@ -71,7 +71,7 @@ const BUILTIN_SAMPLER_PRESETS = {
 const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
 const QUICK_PROFILES = {
     "safe-defaults": {
-        label: "Safe Defaults",
+        label: "安全默认",
         summary: "Applies a full starter setup: 32768 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
         tool: "llama-server",
         flags: {
@@ -88,7 +88,7 @@ const QUICK_PROFILES = {
         samplerPresetName: "Balanced",
     },
     balanced: {
-        label: "Balanced",
+        label: "均衡",
         summary: "Applies a full general-purpose setup with 64000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
         tool: "llama-server",
         flags: {
@@ -105,7 +105,7 @@ const QUICK_PROFILES = {
         samplerPresetName: "Balanced",
     },
     "long-context": {
-        label: "Long Context",
+        label: "长上下文",
         summary: "Applies a 128000 context window while keeping Auto Fit active and the rest of the launch settings beginner-friendly.",
         tool: "llama-server",
         flags: {
@@ -122,7 +122,7 @@ const QUICK_PROFILES = {
         samplerPresetName: "Balanced",
     },
     "creative-chat": {
-        label: "Creative Chat",
+        label: "创意对话",
         summary: "Applies a 32768 context setup, then warms up the sampler for more creative and open-ended responses.",
         tool: "llama-server",
         flags: {
