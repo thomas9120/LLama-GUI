@@ -33,6 +33,9 @@ class ImmediateThread:
     def start(self):
         self.target()
 
+    def join(self, timeout=None):
+        pass
+
 
 class FakeRangeServer:
     """Serves HEAD metadata plus Range/whole-body GETs from one bytes body."""

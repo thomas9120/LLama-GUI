@@ -341,6 +341,9 @@ def start_ms_model_download(
             destinations.append(mmproj_dest)
         try:
             model_dest.parent.mkdir(parents=True, exist_ok=True)
+
+            # Probe both sizes up front, then download model and mmproj in
+            # parallel so the total progress reflects both streams at once.
             total = get_ms_file_size(repo_id, model_file, urlopen)
             if mmproj_file:
                 total += get_ms_file_size(repo_id, mmproj_file, urlopen)
@@ -351,22 +354,38 @@ def start_ms_model_download(
                 total=total,
                 downloaded=0,
             )
-            completed = download_ms_file(
-                ctx, repo_id, model_file, model_dest, 0, total, urlopen
-            )
             mmproj_path = ""
             if mmproj_file and mmproj_dest:
-                set_model_download_state(ctx, message=f"正在下载 {mmproj_dest.name}…")
-                completed += download_ms_file(
-                    ctx,
-                    repo_id,
-                    mmproj_file,
-                    mmproj_dest,
-                    completed,
-                    total,
-                    urlopen,
+                # Download model and mmproj concurrently; both counters feed
+                # the same shared progress (model bytes + mmproj bytes).
+                model_size = get_ms_file_size(repo_id, model_file, urlopen)
+                mmproj_results: list[int] = []
+
+                def _run_mmproj() -> None:
+                    mmproj_results.append(
+                        download_ms_file(
+                            ctx,
+                            repo_id,
+                            mmproj_file,
+                            mmproj_dest,
+                            model_size,
+                            total,
+                            urlopen,
+                        )
+                    )
+
+                mmproj_thread = threading.Thread(target=_run_mmproj, daemon=True)
+                mmproj_thread.start()
+                model_bytes = download_ms_file(
+                    ctx, repo_id, model_file, model_dest, 0, total, urlopen
                 )
+                mmproj_thread.join()
+                completed = model_bytes + (mmproj_results[0] if mmproj_results else 0)
                 mmproj_path = str(mmproj_dest)
+            else:
+                completed = download_ms_file(
+                    ctx, repo_id, model_file, model_dest, 0, total, urlopen
+                )
             set_model_download_state(
                 ctx,
                 status="done",
