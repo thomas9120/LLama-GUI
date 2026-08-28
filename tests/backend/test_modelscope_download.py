@@ -57,6 +57,7 @@ class FakeRangeServer:
             chunk = self.body[start : end + 1]
             resp = FakeDownloadResponse([chunk], content_length=len(chunk))
             resp.status = 206
+            resp.headers["Content-Range"] = f"bytes {start}-{end}/{len(self.body)}"
             return resp
         resp = FakeDownloadResponse([self.body], content_length=len(self.body))
         resp.status = 200

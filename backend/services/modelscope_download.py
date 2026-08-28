@@ -73,15 +73,23 @@ def build_ms_download_url(repo_id: str, filename: str) -> str:
 
 
 def get_ms_file_size(repo_id: str, filename: str, urlopen: UrlOpen = urllib.request.urlopen) -> int:
-    """Declared file size via HEAD, 0 when the server won't say."""
+    """Declared file size via a 1-byte Range probe, 0 when the server won't say.
+
+    ModelScope's resolve endpoint answers HEAD without Content-Length (the 302
+    hop has only a tiny redirect body), but a GET with ``Range: bytes=0-0``
+    comes back 206 with ``Content-Range: bytes 0-0/<total>`` from the CDN.
+    """
     request = urllib.request.Request(
         build_ms_download_url(repo_id, filename),
-        headers={"User-Agent": USER_AGENT},
-        method="HEAD",
+        headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"},
     )
     try:
         with urlopen(request, timeout=30) as resp:
-            raw = resp.headers.get("Content-Length")
+            raw = resp.headers.get("Content-Range")
+        if raw and "/" in raw:
+            total = raw.rsplit("/", 1)[1].strip()
+            return int(total)
+        raw = resp.headers.get("Content-Length")
         return int(raw) if raw else 0
     except (OSError, ValueError, urllib.error.URLError) as exc:
         print(f"[ms_download] failed to read file size for {repo_id}/{filename}: {exc}", flush=True)
@@ -213,12 +221,17 @@ def download_ms_file(
     supports_ranges = False
     if total > 0:
         probe = urllib.request.Request(
-            url, headers={"User-Agent": USER_AGENT}, method="HEAD"
+            url, headers={"User-Agent": USER_AGENT, "Range": "bytes=0-0"}
         )
         try:
             with urlopen(probe, timeout=30) as resp:
+                status = getattr(resp, "status", 200)
+                content_range = resp.headers.get("Content-Range") or ""
                 accepts = str(resp.headers.get("Accept-Ranges") or "")
-            supports_ranges = accepts.lower() == "bytes"
+            if status == 206 and "/" in content_range:
+                supports_ranges = True
+            elif accepts.lower() == "bytes":
+                supports_ranges = True
         except (OSError, urllib.error.URLError):
             supports_ranges = False
 

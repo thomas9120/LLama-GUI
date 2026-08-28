@@ -86,7 +86,8 @@
             text.textContent = `${prog.current_file || "下载中"} ${pct}%（${formatHfBytes(prog.downloaded)} / ${formatHfBytes(prog.total)}）`;
         } else {
             fill.style.width = active ? "25%" : "100%";
-            text.textContent = prog.message || status || "处理中…";
+            const bytes = prog.downloaded ? formatHfBytes(prog.downloaded) : "";
+            text.textContent = (prog.message || status || "Working...") + (bytes ? `（已下载 ${bytes}）` : "");
         }
     }
 
