@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-08-28
+- Added an Advanced Configure control for llama.cpp b10653+'s `--tensor-read-lazy` mode, with inert Auto-by-default behavior plus explicit lower-RAM On and keep-resident Off choices.
+
 ## 2026-08-27
 - Added the new llama.cpp `-ncffn` / `--n-cpu-ffn` control for keeping dense FFN weights from the first N model layers on CPU.
 
