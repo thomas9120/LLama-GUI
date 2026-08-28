@@ -444,7 +444,7 @@
         const modeSummary = document.getElementById("quick-mode-summary");
         if (modeSummary) {
             modeSummary.textContent = tool === "llama-server"
-                ? "Web / API Server 已选中。将启用网页界面与 OpenAI 兼容端点。"
+                ? "网页 / API 服务器已选中。将启用网页界面与 OpenAI 兼容端点。"
                 : "终端对话已选中。进程将以交互式本地终端对话方式运行。";
         }
 
