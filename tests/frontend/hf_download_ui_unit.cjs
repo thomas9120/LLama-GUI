@@ -34,13 +34,27 @@ function createElement(tagName = "div") {
         value: "",
         disabled: false,
         style: {},
+        dataset: {},
+        selectedOptions: [],
         addEventListener: () => {},
         appendChild(child) {
             this.children.push(child);
+            if (child && child.id) {
+                // Mirror real DOM id registration so getElementById finds
+                // dynamically created nodes (dual-track progress bars).
+                if (typeof globalThis.__registeredElements === "object" && globalThis.__registeredElements) {
+                    globalThis.__registeredElements.set(child.id, child);
+                }
+            }
             if (this.tagName === "SELECT" && !this.value && child.value !== undefined) {
                 this.value = child.value;
             }
             return child;
+        },
+        remove() {
+            if (typeof globalThis.__registeredElements === "object" && globalThis.__registeredElements && this.id) {
+                globalThis.__registeredElements.delete(this.id);
+            }
         },
         get options() {
             return this.children;
@@ -57,6 +71,7 @@ function createElement(tagName = "div") {
 
 function makeContext(overrides = {}) {
     const elements = new Map();
+    globalThis.__registeredElements = elements;
     const context = {
         window: { LlamaGui: {} },
         document: {
@@ -81,6 +96,11 @@ function addElement(elements, id, tagName = "div", value = "") {
     el.classList = createClassList(el);
     elements.set(id, el);
     return el;
+}
+
+function document_contains(elements, id) {
+    const el = elements.get(id);
+    return Boolean(el);
 }
 
 (async () => {
@@ -432,6 +452,70 @@ function addElement(elements, id, tagName = "div", value = "") {
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(calls[1].url, "/api/ms/download");
     assert.equal(calls[1].body.repo_id, "Qwen/Qwen2.5-0.5B-Instruct-GGUF");
+}
+
+{
+    // Dual-track progress: model + mmproj bars render separately when both
+    // tracks report totals; single-track falls back to the one-bar layout.
+    const { elements, ui } = makeContext();
+    addElement(elements, "hf-download-status");
+    addElement(elements, "btn-hf-find-files", "button");
+    addElement(elements, "btn-hf-download", "button");
+    addElement(elements, "btn-hf-cancel", "button");
+    const progress = addElement(elements, "hf-download-progress");
+    const fill = addElement(elements, "hf-progress-fill");
+    const text = addElement(elements, "hf-progress-text");
+
+    ui.updateProgress({
+        status: "downloading",
+        model_downloaded: 500, model_total: 1000,
+        mmproj_downloaded: 250, mmproj_total: 1000,
+    });
+    const mmprojBar = elements.get("hf-progress-mmproj");
+    assert.ok(mmprojBar, "dual track creates a second bar");
+    const mmprojFill = elements.get("hf-progress-mmproj-fill");
+    assert.equal(fill.style.width, "0%");
+    assert.equal(mmprojFill.style.width, "25%");
+    assert.match(text.textContent, /模型 50%/);
+    assert.match(elements.get("hf-progress-mmproj-text").textContent, /mmproj 25%/);
+
+    // Single-track snapshot clears the second bar.
+    ui.updateProgress({ status: "downloading", downloaded: 100, total: 400, current_file: "m.gguf" });
+    assert.ok(!elements.has("hf-progress-mmproj"), "second bar removed");
+    assert.equal(fill.style.width, "25%");
+
+    // exists flag marks options with a check and hides the download button.
+    const status2 = addElement(elements, "hf-download-status");
+    addElement(elements, "hf-source-select", "select", "hf");
+    addElement(elements, "hf-repo-input", "input", "owner/model");
+    addElement(elements, "hf-revision-input", "input", "");
+    addElement(elements, "hf-token-input", "input", "");
+    const options2 = addElement(elements, "hf-file-options");
+    const modelSelect2 = addElement(elements, "hf-model-file-select", "select");
+    addElement(elements, "hf-mmproj-file-select", "select");
+    const downloadBtn2 = addElement(elements, "btn-hf-download", "button");
+    ui.configure({
+        fetchJson: async () => ({
+            models: [
+                { name: "old.gguf", size: 2048, exists: true },
+                { name: "new.gguf", size: 4096, exists: false },
+            ],
+            mmproj: [],
+        }),
+    });
+    await ui.findFiles();
+    assert.match(modelSelect2.options[1].textContent, /✓ old\.gguf/);
+    assert.equal(modelSelect2.options[2].textContent.includes("✓"), false);
+    // old.gguf auto-selected (single model case does not apply; two models) —
+    // simulate selecting the existing file:
+    modelSelect2.value = "old.gguf";
+    modelSelect2.selectedOptions = [modelSelect2.options[1]];
+    ui.syncDownloadButtonAvailability();
+    assert.equal(downloadBtn2.classList.contains("hidden"), true, "existing file hides Download");
+    modelSelect2.value = "new.gguf";
+    modelSelect2.selectedOptions = [modelSelect2.options[2]];
+    ui.syncDownloadButtonAvailability();
+    assert.equal(downloadBtn2.classList.contains("hidden"), false, "new file shows Download");
 }
 
 console.log("hf download ui unit tests passed");

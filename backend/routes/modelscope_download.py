@@ -16,7 +16,8 @@ def list_repo_files(request, response, ctx):
     body = request.body or {}
     try:
         repo_id = ms_download.validate_hf_repo_id(body.get("repo_id"))
-        response.json(ms_download.get_ms_model_files(repo_id, ctx.services.urlopen_with_ssl))
+        files = ms_download.get_ms_model_files(repo_id, ctx.services.urlopen_with_ssl)
+        response.json(ms_download.annotate_exists(ctx, files))
     except Exception as exc:
         print(f"[ms_download] repo file listing failed: {exc}", file=sys.stderr)
         response.error(sanitize_error(exc, 400), 400)

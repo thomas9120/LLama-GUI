@@ -21,6 +21,10 @@ def default_model_download_state() -> dict[str, Any]:
         "model_name": "",
         "model_path": "",
         "mmproj_path": "",
+        "model_total": 0,
+        "model_downloaded": 0,
+        "mmproj_total": 0,
+        "mmproj_downloaded": 0,
     }
 
 

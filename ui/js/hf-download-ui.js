@@ -77,6 +77,44 @@
         // "Downloading 100%" forever (and again on a reload of a finished run).
         fill.classList.toggle("done", status === "done");
 
+        // Dual-track bars (ModelScope parallel downloads): model + mmproj each
+        // get their own bar when both are in flight; otherwise one bar as before.
+        const dual = active && Number(prog.mmproj_total) > 0 && Number(prog.model_total) > 0;
+        if (dual) {
+            let mmprojBar = document.getElementById("hf-progress-mmproj");
+            if (!mmprojBar) {
+                mmprojBar = document.createElement("div");
+                mmprojBar.id = "hf-progress-mmproj";
+                mmprojBar.className = "progress-container";
+                const bar = document.createElement("div");
+                bar.className = "progress-bar";
+                const mmprojFill = document.createElement("div");
+                mmprojFill.id = "hf-progress-mmproj-fill";
+                mmprojFill.className = "progress-fill";
+                bar.appendChild(mmprojFill);
+                const mmprojText = document.createElement("span");
+                mmprojText.id = "hf-progress-mmproj-text";
+                mmprojBar.appendChild(bar);
+                mmprojBar.appendChild(mmprojText);
+                if (wrap.parentNode) {
+                    wrap.parentNode.insertBefore(mmprojBar, wrap.nextSibling);
+                } else {
+                    wrap.appendChild(mmprojBar);
+                }
+            }
+            const mmprojFill = document.getElementById("hf-progress-mmproj-fill");
+            const mmprojText = document.getElementById("hf-progress-mmproj-text");
+            mmprojBar.style.display = "";
+            const mPct = Math.min(100, Math.round((prog.mmproj_downloaded / prog.mmproj_total) * 100));
+            mmprojFill.style.width = mPct + "%";
+            mmprojText.textContent = `mmproj ${mPct}%（${formatHfBytes(prog.mmproj_downloaded)} / ${formatHfBytes(prog.mmproj_total)}）`;
+            fill.style.width = "0%";
+            text.textContent = `模型 ${prog.model_total ? Math.min(100, Math.round((prog.model_downloaded / prog.model_total) * 100)) + "%" : ""}（${formatHfBytes(prog.model_downloaded)} / ${formatHfBytes(prog.model_total)}）`;
+            return;
+        }
+        const staleBar = document.getElementById("hf-progress-mmproj");
+        if (staleBar && typeof staleBar.remove === "function") staleBar.remove();
+
         if (status === "done") {
             fill.style.width = "100%";
             text.textContent = `下载完成（${formatHfBytes(prog.total)}）`;
@@ -101,9 +139,22 @@
         for (const file of files || []) {
             const opt = document.createElement("option");
             opt.value = file.name;
-            opt.textContent = `${file.name}  (${formatHfBytes(file.size)})`;
+            opt.dataset.exists = file.exists ? "1" : "";
+            opt.textContent = (file.exists ? "✓ " : "") + `${file.name}  (${formatHfBytes(file.size)})`;
             select.appendChild(opt);
         }
+    }
+
+    // The Download button only applies when the selected main model file is
+    // not already on disk; re-downloading an existing file just triggers the
+    // overwrite prompt, so hide the button instead.
+    function syncDownloadButtonAvailability() {
+        const modelSelect = document.getElementById("hf-model-file-select");
+        const downloadBtn = document.getElementById("btn-hf-download");
+        if (!modelSelect || !downloadBtn) return;
+        const selected = modelSelect.selectedOptions && modelSelect.selectedOptions[0];
+        const exists = Boolean(selected && selected.dataset && selected.dataset.exists);
+        downloadBtn.classList.toggle("hidden", exists);
     }
 
     async function findFiles() {
@@ -140,6 +191,7 @@
             populateFileSelect(mmprojSelect, result.mmproj || [], "无");
             if (result.models && result.models.length === 1) modelSelect.value = result.models[0].name;
             if (mmprojGroup) mmprojGroup.classList.toggle("hidden", !(result.mmproj && result.mmproj.length));
+            syncDownloadButtonAvailability();
             if (options) options.classList.remove("hidden");
             const modelCount = (result.models || []).length;
             const mmprojCount = (result.mmproj || []).length;
@@ -339,6 +391,8 @@
         on("btn-hf-find-files", "click", findFiles);
         on("btn-hf-download", "click", () => startDownload(false));
         on("btn-hf-cancel", "click", cancelDownload);
+        const modelSelectEl = document.getElementById("hf-model-file-select");
+        if (modelSelectEl) modelSelectEl.addEventListener("change", syncDownloadButtonAvailability);
 
         // Revision/token are Hugging Face concepts; ModelScope ignores them.
         const sourceSelect = document.getElementById("hf-source-select");
@@ -364,6 +418,7 @@
         setBusy,
         updateProgress,
         populateFileSelect,
+        syncDownloadButtonAvailability,
         findFiles,
         startDownload,
         finishDownload,

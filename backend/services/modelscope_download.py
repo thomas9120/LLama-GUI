@@ -72,6 +72,20 @@ def build_ms_download_url(repo_id: str, filename: str) -> str:
     return MS_FILE_URL.format(repo_id=repo_id, path=filename)
 
 
+def annotate_exists(ctx: AppContext, files: dict[str, Any]) -> dict[str, Any]:
+    """Add "exists" to each listed file based on the active model root."""
+    try:
+        models_dir = model_dir.get_models_dir(ctx)
+    except Exception:  # noqa: BLE001 - listing stays usable without a root
+        return files
+    for group in ("models", "mmproj"):
+        for item in files.get(group) or []:
+            basename = pathlib.PurePosixPath(item["name"]).name
+            folder = slugify_repo_id(files.get("repo_id", "repo"))
+            item["exists"] = (models_dir / folder / basename).is_file()
+    return files
+
+
 def get_ms_file_size(repo_id: str, filename: str, urlopen: UrlOpen = urllib.request.urlopen) -> int:
     """Declared file size via a 1-byte Range probe, 0 when the server won't say.
 
@@ -97,25 +111,47 @@ def get_ms_file_size(repo_id: str, filename: str, urlopen: UrlOpen = urllib.requ
 
 
 class _ChunkCounter:
-    """Thread-safe byte counter feeding the shared download state."""
+    """Thread-safe byte counter feeding one track of the shared download state."""
 
-    def __init__(self, ctx: AppContext, completed_bytes: int, total_bytes: int, filename: str) -> None:
+    def __init__(
+        self,
+        ctx: AppContext,
+        completed_bytes: int,
+        total_bytes: int,
+        filename: str,
+        track: str = "",
+    ) -> None:
         self._ctx = ctx
         self._lock = threading.Lock()
         self._completed = completed_bytes
         self._total = total_bytes
         self._filename = filename
+        self._track = track  # "model" | "mmproj" | "" (legacy aggregate)
         self._done = 0
 
     def add(self, count: int) -> None:
         with self._lock:
             self._done += count
-            set_model_download_state(
-                self._ctx,
-                downloaded=self._completed + self._done,
-                total=self._total,
-                current_file=self._filename,
-            )
+            if self._track == "model":
+                set_model_download_state(
+                    self._ctx,
+                    model_downloaded=self._completed + self._done,
+                    model_total=self._total,
+                    current_file=self._filename,
+                )
+            elif self._track == "mmproj":
+                set_model_download_state(
+                    self._ctx,
+                    mmproj_downloaded=self._completed + self._done,
+                    mmproj_total=self._total,
+                )
+            else:
+                set_model_download_state(
+                    self._ctx,
+                    downloaded=self._completed + self._done,
+                    total=self._total,
+                    current_file=self._filename,
+                )
 
     @property
     def done(self) -> int:
@@ -206,6 +242,7 @@ def download_ms_file(
     completed_bytes: int,
     total_bytes: int,
     urlopen: UrlOpen = urllib.request.urlopen,
+    track: str = "",
 ) -> int:
     """Download one file with parallel Range chunks; returns bytes written.
 
@@ -216,7 +253,7 @@ def download_ms_file(
     url = build_ms_download_url(repo_id, filename)
     dest.parent.mkdir(parents=True, exist_ok=True)
     total = get_ms_file_size(repo_id, filename, urlopen)
-    counter = _ChunkCounter(ctx, completed_bytes, total_bytes or total, filename)
+    counter = _ChunkCounter(ctx, completed_bytes, total_bytes or total, filename, track)
 
     supports_ranges = False
     if total > 0:
@@ -344,9 +381,11 @@ def start_ms_model_download(
 
             # Probe both sizes up front, then download model and mmproj in
             # parallel so the total progress reflects both streams at once.
-            total = get_ms_file_size(repo_id, model_file, urlopen)
-            if mmproj_file:
-                total += get_ms_file_size(repo_id, mmproj_file, urlopen)
+            model_total = get_ms_file_size(repo_id, model_file, urlopen)
+            mmproj_total = (
+                get_ms_file_size(repo_id, mmproj_file, urlopen) if mmproj_file else 0
+            )
+            total = model_total + mmproj_total
             reset_model_download_state(
                 ctx,
                 status="downloading",
@@ -356,9 +395,8 @@ def start_ms_model_download(
             )
             mmproj_path = ""
             if mmproj_file and mmproj_dest:
-                # Download model and mmproj concurrently; both counters feed
-                # the same shared progress (model bytes + mmproj bytes).
-                model_size = get_ms_file_size(repo_id, model_file, urlopen)
+                # Download model and mmproj concurrently; each stream reports
+                # its own track (model/mmproj) so the UI can show two bars.
                 mmproj_results: list[int] = []
 
                 def _run_mmproj() -> None:
@@ -368,16 +406,25 @@ def start_ms_model_download(
                             repo_id,
                             mmproj_file,
                             mmproj_dest,
-                            model_size,
-                            total,
+                            0,
+                            mmproj_total,
                             urlopen,
+                            track="mmproj",
                         )
                     )
 
+                mmproj_total = get_ms_file_size(repo_id, mmproj_file, urlopen)
                 mmproj_thread = threading.Thread(target=_run_mmproj, daemon=True)
                 mmproj_thread.start()
                 model_bytes = download_ms_file(
-                    ctx, repo_id, model_file, model_dest, 0, total, urlopen
+                    ctx,
+                    repo_id,
+                    model_file,
+                    model_dest,
+                    0,
+                    model_total,
+                    urlopen,
+                    track="model",
                 )
                 mmproj_thread.join()
                 completed = model_bytes + (mmproj_results[0] if mmproj_results else 0)
