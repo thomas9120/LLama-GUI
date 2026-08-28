@@ -448,7 +448,7 @@ function getQuickTemplateSummaryText() {
     if (values.chat_template_custom) {
         return `Using custom template file: ${values.chat_template_custom}`;
     }
-    return "Use the template embedded in the model metadata when available.";
+    return "优先使用模型元数据内置的模板。";
 }
 
 function setChatTemplateValue(value, options = {}) {
@@ -831,7 +831,7 @@ function buildManualLaunchRequest() {
     const args = result.args;
     const tool = flagCore.getCurrentTool();
     if (!flagCore.hasLaunchModelArg(args)) {
-        throw new Error("Select a model or provide a remote model source before launching.");
+        throw new Error("启动前请先选择模型或填写远程模型来源。");
     }
     return { tool, args };
 }

@@ -309,7 +309,7 @@
         setReadinessChip(
             "quick-chip-model",
             hasModel ? "ok" : "missing",
-            modelName ? `Model: ${modelName}` : hasModel ? "Model: remote source" : "Model: none",
+            modelName ? `模型: ${modelName}` : hasModel ? "模型: 远程来源" : "模型: 未选择",
         );
 
         const profileSelect = document.getElementById("quick-profile-select");
@@ -319,11 +319,11 @@
         setReadinessChip(
             "quick-chip-profile",
             "info",
-            profileLabel ? `Profile: ${profileLabel}` : "Profile: optional",
+            profileLabel ? `配置档案: ${profileLabel}` : "配置档案: 可选",
         );
 
         const ctx = values.ctx_size ?? getDefaultCtxSize();
-        setReadinessChip("quick-chip-context", "info", `Context: ${formatContextLabel(ctx)}`);
+        setReadinessChip("quick-chip-context", "info", `上下文: ${formatContextLabel(ctx)}`);
 
         const gpuLayers = String(values.gpu_layers ?? "auto");
         const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
@@ -334,7 +334,7 @@
         setReadinessChip(
             "quick-chip-api",
             hasApiKey ? "ok" : "info",
-            !apiApplies ? "API: not applicable" : hasApiKey ? "API: protected" : "API: open access",
+            !apiApplies ? "API: 不适用" : hasApiKey ? "API: 已保护" : "API: 开放访问",
         );
 
         const protectedBadge = document.getElementById("quick-api-protected-badge");
@@ -376,7 +376,7 @@
             return {
                 ok: false,
                 type: "warning",
-                message: "Select a model or provide a remote model source before launching.",
+                message: "启动前请先选择模型或填写远程模型来源。",
             };
         }
         return { ok: true, type: "", message: "" };
@@ -497,7 +497,7 @@
         const fitSummary = document.getElementById("quick-fit-summary");
         if (fitSummary) {
             fitSummary.textContent = String(values.fit ?? "on") === "on"
-                ? `Auto Fit will leave about ${values.fit_target ?? "1024"} MiB free and will not shrink below ${values.fit_ctx ?? ctxValue} context.`
+                ? `自动适配将预留约 ${values.fit_target ?? "1024"} MiB 空闲显存，上下文不会低于 ${values.fit_ctx ?? ctxValue}。`
                 : "Auto Fit is off, so llama.cpp will use your manual memory settings as-is.";
         }
 

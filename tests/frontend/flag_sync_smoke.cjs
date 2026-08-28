@@ -536,7 +536,7 @@ async function main() {
             document.querySelectorAll("#toast-container .toast").forEach((toast) => toast.remove());
         });
 
-        await page.waitForFunction(() => document.querySelector("#quick-launch-status")?.textContent.includes("Select a model"));
+        await page.waitForFunction(() => document.querySelector("#quick-launch-status")?.textContent.includes("启动前请先选择模型"));
         assert.equal(await page.locator("#btn-quick-launch").isDisabled(), true);
         assert.equal(await page.locator("#btn-sidebar-launch").isDisabled(), true);
 
@@ -1464,13 +1464,13 @@ async function main() {
             });
         });
         await selectSection(page, "quick-launch");
-        await page.waitForFunction(() => document.querySelector("#quick-chip-model .chip-text")?.textContent === "Model: remote source");
+        await page.waitForFunction(() => document.querySelector("#quick-chip-model .chip-text")?.textContent === "模型: 远程来源");
         assert.ok((await page.locator("#quick-chip-model").getAttribute("class")).includes("ok"));
-        assert.equal(await page.textContent("#quick-chip-api .chip-text"), "API: protected");
+        assert.equal(await page.textContent("#quick-chip-api .chip-text"), "API: 已保护");
         assert.ok((await page.locator("#quick-api-protected-badge").getAttribute("class")).includes("visible"));
 
         await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
-        await page.waitForFunction(() => document.querySelector("#quick-chip-api .chip-text")?.textContent === "API: not applicable");
+        await page.waitForFunction(() => document.querySelector("#quick-chip-api .chip-text")?.textContent === "API: 不适用");
         assert.ok(!(await page.locator("#quick-api-protected-badge").getAttribute("class")).includes("visible"));
 
         await page.evaluate(() => {
@@ -1507,7 +1507,7 @@ async function main() {
         await page.dispatchEvent("#model-select", "change");
         await selectSection(page, "quick-launch");
         assert.ok((await page.locator("#quick-chip-model").getAttribute("class")).includes("ok"));
-        assert.equal(await page.textContent("#quick-chip-model .chip-text"), "Model: smoke-model.gguf");
+        assert.equal(await page.textContent("#quick-chip-model .chip-text"), "模型: smoke-model.gguf");
         await selectSection(page, "configure");
         const launchCountBefore = launchBodies.length;
         await page.click("#btn-launch");
