@@ -1190,7 +1190,7 @@ const FLAGS = [
 		category: "conversation",
 		type: "bool",
 		label: "保留思维（旧版）",
-		desc: 'Legacy template-kwargs path for preserving thinking/reasoning tokens in response output. Prefer Preserve Reasoning for current llama.cpp builds. Passes {"preserve_thinking":true} to the chat template engine.',
+		desc: '旧版模板参数路径：把思维/推理 Token 保留在回复正文中。新版 llama.cpp 请改用“保留推理”。会向聊天模板引擎传 {"preserve_thinking":true}。',
 		tool: "both",
 		default: false,
 	},

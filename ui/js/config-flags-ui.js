@@ -373,7 +373,7 @@
         const label = document.createElement("div");
         label.className = "flag-label";
         let defaultText = "";
-        if (f.default !== undefined) defaultText = ` [default: ${f.default}]`;
+        if (f.default !== undefined) defaultText = ` [默认: ${f.default}]`;
 
         const titleRow = document.createElement("div");
         titleRow.className = "flag-title-row";
@@ -389,7 +389,7 @@
 
             const tipSummary = document.createElement("summary");
             tipSummary.className = "flag-tip";
-            tipSummary.textContent = "Beginner tip";
+            tipSummary.textContent = "新手提示";
 
             const tipText = document.createElement("div");
             tipText.className = "flag-tip-text";
@@ -413,7 +413,7 @@
             more.className = "flag-more";
 
             const moreSummary = document.createElement("summary");
-            moreSummary.textContent = "More info";
+            moreSummary.textContent = "更多信息";
 
             const moreText = document.createElement("div");
             moreText.className = "flag-more-text";
@@ -434,7 +434,7 @@
         if (f.type === "bool" && f.false_flag) {
             const toggleHint = document.createElement("span");
             toggleHint.className = "flag-toggle-hint";
-            toggleHint.textContent = `Off -> ${f.false_flag}`;
+            toggleHint.textContent = `关 -> ${f.false_flag}`;
             label.appendChild(toggleHint);
         }
 

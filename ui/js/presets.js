@@ -890,12 +890,12 @@ function renderPresetLibrarySummary(panel) {
 
         const emptyTitle = document.createElement("div");
         emptyTitle.className = "preset-detail-empty-title";
-        emptyTitle.textContent = summary.filtered ? "No presets match" : "No presets saved yet";
+        emptyTitle.textContent = summary.filtered ? "没有匹配的预设" : "还没有保存的预设";
 
         const emptyText = document.createElement("p");
         emptyText.textContent = summary.filtered
             ? "Clear the search or filters to see the rest of the library."
-            : "Save a preset from Configure to keep a launch setup you can return to.";
+            : "在配置页保存一个预设，随时可以回到这套启动设置。";
 
         empty.appendChild(emptyTitle);
         empty.appendChild(emptyText);
@@ -1160,7 +1160,7 @@ function renderPresetCountLine() {
     if (!countLine) return;
     const presetCount = getVisiblePresetEntries().length;
     const modelCount = currentPresetGroups.length;
-    countLine.textContent = `${presetCount} preset${presetCount === 1 ? "" : "s"} · ${modelCount} model${modelCount === 1 ? "" : "s"}`;
+    countLine.textContent = `${presetCount} 个预设 · ${modelCount} 个模型`;
 }
 
 function renderPresetAuxiliaryPanels() {
@@ -1255,7 +1255,7 @@ function renderPresetEntry(entry) {
 
     const metaEl = document.createElement("div");
     metaEl.className = "preset-meta";
-    metaEl.textContent = `${entry.toolText} · ${entry.overrideCount} override${entry.overrideCount === 1 ? "" : "s"}`;
+    metaEl.textContent = `${entry.toolText} · ${entry.overrideCount} 项覆盖`;
 
     details.appendChild(titleRow);
     details.appendChild(metaEl);
@@ -1480,7 +1480,7 @@ function renderPresetGroups(container, groups) {
                     ? "No presets with warnings."
                     : presetFavoritesMode === "only"
                         ? "No favorite presets yet. Star a preset to keep it here."
-                        : "No saved presets yet. Save the current configuration above or import a JSON preset file.";
+                        : "还没有已保存的预设。在上方保存当前配置，或导入一个 JSON 预设文件。";
         container.appendChild(empty);
         renderPresetAuxiliaryPanels();
         return;
@@ -1769,7 +1769,7 @@ function initPresetLibraryControls() {
     if (favoritesFirst) {
         const favoritesLabels = {
             all: { text: "★ Favorites", title: "Click to keep favorite presets and model groups above other results" },
-            first: { text: "★ Favorites first", title: "Favorites are sorted first. Click to show only favorites" },
+            first: { text: "★ 收藏优先", title: "收藏的预设排在最前。点击可只显示收藏" },
             only: { text: "★ Favorites only", title: "Showing only favorites. Click to show all presets" },
         };
         const renderFavoritesChip = () => {
@@ -2191,7 +2191,7 @@ async function handlePresetImport(file) {
             const existingPresets = await fetchPresetEntries();
             const collision = findPresetImportNameCollision(existingPresets, pendingImports);
             if (collision) {
-                showPresetActionStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+                showPresetActionStatus(`预设 "${collision}" 已存在。请先重命名或删除再导入。`, "error", 5000);
                 return;
             }
             try {
@@ -2227,7 +2227,7 @@ async function handlePresetImport(file) {
         const existingPresets = await fetchPresetEntries();
         const collision = findPresetImportNameCollision(existingPresets, [{ name }]);
         if (collision) {
-            showPresetActionStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
+            showPresetActionStatus(`预设 "${collision}" 已存在。请先重命名或删除再导入。`, "error", 5000);
             return;
         }
         await fetchJson("/api/presets", {

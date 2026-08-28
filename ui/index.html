@@ -184,7 +184,7 @@
             <div class="page-header">
                 <div>
                     <div class="page-title">安装 llama.cpp</div>
-                    <div class="page-title-sub">Download releases, choose an install target, and manage your llama.cpp installation.</div>
+                    <div class="page-title-sub">下载发行版、选择安装目标，管理你的 llama.cpp 安装。</div>
                 </div>
             </div>
 
@@ -212,7 +212,7 @@
                         <select id="backend-select">
                             <option value="">Loading available backends...</option>
                         </select>
-                        <p class="help-text">ROCm (Lemonade) builds target a specific AMD GPU architecture &mdash; choose the gfx target matching your GPU (e.g. gfx110X = RDNA3, gfx103X = RDNA2, gfx1150/gfx1151 = Ryzen AI).</p>
+                        <p class="help-text">ROCm (Lemonade) 构建针对特定 AMD GPU 架构——请选择与你的 GPU 匹配的 gfx 目标（例如 gfx110X = RDNA3，gfx103X = RDNA2，gfx1150/gfx1151 = Ryzen AI）。</p>
                     </div>
 
                     <div id="custom-backend-info" style="display:none;">
@@ -258,7 +258,7 @@
                             <option value="stable">稳定版</option>
                             <option value="nightly">每日构建（可能不稳定）</option>
                         </select>
-                        <p class="help-text">Stable installs tagged releases. Nightly includes unreleased commits from the main branch.</p>
+                        <p class="help-text">稳定版安装打标签的发行版。每日构建包含主分支上未发布的提交。</p>
                     </div>
                     <div id="app-update-status" class="status-box"></div>
                     <div class="form-row">
@@ -266,14 +266,14 @@
                         <button id="btn-update-app" class="btn btn-primary" type="button">从 GitHub 更新应用</button>
                     </div>
                     <p class="app-update-note">
-                        Repository:
+                        仓库:
                         <a href="https://github.com/thomas9120/LLama-GUI.git" target="_blank" rel="noopener noreferrer" class="server-link">github.com/thomas9120/LLama-GUI.git</a>
                     </p>
                 </div>
 
                 <div class="card card-danger">
                     <h3>危险操作</h3>
-                    <p class="help-text">These actions remove files or stop the app itself. They ask for confirmation, but use them deliberately.</p>
+                    <p class="help-text">这些操作会删除文件或停止应用本身。虽会要求确认，也请谨慎使用。</p>
                     <div class="form-row">
                         <button id="btn-remove-llama" class="btn btn-danger">移除 llama.cpp 文件</button>
                         <button id="btn-restart-app" class="btn" type="button">重启 Python 服务</button>
@@ -662,11 +662,11 @@
                             <label class="toggle toggle-sm">
                                 <input type="checkbox" id="quick-metrics-toggle" checked />
                                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                                Stats bar
+                                状态栏
                             </label>
                         </div>
                     </div>
-                    <p class="help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
+                    <p class="help-text">快速启动与配置页共享同一份设置。切换到配置页可进行完整控制。</p>
                     <div class="readiness-bar" id="quick-readiness-bar">
                         <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
                         <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">配置档案（可选）</span></span>
@@ -747,14 +747,14 @@
                     <div>
                         <label class="form-label" for="custom-launch-args">自定义启动参数</label>
                         <p class="help-text">
-                            Enter extra llama.cpp arguments like a shell command. Multiple args can be on one line or separate lines; quote values that contain spaces or JSON, such as <code>--chat-template-kwargs '{"preserve_thinking":true}'</code>.
+                            像写 shell 命令一样输入额外的 llama.cpp 参数。多个参数可以写在一行或分多行；包含空格或 JSON 的值请加引号，例如 <code>--chat-template-kwargs '{"preserve_thinking":true}'</code>.
                         </p>
                     </div>
                     <span class="badge badge-neutral">高级</span>
                 </div>
                 <textarea id="custom-launch-args" rows="4" spellcheck="false" placeholder="--threads 8&#10;--flash-attn&#10;--chat-template-kwargs '{&quot;preserve_thinking&quot;:true}'"></textarea>
                 <p class="custom-args-warning">
-                    Custom args are appended after UI-managed flags and may conflict with visible controls or enable risky llama.cpp features.
+                    自定义参数会附加在界面管理的参数之后，可能与可见的控件冲突，或启用有风险的 llama.cpp 功能。
                 </p>
                 <div id="custom-launch-args-status" class="custom-args-status" aria-live="polite"></div>
             </div>
@@ -820,7 +820,7 @@
                     </button>
                     <button class="btn btn-sm" id="btn-chat-new" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
-                        New Chat
+                        新对话
                     </button>
                     <button class="btn btn-sm btn-ghost" id="btn-chat-clear" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
@@ -840,7 +840,7 @@
                     <div class="chat-history-footer">
                         <button class="btn btn-xs btn-danger" id="btn-delete-all-history" type="button">
                             <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></span>
-                            Delete All
+                            全部删除
                         </button>
                     </div>
                 </div>
@@ -858,7 +858,7 @@
                     </div>
                     <div class="chat-input-area">
                         <div class="chat-no-server-note" id="chat-no-server-note" role="status">
-                            <span>Start llama-server, or connect to a running one on the API tab, before sending chat messages.</span>
+                            <span>发送消息前，请先启动 llama-server，或在 API 页连接一个运行中的服务器。</span>
                             <button class="btn btn-xs" id="btn-chat-open-quick-launch" type="button">打开快速启动</button>
                         </div>
                         <div class="chat-input-row">
@@ -901,7 +901,7 @@
                     </div>
                     <div class="sidebar-body">
                         <div class="sidebar-section">
-                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> System Prompt</div>
+                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> 系统提示词</div>
                             <textarea class="sidebar-system-prompt" id="chat-system-prompt" placeholder="你是一个乐于助人的助手…"></textarea>
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
                         </div>
@@ -917,12 +917,12 @@
                                     <option value="high">高</option>
                                     <option value="xhigh">超高</option>
                                 </select>
-                                <div class="sidebar-field-desc">Sent per request as top-level reasoning_effort, with a chat-template-kwargs fallback for older builds. Unsupported models ignore it or may reject non-default values.</div>
+                                <div class="sidebar-field-desc">每次请求作为顶层 reasoning_effort 发送，旧版本回退到 chat-template-kwargs。不支持的模型会忽略或拒绝非默认值。</div>
                                 <div id="chat-thinking-effort-cap-hint" class="chat-effort-cap-warning hidden"></div>
                             </div>
                         </div>
                         <div class="sidebar-section">
-                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> Web Search</div>
+                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> 联网搜索</div>
                             <div class="sidebar-field">
                                 <label class="sidebar-field-label" for="chat-web-search-max-results">结果数量</label>
                                 <input type="number" id="chat-web-search-max-results" min="1" max="10" step="1" value="5">
@@ -930,7 +930,7 @@
                             </div>
                         </div>
                         <div class="sidebar-section">
-                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Samplers</div>
+                            <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> 采样器</div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
                                     <span class="sidebar-sampler-text">温度</span>
@@ -1088,7 +1088,7 @@
             <div class="page-header">
                 <div>
                     <div class="page-title">基准测试中</div>
-                    <div class="page-title-sub">Run llama.cpp throughput and perplexity checks using your current configuration or saved presets.</div>
+                    <div class="page-title-sub">使用当前配置或已保存的预设运行 llama.cpp 吞吐与困惑度测试。</div>
                 </div>
                 <div class="benchmark-readiness">
                     <span id="benchmark-bench-badge" class="badge badge-neutral">llama-bench: Checking</span>
@@ -1119,7 +1119,7 @@
                                     <option value="preset">已保存预设</option>
                                     <option value="manual">手动指定模型</option>
                                 </select>
-                                <p id="benchmark-source-summary" class="help-text">Current Configure -> No model selected</p>
+                                <p id="benchmark-source-summary" class="help-text">当前配置 -> 未选择模型</p>
                             </div>
                             <div class="form-group">
                                 <label class="form-label" for="benchmark-type">基准测试类型</label>
@@ -1157,7 +1157,7 @@
                                 <div class="form-group">
                                     <label class="form-label" for="benchmark-repetitions">重复次数</label>
                                     <input id="benchmark-repetitions" type="number" min="1" max="50" step="1" value="5">
-                                    <p class="help-text">Runs the same test multiple times and reports steadier performance numbers.</p>
+                                    <p class="help-text">多次运行同一测试，报告更稳定的性能数据。</p>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label" for="benchmark-output-format">输出格式</label>
@@ -1167,17 +1167,17 @@
                                         <option value="csv">CSV</option>
                                         <option value="jsonl">JSONL</option>
                                     </select>
-                                    <p class="help-text">Markdown is easiest to read; JSON/CSV are better for saving or comparing runs.</p>
+                                    <p class="help-text">Markdown 最易读；JSON/CSV 更适合保存或对比结果。</p>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label" for="benchmark-n-prompt">提示 Token 数</label>
                                     <input id="benchmark-n-prompt" type="number" min="1" max="131072" step="1" value="512">
-                                    <p class="help-text">Measures prompt processing speed using this many input tokens.</p>
+                                    <p class="help-text">用这么多输入 Token 测量提示处理速度。</p>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label" for="benchmark-n-gen">生成 Token 数</label>
                                     <input id="benchmark-n-gen" type="number" min="1" max="131072" step="1" value="128">
-                                    <p class="help-text">Measures token generation speed using this many generated tokens.</p>
+                                    <p class="help-text">用这么多生成 Token 测量生成速度。</p>
                                 </div>
                             </div>
                         </div>
@@ -1296,7 +1296,7 @@
                         <div class="launch-bar benchmark-launch-bar">
                             <button id="btn-run-benchmark" class="btn btn-primary btn-lg" type="button">
                                 <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                                Run Benchmark
+                                运行基准测试
                             </button>
                             <button id="btn-stop-benchmark" class="btn btn-danger btn-lg hidden" type="button">
                                 <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
@@ -1320,7 +1320,7 @@
                             <h3>基准测试输出</h3>
                             <button class="btn btn-sm btn-ghost" id="btn-clear-benchmark-output" type="button">清除</button>
                         </div>
-                        <div id="benchmark-summary" class="benchmark-summary">Summary appears here when benchmark output includes recognizable throughput data.</div>
+                        <div id="benchmark-summary" class="benchmark-summary">当基准输出包含可识别的吞吐数据时，摘要会显示在这里。</div>
                         <div id="benchmark-output-terminal" class="terminal benchmark-terminal"></div>
                     </div>
                 </div>
@@ -1383,7 +1383,7 @@
                     <div class="presets-filters">
                         <button id="preset-filter-all" class="preset-chip active" type="button">全部</button>
                         <button id="preset-filter-warnings" class="preset-chip preset-chip-warn" type="button">&#9888; Warnings</button>
-                        <button id="preset-favorites-first" class="preset-chip preset-chip-favorite active" type="button" aria-pressed="true" title="将收藏的预设和模型分组排在前面">&#9733; Favorites first</button>
+                        <button id="preset-favorites-first" class="preset-chip preset-chip-favorite active" type="button" aria-pressed="true" title="将收藏的预设和模型分组排在前面">&#9733; 收藏优先</button>
                         <button id="preset-archive-view" class="preset-chip" type="button" aria-pressed="false" title="显示已被归档隐藏的预设">&#128230; Archived</button>
                         <span id="presets-count-line" class="presets-count-line"></span>
                     </div>

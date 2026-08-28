@@ -111,13 +111,13 @@ function updateInstalledBackendSummary(status) {
     el.className = "installed-backend-summary";
 
     if (status && status.installed && installedBackend) {
-        el.textContent = "Installed backend: " + label;
+        el.textContent = "已安装后端: " + label;
         el.classList.add("is-installed");
     } else if (status && status.config_stale && installedBackend) {
         el.textContent = "Configured backend: " + label + " (incomplete)";
         el.classList.add("is-stale");
     } else {
-        el.textContent = "Installed backend: None";
+        el.textContent = "已安装后端: 无";
         el.classList.add("is-empty");
     }
 }
@@ -472,11 +472,11 @@ function updateStatusUI(status) {
 
         const exeWrap = document.createElement("div");
         const exeTitle = document.createElement("strong");
-        exeTitle.textContent = "Available tools:";
+        exeTitle.textContent = "可用工具:";
         exeWrap.appendChild(exeTitle);
         const exeHint = document.createElement("span");
         exeHint.className = "installed-info-hint";
-        exeHint.textContent = " Core launch tools are required; benchmark and utility tools are optional.";
+        exeHint.textContent = " 核心启动工具为必需；基准测试与工具类为可选。"
         exeWrap.appendChild(exeHint);
         exeWrap.appendChild(document.createElement("br"));
         for (const [name, exists] of Object.entries(status.executables)) {
@@ -490,7 +490,7 @@ function updateStatusUI(status) {
         info.appendChild(exeWrap);
 
         if (status.runtime_files && status.runtime_files.length > 0) {
-            appendRow(status.runtime_files_label || "Runtime libraries", `${status.runtime_files.length} file(s)`);
+            appendRow(status.runtime_files_label || "运行时库", `${status.runtime_files.length} 个文件`);
         }
     } else if (status.config_stale) {
         const missingRuntimeFiles = Array.isArray(status.missing_runtime_files)
@@ -1031,7 +1031,7 @@ function describeAppUpdateStatus(status) {
     }
     if (status.state === "up_to_date") {
         const safeNote = safePaths ? ` Local app data is present and ignored for updates: ${safePaths}.` : "";
-        return `Llama GUI already includes the ${target} on ${branch}.${safeNote}`;
+        return `Llama GUI 已包含 ${branch} 分支上的 ${target}。${safeNote}`;
     }
     if (status.state === "behind") {
         if (status.has_blocking_changes) {

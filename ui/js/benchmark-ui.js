@@ -36,7 +36,7 @@
     const BENCH_ONLY_IDS = new Set(["repetitions", "n_prompt", "n_gen", "output_format"]);
     const PERPLEXITY_ONLY_IDS = new Set(["prompt_file", "chunks", "ppl_stride", "warmup"]);
     const BENCHMARK_SOURCE_LABELS = {
-        current: "Current Configure",
+        current: "当前配置",
         preset: "Saved Preset",
         manual: "Manual Model",
     };
@@ -323,9 +323,9 @@
             args.push(["-n", String(nGen)]);
             args.push(["-o", outputFormat]);
             applied.push({ label: "Repetitions", value: String(repetitions) });
-            applied.push({ label: "Prompt Tokens", value: String(nPrompt) });
-            applied.push({ label: "Generation Tokens", value: String(nGen) });
-            applied.push({ label: "Output Format", value: outputFormat });
+            applied.push({ label: "提示 Token", value: String(nPrompt) });
+            applied.push({ label: "生成 Token", value: String(nGen) });
+            applied.push({ label: "输出格式", value: outputFormat });
         } else {
             const cleanRun = options.pplCleanRun === true;
             const contextSize = options.pplContextSize || 4096;
@@ -377,7 +377,7 @@
         }
 
         if (!hasSelectedModelArg(args)) {
-            return { tool, args, applied, excluded, error: "Select a model, saved preset with a model, or HF repo before running a benchmark." };
+            return { tool, args, applied, excluded, error: "运行基准测试前，请先选择模型、含模型的预设或 HF 仓库。" };
         }
 
         if (typeof flags.custom_args === "string" && flags.custom_args.trim()) {
@@ -535,7 +535,7 @@
         }
         return {
             sourceType,
-            label: "Current Configure",
+            label: "当前配置",
             model: flagCore ? flagCore.getSelectedModel() : "",
             flags: flagCore ? flagCore.getFlagValues() : {},
         };
@@ -578,13 +578,13 @@
         if (sourceLabel) {
             const source = getSourceSnapshot();
             if (getSelectedBenchmarkType() === "perplexity") {
-                sourceLabel.textContent = `Perplexity uses the manual model and settings below -> ${source.model || "No model selected"}`;
+                sourceLabel.textContent = `困惑度测试使用下方手动指定的模型与设置 -> ${source.model || "未选择模型"}`;
             } else {
-                sourceLabel.textContent = `${BENCHMARK_SOURCE_LABELS[source.sourceType]} -> ${source.model || source.flags.hf_repo || "No model selected"}`;
+                sourceLabel.textContent = `${BENCHMARK_SOURCE_LABELS[source.sourceType]} -> ${source.model || source.flags.hf_repo || "未选择模型"}`;
             }
         }
         if (command) {
-            command.textContent = result.error ? `Cannot run: ${result.error}` : result.command;
+            command.textContent = result.error ? `无法运行：${result.error}` : result.command;
             command.classList.toggle("command-preview-error", Boolean(result.error));
         }
         if (status) {
@@ -598,7 +598,7 @@
         }
         if (runBtn) runBtn.disabled = Boolean(result.error);
         renderList(byId("benchmark-applied-list"), result.applied, "No compatible settings applied yet.");
-        renderList(byId("benchmark-excluded-list"), result.excluded, "No configured settings were excluded.");
+        renderList(byId("benchmark-excluded-list"), result.excluded, "没有被排除的配置项。");
         return result;
     }
 
@@ -662,7 +662,7 @@
         if (cachedPresets.length === 0) {
             const opt = document.createElement("option");
             opt.value = "";
-            opt.textContent = "No saved presets";
+            opt.textContent = "暂无预设";
             select.appendChild(opt);
             selectedPresetName = "";
             renderCommand();
@@ -755,7 +755,7 @@
         }
         const empty = document.createElement("div");
         empty.className = "empty-state empty-state-sm";
-        empty.textContent = "Summary appears here when benchmark output includes recognizable throughput data.";
+        empty.textContent = "当基准输出包含可识别的吞吐数据时，摘要会显示在这里。";
         el.appendChild(empty);
     }
 

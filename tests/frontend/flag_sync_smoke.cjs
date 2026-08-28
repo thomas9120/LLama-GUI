@@ -437,9 +437,9 @@ async function main() {
             mimeType: "application/json",
             buffer: Buffer.from(JSON.stringify({ flags: { temperature: 0.45 } })),
         });
-        await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes("already exists"));
+        await page.waitForFunction(() => document.querySelector("#preset-status")?.textContent.includes("已存在"));
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => /already exists/i.test(toast.textContent)));
+            .some((toast) => /已存在/.test(toast.textContent)));
         assert.equal(presetSaveBodies.length, 0, "a colliding launch preset import must not write");
 
         await page.setInputFiles("#preset-import", {
@@ -891,7 +891,7 @@ async function main() {
         await selectSection(page, "chat");
         assert.equal(await page.locator("#chat-input").isDisabled(), true);
         assert.equal(await page.locator("#btn-chat-send").isDisabled(), true);
-        assert.match(await page.textContent("#chat-no-server-note"), /Start llama-server/i);
+        assert.match(await page.textContent("#chat-no-server-note"), /请先启动 llama-server/);
         statusRunning = true;
         activeProcessTool = "llama-cli";
         await page.evaluate(() => refreshRuntimeStatusPanels());
@@ -1142,12 +1142,12 @@ async function main() {
             return preset?.temperature === 0.64 && preset?.presence_penalty === 0.4;
         });
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => toast.textContent.includes('Saved sampler preset "Smoke Sampler"')));
+            .some((toast) => toast.textContent.includes('已保存采样器预设 "Smoke Sampler"')));
         await setRangeValue(page, "#quick-temperature", "0.11");
         await page.fill("#quick-sampler-name", "smoke sampler");
         await page.click("#btn-quick-sampler-save");
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => /already exists/i.test(toast.textContent)));
+            .some((toast) => /已存在/.test(toast.textContent)));
         const samplerStoreAfterCollision = await page.evaluate(
             () => JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}")
         );
@@ -1188,7 +1188,7 @@ async function main() {
         await page.evaluate((selector) => {
             document.querySelector(selector).dataset.smokeRebuildTag = "1";
         }, configSamplerSelect);
-        await page.fill("#config-search", "penalty");
+        await page.fill("#config-search", "惩罚");
         await page.waitForFunction(
             (selector) => {
                 const select = document.querySelector(selector);
@@ -1202,7 +1202,7 @@ async function main() {
             "the Configure sampler selection must survive a panel rebuild"
         );
 
-        await page.locator(".sampler-presets button", { hasText: "Rename" }).click();
+        await page.locator(".sampler-presets button", { hasText: "重命名" }).click();
         await page.waitForSelector("#prompt-modal:not(.hidden)");
         await page.fill("#prompt-modal-input", "Renamed Smoke Sampler");
         await page.click("#prompt-modal-ok");
@@ -1214,7 +1214,7 @@ async function main() {
                 && !Object.prototype.hasOwnProperty.call(store, "Smoke Sampler");
         });
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => toast.textContent.includes('Renamed sampler preset to "Renamed Smoke Sampler"')));
+            .some((toast) => toast.textContent.includes('已重命名采样器预设为 "Renamed Smoke Sampler"')));
         assert.equal(
             await page.inputValue(configSamplerSelect),
             "custom|Renamed Smoke Sampler",
@@ -1232,9 +1232,9 @@ async function main() {
         // A built-in is not renameable, and the attempt must not disturb the store.
         await page.selectOption(configSamplerSelect, "builtin|Balanced");
         await page.dispatchEvent(configSamplerSelect, "change");
-        await page.locator(".sampler-presets button", { hasText: "Rename" }).click();
+        await page.locator(".sampler-presets button", { hasText: "重命名" }).click();
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => toast.textContent.includes("Built-in sampler presets cannot be renamed.")));
+            .some((toast) => toast.textContent.includes("内置采样器预设不能重命名。")));
         assert.equal(
             await page.evaluate(() => document.querySelector("#prompt-modal")?.classList.contains("hidden")),
             true,
@@ -1257,7 +1257,7 @@ async function main() {
             })),
         });
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => /already exists/i.test(toast.textContent)));
+            .some((toast) => /已存在/.test(toast.textContent)));
         assert.deepEqual(
             await page.evaluate(() => Object.keys(JSON.parse(localStorage.getItem("llama_gui_sampler_presets_v1") || "{}"))),
             ["Renamed Smoke Sampler"],
@@ -1297,7 +1297,7 @@ async function main() {
             return raw && Object.prototype.hasOwnProperty.call(JSON.parse(raw), "Renamed Again Sampler");
         });
         await page.waitForFunction(() => Array.from(document.querySelectorAll(".toast-message"))
-            .some((toast) => toast.textContent.includes('Renamed sampler preset to "Renamed Again Sampler"')));
+            .some((toast) => toast.textContent.includes('已重命名采样器预设为 "Renamed Again Sampler"')));
         await selectSection(page, "configure");
         assert.equal(
             await page.inputValue(configSamplerSelect),

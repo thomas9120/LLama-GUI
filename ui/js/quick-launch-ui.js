@@ -326,7 +326,7 @@
         setReadinessChip("quick-chip-context", "info", `上下文: ${formatContextLabel(ctx)}`);
 
         const gpuLayers = String(values.gpu_layers ?? "auto");
-        const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
+        const gpuLabel = gpuLayers === "auto" ? "自动" : gpuLayers === "0" ? "仅 CPU" : gpuLayers === "all" ? "全部层" : `${gpuLayers} 层`;
         setReadinessChip("quick-chip-gpu", "info", `GPU: ${gpuLabel}`);
 
         const apiApplies = tool === "llama-server";
@@ -708,13 +708,13 @@
             const name = typedName || selectedCustomName;
             if (!name) {
                 nameInput.focus();
-                showToast("Enter a sampler preset name.", "error");
+                showToast("请输入采样器预设名称。", "error");
                 return;
             }
 
             const result = saveSamplerPreset(name, selectedCustomName, collectSamplerValues());
             if (!result.ok) {
-                showToast(getSamplerRenameMessage(result.reason) + " Rename or delete the existing preset first.", "error");
+                showToast(getSamplerRenameMessage(result.reason) + " 请先重命名或删除现有预设。", "error");
                 return;
             }
             nameInput.value = "";
@@ -722,7 +722,7 @@
             configFlagsUi.renderFlags();
             const samplerSelect = document.getElementById("quick-sampler-select");
             if (samplerSelect) samplerSelect.value = `custom|${result.name}`;
-            showToast(`Saved sampler preset "${result.name}"`, "success");
+            showToast(`已保存采样器预设 "${result.name}"`, "success");
         });
 
         on("btn-quick-sampler-rename", "click", async () => {
@@ -735,8 +735,8 @@
 
             // resolves to null on cancel, so an empty string still means "cleared the field"
             const nextName = await promptAction(
-                "Rename Sampler Preset",
-                `Enter a new name for "${selected.name}".`,
+                "重命名采样器预设",
+                `输入新名称 "${selected.name}".`,
                 selected.name,
                 "Rename"
             );
@@ -750,14 +750,14 @@
 
             refreshSamplerPresetSelect(`custom|${result.name}`);
             configFlagsUi.renderFlags();
-            showToast(`Renamed sampler preset to "${result.name}"`, "success");
+            showToast(`已重命名采样器预设为 "${result.name}"`, "success");
         });
 
         on("btn-quick-sampler-delete", "click", async () => {
             const selected = getSelectedSamplerEntry();
             if (!selected) return;
             if (selected.source !== "custom") {
-                showToast("Built-in sampler presets cannot be deleted.", "error");
+                showToast("内置采样器预设不能删除。", "error");
                 return;
             }
 

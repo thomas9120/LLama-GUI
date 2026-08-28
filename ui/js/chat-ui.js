@@ -251,11 +251,11 @@
                 ? "Type a message..."
                 : isLoading
                     ? "Waiting for the model to finish loading..."
-                    : "Start llama-server, or connect to a running one on the API tab...";
+                    : "请先启动 llama-server，或在 API 页连接一个运行中的服务器…";
         }
         if (sendBtn) {
             sendBtn.disabled = !canSend;
-            sendBtn.title = isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
+            sendBtn.title = isRunning ? "" : "发送消息前，请先启动 llama-server，或在 API 页连接一个运行中的服务器。";
         }
         if (note) {
             note.classList.toggle("hidden", Boolean(isRunning));
@@ -263,7 +263,7 @@
             if (message) {
                 message.textContent = isLoading
                     ? "llama-server is loading the selected model. Chat will unlock when it is ready."
-                    : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
+                    : "发送消息前，请先启动 llama-server，或在 API 页连接一个运行中的服务器。";
             }
         }
     }
@@ -855,7 +855,7 @@
         if (conversations.length === 0) {
             const empty = document.createElement("div");
             empty.className = "chat-history-empty";
-            empty.textContent = "No saved conversations";
+            empty.textContent = "暂无会话记录";
             list.appendChild(empty);
             return;
         }
@@ -1069,7 +1069,7 @@
         if (deleteAllBtn) {
             deleteAllBtn.addEventListener("click", async () => {
                 if (getStoredConversations().length === 0) return;
-                const confirmed = await confirmAction("Delete All Conversations", "Delete all conversations? This cannot be undone.", "Delete All");
+                const confirmed = await confirmAction("删除全部会话", "删除所有会话？此操作不可撤销。", "全部删除");
                 if (confirmed) {
                     deleteAllConversations();
                     await clearChat();

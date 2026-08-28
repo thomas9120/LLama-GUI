@@ -7,7 +7,7 @@ const CACHE_TYPE_OPTIONS = [
 
 const REASONING_FORMAT_OPTIONS = [
     { value: "auto", label: "Auto (default)" },
-    { value: "deepseek", label: "DeepSeek (separate reasoning)" },
-    { value: "none", label: "None (leave thoughts in content)" },
-    { value: "deepseek-legacy", label: "DeepSeek Legacy (keep think tags)" },
+    { value: "deepseek", label: "DeepSeek（独立推理内容）" },
+    { value: "none", label: "无（思维留在正文）" },
+    { value: "deepseek-legacy", label: "DeepSeek 旧版（保留 think 标签）" },
 ];
