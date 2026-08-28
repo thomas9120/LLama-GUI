@@ -600,6 +600,13 @@
                     <div class="hf-download-body">
                         <div id="hf-download-status" class="hf-download-status"></div>
                         <div class="form-group">
+                            <label class="form-label" for="hf-source-select">Source</label>
+                            <select id="hf-source-select">
+                                <option value="hf" selected>Hugging Face</option>
+                                <option value="ms">ModelScope 魔搭</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label class="form-label" for="hf-repo-input">Repo ID</label>
                             <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
                         </div>

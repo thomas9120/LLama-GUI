@@ -15,6 +15,19 @@
     let hfDownloadPollInFlight = false;
     let deps = {};
 
+    // Both sources share the download-status/cancel endpoints and the same
+    // progress state machine on the backend; only listing and starting differ.
+    const DOWNLOAD_SOURCES = {
+        hf: { repoFiles: "/api/hf/repo-files", download: "/api/hf/download" },
+        ms: { repoFiles: "/api/ms/repo-files", download: "/api/ms/download" },
+    };
+    const SOURCE_LABELS = { hf: "Hugging Face", ms: "ModelScope" };
+
+    function selectedSource() {
+        const select = document.getElementById("hf-source-select");
+        return select && select.value === "ms" ? "ms" : "hf";
+    }
+
     function requireDependency(name) {
         const value = deps[name];
         if (typeof value !== "function") {
@@ -104,15 +117,16 @@
         if (!repoInput || !modelSelect || !mmprojSelect) return;
 
         const repoId = repoInput.value.trim();
+        const source = selectedSource();
         if (!repoId) {
-            showStatus("warning", "Enter a Hugging Face repo ID first.");
+            showStatus("warning", `Enter a ${SOURCE_LABELS[source]} repo ID first.`);
             return;
         }
 
         showStatus("info", "Looking for GGUF files...");
         setBusy(true);
         try {
-            const result = await fetchJson("/api/hf/repo-files", {
+            const result = await fetchJson(DOWNLOAD_SOURCES[source].repoFiles, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -136,7 +150,7 @@
             );
         } catch (e) {
             if (options) options.classList.add("hidden");
-            showStatus("error", "Hugging Face lookup failed: " + e.message);
+            showStatus("error", `${SOURCE_LABELS[source]} lookup failed: ` + e.message);
         } finally {
             setBusy(false);
         }
@@ -161,7 +175,7 @@
         showStatus("info", "Starting download...");
         setBusy(true);
         try {
-            await fetchJson("/api/hf/download", {
+            await fetchJson(DOWNLOAD_SOURCES[selectedSource()].download, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -324,6 +338,20 @@
         on("btn-hf-find-files", "click", findFiles);
         on("btn-hf-download", "click", () => startDownload(false));
         on("btn-hf-cancel", "click", cancelDownload);
+
+        // Revision/token are Hugging Face concepts; ModelScope ignores them.
+        const sourceSelect = document.getElementById("hf-source-select");
+        if (sourceSelect) {
+            const syncSourceFields = () => {
+                const isMs = selectedSource() === "ms";
+                for (const id of ["hf-revision-input", "hf-token-input"]) {
+                    const el = document.getElementById(id);
+                    if (el) el.disabled = isMs;
+                }
+            };
+            syncSourceFields();
+            sourceSelect.addEventListener("change", syncSourceFields);
+        }
     }
 
     window.LlamaGui = window.LlamaGui || {};

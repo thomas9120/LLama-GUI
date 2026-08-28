@@ -79,7 +79,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 46 exact routes plus one prefix route, 47 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 48 exact routes plus one prefix route, 49 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -93,6 +93,7 @@
 | `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |
 | `presets.py` | `GET /api/presets`, `POST /api/presets` (save), `POST /api/presets/rename`, `POST /api/presets/archive` (bulk archive/restore), `POST /api/presets/shortcut` (Windows shortcut export), `DELETE /api/presets/<name>` (prefix route) |
 | `hf_download.py` | `POST /api/hf/repo-files`, `POST /api/hf/download`, `POST /api/hf/download-cancel`, `GET /api/hf/download-status` |
+| `modelscope_download.py` | `POST /api/ms/repo-files`, `POST /api/ms/download` (status/cancel shared with `hf_download.py`) |
 | `tunnel.py` | `POST /api/remote-tunnel/start`, `POST /api/remote-tunnel/stop`, `GET /api/remote-tunnel/status` |
 | `git_update.py` | `GET /api/app-update-status`, `POST /api/app-update` |
 | `search.py` | `POST /api/web-search` |
@@ -109,6 +110,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `llama_manager.py` | GitHub release fetch, install, SHA256 verify, binary extraction |
 | `process_manager.py` | Process launch/stop, output streaming, arg flattening, API target parsing |
 | `hf_download.py` | HF repo listing, file download with cancel, path validation |
+| `modelscope_download.py` | ModelScope (魔搭) repo listing, multi-threaded chunked download with cancel, shared download state |
 | `model_dir.py` | Active model-root validation, metadata, and merged atomic config persistence |
 | `web_search.py` | DuckDuckGo (`ddgs`) and optional SearXNG search, HTML-to-text, page fetching |
 | `tunnel.py` | Cloudflare tunnel lifecycle, binary download, status polling |

@@ -625,6 +625,7 @@ footer {
             <div class="node green"><div class="t">process_manager</div><div class="d">Spawn, stop, output buffer, arg parsing, API keys</div></div>
             <div class="node green"><div class="t">chat · web_search</div><div class="d">Proxy helpers, SearXNG/ddgs, HTML→text</div></div>
             <div class="node green"><div class="t">hf_download</div><div class="d">Repo listing, cancellable download, path validation</div></div>
+            <div class="node green"><div class="t">modelscope_download</div><div class="d">ModelScope listing, multi-threaded chunked download</div></div>
             <div class="node green"><div class="t">external_server</div><div class="d">Target resolution, health probe, remembered address</div></div>
             <div class="node green"><div class="t">tunnel · git_update · lifecycle · file_picker</div><div class="d">cloudflared, app updates, shutdown, tkinter dialogs</div></div>
             <div class="node green"><div class="t">subprocess_utils</div><div class="d">CREATE_NO_WINDOW spawn helpers for short-lived probe processes</div></div>
@@ -682,6 +683,7 @@ footer {
 <tr><td class="mono">external_server.py</td><td class="mono">external_server.py</td><td>Register / read / clear an externally started llama-server; resolve the proxy target</td></tr>
 <tr><td class="mono">metrics.py</td><td class="mono">local_llama_http.py</td><td>Proxy llama-server's Prometheus <code>/metrics</code> and <code>/slots</code></td></tr>
 <tr><td class="mono">hf_download.py</td><td class="mono">hf_download.py · model_dir.py</td><td>List repo GGUF files, background download into the active model root with cancel, progress status</td></tr>
+<tr><td class="mono">modelscope_download.py</td><td class="mono">modelscope_download.py · model_dir.py</td><td>List ModelScope repo GGUF files, multi-threaded chunked download into the active model root; shares the download state machine, cancel, and progress status with hf_download</td></tr>
 <tr><td class="mono">presets.py</td><td class="mono">—</td><td>Preset CRUD on <code>presets/*.json</code>, rename with created-time carry, Windows shortcut export</td></tr>
 <tr><td class="mono">models.py</td><td class="mono">model_dir.py</td><td>Recursive GGUF discovery under the active model root, returned as root-relative names</td></tr>
 <tr><td class="mono">model_dir.py</td><td class="mono">model_dir.py</td><td>Validate, persist, report, and reset the active model root without unsafe fallback</td></tr>
@@ -1100,7 +1102,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/slots</td><td>Slots proxy (KV/context fallback)</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/llama/props</td><td>Props proxy (chat-template capabilities)</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/download-progress</td><td>Release install progress</td></tr>
-<tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face / ModelScope download progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under the active model root</td></tr>
@@ -1124,6 +1126,8 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/repo-files</td><td>List GGUF files in a HF repo</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download</td><td>Start a background model download</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download-cancel</td><td>Cancel the in-progress download</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/ms/repo-files</td><td>List GGUF files in a ModelScope repo</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/ms/download</td><td>Start a multi-threaded ModelScope model download</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/remote-tunnel/start</td><td>Start the Cloudflare quick tunnel</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/remote-tunnel/stop</td><td>Stop the tunnel</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets</td><td>Save a preset</td></tr>
