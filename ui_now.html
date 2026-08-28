@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="dark">
     <title>Llama GUI — llama.cpp 启动器</title>
-    <link rel="icon" type="image/png" href="/assets/app-logo.png">
+    <link rel="icon" type="image/png" href="/assets/app-logo.png?v=1787891723">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -41,8 +41,8 @@
             }
         })();
     </script>
-    <link rel="stylesheet" href="/css/tokens.css">
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/tokens.css?v=1787891723">
+    <link rel="stylesheet" href="/css/style.css?v=1787891723">
 </head>
 <body>
 
@@ -57,7 +57,7 @@
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-brand">
             <div class="sidebar-logo">
-                <img src="/assets/app-logo.png" alt="Llama GUI logo">
+                <img src="/assets/app-logo.png?v=1787891723" alt="Llama GUI logo">
             </div>
             <div>
                 <div class="sidebar-title">Llama GUI</div>
@@ -69,7 +69,7 @@
             <div class="nav-section-label">安装向导</div>
             <button class="nav-item" data-section="install">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                安装与更新
+                Install and Update
             </button>
             <button class="nav-item active" data-section="quick-launch">
                 <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
@@ -90,7 +90,7 @@
                 API
             </button>
 
-            <div class="nav-section-label">管理</div>
+            <div class="nav-section-label">Manage</div>
             <button class="nav-item" data-section="benchmarking">
                 <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
                 Benchmarking
@@ -119,9 +119,9 @@
                 </div>
                 <details class="sidebar-memory-estimate" id="sidebar-memory-estimate">
                     <summary class="sidebar-memory-summary">
-                        <span class="sidebar-memory-title">内存</span>
+                        <span class="sidebar-memory-title">Memory</span>
                         <span class="sidebar-memory-reading">
-                            <span class="sidebar-memory-label">显卡</span>
+                            <span class="sidebar-memory-label">GPU</span>
                             <strong id="memory-estimate-accelerator">--</strong>
                         </span>
                         <span class="sidebar-memory-reading">
@@ -134,7 +134,7 @@
                 </details>
             </div>
             <section class="sidebar-model-switcher" id="sidebar-model-switcher" aria-labelledby="sidebar-model-switcher-label">
-                <div class="sidebar-model-switcher-heading" id="sidebar-model-switcher-label">模型切换器</div>
+                <div class="sidebar-model-switcher-heading" id="sidebar-model-switcher-label">Model Switcher</div>
                 <div class="sidebar-model-switcher-control">
                     <span class="sidebar-model-switcher-slot is-active" id="sidebar-model-switcher-label-a" aria-hidden="true">A</span>
                     <div
@@ -163,7 +163,7 @@
                 <div class="theme-menu" id="theme-menu">
                     <button class="theme-menu-trigger" id="theme-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="theme-menu-list" title="更换主题">
                         <span class="theme-menu-swatch" id="theme-menu-current-swatch" aria-hidden="true"></span>
-                        <span class="theme-menu-current" id="theme-menu-current">主题</span>
+                        <span class="theme-menu-current" id="theme-menu-current">Theme</span>
                         <span class="icon icon-sm theme-menu-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
                     <ul class="theme-menu-list" id="theme-menu-list" role="menu" aria-label="Theme" hidden></ul>
@@ -190,7 +190,7 @@
 
             <div class="stacked-cards">
                 <div class="card">
-                    <h3>安装</h3>
+                    <h3>Install</h3>
                     <div id="install-status" class="status-box"></div>
 
                     <div id="installed-backend-summary" class="installed-backend-summary" aria-live="polite">
@@ -227,7 +227,7 @@
                     </div>
 
                     <div class="form-row">
-                        <button id="btn-install" class="btn btn-primary">安装</button>
+                        <button id="btn-install" class="btn btn-primary">Install</button>
                         <button id="btn-update" class="btn">检查更新</button>
                         <button id="btn-repair" class="btn hidden">修复安装</button>
                     </div>
@@ -277,7 +277,7 @@
                     <div class="form-row">
                         <button id="btn-remove-llama" class="btn btn-danger">移除 llama.cpp 文件</button>
                         <button id="btn-restart-app" class="btn" type="button">重启 Python 服务</button>
-                        <button id="btn-stop-app" class="btn btn-danger" type="button">停止 Python 服务</button>
+                        <button id="btn-stop-app" class="btn btn-danger" type="button">Stop Python Server</button>
                     </div>
                 </div>
             </div>
@@ -288,11 +288,11 @@
             <div class="page-header">
                 <div>
                     <div class="page-title">快速启动</div>
-                    <div class="page-title-sub">选择模型，使用新手友好的设置，以合理的 llama.cpp 默认值启动。</div>
+                    <div class="page-title-sub">Pick a model, use a beginner-friendly setup, and launch with sensible llama.cpp defaults.</div>
                 </div>
                 <button id="btn-open-configure" class="btn btn-ghost" type="button">
                     <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/></svg></span>
-                    在配置页微调
+                    Fine-tune in Configure
                 </button>
             </div>
 
@@ -302,7 +302,7 @@
                         <span class="model-switch-chevron" aria-hidden="true">▾</span>
                         <span>
                             <span class="card-kicker">双槽位启动器</span>
-                            <span class="model-switch-heading" id="model-switch-title">模型切换器</span>
+                            <span class="model-switch-heading" id="model-switch-title">Model Switcher</span>
                             <span class="model-switch-summary" id="model-switch-summary">为快速切换指派两个已保存的服务器预设。</span>
                         </span>
                     </button>
@@ -504,7 +504,7 @@
                                     <label class="form-label" for="quick-fit-ctx">上下文不得低于</label>
                                     <div class="input-row">
                                         <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
-                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">匹配上下文</button>
+                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
                                     </div>
                                 </div>
                             </div>
@@ -526,7 +526,7 @@
                             <label class="form-label" for="quick-sampler-select">采样器预设</label>
                             <div class="input-row">
                                 <select id="quick-sampler-select"></select>
-                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">加载</button>
+                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
                             </div>
                         </div>
                         <div class="form-group">
@@ -612,7 +612,7 @@
                         </div>
                         <div class="hf-download-grid">
                             <div class="form-group">
-                                <label class="form-label" for="hf-revision-input">修订版本</label>
+                                <label class="form-label" for="hf-revision-input">Revision</label>
                                 <input type="text" id="hf-revision-input" placeholder="main" />
                             </div>
                             <div class="form-group">
@@ -625,7 +625,7 @@
                         </div>
                         <div id="hf-file-options" class="hidden">
                             <div class="form-group">
-                                <label class="form-label" for="hf-model-file-select">模型文件</label>
+                                <label class="form-label" for="hf-model-file-select">Model File</label>
                                 <select id="hf-model-file-select"></select>
                             </div>
                             <div class="form-group" id="hf-mmproj-group">
@@ -724,7 +724,7 @@
             </div>
 
             <div class="models-folder-row">
-                <span class="form-label form-label-inline">模型文件夹</span>
+                <span class="form-label form-label-inline">Models Folder</span>
                 <code id="models-folder-path" class="models-folder-path">加载中…</code>
                 <button id="btn-change-models-folder" class="btn btn-sm" type="button">更改…</button>
                 <button id="btn-reset-models-folder" class="btn btn-sm btn-ghost" type="button" hidden>恢复默认</button>
@@ -960,7 +960,7 @@
                                     <span class="sidebar-sampler-text">Min-P</span>
                                     <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">相对最高概率 Token 的最小概率</div>
+                                <div class="sidebar-sampler-desc">Minimum probability relative to top token</div>
                                 <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
                             </div>
                             <div class="sidebar-sampler-control">
@@ -973,10 +973,10 @@
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">最大生成数</span>
+                                    <span class="sidebar-sampler-text">Max Tokens</span>
                                     <span class="sidebar-sampler-value" id="chat-val-max-tokens">512</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">每次回复最多生成的 Token 数</div>
+                                <div class="sidebar-sampler-desc">Maximum tokens to generate per response</div>
                                 <input type="range" id="chat-slider-max-tokens" min="64" max="32768" step="64" value="512">
                             </div>
                         </div>
@@ -1102,7 +1102,7 @@
                         <div class="card-header">
                             <div>
                                 <div class="card-kicker">基准测试</div>
-                                <div class="card-title">运行安装向导</div>
+                                <div class="card-title">Run Setup</div>
                             </div>
                             <div class="card-icon icon-cyan">
                                 <span class="icon icon-lg"><svg viewBox="0 0 24 24"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16l3-5 4 3 4-8"/></svg></span>
@@ -1117,7 +1117,7 @@
                                 <select id="benchmark-source">
                                     <option value="current">当前配置</option>
                                     <option value="preset">已保存预设</option>
-                                    <option value="manual">手动指定模型</option>
+                                    <option value="manual">Manual Model</option>
                                 </select>
                                 <p id="benchmark-source-summary" class="help-text">Current Configure -> No model selected</p>
                             </div>
@@ -1141,7 +1141,7 @@
                         </div>
 
                         <div id="benchmark-manual-row" class="form-group hidden">
-                            <label class="form-label" for="benchmark-manual-model">手动指定模型</label>
+                            <label class="form-label" for="benchmark-manual-model">Manual Model</label>
                             <div class="input-row">
                                 <select id="benchmark-manual-model">
                                     <option value="">-- Select Model --</option>
@@ -1228,7 +1228,7 @@
                                             <p class="help-text">How many tokens llama.cpp processes per batch during evaluation.</p>
                                         </div>
                                         <div class="form-group">
-                                            <label class="form-label" for="benchmark-ppl-ubatch">微批大小</label>
+                                            <label class="form-label" for="benchmark-ppl-ubatch">Micro Batch Size</label>
                                             <input id="benchmark-ppl-ubatch" type="number" min="1" max="131072" step="1" value="512">
                                             <p class="help-text">Smaller micro batches can reduce memory pressure on large models.</p>
                                         </div>
@@ -1243,7 +1243,7 @@
                                             <p class="help-text">Use auto for llama.cpp's default GPU offload choice, or enter a layer count.</p>
                                         </div>
                                         <div class="form-group">
-                                            <label class="form-label" for="benchmark-ppl-flash-attn">Flash 注意力</label>
+                                            <label class="form-label" for="benchmark-ppl-flash-attn">Flash Attention</label>
                                             <select id="benchmark-ppl-flash-attn">
                                                 <option value="auto">自动</option>
                                                 <option value="on">开</option>
@@ -1281,7 +1281,7 @@
                                     </div>
                                     <label class="toggle-row benchmark-toggle">
                                         <input id="benchmark-ppl-mmap" type="checkbox" checked>
-                                        <span>内存映射模型</span>
+                                        <span>Memory map model</span>
                                     </label>
                                     <p class="help-text">Uses llama.cpp's default mmap loading. Turn this off to pass --no-mmap when testing model-load or tensor-placement issues.</p>
                                     <label class="toggle-row benchmark-toggle">
@@ -1423,9 +1423,9 @@
     <span class="stats-sep"></span>
     <span class="stats-item"><span class="stats-value" id="stats-gen-speed">--</span> tok/s gen</span>
     <span class="stats-sep"></span>
-    <span class="stats-item">上下文 <span class="stats-value" id="stats-context">--</span></span>
+    <span class="stats-item">Context <span class="stats-value" id="stats-context">--</span></span>
     <span class="stats-sep"></span>
-    <span class="stats-item">KV 缓存 <span class="stats-value" id="stats-kv-usage">--%</span></span>
+    <span class="stats-item">KV <span class="stats-value" id="stats-kv-usage">--%</span></span>
 </div>
 
 <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
@@ -1451,30 +1451,30 @@
     </div>
 </div>
 
-<script src="/js/flags/categories.js?v=revamp-1"></script>
-<script src="/js/flags/options.js?v=revamp-1"></script>
-<script src="/js/flags/chat-templates.js?v=revamp-1"></script>
-<script src="/js/flags/definitions.js?v=revamp-1"></script>
-<script src="/js/flags/helpers.js?v=revamp-1"></script>
-<script src="/js/theme-ui.js?v=revamp-1"></script>
-<script src="/js/flag-core.js?v=revamp-1"></script>
-<script src="/js/config-flags-ui.js?v=revamp-1"></script>
-<script src="/js/manager.js?v=revamp-4"></script>
-<script src="/js/presets.js?v=revamp-6"></script>
-<script src="/js/searchable-select.js?v=searchable-select-1"></script>
-<script src="/js/model-switch-ui.js?v=model-switch-2"></script>
-<script src="/js/app-data.js?v=revamp-1"></script>
-<script src="/js/output-cursor.js?v=revamp-1"></script>
-<script src="/js/process-lifecycle.js?v=model-switch-1"></script>
-<script src="/js/sampler-presets.js?v=revamp-2"></script>
-<script src="/js/chat-rendering.js?v=revamp-1"></script>
-<script src="/js/api-tab.js?v=revamp-1"></script>
-<script src="/js/hf-download-ui.js?v=revamp-1"></script>
-<script src="/js/remote-tunnel-ui.js?v=revamp-1"></script>
-<script src="/js/external-server-ui.js?v=revamp-1"></script>
-<script src="/js/quick-launch-ui.js?v=revamp-2"></script>
-<script src="/js/chat-ui.js?v=revamp-1"></script>
-<script src="/js/benchmark-ui.js?v=revamp-2"></script>
-<script src="/js/app.js?v=revamp-4"></script>
+<script src="/js/flags/categories.js?v=1787891723"></script>
+<script src="/js/flags/options.js?v=1787891723"></script>
+<script src="/js/flags/chat-templates.js?v=1787891723"></script>
+<script src="/js/flags/definitions.js?v=1787891723"></script>
+<script src="/js/flags/helpers.js?v=1787891723"></script>
+<script src="/js/theme-ui.js?v=1787891723"></script>
+<script src="/js/flag-core.js?v=1787891723"></script>
+<script src="/js/config-flags-ui.js?v=1787891723"></script>
+<script src="/js/manager.js?v=1787891723"></script>
+<script src="/js/presets.js?v=1787891723"></script>
+<script src="/js/searchable-select.js?v=1787891723"></script>
+<script src="/js/model-switch-ui.js?v=1787891723"></script>
+<script src="/js/app-data.js?v=1787891723"></script>
+<script src="/js/output-cursor.js?v=1787891723"></script>
+<script src="/js/process-lifecycle.js?v=1787891723"></script>
+<script src="/js/sampler-presets.js?v=1787891723"></script>
+<script src="/js/chat-rendering.js?v=1787891723"></script>
+<script src="/js/api-tab.js?v=1787891723"></script>
+<script src="/js/hf-download-ui.js?v=1787891723"></script>
+<script src="/js/remote-tunnel-ui.js?v=1787891723"></script>
+<script src="/js/external-server-ui.js?v=1787891723"></script>
+<script src="/js/quick-launch-ui.js?v=1787891723"></script>
+<script src="/js/chat-ui.js?v=1787891723"></script>
+<script src="/js/benchmark-ui.js?v=1787891723"></script>
+<script src="/js/app.js?v=1787891723"></script>
 </body>
 </html>

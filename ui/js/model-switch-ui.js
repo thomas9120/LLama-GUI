@@ -430,7 +430,7 @@
         const enabled = Boolean(active && target && target.actionable && !busy && canSwitch);
         let status = "Drag to switch";
         if (loading) status = `Switching to Model ${loading.id.toUpperCase()}`;
-        else if (!active) status = "Launch a slot in Quick Launch first";
+        else if (!active) status = "请先在快速启动中启动一个槽位";
         else if (busy) status = "Model switcher is busy";
         else if (!canSwitch) status = "Model switching is unavailable";
         else if (!target || !target.actionable) status = `Model ${targetSlot.toUpperCase()} is not ready`;
@@ -607,7 +607,7 @@
             return `${runtime.tool} is running; model switching is unavailable.`;
         }
         const configured = views.filter(view => view.presetName).length;
-        return configured ? `${configured} standby slot${configured === 1 ? "" : "s"} configured.` : "Assign two saved server presets for quick switching.";
+        return configured ? `${configured} standby slot${configured === 1 ? "" : "s"} configured.` : "为快速切换指派两个已保存的服务器预设。";
     }
 
     function render(viewState) {

@@ -967,7 +967,7 @@ async function updateMemoryEstimate() {
     }
     const args = result.args || [];
     if (!flagCore.hasLaunchModelArg(args)) {
-        setMemoryEstimateState("Idle", "Select a model to estimate.");
+        setMemoryEstimateState("空闲", "选择要估算的模型。");
         return;
     }
 

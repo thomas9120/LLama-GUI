@@ -444,7 +444,7 @@
         const modeSummary = document.getElementById("quick-mode-summary");
         if (modeSummary) {
             modeSummary.textContent = tool === "llama-server"
-                ? "Web / API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
+                ? "Web / API Server 已选中。将启用网页界面与 OpenAI 兼容端点。"
                 : "Terminal Chat is selected. The process runs as an interactive local terminal chat.";
         }
 
@@ -530,7 +530,7 @@
             const profile = QUICK_PROFILES[profileSelect.value];
             profileSummary.textContent = profile
                 ? profile.summary
-                : "Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.";
+                : "配置档案会应用整套起始设置，包括上下文、自动适配、GPU 卸载和采样器。";
         }
 
         const quickMetricsToggle = document.getElementById("quick-metrics-toggle");
@@ -564,7 +564,7 @@
 
         const placeholder = document.createElement("option");
         placeholder.value = "";
-        placeholder.textContent = "Choose a profile...";
+        placeholder.textContent = "选择一个配置…";
         select.appendChild(placeholder);
 
         for (const [profileId, profile] of Object.entries(QUICK_PROFILES)) {
