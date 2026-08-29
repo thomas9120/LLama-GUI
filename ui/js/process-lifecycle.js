@@ -64,13 +64,42 @@
         return () => listeners.delete(listener);
     }
 
+    function runtimeEquivalent(a, b) {
+        if (a === b) return true;
+        if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+        const aKeys = Object.keys(a);
+        const bKeys = Object.keys(b);
+        if (aKeys.length !== bKeys.length) return false;
+        return aKeys.every((key) => a[key] === b[key]);
+    }
+
+    function patchChangesState(patch) {
+        for (const field of ["phase", "operation", "ready", "busy", "error"]) {
+            if (
+                Object.prototype.hasOwnProperty.call(patch, field)
+                && patch[field] !== snapshot[field]
+            ) {
+                return true;
+            }
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, "activeRuntime")) {
+            return !runtimeEquivalent(patch.activeRuntime, snapshot.activeRuntime);
+        }
+        return false;
+    }
+
     function updateSnapshot(patch, expectedTransition = null) {
         if (expectedTransition !== null && expectedTransition !== transitionId) return false;
+        // Health polling applies the same phase/ready patch every tick while a
+        // model loads; notifying on those no-op patches re-rendered the whole
+        // UI twice per second for the entire load. Only real state changes
+        // reach subscribers.
+        const changed = patchChangesState(patch);
         snapshot = Object.assign({}, snapshot, patch, { transitionId });
         if (Object.prototype.hasOwnProperty.call(patch, "activeRuntime")) {
             snapshot.activeRuntime = copyRuntime(patch.activeRuntime);
         }
-        notify();
+        if (changed) notify();
         return true;
     }
 
