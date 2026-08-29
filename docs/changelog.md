@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-29
+- Moved Llama GUI's in-app update controls beside the llama.cpp installer at the top of Install and Update, tightened both cards into a responsive two-column layout, and removed the backend dropdown's ROCm description.
 - **Batch 1 low-severity follow-up (L6, L1, L3, M3 health):** fresh `cloudflared` helper downloads now fail closed unless GitHub's release metadata supplies the expected asset and a valid SHA256 digest, and mismatches are rejected before `chmod`/execution; a wedged `Thread.start()` can no longer leave install, model-download, or tunnel state stuck, with HF failures returned only through their sanitized status snapshot; launch-target DNS validation now runs before acquiring the install/process locks or starting the child; and the pinned runtime health probe preserves its generation recheck even when target validation fails.
 
 ## 2026-08-28
