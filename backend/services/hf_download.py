@@ -390,5 +390,5 @@ def start_hf_model_download(
             ctx, status="error", message=sanitize_error(exc, 500), current_file=""
         )
         print(f"[hf_download] failed to start download thread: {exc}", file=sys.stderr)
-        raise
+        return get_model_download_snapshot(ctx)
     return get_model_download_snapshot(ctx)

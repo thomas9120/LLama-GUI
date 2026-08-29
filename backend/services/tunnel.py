@@ -26,30 +26,19 @@ def _cloudflared_asset_name(spec: dict) -> str:
     return Path(str(spec.get("url") or "")).name
 
 
-def _fetch_cloudflared_release_asset(ctx: AppContext, asset_name: str) -> Optional[dict]:
-    try:
-        req = urllib.request.Request(
-            CLOUDFLARED_RELEASE_API,
-            headers={"Accept": "application/vnd.github+json"},
-        )
-        with ctx.services.urlopen_with_ssl(req, timeout=30) as resp:
-            data = json.loads(resp.read())
-        for asset in data.get("assets", []) or []:
-            if isinstance(asset, dict) and asset.get("name") == asset_name:
-                return asset
-        print(
-            f"WARNING: cloudflared asset {asset_name} not found in latest release metadata; "
-            "skipping checksum verification.",
-            file=sys.stderr,
-        )
-        return None
-    except Exception as exc:
-        print(
-            f"WARNING: could not fetch cloudflared release metadata for {asset_name}: {exc}; "
-            "skipping checksum verification.",
-            file=sys.stderr,
-        )
-        return None
+def _fetch_cloudflared_release_asset(ctx: AppContext, asset_name: str) -> dict:
+    req = urllib.request.Request(
+        CLOUDFLARED_RELEASE_API,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    with ctx.services.urlopen_with_ssl(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+    for asset in data.get("assets", []) or []:
+        if isinstance(asset, dict) and asset.get("name") == asset_name:
+            return asset
+    raise RuntimeError(
+        f"Cloudflared release metadata did not include the expected asset {asset_name}."
+    )
 
 
 def get_cloudflared_asset(platform: str, arch: str) -> Optional[dict]:
@@ -164,13 +153,14 @@ def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Pat
         asset_name = _cloudflared_asset_name(spec)
         release_asset = _fetch_cloudflared_release_asset(ctx, asset_name)
         download_url = spec["url"]
-        if isinstance(release_asset, dict):
-            candidate = release_asset.get("browser_download_url")
-            if isinstance(candidate, str) and candidate.strip():
-                download_url = candidate.strip()
-        expected_sha: Optional[str] = None
-        if isinstance(release_asset, dict):
-            expected_sha = get_release_asset_sha256(release_asset, asset_name)
+        candidate = release_asset.get("browser_download_url")
+        if isinstance(candidate, str) and candidate.strip():
+            download_url = candidate.strip()
+        expected_sha = get_release_asset_sha256(release_asset, asset_name)
+        if expected_sha is None:
+            raise RuntimeError(
+                f"Cloudflared release metadata did not provide a usable SHA256 digest for {asset_name}."
+            )
         if spec["archive"]:
             archive_path = staging_dir / Path(spec["url"]).name
             # Prefer the resolved download URL's basename when it differs, but
@@ -179,10 +169,9 @@ def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Pat
             if download_url != spec["url"]:
                 archive_path = staging_dir / Path(download_url).name
             download_file(ctx, download_url, archive_path)
-            if expected_sha is not None:
-                actual = sha256_file(archive_path)
-                if actual.lower() != expected_sha.lower():
-                    raise RuntimeError(f"SHA256 mismatch for {asset_name}")
+            actual = sha256_file(archive_path)
+            if actual.lower() != expected_sha.lower():
+                raise RuntimeError(f"SHA256 mismatch for {asset_name}")
             with tarfile.open(archive_path, "r:gz") as tf:
                 member = next(
                     (
@@ -201,10 +190,9 @@ def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Pat
                     shutil.copyfileobj(src, out)
         else:
             download_file(ctx, download_url, staged_binary)
-            if expected_sha is not None:
-                actual = sha256_file(staged_binary)
-                if actual.lower() != expected_sha.lower():
-                    raise RuntimeError(f"SHA256 mismatch for {asset_name}")
+            actual = sha256_file(staged_binary)
+            if actual.lower() != expected_sha.lower():
+                raise RuntimeError(f"SHA256 mismatch for {asset_name}")
 
         if not staged_binary.is_file() or staged_binary.stat().st_size == 0:
             raise RuntimeError("Downloaded cloudflared helper was empty.")

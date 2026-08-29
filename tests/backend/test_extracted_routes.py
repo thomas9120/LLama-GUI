@@ -138,6 +138,10 @@ def make_context(root):
         config_store.update(config_data)
 
     ctx.services.load_config = lambda: dict(config_store)
+    ctx.services.normalize_llama_api_target = lambda host, port: {
+        "host": str(host or ctx.config.llama_host),
+        "port": int(port or ctx.config.llama_port),
+    }
     ctx.services.save_config = save_config
     return ctx
 
@@ -1659,6 +1663,47 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertTrue(install_free, "install_lock was held across runtime validation")
         self.assertTrue(process_free, "process_lock was held across runtime validation")
 
+    def test_launch_does_not_hold_locks_across_api_target_resolution(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def slow_resolution(_ctx, _args):
+                entered.set()
+                release.wait(5)
+                raise ValueError("stopped after DNS resolution")
+
+            with mock.patch.object(
+                process_manager,
+                "_validate_launch_environment",
+                return_value=(Path(tmp) / "llama-server", None),
+            ), mock.patch.object(
+                process_manager, "validate_launch_api_target", slow_resolution
+            ), mock.patch.object(process_manager.subprocess, "Popen") as popen:
+                launcher = threading.Thread(
+                    target=process_manager.launch_process,
+                    args=(ctx, "llama-server", ["--host", "slow.test"]),
+                    daemon=True,
+                )
+                launcher.start()
+                self.assertTrue(entered.wait(5), "target resolution never started")
+
+                install_free = ctx.state.install_lock.acquire(timeout=2)
+                if install_free:
+                    ctx.state.install_lock.release()
+                process_free = ctx.state.process_lock.acquire(timeout=2)
+                if process_free:
+                    ctx.state.process_lock.release()
+
+                release.set()
+                launcher.join(5)
+
+        self.assertTrue(install_free, "install_lock was held across target resolution")
+        self.assertTrue(process_free, "process_lock was held across target resolution")
+        popen.assert_not_called()
+
     def test_launch_rechecks_install_state_after_validation(self):
         """Moving validation outside the locks opens a window; the authoritative
         re-check inside them is what closes it."""
@@ -2025,6 +2070,10 @@ class ExtractedRouteTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
                 validate_runtime_dependencies=lambda tools=None: {
@@ -2188,6 +2237,10 @@ class ExtractedRouteTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
             )
@@ -2601,6 +2654,33 @@ class ExtractedRouteTests(unittest.TestCase):
             superseded_after_probe = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(superseded_after_probe["state"], "superseded")
         self.assertEqual(superseded_after_probe["generation"], 5)
+
+        rejected_ctx, _ = self._make_health_context()
+
+        def replace_runtime_then_reject(*args, **kwargs):
+            with rejected_ctx.state.process_lock:
+                replacement = mock.Mock()
+                replacement.poll.return_value = None
+                rejected_ctx.state.process = replacement
+                rejected_ctx.state.runtime_generation = 5
+                rejected_ctx.state.active_runtime = {
+                    "generation": 5,
+                    "tool": "llama-server",
+                    "host": "127.0.0.1",
+                    "port": 8081,
+                }
+            raise ValueError("Blocked: proxy target must resolve to this machine.")
+
+        with mock.patch.object(
+            process_manager,
+            "open_pinned_local_request",
+            side_effect=replace_runtime_then_reject,
+        ):
+            superseded_after_rejection = process_manager.get_llama_health(
+                rejected_ctx, 4
+            )
+        self.assertEqual(superseded_after_rejection["state"], "superseded")
+        self.assertEqual(superseded_after_rejection["generation"], 5)
 
         failed_ctx, failed_process = self._make_health_context(7)
 
@@ -5284,6 +5364,10 @@ class SubprocessWindowFlagTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
             )

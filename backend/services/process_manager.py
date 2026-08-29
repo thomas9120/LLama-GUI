@@ -363,22 +363,23 @@ def get_llama_health(ctx: AppContext, expected_generation: Any = None) -> dict[s
             if status is None:
                 status = response.getcode()
         except ValueError as exc:
-            return _health_result("error", generation, expected, str(exc))
-        if status == 200:
-            observed = _health_result(
-                "ready", generation, expected, "llama-server is ready."
-            )
-        elif status == 503:
-            observed = _health_result(
-                "loading", generation, expected, "llama-server is loading the model."
-            )
+            observed = _health_result("error", generation, expected, str(exc))
         else:
-            observed = _health_result(
-                "error",
-                generation,
-                expected,
-                f"llama-server health returned HTTP {status}.",
-            )
+            if status == 200:
+                observed = _health_result(
+                    "ready", generation, expected, "llama-server is ready."
+                )
+            elif status == 503:
+                observed = _health_result(
+                    "loading", generation, expected, "llama-server is loading the model."
+                )
+            else:
+                observed = _health_result(
+                    "error",
+                    generation,
+                    expected,
+                    f"llama-server health returned HTTP {status}.",
+                )
     except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError, OSError):
         observed = _health_result(
             "starting", generation, expected, "llama-server is starting."
@@ -767,9 +768,10 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
     }
 
 
-def parse_launch_api_target(ctx: AppContext, args_list: Optional[Iterable[Any]]) -> dict[str, Any]:
+def _launch_api_target_values(
+    ctx: AppContext, args_list: Optional[Iterable[Any]]
+) -> tuple[Any, Any]:
     flat_args = flatten_launch_args(args_list)
-
     host: Any = ctx.config.llama_host
     port: Any = ctx.config.llama_port
     i = 0
@@ -792,8 +794,23 @@ def parse_launch_api_target(ctx: AppContext, args_list: Optional[Iterable[Any]])
             i += 1
             continue
         i += 1
+    return host, port
+
+
+def parse_launch_api_target(ctx: AppContext, args_list: Optional[Iterable[Any]]) -> dict[str, Any]:
+    host, port = _launch_api_target_values(ctx, args_list)
     try:
         return dict(ctx.services.set_llama_api_target(host, port))
+    except ValueError:
+        return dict(ctx.services.get_llama_api_target())
+
+
+def validate_launch_api_target(
+    ctx: AppContext, args_list: Optional[Iterable[Any]]
+) -> dict[str, Any]:
+    host, port = _launch_api_target_values(ctx, args_list)
+    try:
+        return dict(ctx.services.normalize_llama_api_target(host, port))
     except ValueError:
         return dict(ctx.services.get_llama_api_target())
 
@@ -1222,6 +1239,27 @@ def launch_process(
     if environment_error is not None:
         return {"error": environment_error}
 
+    with ctx.state.install_lock:
+        if ctx.state.install_in_progress:
+            return {"error": "Installation in progress. Wait for it to finish before launching."}
+    if is_process_running(ctx):
+        return {"error": "A process is already running"}
+
+    flat_launch_args = []
+    try:
+        flat_launch_args = flatten_launch_args(args_list)
+        api_target = (
+            validate_launch_api_target(ctx, flat_launch_args)
+            if tool == "llama-server"
+            else None
+        )
+    except Exception as exc:
+        return {
+            "error": redact_sensitive_text(
+                exc, [str(exe_path), *flat_launch_args]
+            )
+        }
+
     # Lock order is install -> process everywhere that transitions between
     # these mutually exclusive operations.
     with ctx.state.install_lock, ctx.state.process_lock:
@@ -1231,7 +1269,6 @@ def launch_process(
         if ctx.state.process is not None:
             return {"error": "A process is already running"}
 
-        flat_launch_args = flatten_launch_args(args_list)
         args = [str(exe_path), *flat_launch_args]
         launch_api_keys = parse_launch_api_keys(flat_launch_args) if tool == "llama-server" else ()
         env = _build_process_env(ctx)
@@ -1284,9 +1321,6 @@ def launch_process(
                 args=(ctx, process.stderr, True, generation),
                 daemon=True,
             ).start()
-            api_target = None
-            if tool == "llama-server":
-                api_target = parse_launch_api_target(ctx, flat_launch_args)
             active_runtime = _build_active_runtime(
                 ctx,
                 tool,
@@ -1294,6 +1328,9 @@ def launch_process(
                 normalized_launch_context,
                 api_target,
             )
+            if api_target is not None:
+                with ctx.state.llama_api_target_lock:
+                    ctx.state.llama_api_target.update(**api_target)
             ctx.state.active_process_tool = tool
             ctx.state.active_llama_api_keys = launch_api_keys
             ctx.state.runtime_generation = active_runtime["generation"]

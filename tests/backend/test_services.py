@@ -2480,12 +2480,20 @@ class TunnelDownloadTests(unittest.TestCase):
             ctx.services.current_platform = "linux"
             ctx.services.current_arch = "x64"
             binary_path = ctx.paths.cloudflared / "cloudflared-linux-amd64"
+            complete_payload = b"complete cloudflared"
+            release_asset = {
+                "digest": f"sha256:{hashlib.sha256(complete_payload).hexdigest()}"
+            }
 
             def partial_download(_ctx, _url, dest, progress_cb=None):
                 dest.write_bytes(b"partial")
                 raise OSError("connection lost")
 
             with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                return_value=release_asset,
+            ), mock.patch.object(
                 tunnel_service, "download_file", side_effect=partial_download
             ), self.assertRaisesRegex(OSError, "connection lost"):
                 tunnel_service.ensure_cloudflared(ctx)
@@ -2494,16 +2502,20 @@ class TunnelDownloadTests(unittest.TestCase):
             self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
 
             def complete_download(_ctx, _url, dest, progress_cb=None):
-                dest.write_bytes(b"complete cloudflared")
+                dest.write_bytes(complete_payload)
                 return dest.stat().st_size
 
             with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                return_value=release_asset,
+            ), mock.patch.object(
                 tunnel_service, "download_file", side_effect=complete_download
             ):
                 installed = tunnel_service.ensure_cloudflared(ctx)
 
             self.assertEqual(installed, binary_path)
-            self.assertEqual(binary_path.read_bytes(), b"complete cloudflared")
+            self.assertEqual(binary_path.read_bytes(), complete_payload)
             self.assertFalse(any(path.is_dir() for path in ctx.paths.cloudflared.iterdir()))
 
     def test_partial_archive_extraction_never_becomes_the_final_binary(self):
@@ -2512,13 +2524,19 @@ class TunnelDownloadTests(unittest.TestCase):
             ctx.services.current_platform = "darwin"
             ctx.services.current_arch = "arm64"
             binary_path = ctx.paths.cloudflared / "cloudflared"
+            payload = b"complete cloudflared"
+            archive_buffer = io.BytesIO()
+            with tarfile.open(fileobj=archive_buffer, mode="w:gz") as tf:
+                info = tarfile.TarInfo("pkg/cloudflared")
+                info.size = len(payload)
+                tf.addfile(info, io.BytesIO(payload))
+            archive_payload = archive_buffer.getvalue()
+            release_asset = {
+                "digest": f"sha256:{hashlib.sha256(archive_payload).hexdigest()}"
+            }
 
             def fake_download(_ctx, _url, dest, progress_cb=None):
-                with tarfile.open(dest, "w:gz") as tf:
-                    payload = b"complete cloudflared"
-                    info = tarfile.TarInfo("pkg/cloudflared")
-                    info.size = len(payload)
-                    tf.addfile(info, io.BytesIO(payload))
+                dest.write_bytes(archive_payload)
                 return dest.stat().st_size
 
             def partial_extract(_src, out):
@@ -2526,10 +2544,71 @@ class TunnelDownloadTests(unittest.TestCase):
                 raise OSError("disk full")
 
             with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                return_value=release_asset,
+            ), mock.patch.object(
                 tunnel_service, "download_file", side_effect=fake_download
             ), mock.patch.object(
                 tunnel_service.shutil, "copyfileobj", side_effect=partial_extract
             ), self.assertRaisesRegex(OSError, "disk full"):
+                tunnel_service.ensure_cloudflared(ctx)
+
+            self.assertFalse(binary_path.exists())
+            self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+    def test_download_fails_closed_without_verifiable_release_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.current_arch = "x64"
+
+            with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                side_effect=OSError("release API unavailable"),
+            ), mock.patch.object(tunnel_service, "download_file") as download:
+                with self.assertRaisesRegex(OSError, "release API unavailable"):
+                    tunnel_service.ensure_cloudflared(ctx)
+
+            download.assert_not_called()
+            self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+    def test_download_fails_closed_without_a_release_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.current_arch = "x64"
+
+            with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                return_value={"name": "cloudflared-linux-amd64"},
+            ), mock.patch.object(tunnel_service, "download_file") as download:
+                with self.assertRaisesRegex(RuntimeError, "usable SHA256 digest"):
+                    tunnel_service.ensure_cloudflared(ctx)
+
+            download.assert_not_called()
+            self.assertEqual(list(ctx.paths.cloudflared.iterdir()), [])
+
+    def test_checksum_mismatch_never_installs_cloudflared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.current_platform = "linux"
+            ctx.services.current_arch = "x64"
+            binary_path = ctx.paths.cloudflared / "cloudflared-linux-amd64"
+
+            def fake_download(_ctx, _url, dest, progress_cb=None):
+                dest.write_bytes(b"unexpected payload")
+                return dest.stat().st_size
+
+            with mock.patch.object(
+                tunnel_service,
+                "_fetch_cloudflared_release_asset",
+                return_value={"digest": "sha256:" + "0" * 64},
+            ), mock.patch.object(
+                tunnel_service, "download_file", side_effect=fake_download
+            ), self.assertRaisesRegex(RuntimeError, "SHA256 mismatch"):
                 tunnel_service.ensure_cloudflared(ctx)
 
             self.assertFalse(binary_path.exists())
@@ -3516,6 +3595,30 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
             self.assertEqual(snapshot["status"], "error")
             self.assertEqual(snapshot["message"], "Internal server error")
             self.assertIn("private download failure", stderr.getvalue())
+
+    def test_thread_start_failure_returns_sanitized_snapshot_and_releases_slot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            stderr = io.StringIO()
+
+            with contextlib.redirect_stderr(stderr), mock.patch.object(
+                hf_service.threading.Thread,
+                "start",
+                side_effect=RuntimeError("private thread failure"),
+            ):
+                snapshot = hf_service.start_hf_model_download(
+                    ctx,
+                    repo_id="owner/model",
+                    revision="main",
+                    model_file="model.gguf",
+                    mmproj_file="",
+                    token=None,
+                )
+
+            self.assertEqual(snapshot["status"], "error")
+            self.assertEqual(snapshot["message"], "Internal server error")
+            self.assertFalse(ctx.state.model_download_in_progress)
+            self.assertIn("private thread failure", stderr.getvalue())
 
 
 class HfFileToDictTests(unittest.TestCase):
