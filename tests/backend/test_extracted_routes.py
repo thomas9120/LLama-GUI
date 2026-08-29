@@ -2882,6 +2882,33 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload["buffers"], ["CPU", "CUDA0"])
             self.assertEqual(response.payload["default"], "CUDA0")
 
+    def test_buffer_types_probe_exception_is_sanitized_for_clients(self):
+        """Raw probe errors (WinError text, local paths) must not reach the
+        client; the CPU fallback is still returned with a fixed message."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            cli = ctx.paths.llama_bin / "llama-cli"
+            cli.write_text("binary")
+            ctx.services = BackendServices(
+                current_platform="win32",
+                find_tool_executable=lambda tool: cli,
+                get_tool_filename=lambda tool: f"{tool}.exe",
+                llama_tools=["llama-cli"],
+                validate_runtime_dependencies=lambda tools=None: {"missing_runtime_files": []},
+            )
+
+            with mock.patch.object(
+                process_manager.subprocess,
+                "run",
+                side_effect=OSError("WinError 5: Access is denied: 'C:\\secret\\probe'"),
+            ):
+                result = process_manager.get_buffer_types(ctx)
+
+            self.assertEqual(result["buffers"], ["CPU"])
+            self.assertEqual(result["error"], "Buffer discovery failed.")
+            self.assertNotIn("secret", json.dumps(result))
+
     def test_process_estimate_memory_route_rejects_unknown_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -2934,6 +2961,30 @@ class ExtractedRouteTests(unittest.TestCase):
             command = mock_run.call_args.args[0]
             self.assertEqual(command[-2:], ["-fitp", "on"])
             self.assertNotIn("off", command)
+
+    def test_estimate_memory_probe_exception_is_sanitized_for_clients(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            fit_params = ctx.paths.llama_bin / "llama-fit-params"
+            fit_params.write_text("binary")
+            ctx.services = BackendServices(
+                current_platform="win32",
+                find_tool_executable=lambda tool: ctx.paths.llama_bin / tool,
+                get_tool_filename=lambda tool: tool,
+                llama_tools=["llama-cli"],
+                validate_runtime_dependencies=lambda tools=None: {"missing_runtime_files": []},
+            )
+
+            with mock.patch.object(
+                process_manager.subprocess,
+                "run",
+                side_effect=OSError("WinError 5: Access is denied: 'C:\\secret\\probe'"),
+            ):
+                result = process_manager.estimate_memory(ctx, "llama-cli", [])
+
+            self.assertEqual(result["error"], "Memory estimate failed.")
+            self.assertNotIn("secret", json.dumps(result))
 
     def test_process_manager_estimate_memory_omits_server_only_args(self):
         with tempfile.TemporaryDirectory() as tmp:

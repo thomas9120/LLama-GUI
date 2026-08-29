@@ -271,7 +271,9 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 )
                 self.assertTrue(error_body.closed)
 
-    def test_endpoint_specific_network_errors_are_preserved(self):
+    def test_endpoint_network_errors_are_sanitized_but_logged(self):
+        """Raw exception text (WinError strings, host details) must not reach
+        the client as a 502 body; the detail belongs on stderr."""
         cases = (
             (local_llama_http.get_local_llama_metrics, "metrics"),
             (local_llama_http.get_local_llama_slots, "slots"),
@@ -289,13 +291,18 @@ class LocalLlamaHttpTests(unittest.TestCase):
                         "urlopen",
                         side_effect=OSError("offline"),
                     ),
+                    mock.patch.object(local_llama_http.sys, "stderr") as fake_stderr,
                 ):
                     result = fetch("localhost", 8080)
 
                 self.assertEqual(
                     result,
-                    (None, f"Failed to fetch llama-server {label}: offline"),
+                    (None, f"Failed to fetch llama-server {label}."),
                 )
+                logged = "".join(
+                    call.args[0] for call in fake_stderr.write.call_args_list
+                )
+                self.assertIn("offline", logged)
 
 
 def make_service_context(root):
@@ -518,6 +525,31 @@ class ActivateCustomBackendTests(unittest.TestCase):
             self.assertFalse(result["ok"])
             self.assertEqual(result["missing_required"], ["llama-server.exe"])
             ctx.services.save_config.assert_not_called()
+
+    def test_unexpected_failure_is_sanitized_for_clients(self):
+        """A raw exception (paths, OS error text) must not be returned to the
+        client; stderr keeps the detail."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.llama_tools = ["llama-cli", "llama-server"]
+            ctx.services.current_platform = "win32"
+            ctx.services.get_tool_filename = lambda tool: f"{tool}.exe"
+            ctx.services.load_config = lambda: {"tag": None, "backend": None}
+            ctx.services.save_config = mock.Mock(
+                side_effect=OSError("disk full at C:\\secret\\config")
+            )
+            ctx.paths.llama_custom_bin.mkdir(parents=True)
+            for tool in ("llama-cli", "llama-server"):
+                (ctx.paths.llama_custom_bin / f"{tool}.exe").write_text("")
+
+            stderr = io.StringIO()
+            with mock.patch("sys.stderr", stderr):
+                result = llama_manager.activate_custom_backend(ctx)
+
+            self.assertFalse(result["ok"])
+            self.assertEqual(result["error"], "Internal server error")
+            self.assertNotIn("secret", json.dumps(result))
+            self.assertIn("disk full", stderr.getvalue())
 
     def test_saves_config_when_core_tools_exist(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1510,6 +1542,57 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertFalse(tmpdirs[0].exists())
             self.assertIn("SHA256 digest metadata is missing", stderr.getvalue())
 
+    def test_install_release_failure_messages_are_sanitized(self):
+        """Download progress is readable over the tunnel, so failure messages
+        must be fixed strings; raw exception text stays on stderr."""
+        backend_specs = {"cpu": {"asset": "llama-{tag}.zip"}}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
+            stderr = io.StringIO()
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", side_effect=OSError("secret lookup failure")
+            ), mock.patch.object(
+                llama_manager, "get_releases", side_effect=OSError("secret list failure")
+            ), mock.patch("sys.stderr", stderr):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+            progress = ctx.state.download_progress.snapshot()
+
+            self.assertFalse(ok)
+            self.assertEqual(progress["status"], "error")
+            self.assertEqual(progress["message"], "Download failed while locating the release.")
+            self.assertNotIn("secret", progress["message"])
+            self.assertIn("secret list failure", stderr.getvalue())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.services.load_config = lambda: {}
+            release = {
+                "tag_name": "b1234",
+                "name": "Build 1234",
+                "assets": [
+                    {
+                        "name": "llama-b1234.zip",
+                        "browser_download_url": "https://example.test/llama.zip",
+                    }
+                ],
+            }
+            stderr = io.StringIO()
+            with mock.patch.object(
+                llama_manager, "get_release_by_tag", return_value=release
+            ), mock.patch.object(
+                llama_manager, "download_file", side_effect=OSError("secret download failure")
+            ), mock.patch("sys.stderr", stderr):
+                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+            progress = ctx.state.download_progress.snapshot()
+
+            self.assertFalse(ok)
+            self.assertEqual(progress["status"], "error")
+            self.assertEqual(progress["message"], "Download failed unexpectedly.")
+            self.assertNotIn("secret", progress["message"])
+            self.assertIn("secret download failure", stderr.getvalue())
+
     def test_release_asset_sha256_parses_github_digest_and_allows_unusable_metadata(self):
         digest = "A1" * 32
         self.assertEqual(
@@ -1589,7 +1672,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             self.assertFalse(ok)
             progress = ctx.state.download_progress.snapshot()
             self.assertEqual(progress["status"], "error")
-            self.assertEqual(progress["message"], "release API offline")
+            self.assertEqual(progress["message"], "Download failed while locating the release.")
             self.assertIn("release lookup failed: release API offline", stderr.getvalue())
 
     def test_install_release_does_not_save_config_when_executable_repair_fails(self):
@@ -1621,13 +1704,16 @@ class LlamaManagerDownloadTests(unittest.TestCase):
                 "ensure_installed_tool_executables",
                 side_effect=PermissionError("permission repair failed"),
             ):
-                ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    ok = llama_manager.install_release(ctx, "b1234", "cpu", backend_specs)
 
             self.assertFalse(ok)
             self.assertEqual(
                 ctx.state.download_progress.snapshot()["message"],
-                "permission repair failed",
+                "Download failed unexpectedly.",
             )
+            self.assertIn("permission repair failed", stderr.getvalue())
             ctx.services.save_config.assert_not_called()
 
     def test_install_release_rejects_sha_mismatch_and_cleans_tmpdir(self):

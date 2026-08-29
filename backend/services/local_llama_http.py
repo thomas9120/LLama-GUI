@@ -1,5 +1,6 @@
 """HTTP helpers for local llama-server observability endpoints."""
 
+import sys
 import urllib.error
 import urllib.request
 
@@ -50,7 +51,10 @@ def _fetch_local_llama_endpoint(
             if exc.fp is not None:
                 exc.close()
     except Exception as exc:
-        return None, f"Failed to fetch llama-server {label}: {exc}"
+        # Raw exception text can carry WinError strings and host details; it
+        # would surface verbatim as a 502 body, readable over the tunnel.
+        print(f"[llama_http] failed to fetch llama-server {label}: {exc}", file=sys.stderr)
+        return None, f"Failed to fetch llama-server {label}."
 
 
 def get_local_llama_metrics(host, port, authorization=""):

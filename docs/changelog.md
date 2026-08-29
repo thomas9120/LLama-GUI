@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-28
+- Several error paths no longer send raw exception text (OS error strings, local paths) to the UI: buffer/device discovery, memory estimates, custom backend activation, install download progress, and the local metrics fetch now show fixed messages and keep the full detail in the backend log.
 - Child process output streams now decode as UTF-8 with replacement: a non-UTF-8 byte in llama-server output no longer kills the output reader for that pipe, which previously left the pipe undrained so the child could block on a full pipe and appear hung.
 - Turning Auto Fit off now omits its inactive `-fitt` target-margin and `-fitc` context-floor helpers from generated launch commands while preserving their configured values for later reuse.
 - Added an Advanced Configure control for llama.cpp b10653+'s `--tensor-read-lazy` mode, with inert Auto-by-default behavior plus explicit lower-RAM On and keep-resident Off choices.
