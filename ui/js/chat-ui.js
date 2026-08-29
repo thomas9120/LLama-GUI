@@ -27,6 +27,29 @@
     const CHAT_MAX_STORED_CONVERSATIONS = 50;
     const CHAT_CONSTRAINED_LAYOUT_QUERY = "(max-width: 1320px)";
 
+    // localStorage may be blocked entirely (e.g. "block all cookies"). The
+    // Chat tab must still work with per-session defaults, so every storage
+    // read/write goes through these tolerant helpers instead of throwing and
+    // aborting init() before the button handlers are wired.
+    function getStoredItem(storageKey) {
+        try {
+            return localStorage.getItem(storageKey);
+        } catch (e) {
+            console.debug("Chat storage read failed", e);
+            return null;
+        }
+    }
+
+    function setStoredItem(storageKey, value) {
+        try {
+            localStorage.setItem(storageKey, value);
+            return true;
+        } catch (e) {
+            console.warn("Chat storage write failed", e);
+            return false;
+        }
+    }
+
     const chatRendering = window.LlamaGui.chatRendering;
     const {
         renderChatMessage,
@@ -130,7 +153,7 @@
 
     function getChatWebSearchMaxResults() {
         const input = document.getElementById("chat-web-search-max-results");
-        return clampChatWebSearchMaxResults(input ? input.value : localStorage.getItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY));
+        return clampChatWebSearchMaxResults(input ? input.value : getStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY));
     }
 
     function normalizeChatThinkingEffort(value) {
@@ -954,24 +977,24 @@
         updateStatusBadge();
 
         if (webSearchToggle) {
-            webSearchToggle.checked = localStorage.getItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
+            webSearchToggle.checked = getStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
             webSearchToggle.addEventListener("change", () => {
-                localStorage.setItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+                setStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
             });
         }
 
         if (webSearchMaxResults) {
             webSearchMaxResults.value = String(clampChatWebSearchMaxResults(
-                localStorage.getItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY)
+                getStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY)
             ));
             webSearchMaxResults.addEventListener("change", () => {
                 const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
                 webSearchMaxResults.value = String(value);
-                localStorage.setItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+                setStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
             });
             webSearchMaxResults.addEventListener("input", () => {
                 const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
-                localStorage.setItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+                setStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
             });
         }
 
@@ -1012,7 +1035,7 @@
         });
         sysCharCount.textContent = "0 chars";
 
-        const settingsCollapsed = localStorage.getItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY) === "true";
+        const settingsCollapsed = getStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY) === "true";
         setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, settingsCollapsed);
         collapseSettingsForConstrainedLayout(sidebar, btnOpen, btnCollapse);
 
@@ -1031,14 +1054,14 @@
         if (btnCollapse && sidebar) {
             btnCollapse.addEventListener("click", () => {
                 setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, true);
-                localStorage.setItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "true");
+                setStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "true");
             });
         }
 
         if (btnOpen && sidebar) {
             btnOpen.addEventListener("click", () => {
                 setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, false);
-                localStorage.setItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "false");
+                setStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "false");
             });
         }
 

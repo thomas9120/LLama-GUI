@@ -106,6 +106,12 @@ class ServerState:
     install_in_progress: bool = False
     install_lock: threading.Lock = field(default_factory=threading.Lock)
 
+    # Git-based app update. Its own lock and slot on purpose: an update runs
+    # git fetch/merge plus pip and PowerShell on the handler thread and must
+    # not queue behind — or block — the install/process lock order.
+    app_update_in_progress: bool = False
+    app_update_lock: threading.Lock = field(default_factory=threading.Lock)
+
     model_download: AtomicDict = field(
         default_factory=lambda: AtomicDict(default_model_download_state())
     )

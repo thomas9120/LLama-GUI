@@ -208,4 +208,27 @@ const fallbackSnippetsText = elements.get("api-snippets-list").children
 assert.match(fallbackSnippetsText, /fallback-model\.gguf/);
 assert.match(fallbackSnippetsText, /no-key-needed/);
 
+// M5: updateEndpoints runs on every flag keystroke and every lifecycle
+// notification. When none of its inputs changed it must not rebuild the
+// endpoint/snippet cards.
+let createdElements = 0;
+const originalCreateElement = context.document.createElement;
+context.document.createElement = (...args) => {
+    createdElements += 1;
+    return originalCreateElement(...args);
+};
+
+apiTab.updateEndpoints();
+assert.equal(createdElements, 0, "unchanged inputs must not rebuild the API cards");
+
+apiTab.configure({
+    getLatestStatus: () => ({ running: false, api_auth_configured: true, active_process_tool: "llama-server" }),
+});
+apiTab.updateEndpoints();
+assert.ok(createdElements > 0, "a changed input must rebuild the API cards");
+
+const rebuiltCount = createdElements;
+apiTab.updateEndpoints();
+assert.equal(createdElements, rebuiltCount, "the rebuilt state must then be cached again");
+
 console.log("api tab unit tests passed");

@@ -4,8 +4,10 @@ import io
 import json
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 import urllib.error
@@ -16,6 +18,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from backend.context import AppContext, AppPaths, BackendServices, ServerConfig
+from backend import http as backend_http
 from backend.http import Request
 from backend.routes import benchmarks, chat, external_server, file_picker, git_update, hf_download, install, lifecycle, metrics, model_dir as model_dir_route, models, presets, process, search, status, tunnel
 from backend.services import chat as chat_service
@@ -62,6 +65,8 @@ class DummySseResponse:
 
 
 class FakeSseUpstream:
+    status = 200
+
     def __init__(self, lines):
         self.lines = list(lines)
 
@@ -2100,6 +2105,77 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertIsNone(ctx.state.active_runtime)
         mock_popen.assert_not_called()
 
+    def test_launch_output_readers_survive_invalid_utf8(self):
+        """Undecodable bytes in child output must not kill the output readers.
+
+        The launch Popen used text=True with the default strict decoding, so a
+        single non-UTF-8 byte (progress bars, localized crash text, driver
+        output) raised UnicodeDecodeError in stream_output and the reader for
+        that pipe died. The pipe then went undrained; once the OS buffer filled
+        the child blocked on write and appeared hung. The child below emits
+        invalid bytes on both pipes and then writes far more than the pipe
+        buffer holds, so it only exits if both readers keep draining.
+        """
+        # 0x81/0x8D/0x8F/0x90 are invalid both as UTF-8 lead bytes and in
+        # cp1252 (undefined), so the strict-decode failure reproduces on
+        # Windows (locale code page) and POSIX (UTF-8) alike.
+        script = "\n".join(
+            [
+                "import sys",
+                "chunk = b'x' * 8192",
+                "sys.stdout.buffer.write(b'stdout-before' + bytes([10]))",
+                "sys.stdout.buffer.write(bytes([0x81, 0x8D]) + b' invalid utf8' + bytes([10]))",
+                "for i in range(40):",
+                "    sys.stdout.buffer.write(b'stdout-after-' + str(i).encode() + b'-' + chunk + bytes([10]))",
+                "sys.stdout.buffer.flush()",
+                "sys.stderr.buffer.write(b'stderr-before' + bytes([10]))",
+                "sys.stderr.buffer.write(bytes([0x8F, 0x90]) + b' invalid utf8' + bytes([10]))",
+                "for i in range(20):",
+                "    sys.stderr.buffer.write(b'stderr-after-' + str(i).encode() + b'-' + chunk + bytes([10]))",
+                "sys.stderr.buffer.flush()",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.services.set_llama_api_target = lambda host, port: {"host": host, "port": port}
+            ctx.services.get_llama_api_target = lambda: {"host": "127.0.0.1", "port": 8080}
+            script_path = Path(tmp) / "fake_llama_server.py"
+            script_path.write_text(script)
+
+            def fake_validation(_ctx, _tool):
+                return Path(sys.executable), None
+
+            with mock.patch.object(
+                process_manager, "_validate_launch_environment", fake_validation
+            ):
+                result = process_manager.launch_process(
+                    ctx, "llama-server", [str(script_path)]
+                )
+            self.assertIn("pid", result, result)
+
+            process = ctx.state.process
+            try:
+                exit_code = process.wait(20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(5)
+                self.fail("child blocked on a full pipe (dead output reader)")
+            self.assertEqual(exit_code, 0)
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with ctx.state.output_buffer_lock:
+                    if ctx.state.output_reader_count == 0:
+                        break
+                time.sleep(0.05)
+            with ctx.state.output_buffer_lock:
+                lines = list(ctx.state.output_buffer)
+            for marker in ("stdout-before", "stdout-after-39", "stderr-before", "stderr-after-19"):
+                self.assertTrue(
+                    any(line.startswith(marker) for line in lines),
+                    f"missing {marker!r} output",
+                )
+
     def test_process_manager_records_normalized_switch_context_after_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -2809,6 +2885,33 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload["buffers"], ["CPU", "CUDA0"])
             self.assertEqual(response.payload["default"], "CUDA0")
 
+    def test_buffer_types_probe_exception_is_sanitized_for_clients(self):
+        """Raw probe errors (WinError text, local paths) must not reach the
+        client; the CPU fallback is still returned with a fixed message."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            cli = ctx.paths.llama_bin / "llama-cli"
+            cli.write_text("binary")
+            ctx.services = BackendServices(
+                current_platform="win32",
+                find_tool_executable=lambda tool: cli,
+                get_tool_filename=lambda tool: f"{tool}.exe",
+                llama_tools=["llama-cli"],
+                validate_runtime_dependencies=lambda tools=None: {"missing_runtime_files": []},
+            )
+
+            with mock.patch.object(
+                process_manager.subprocess,
+                "run",
+                side_effect=OSError("WinError 5: Access is denied: 'C:\\secret\\probe'"),
+            ):
+                result = process_manager.get_buffer_types(ctx)
+
+            self.assertEqual(result["buffers"], ["CPU"])
+            self.assertEqual(result["error"], "Buffer discovery failed.")
+            self.assertNotIn("secret", json.dumps(result))
+
     def test_process_estimate_memory_route_rejects_unknown_tool(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -2861,6 +2964,30 @@ class ExtractedRouteTests(unittest.TestCase):
             command = mock_run.call_args.args[0]
             self.assertEqual(command[-2:], ["-fitp", "on"])
             self.assertNotIn("off", command)
+
+    def test_estimate_memory_probe_exception_is_sanitized_for_clients(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.paths.llama_bin.mkdir(parents=True)
+            fit_params = ctx.paths.llama_bin / "llama-fit-params"
+            fit_params.write_text("binary")
+            ctx.services = BackendServices(
+                current_platform="win32",
+                find_tool_executable=lambda tool: ctx.paths.llama_bin / tool,
+                get_tool_filename=lambda tool: tool,
+                llama_tools=["llama-cli"],
+                validate_runtime_dependencies=lambda tools=None: {"missing_runtime_files": []},
+            )
+
+            with mock.patch.object(
+                process_manager.subprocess,
+                "run",
+                side_effect=OSError("WinError 5: Access is denied: 'C:\\secret\\probe'"),
+            ):
+                result = process_manager.estimate_memory(ctx, "llama-cli", [])
+
+            self.assertEqual(result["error"], "Memory estimate failed.")
+            self.assertNotIn("secret", json.dumps(result))
 
     def test_process_manager_estimate_memory_omits_server_only_args(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3240,24 +3367,24 @@ class ExtractedRouteTests(unittest.TestCase):
 
     def test_web_fetch_connects_to_validated_address_without_resolving_again(self):
         address = ("93.184.216.34", 443)
-        addresses = [(web_search.socket.AF_INET, web_search.socket.SOCK_STREAM, 6, "", address)]
+        addresses = [(backend_http.socket.AF_INET, backend_http.socket.SOCK_STREAM, 6, "", address)]
         sock = mock.Mock()
 
-        with mock.patch.object(web_search.socket, "socket", return_value=sock) as socket_factory:
-            connected = web_search._connect_validated(addresses, timeout=7)
+        with mock.patch.object(backend_http.socket, "socket", return_value=sock) as socket_factory:
+            connected = backend_http.connect_pinned(addresses, timeout=7)
 
         self.assertIs(connected, sock)
-        socket_factory.assert_called_once_with(web_search.socket.AF_INET, web_search.socket.SOCK_STREAM, 6)
+        socket_factory.assert_called_once_with(backend_http.socket.AF_INET, backend_http.socket.SOCK_STREAM, 6)
         sock.settimeout.assert_called_once_with(7)
         sock.connect.assert_called_once_with(address)
 
     def test_https_pinned_connection_preserves_original_hostname_for_tls(self):
-        addresses = [(web_search.socket.AF_INET, web_search.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
+        addresses = [(backend_http.socket.AF_INET, backend_http.socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
         raw_socket = object()
         wrapped_socket = object()
         ssl_context = mock.Mock()
         ssl_context.wrap_socket.return_value = wrapped_socket
-        connection = web_search._PinnedHTTPSConnection(
+        connection = backend_http.PinnedHTTPSConnection(
             "example.com",
             443,
             addresses,
@@ -3265,7 +3392,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ssl_context=ssl_context,
         )
 
-        with mock.patch.object(web_search, "_connect_validated", return_value=raw_socket):
+        with mock.patch.object(backend_http, "connect_pinned", return_value=raw_socket):
             connection.connect()
 
         ssl_context.wrap_socket.assert_called_once_with(raw_socket, server_hostname="example.com")
@@ -3303,12 +3430,12 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_local_interface_addresses_are_cached(self):
         chat_service.get_local_interface_addresses.cache_clear()
         try:
-            with mock.patch.object(chat_service.socket, "gethostname", return_value="host"), mock.patch.object(
-                chat_service.socket,
+            with mock.patch.object(backend_http.socket, "gethostname", return_value="host"), mock.patch.object(
+                backend_http.socket,
                 "getfqdn",
                 return_value="host.local",
             ), mock.patch.object(
-                chat_service.socket,
+                backend_http.socket,
                 "getaddrinfo",
                 side_effect=[
                     [(None, None, None, None, ("192.168.1.10", 0))],
@@ -3324,6 +3451,95 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertEqual(getaddrinfo.call_count, 2)
         self.assertIn("192.168.1.10", first)
         self.assertIn("192.168.1.11", first)
+
+    def test_chat_route_streams_upstream_error_body_locally_and_hides_it_through_the_tunnel(self):
+        class FakeErrorUpstream:
+            def __init__(self, status, body):
+                self.status = status
+                self._body = body
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def read(self, *_args):
+                return self._body
+
+        def run(tunnel_url):
+            with tempfile.TemporaryDirectory() as tmp:
+                ctx = make_context(tmp)
+                activate_llama_runtime(ctx)
+                if tunnel_url:
+                    ctx.state.remote_tunnel.update(url=tunnel_url)
+                response = DummySseResponse()
+
+                with mock.patch.object(
+                    chat.chat_service,
+                    "get_local_chat_api_url",
+                    return_value="http://127.0.0.1:8080/v1/chat/completions",
+                ), mock.patch.object(
+                    chat,
+                    "open_pinned_local_request",
+                    return_value=FakeErrorUpstream(500, b'{"error": "model exploded"}'),
+                ):
+                    chat.completions(
+                        Request(
+                            "POST",
+                            "/api/chat/completions",
+                            "",
+                            {},
+                            body={"messages": [{"role": "user", "content": "Hello"}]},
+                        ),
+                        response,
+                        ctx,
+                    )
+
+                response.handler.wfile.seek(0)
+                return response.handler.wfile.read().decode("utf-8")
+
+        local_payload = run("")
+        self.assertIn("llama-server returned HTTP 500", local_payload)
+        self.assertIn("model exploded", local_payload)
+        self.assertIn("data: [DONE]", local_payload)
+
+        tunnel_payload = run("https://example.trycloudflare.com")
+        self.assertIn("Chat request failed.", tunnel_payload)
+        self.assertNotIn("model exploded", tunnel_payload)
+        self.assertIn("data: [DONE]", tunnel_payload)
+
+    def test_chat_route_refuses_a_target_that_rebinds_off_machine(self):
+        """Validation-time DNS returns loopback, connect-time DNS returns a
+        public address: the chat proxy must refuse before any socket opens,
+        instead of streaming the registered Authorization header off-machine."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            activate_llama_runtime(ctx, host="rebind.test", port=8124)
+            response = DummySseResponse()
+            loopback = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 8124))]
+            public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 8124))]
+
+            with mock.patch.object(
+                backend_http.socket, "getaddrinfo", side_effect=[loopback, public]
+            ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned:
+                chat.completions(
+                    Request(
+                        "POST",
+                        "/api/chat/completions",
+                        "",
+                        {},
+                        body={"messages": [{"role": "user", "content": "Hello"}]},
+                    ),
+                    response,
+                    ctx,
+                )
+
+            connect_pinned.assert_not_called()
+            response.handler.wfile.seek(0)
+            payload = response.handler.wfile.read().decode("utf-8")
+            self.assertIn("Blocked: proxy target must resolve to this machine.", payload)
+            self.assertIn("data: [DONE]", payload)
 
     def test_chat_route_streams_error_for_invalid_port(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3357,15 +3573,15 @@ class ExtractedRouteTests(unittest.TestCase):
             captured = {}
             activate_llama_runtime(ctx, host="127.0.0.2", port=8124)
 
-            def fake_urlopen(req, timeout):
-                captured["authorization"] = req.get_header("Authorization")
+            def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+                captured["authorization"] = (headers or {}).get("Authorization")
                 return upstream
 
             with mock.patch.object(
                 chat.chat_service,
                 "get_local_chat_api_url",
                 return_value="http://127.0.0.1:8080/v1/chat/completions",
-            ) as get_chat_url, mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ) as get_chat_url, mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
                 chat.completions(
                     Request(
                         "POST",
@@ -3395,8 +3611,8 @@ class ExtractedRouteTests(unittest.TestCase):
             response = DummySseResponse()
             captured = {}
 
-            def fake_urlopen(req, timeout):
-                captured["body"] = json.loads(req.data.decode("utf-8"))
+            def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+                captured["body"] = json.loads(data.decode("utf-8"))
                 return FakeSseUpstream([b"data: [DONE]\n\n"])
 
             with mock.patch.object(
@@ -3420,7 +3636,7 @@ class ExtractedRouteTests(unittest.TestCase):
                 chat.chat_service,
                 "get_local_chat_api_url",
                 return_value="http://127.0.0.1:8080/v1/chat/completions",
-            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ), mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
                 chat.completions(
                     Request(
                         "POST",
@@ -3474,8 +3690,8 @@ class ExtractedRouteTests(unittest.TestCase):
                 for idx in range(1, 7)
             ]
 
-            def fake_urlopen(req, timeout):
-                captured["body"] = json.loads(req.data.decode("utf-8"))
+            def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+                captured["body"] = json.loads(data.decode("utf-8"))
                 return FakeSseUpstream([b"data: [DONE]\n\n"])
 
             with mock.patch.object(
@@ -3490,7 +3706,7 @@ class ExtractedRouteTests(unittest.TestCase):
                 chat.chat_service,
                 "get_local_chat_api_url",
                 return_value="http://127.0.0.1:8080/v1/chat/completions",
-            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ), mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
                 chat.completions(
                     Request(
                         "POST",
@@ -3537,7 +3753,7 @@ class ExtractedRouteTests(unittest.TestCase):
                     chat.chat_service,
                     "get_local_chat_api_url",
                     return_value="http://127.0.0.1:8080/v1/chat/completions",
-                ), mock.patch.object(chat.urllib.request, "urlopen", return_value=FakeSseUpstream([b"data: [DONE]\n\n"])):
+                ), mock.patch.object(chat, "open_pinned_local_request", return_value=FakeSseUpstream([b"data: [DONE]\n\n"])):
                     chat.completions(
                         Request(
                             "POST",
@@ -3564,7 +3780,7 @@ class ExtractedRouteTests(unittest.TestCase):
             ctx = make_context(tmp)
             response = DummySseResponse()
 
-            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen, mock.patch.object(
+            with mock.patch.object(chat, "open_pinned_local_request") as open_pinned, mock.patch.object(
                 chat.web_search,
                 "web_search",
             ) as search:
@@ -3591,7 +3807,7 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("Start llama-server first", payload)
             self.assertIn("data: [DONE]", payload)
             search.assert_not_called()
-            urlopen.assert_not_called()
+            open_pinned.assert_not_called()
 
     def test_chat_route_refuses_when_active_runtime_is_not_llama_server(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3599,7 +3815,7 @@ class ExtractedRouteTests(unittest.TestCase):
             activate_llama_runtime(ctx, tool="llama-cli")
             response = DummySseResponse()
 
-            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen:
+            with mock.patch.object(chat, "open_pinned_local_request") as open_pinned:
                 chat.completions(
                     Request(
                         "POST",
@@ -3620,7 +3836,7 @@ class ExtractedRouteTests(unittest.TestCase):
             payload = response.handler.wfile.read().decode("utf-8")
             self.assertIn("Start llama-server first", payload)
             self.assertIn("data: [DONE]", payload)
-            urlopen.assert_not_called()
+            open_pinned.assert_not_called()
 
     def test_chat_route_web_search_preserves_array_system_content(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3629,8 +3845,8 @@ class ExtractedRouteTests(unittest.TestCase):
             response = DummySseResponse()
             captured = {}
 
-            def fake_urlopen(req, timeout):
-                captured["body"] = json.loads(req.data.decode("utf-8"))
+            def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+                captured["body"] = json.loads(data.decode("utf-8"))
                 return FakeSseUpstream([b"data: [DONE]\n\n"])
 
             with mock.patch.object(
@@ -3650,7 +3866,7 @@ class ExtractedRouteTests(unittest.TestCase):
                 chat.web_search,
                 "fetch_page_text",
                 return_value={"ok": True, "text": "Fresh page text"},
-            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ), mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
                 chat.completions(
                     Request(
                         "POST",
@@ -3697,8 +3913,8 @@ class ExtractedRouteTests(unittest.TestCase):
             response = DummySseResponse()
             captured = {}
 
-            def fake_urlopen(req, timeout):
-                captured["body"] = json.loads(req.data.decode("utf-8"))
+            def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+                captured["body"] = json.loads(data.decode("utf-8"))
                 return FakeSseUpstream([b"data: [DONE]\n\n"])
 
             with mock.patch.object(
@@ -3718,7 +3934,7 @@ class ExtractedRouteTests(unittest.TestCase):
                 chat.web_search,
                 "fetch_page_text",
                 return_value={"ok": True, "text": "Fresh page text"},
-            ), mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+            ), mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
                 chat.completions(
                     Request(
                         "POST",
@@ -3748,7 +3964,7 @@ class ExtractedRouteTests(unittest.TestCase):
             activate_llama_runtime(ctx)
             response = DummySseResponse()
 
-            with mock.patch.object(chat.urllib.request, "urlopen") as urlopen, mock.patch.object(
+            with mock.patch.object(chat, "open_pinned_local_request") as open_pinned, mock.patch.object(
                 chat.web_search,
                 "web_search",
             ) as search:
@@ -3779,7 +3995,7 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertIn("Add a text question", payload)
             self.assertIn("data: [DONE]", payload)
             search.assert_not_called()
-            urlopen.assert_not_called()
+            open_pinned.assert_not_called()
 
     def test_file_picker_route_uses_model_filters_for_model_purpose(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4540,7 +4756,7 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummyResponse()
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -4595,7 +4811,7 @@ class ExternalServerRouteTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             external_server.connect(
@@ -4647,7 +4863,7 @@ class ExternalServerRouteTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthUpstream(200),
         ):
             external_server.connect(
@@ -4668,7 +4884,7 @@ class ExternalServerRouteTests(unittest.TestCase):
         }
         response = DummyResponse()
 
-        with mock.patch.object(external_server_service, "_open_probe_request") as open_probe:
+        with mock.patch.object(external_server_service, "open_pinned_local_request") as open_probe:
             external_server.connect(
                 Request("POST", "/api/chat/target", "", {}, body={"restore": True}),
                 response,
@@ -4690,7 +4906,7 @@ class ExternalServerRouteTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthUpstream(200, b"<html>some other dev server</html>"),
         ):
             external_server.connect(
@@ -4720,12 +4936,12 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummySseResponse()
         captured = {}
 
-        def fake_urlopen(req, timeout):
-            captured["url"] = req.full_url
-            captured["authorization"] = req.get_header("Authorization")
+        def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+            captured["target"] = (host, port, path)
+            captured["authorization"] = (headers or {}).get("Authorization")
             return FakeSseUpstream([b"data: [DONE]\n\n"])
 
-        with mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
             chat.completions(
                 Request(
                     "POST",
@@ -4738,7 +4954,7 @@ class ExternalServerRouteTests(unittest.TestCase):
                 self.ctx,
             )
 
-        self.assertEqual(captured["url"], "http://127.0.0.1:9001/v1/chat/completions")
+        self.assertEqual(captured["target"], ("127.0.0.1", 9001, "/v1/chat/completions"))
         self.assertEqual(captured["authorization"], "Bearer external-key")
 
     def test_chat_route_prefers_a_launched_runtime_over_the_registered_target(self):
@@ -4747,11 +4963,11 @@ class ExternalServerRouteTests(unittest.TestCase):
         response = DummySseResponse()
         captured = {}
 
-        def fake_urlopen(req, timeout):
-            captured["url"] = req.full_url
+        def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+            captured["target"] = (host, port, path)
             return FakeSseUpstream([b"data: [DONE]\n\n"])
 
-        with mock.patch.object(chat.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with mock.patch.object(chat, "open_pinned_local_request", side_effect=fake_open):
             chat.completions(
                 Request(
                     "POST",
@@ -4764,12 +4980,12 @@ class ExternalServerRouteTests(unittest.TestCase):
                 self.ctx,
             )
 
-        self.assertEqual(captured["url"], "http://127.0.0.1:8124/v1/chat/completions")
+        self.assertEqual(captured["target"], ("127.0.0.1", 8124, "/v1/chat/completions"))
 
     def test_chat_route_still_ignores_a_target_supplied_in_the_body(self):
         response = DummySseResponse()
 
-        with mock.patch.object(chat.urllib.request, "urlopen") as urlopen:
+        with mock.patch.object(chat, "open_pinned_local_request") as open_pinned:
             chat.completions(
                 Request(
                     "POST",
@@ -4789,7 +5005,7 @@ class ExternalServerRouteTests(unittest.TestCase):
         response.handler.wfile.seek(0)
         payload = response.handler.wfile.read().decode("utf-8")
         self.assertIn("Start llama-server first", payload)
-        urlopen.assert_not_called()
+        open_pinned.assert_not_called()
 
     def test_metrics_route_uses_the_registered_target(self):
         register_external_server(self.ctx, host="127.0.0.1", port=9001, api_key="external-key")
@@ -5399,6 +5615,28 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(result["installed"])
         self.assertIn("ERROR", result["error"])
 
+    def test_install_deps_timeout_is_reported_not_raised(self):
+        """A wedged pip used to pin the HTTP handler thread forever; the
+        subprocess is now bounded and the timeout surfaces as an error."""
+        (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+        with mock.patch.object(srv.subprocess, "run") as mock_run:
+            mock_run.side_effect = srv.subprocess.TimeoutExpired(cmd="pip", timeout=5)
+            result = srv.install_python_dependencies(self.ctx)
+        self.assertFalse(result["installed"])
+        self.assertEqual(result["error"], "Dependency installation timed out.")
+        self.assertEqual(
+            mock_run.call_args.kwargs["timeout"], srv.DEPENDENCY_INSTALL_TIMEOUT_SECONDS
+        )
+
+    def test_install_deps_failure_is_logged(self):
+        (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
+        stderr = io.StringIO()
+        with mock.patch.object(srv.subprocess, "run") as mock_run, contextlib.redirect_stderr(stderr):
+            mock_run.return_value = self.proc_result(returncode=1, stderr="ERROR: boom")
+            result = srv.install_python_dependencies(self.ctx)
+        self.assertFalse(result["installed"])
+        self.assertIn("ERROR: boom", stderr.getvalue())
+
     def test_create_windows_shortcuts_skips_non_windows(self):
         with mock.patch.object(srv.sys, "platform", "linux"):
             result = srv.create_windows_shortcuts(self.ctx)
@@ -5417,6 +5655,20 @@ class GitUpdateRouteTests(unittest.TestCase):
         args = mock_run.call_args[0][0]
         self.assertIn("-ShortcutsOnly", args)
         self.assertIn(str(shortcut_script), args)
+
+    def test_create_windows_shortcuts_timeout_is_reported_not_raised(self):
+        self.write_shortcut_helper()
+        with (
+            mock.patch.object(srv.sys, "platform", "win32"),
+            mock.patch.object(srv.subprocess, "run") as mock_run,
+        ):
+            mock_run.side_effect = srv.subprocess.TimeoutExpired(cmd="powershell", timeout=5)
+            result = srv.create_windows_shortcuts(self.ctx)
+        self.assertFalse(result["created"])
+        self.assertEqual(result["error"], "Desktop shortcut creation timed out.")
+        self.assertEqual(
+            mock_run.call_args.kwargs["timeout"], srv.SHORTCUT_TIMEOUT_SECONDS
+        )
 
     def test_create_windows_shortcuts_reports_nonfatal_error(self):
         self.write_shortcut_helper()
@@ -5725,6 +5977,45 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(result["updated"])
         self.assertIn("Not possible", result["error"])
 
+    def test_concurrent_updates_only_one_proceeds(self):
+        """Two concurrent /api/app-update requests used to race on git index
+        operations. The second must be refused while the first is mid-flight,
+        exactly one merge must run, and the slot must be released after."""
+        pip_started = threading.Event()
+        release_pip = threading.Event()
+
+        def blocking_pip(*args, **kwargs):
+            pip_started.set()
+            release_pip.wait(5)
+            return self.proc_result(stdout="Successfully installed")
+
+        call_log = []
+        with (
+            self.patched_git(counts="0\t3", call_log=call_log, merge_stdout="Fast-forward"),
+            mock.patch.object(srv.subprocess, "run", side_effect=blocking_pip),
+            self.patched_shortcuts(created=False),
+        ):
+            (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+            worker = threading.Thread(
+                target=srv.update_app_from_git, args=(self.ctx,), daemon=True
+            )
+            worker.start()
+            try:
+                self.assertTrue(pip_started.wait(5), "the first update never reached pip")
+                second = srv.update_app_from_git(self.ctx)
+                self.assertTrue(second.get("already_in_progress"))
+                self.assertEqual(second["error"], "App update already in progress.")
+                self.assertFalse(second["updated"])
+            finally:
+                release_pip.set()
+            worker.join(10)
+
+        self.assertFalse(
+            self.ctx.state.app_update_in_progress,
+            "the update slot must be released when the update finishes",
+        )
+        self.assertEqual(len(self.git_calls(call_log, "merge")), 1)
+
     def test_update_deps_failure(self):
         with (
             self.patched_git(counts="0\t3", merge_stdout="Updating abc..def"),
@@ -5807,6 +6098,21 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(response.status, 400)
         self.assertIn("Something went wrong", response.payload["error"])
         self.assertIn("status", response.payload)
+
+    def test_app_update_route_reports_a_concurrent_update_with_409(self):
+        with mock.patch.object(srv, "update_app_from_git", return_value={
+            "updated": False,
+            "already_in_progress": True,
+            "error": "App update already in progress.",
+        }):
+            response = DummyResponse()
+            git_update.start_update(
+                Request("POST", "/api/app-update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 409)
+        self.assertIn("already in progress", response.payload["error"])
 
     def test_app_update_route_returns_success(self):
         with mock.patch.object(srv, "update_app_from_git", return_value={

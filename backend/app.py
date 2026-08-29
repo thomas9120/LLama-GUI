@@ -8,7 +8,6 @@ import sys
 import time
 import urllib.request
 import urllib.parse
-import urllib.error
 
 from backend.config import (
     APP_LOGO_FILE,
@@ -43,6 +42,7 @@ from backend.http import (
     is_safe_v1_proxy_path,
     is_static_ui_path,
     is_v1_proxy_path,
+    open_pinned_local_request,
     sanitize_error,
 )
 from backend.routing import Router
@@ -712,7 +712,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         target = get_llama_api_target()
         path = parsed.path
         query = f"?{parsed.query}" if parsed.query else ""
-        url = f"{build_http_origin(target['host'], target['port'])}{path}{query}"
         try:
             data = self.get_proxy_request_body() if method in {"POST", "PUT", "PATCH"} else None
         except (TimeoutError, socket.timeout):
@@ -729,13 +728,32 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if "Accept" not in headers:
             headers["Accept"] = "*/*"
 
-        req = urllib.request.Request(url, data=data, headers=headers, method=method)
+        # The target host was validated when it was registered; resolve it again
+        # here and pin the socket to this machine's addresses so a hostname
+        # cannot re-resolve off-machine between the two points. Redirects are
+        # never followed, so a reply cannot lure the relay off the pinned
+        # target either.
+        try:
+            upstream = open_pinned_local_request(
+                target["host"],
+                target["port"],
+                f"{path}{query}",
+                method=method,
+                data=data,
+                headers=headers,
+                timeout=300,
+            )
+        except Exception as exc:
+            print(f"[v1 proxy] {type(exc).__name__}: {exc}", file=sys.stderr)
+            self.send_proxy_error("Failed to reach llama-server. Start it or check the configured API host and port.")
+            return
+
         # Once the status line is buffered, no error path may emit a second
         # response: it would be appended to the first and the client would parse
         # the concatenation as one malformed reply.
         response_started = False
         try:
-            with urllib.request.urlopen(req, timeout=300) as resp:
+            with upstream as resp:
                 response_started = True
                 self.send_response(resp.status)
                 excluded = {
@@ -769,21 +787,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionAbortedError, ConnectionResetError):
             self.close_connection = True
             return
-        except urllib.error.HTTPError as exc:
-            # urlopen raises this before any bytes go out, so response_started is
-            # False here in practice; the guard keeps the invariant local rather
-            # than relying on that staying true.
-            if response_started:
-                print(f"[v1 proxy] HTTPError after response started: {exc}", file=sys.stderr)
-                self.close_connection = True
-                return
-            body = exc.read()
-            self.send_response(exc.code)
-            content_type = exc.headers.get("Content-Type", "application/json")
-            self.send_header("Content-Type", content_type)
-            self.send_cors_origin_header()
-            self.end_headers()
-            self.wfile.write(body)
         except Exception as exc:
             print(f"[v1 proxy] {type(exc).__name__}: {exc}", file=sys.stderr)
             if response_started:

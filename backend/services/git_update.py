@@ -14,6 +14,12 @@ from .subprocess_utils import get_no_window_creationflags
 # a slow link, short enough that a wedged command cannot pin an HTTP thread.
 GIT_COMMAND_TIMEOUT_SECONDS = 120
 
+# These also run on an HTTP handler thread, so they are bounded the same way.
+# pip gets a long ceiling (a cold install over a slow link is genuinely slow),
+# the shortcut helper a short one.
+DEPENDENCY_INSTALL_TIMEOUT_SECONDS = 900
+SHORTCUT_TIMEOUT_SECONDS = 120
+
 # Passed to `git for-each-ref` to skip tags that are obviously not releases
 # (for example "Summer-2026") before they reach the regex below.
 RELEASE_TAG_GLOB = "refs/tags/v[0-9]*"
@@ -230,16 +236,28 @@ def install_python_dependencies(ctx: AppContext) -> dict[str, Any]:
     if not requirements_path.exists():
         return {"installed": False, "message": "requirements.txt was not found."}
 
-    res = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
-        cwd=str(ctx.paths.root),
-        capture_output=True,
-        text=True,
-        check=False,
-        creationflags=get_no_window_creationflags(),
-    )
+    try:
+        res = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", str(requirements_path)],
+            cwd=str(ctx.paths.root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=DEPENDENCY_INSTALL_TIMEOUT_SECONDS,
+            creationflags=get_no_window_creationflags(),
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"[git_update] pip install timed out after {DEPENDENCY_INSTALL_TIMEOUT_SECONDS}s",
+            file=sys.stderr,
+        )
+        return {"installed": False, "error": "Dependency installation timed out."}
     output = (res.stdout or res.stderr or "").strip()
     if res.returncode != 0:
+        print(
+            f"[git_update] pip install failed: {(res.stderr or res.stdout or '').strip()}",
+            file=sys.stderr,
+        )
         return {
             "installed": False,
             "error": (res.stderr or res.stdout or "Dependency installation failed.").strip(),
@@ -258,26 +276,38 @@ def create_windows_shortcuts(ctx: AppContext) -> dict[str, Any]:
     if not shortcut_script.exists():
         return {"created": False, "skipped": True, "message": "Shortcut helper was not found."}
 
-    res = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(shortcut_script),
-            "-InstallDir",
-            str(ctx.paths.root),
-            "-ShortcutsOnly",
-        ],
-        cwd=str(ctx.paths.root),
-        capture_output=True,
-        text=True,
-        check=False,
-        creationflags=get_no_window_creationflags(),
-    )
+    try:
+        res = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(shortcut_script),
+                "-InstallDir",
+                str(ctx.paths.root),
+                "-ShortcutsOnly",
+            ],
+            cwd=str(ctx.paths.root),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=SHORTCUT_TIMEOUT_SECONDS,
+            creationflags=get_no_window_creationflags(),
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"[git_update] shortcut creation timed out after {SHORTCUT_TIMEOUT_SECONDS}s",
+            file=sys.stderr,
+        )
+        return {"created": False, "error": "Desktop shortcut creation timed out."}
     output = (res.stdout or res.stderr or "").strip()
     if res.returncode != 0:
+        print(
+            f"[git_update] shortcut creation failed: {(res.stderr or res.stdout or '').strip()}",
+            file=sys.stderr,
+        )
         return {
             "created": False,
             "error": (res.stderr or res.stdout or "Desktop shortcut creation failed.").strip(),
@@ -463,8 +493,31 @@ def get_app_update_status(
 
 
 def update_app_from_git(ctx: AppContext, channel: str = "stable") -> dict[str, Any]:
-    base_dir = ctx.paths.root
+    # Validate before claiming the slot so a bad channel cannot even
+    # momentarily block a running update.
     update_channel = normalize_update_channel(channel)
+    # fetch, merge, pip and the shortcut helper all mutate this checkout; two
+    # concurrent updates would race on the git index. Claim the update slot
+    # under the dedicated lock (never held across the work itself) and refuse
+    # a second update while one runs.
+    state = ctx.state
+    with state.app_update_lock:
+        if state.app_update_in_progress:
+            return {
+                "updated": False,
+                "already_in_progress": True,
+                "error": "App update already in progress.",
+            }
+        state.app_update_in_progress = True
+    try:
+        return _update_app_from_git_locked(ctx, update_channel)
+    finally:
+        with state.app_update_lock:
+            state.app_update_in_progress = False
+
+
+def _update_app_from_git_locked(ctx: AppContext, update_channel: str) -> dict[str, Any]:
+    base_dir = ctx.paths.root
     status = get_app_update_status(ctx, fetch=True, channel=update_channel)
     if not status.get("available"):
         return {

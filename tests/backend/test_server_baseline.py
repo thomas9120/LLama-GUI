@@ -1,6 +1,7 @@
 import io
 import json
 import re
+import socket
 import subprocess
 import sys
 import unittest
@@ -12,6 +13,7 @@ from unittest import mock
 
 import backend.app as backend_app
 import server
+from backend import http as backend_http
 
 
 def reset_shared_server_state():
@@ -209,7 +211,7 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
                 raise OSError("upstream died mid-stream")
 
         with mock.patch.object(
-            backend_app.urllib.request, "urlopen", return_value=FailingUpstream()
+            backend_app, "open_pinned_local_request", return_value=FailingUpstream()
         ):
             with redirect_stderr(io.StringIO()) as captured:
                 handler.proxy_v1_request("GET", urllib.parse.urlparse("/v1/models"))
@@ -226,7 +228,7 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         handler.close_connection = False
 
         with mock.patch.object(
-            backend_app.urllib.request, "urlopen", side_effect=OSError("connection refused")
+            backend_app, "open_pinned_local_request", side_effect=OSError("connection refused")
         ):
             with redirect_stderr(io.StringIO()):
                 handler.proxy_v1_request("GET", urllib.parse.urlparse("/v1/models"))
@@ -234,6 +236,32 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         self.assertEqual(handler.sent_response, 502)
         body = json.loads(handler.wfile.getvalue().decode("utf-8"))
         self.assertIn("llama-server", body["error"])
+
+    def test_v1_proxy_refuses_a_target_that_rebinds_off_machine(self):
+        """The target host was validated when registered; if it re-resolves
+        off-machine at request time the proxy must fail closed with the
+        generic 502 instead of relaying the request (and any Authorization
+        header) to the new address."""
+        handler = self.make_handler()
+        parsed = server.urllib.parse.urlparse("/v1/models")
+        # Registration-time validation sees loopback; the proxy resolves the
+        # host again at request time, and that answer is now public.
+        loopback = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 8080))]
+        public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 8080))]
+
+        with mock.patch.object(
+            backend_http.socket, "getaddrinfo", side_effect=[loopback, public]
+        ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned, redirect_stderr(
+            io.StringIO()
+        ):
+            server.set_llama_api_target("rebind.test", 8080)
+            handler.proxy_v1_request("GET", parsed)
+
+        connect_pinned.assert_not_called()
+        self.assertEqual(handler.sent_response, 502)
+        body = json.loads(handler.wfile.getvalue().decode("utf-8"))
+        self.assertIn("llama-server", body["error"])
+        self.assertNotIn("rebind", body["error"])
 
     def acao_count(self, handler):
         return sum(1 for name, _ in handler.sent_headers if name == "Access-Control-Allow-Origin")
@@ -385,17 +413,17 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
             def read(self, size=-1):
                 return self._chunks.pop(0)
 
-        def fake_urlopen(req, timeout):
-            captured["authorization"] = req.get_header("Authorization")
-            captured["url"] = req.full_url
+        def fake_open(host, port, path, *, method="GET", data=None, headers=None, timeout=300):
+            captured["authorization"] = (headers or {}).get("Authorization")
+            captured["target"] = (host, port, path)
             return Upstream()
 
-        with mock.patch.object(backend_app.urllib.request, "urlopen", side_effect=fake_urlopen):
+        with mock.patch.object(backend_app, "open_pinned_local_request", side_effect=fake_open):
             handler.proxy_v1_request("GET", parsed)
 
         self.assertEqual(handler.sent_response, 200)
         self.assertEqual(captured["authorization"], "Bearer secret")
-        self.assertEqual(captured["url"], "http://[::1]:8080/v1/models")
+        self.assertEqual(captured["target"], ("::1", 8080, "/v1/models"))
         self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"data": []})
 
     def test_read_body_rejects_valid_non_object_json(self):
@@ -477,8 +505,8 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         stderr = io.StringIO()
 
         with mock.patch.object(
-            backend_app.urllib.request,
-            "urlopen",
+            backend_app,
+            "open_pinned_local_request",
             side_effect=OSError("secret local detail"),
         ), redirect_stderr(stderr):
             handler.proxy_v1_request("GET", parsed)

@@ -663,8 +663,53 @@ async function testReconcileServerToBenchmarkReplacement() {
 }
 
 async function main() {
+    async function launchWithLoadingPolls(loadingPolls) {
+        const { lifecycle } = loadLifecycle();
+        const activeRuntime = runtime(1);
+        const health = [];
+        for (let index = 0; index < loadingPolls; index += 1) {
+            health.push({ state: "loading", ready: false, running: true, generation: 1 });
+        }
+        health.push({ state: "ready", ready: true, running: true, generation: 1 });
+        let notifications = 0;
+        lifecycle.subscribe(() => { notifications += 1; }, { emitCurrent: false });
+        lifecycle.configure({
+            healthPollMs: 0,
+            delay: async () => {},
+            refreshStatus: async () => runningStatus(activeRuntime),
+            fetchJson: async (url) => {
+                if (url === "/api/launch") {
+                    return { pid: 12, output_cursor: 6, active_runtime: activeRuntime };
+                }
+                if (url.startsWith("/api/llama/health")) return health.shift();
+                throw new Error(`Unexpected URL: ${url}`);
+            },
+        });
+        const response = await lifecycle.launch({
+            tool: "llama-server",
+            args: ["-m", "models/model-1.gguf"],
+        });
+        assert.equal(response.ok, true);
+        assert.equal(lifecycle.getSnapshot().phase, "ready");
+        return notifications;
+    }
+
+    async function testRepeatedLoadingPollsDoNotRenotify() {
+        // While a model loads, every health poll used to apply the same
+        // phase/ready patch and notify, re-rendering the UI twice per second
+        // for the whole load. Identical snapshots must not notify again.
+        const shortRun = await launchWithLoadingPolls(1);
+        const longRun = await launchWithLoadingPolls(5);
+        assert.equal(
+            longRun,
+            shortRun,
+            "unchanged polling snapshots must not notify subscribers again"
+        );
+    }
+
     const tests = [
         ["readiness progression", testReadinessProgression],
+        ["no-op polling notifications", testRepeatedLoadingPollsDoNotRenotify],
         ["slow-load warning", testSlowLoadWarnsOnceAndContinuesToReady],
         ["authoritative restore", testRestoreUsesAuthoritativeRuntimeAndHealth],
         ["invalid preflight", testInvalidPreflightDoesNotStop],

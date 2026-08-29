@@ -1,10 +1,9 @@
 """HTTP helpers for local llama-server observability endpoints."""
 
-import urllib.error
-import urllib.request
+import sys
 
 from backend import config
-from backend.http import build_http_origin
+from backend.http import open_pinned_local_request
 from backend.services import chat as chat_service
 
 
@@ -34,23 +33,29 @@ def _fetch_local_llama_endpoint(
     headers = {"Accept": accept}
     if authorization:
         headers["Authorization"] = authorization
-    request = urllib.request.Request(
-        f"{build_http_origin(proxy_host, parsed_port)}{path}",
-        headers=headers,
-    )
+    response = None
     try:
-        with urllib.request.urlopen(request, timeout=3) as response:
-            raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
-            charset = response.headers.get_content_charset() or "utf-8"
-            return raw.decode(charset, errors="replace"), ""
-    except urllib.error.HTTPError as exc:
         try:
-            return None, f"llama-server {label} returned HTTP {exc.code}."
-        finally:
-            if exc.fp is not None:
-                exc.close()
+            # Resolves and pins the address here, at connect time, so a hostname
+            # that passed validation cannot re-resolve somewhere off-machine.
+            response = open_pinned_local_request(
+                proxy_host, parsed_port, path, headers=headers, timeout=3
+            )
+        except ValueError as exc:
+            return None, str(exc)
+        if response.status >= 400:
+            return None, f"llama-server {label} returned HTTP {response.status}."
+        raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
+        charset = response.headers.get_content_charset() or "utf-8"
+        return raw.decode(charset, errors="replace"), ""
     except Exception as exc:
-        return None, f"Failed to fetch llama-server {label}: {exc}"
+        # Raw exception text can carry WinError strings and host details; it
+        # would surface verbatim as a 502 body, readable over the tunnel.
+        print(f"[llama_http] failed to fetch llama-server {label}: {exc}", file=sys.stderr)
+        return None, f"Failed to fetch llama-server {label}."
+    finally:
+        if response is not None:
+            response.close()
 
 
 def get_local_llama_metrics(host, port, authorization=""):

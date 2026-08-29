@@ -498,7 +498,6 @@ function syncQuickLaunchModelOptions() {
 
 function refreshQuickLaunchUI() {
     quickLaunchUi.refresh();
-    modelSwitchUi.refresh().catch(error => console.debug("Failed to refresh Model Switcher", error));
 }
 
 function initQuickLaunch() {

@@ -17,11 +17,9 @@ was needed and the port still identifies itself as llama-server -- see
 import http.client
 import json
 import sys
-import urllib.error
-import urllib.request
 from typing import Any, Mapping, Optional
 
-from backend.http import build_http_origin
+from backend.http import open_pinned_local_request
 from backend.services import chat as chat_service
 from backend.services import process_manager
 from backend.state import default_external_chat_target
@@ -35,18 +33,6 @@ CONFIG_KEY = "external_chat_target"
 
 class ExternalServerUnreachable(RuntimeError):
     """Raised when nothing answers an HTTP probe at the registered address."""
-
-
-class _NoProbeRedirects(urllib.request.HTTPRedirectHandler):
-    """Keep probe credentials on the operator-selected local origin."""
-
-    def redirect_request(self, request, file_pointer, code, message, headers, new_url):
-        return None
-
-
-def _open_probe_request(request: urllib.request.Request, timeout: float):
-    opener = urllib.request.build_opener(_NoProbeRedirects())
-    return opener.open(request, timeout=timeout)
 
 
 def _normalize_host(value: Any) -> str:
@@ -194,28 +180,22 @@ def probe(host: str, port: int, authorization: str = "") -> dict[str, Any]:
     headers = {"Accept": "*/*"}
     if authorization:
         headers["Authorization"] = authorization
-    request = urllib.request.Request(
-        f"{build_http_origin(host, port)}/health", headers=headers
-    )
     try:
-        with _open_probe_request(request, timeout=PROBE_TIMEOUT_SECONDS) as response:
-            status = int(getattr(response, "status", None) or response.getcode() or 0)
+        # Pinned connect: re-resolves the host and refuses anything that no
+        # longer points at this machine, and never follows redirects, so the
+        # probe credentials cannot be lured off the operator-selected origin.
+        with open_pinned_local_request(
+            host, port, "/health", headers=headers, timeout=PROBE_TIMEOUT_SECONDS
+        ) as response:
+            status = int(response.status)
             body = response.read(MAX_PROBE_BODY_BYTES)
-    except urllib.error.HTTPError as exc:
-        try:
-            try:
-                body = exc.read(MAX_PROBE_BODY_BYTES)
-            except Exception as read_exc:
-                print(f"[external-server] could not read probe error body: {read_exc}", file=sys.stderr)
-                body = b""
-            status = int(exc.code)
-        finally:
-            exc.close()
+    except ValueError as exc:
+        raise ExternalServerUnreachable(str(exc)) from exc
     # http.client.HTTPException covers BadStatusLine, IncompleteRead and friends —
-    # a sibling of neither URLError nor OSError, so a peer that answers with
-    # garbage instead of HTTP used to escape probe() entirely rather than being
-    # reported as "nothing usable is listening there".
-    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:
+    # a sibling of OSError, so a peer that answers with garbage instead of HTTP
+    # used to escape probe() entirely rather than being reported as "nothing
+    # usable is listening there".
+    except (OSError, http.client.HTTPException) as exc:
         raise ExternalServerUnreachable(
             f"No server answered at {host}:{port}. Check that llama-server is running there."
         ) from exc

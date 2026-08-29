@@ -611,7 +611,8 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
     except subprocess.TimeoutExpired:
         return {"buffers": ["CPU"], "default": "CPU", "error": "Buffer discovery timed out."}
     except Exception as e:
-        return {"buffers": ["CPU"], "default": "CPU", "error": str(e)}
+        print(f"[process] buffer discovery failed: {e}", file=sys.stderr)
+        return {"buffers": ["CPU"], "default": "CPU", "error": "Buffer discovery failed."}
 
     combined_output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
     buffers = parse_buffer_types_output(combined_output)
@@ -634,7 +635,8 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
             )
             buffers = parse_list_devices_output(devices_output)
         except Exception as e:
-            detail = str(e)
+            print(f"[process] device discovery fallback failed: {e}", file=sys.stderr)
+            detail = "Device discovery failed."
 
     unique_buffers = []
     for buffer_type in ["CPU", *buffers]:
@@ -744,7 +746,8 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
     except subprocess.TimeoutExpired:
         return {"error": "Memory estimate timed out."}
     except Exception as e:
-        return {"error": str(e)}
+        print(f"[process] memory estimate failed: {e}", file=sys.stderr)
+        return {"error": "Memory estimate failed."}
 
     combined_output = "\n".join(part for part in [completed.stdout, completed.stderr] if part)
     rows = parse_memory_estimate_output(combined_output)
@@ -1261,6 +1264,8 @@ def launch_process(
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=env,
                 cwd=str(ctx.paths.root),
                 creationflags=creationflags,

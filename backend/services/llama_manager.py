@@ -19,6 +19,7 @@ import zipfile
 from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ..context import AppContext
+from ..http import sanitize_error
 
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
@@ -531,7 +532,7 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
         }
     except Exception as e:
         print(f"[llama_manager] activate_custom_backend failed: {e}", file=sys.stderr)
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": sanitize_error(e, 500)}
 
 
 def get_official_install_status(
@@ -969,7 +970,7 @@ def install_release(
                 return False
     except Exception as exc:
         print(f"[llama_manager] release lookup failed: {exc}", file=sys.stderr)
-        set_download_progress(ctx, status="error", message=str(exc))
+        set_download_progress(ctx, status="error", message="Download failed while locating the release.")
         return False
 
     asset_map = {a["name"]: a for a in release["assets"]}
@@ -1080,7 +1081,7 @@ def install_release(
 
     except Exception as e:
         print(f"[llama_manager] install_release failed: {e}", file=sys.stderr)
-        set_download_progress(ctx, status="error", message=str(e))
+        set_download_progress(ctx, status="error", message="Download failed unexpectedly.")
         return False
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)

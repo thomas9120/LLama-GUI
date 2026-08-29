@@ -1,13 +1,14 @@
 """Chat proxy helpers."""
 
-import functools
-import ipaddress
 import re
-import socket
 from typing import Any, Mapping, Sequence
 
 from backend import config
-from backend.http import build_http_origin
+from backend.http import (
+    build_http_origin,
+    get_local_interface_addresses,
+    resolve_local_addresses,
+)
 
 
 def get_message_text(content: Any) -> str:
@@ -87,36 +88,21 @@ def build_search_context(search_results: Sequence[Mapping[str, Any]], fetched_pa
     return context, sources
 
 
-@functools.lru_cache(maxsize=1)
-def get_local_interface_addresses() -> frozenset[str]:
-    addresses = {config.LLAMA_HOST, "::1"}
-    hostnames = {socket.gethostname(), socket.getfqdn()}
-    for name in hostnames:
-        try:
-            for info in socket.getaddrinfo(name, None):
-                addresses.add(info[4][0])
-        except OSError:
-            pass
-    return frozenset(addresses)
+# get_local_interface_addresses is imported above and re-exported for
+# existing callers; the implementation lives in backend.http next to the
+# pinned-connect primitive that shares it.
 
 
 def get_local_proxy_host(host: Any) -> tuple[str, str]:
     value = str(host or config.LLAMA_HOST).strip() or config.LLAMA_HOST
     if value.lower() == "localhost" or value in {"0.0.0.0", "::", "*"}:
         return config.LLAMA_HOST, ""
-    try:
-        infos = socket.getaddrinfo(value, None, type=socket.SOCK_STREAM)
-    except OSError as exc:
-        return "", f"Invalid llama-server metrics host: {exc}"
-    local_addresses = get_local_interface_addresses()
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            continue
-        if ip.is_loopback or info[4][0] in local_addresses:
-            return value, ""
-    return "", "Blocked: metrics proxy can only target this machine."
+    infos, error = resolve_local_addresses(value, None)
+    if not infos:
+        if error.startswith("Failed to resolve host"):
+            return "", "Invalid llama-server metrics host: resolution failed."
+        return "", "Blocked: metrics proxy can only target this machine."
+    return value, ""
 
 
 def get_local_chat_api_url(body: Mapping[str, Any]) -> str:

@@ -1,7 +1,6 @@
 """Web search and page text extraction helpers."""
 
 import html
-import http.client
 import ipaddress
 import json
 import re
@@ -13,7 +12,7 @@ from html.parser import HTMLParser
 from typing import Any, Mapping, Optional
 
 from backend import config
-from backend.http import sanitize_error
+from backend.http import PinnedHTTPConnection, PinnedHTTPSConnection, sanitize_error
 
 
 class ReadableHTMLParser(HTMLParser):
@@ -140,58 +139,6 @@ class ManualRedirectHandler(urllib.request.HTTPRedirectHandler):
 NoRedirect = ManualRedirectHandler
 
 
-def _connect_validated(addresses: list[Any], timeout: float, source_address: Any = None) -> Any:
-    last_error = None
-    for family, socktype, proto, _, sockaddr in addresses:
-        sock = socket.socket(family, socktype, proto)
-        try:
-            sock.settimeout(timeout)
-            if source_address:
-                sock.bind(source_address)
-            sock.connect(sockaddr)
-            return sock
-        except OSError as exc:
-            last_error = exc
-            sock.close()
-    if last_error is not None:
-        raise last_error
-    raise OSError("No validated addresses available")
-
-
-class _PinnedHTTPConnection(http.client.HTTPConnection):
-    def __init__(self, host: str, port: int, addresses: list[Any], timeout: float) -> None:
-        self._validated_addresses = addresses
-        super().__init__(host, port=port, timeout=timeout)
-
-    def connect(self) -> None:
-        self.sock = _connect_validated(
-            self._validated_addresses,
-            self.timeout,
-            self.source_address,
-        )
-
-
-class _PinnedHTTPSConnection(http.client.HTTPSConnection):
-    def __init__(
-        self,
-        host: str,
-        port: int,
-        addresses: list[Any],
-        timeout: float,
-        ssl_context: Optional[Any],
-    ) -> None:
-        self._validated_addresses = addresses
-        super().__init__(host, port=port, timeout=timeout, context=ssl_context)
-
-    def connect(self) -> None:
-        sock = _connect_validated(
-            self._validated_addresses,
-            self.timeout,
-            self.source_address,
-        )
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
-
-
 def _open_validated_url(
     parsed: urllib.parse.ParseResult,
     addresses: list[Any],
@@ -201,7 +148,7 @@ def _open_validated_url(
     # Connects directly to the pre-validated addresses (no system proxy
     # support): routing through a proxy would bypass the SSRF IP pinning.
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    connection_class = _PinnedHTTPSConnection if parsed.scheme == "https" else _PinnedHTTPConnection
+    connection_class = PinnedHTTPSConnection if parsed.scheme == "https" else PinnedHTTPConnection
     if parsed.scheme == "https":
         connection = connection_class(parsed.hostname, port, addresses, timeout, ssl_context)
     else:

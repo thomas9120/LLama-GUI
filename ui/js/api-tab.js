@@ -282,6 +282,15 @@
         return result;
     }
 
+    // Everything updateEndpoints renders is a function of these inputs. It
+    // runs on every flag keystroke and every lifecycle notification, so the
+    // endpoint/snippet cards are only rebuilt when one of them actually
+    // changed — with a few hundred models the rebuild is measurable DOM
+    // churn. The key deliberately covers more than URL/model/auth: tool mode,
+    // the active process tool, loading state and the external-target state
+    // all change the status text on their own.
+    let lastEndpointsRenderKey = "";
+
     function updateEndpoints() {
         const baseUrl = getServerBaseUrl();
         const modelName = getPreferredApiModelName();
@@ -290,9 +299,6 @@
         const snippets = document.getElementById("api-snippets-list");
         const statusNote = document.getElementById("api-status-note");
         if (!baseLink || !list || !statusNote || !snippets) return;
-
-        baseLink.href = baseUrl;
-        baseLink.textContent = baseUrl;
 
         const latestStatus = getLatestStatus();
         const isRunning = !!(latestStatus && latestStatus.running);
@@ -314,6 +320,24 @@
             : externalTarget
                 ? externalTarget.api_key_configured
                 : pendingHasApiKey;
+
+        const renderKey = JSON.stringify([
+            baseUrl,
+            modelName,
+            isRunning,
+            latestStatus ? latestStatus.active_process_tool ?? null : null,
+            latestStatus ? latestStatus.api_auth_configured ?? null : null,
+            isLoading,
+            externalTarget ? Boolean(externalTarget.api_key_configured) : null,
+            pendingHasApiKey,
+            flagCore.getCurrentTool(),
+        ]);
+        if (renderKey === lastEndpointsRenderKey) return;
+        lastEndpointsRenderKey = renderKey;
+
+        baseLink.href = baseUrl;
+        baseLink.textContent = baseUrl;
+
         const modeText = flagCore.getCurrentTool() === "llama-server"
             ? "Tool mode is set to llama-server."
             : "Tool mode is set to llama-cli. Switch to llama-server to expose HTTP endpoints.";

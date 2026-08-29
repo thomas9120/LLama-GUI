@@ -427,8 +427,8 @@
         if (quickLaunchFitCtxLinked !== false) {
             quickLaunchFitCtxLinked = values.fit_ctx === undefined || values.fit_ctx === values.ctx_size;
         }
-        syncModelOptions();
-        refreshSamplerPresetSelect();
+        // Model and sampler options refresh at their mutation sites. Rebuilding
+        // them here cloned every model option on every unrelated flag keystroke.
 
         const mainModelSelect = document.getElementById("model-select");
         const quickModelSelect = document.getElementById("quick-model-select");

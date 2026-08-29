@@ -2,12 +2,10 @@
 
 import json
 import sys
-import urllib.error
 import urllib.parse
-import urllib.request
 
 from backend import config
-from backend.http import SseWriter, sanitize_sse_error
+from backend.http import SseWriter, open_pinned_local_request, sanitize_sse_error
 from backend.services import chat as chat_service
 from backend.services import external_server
 from backend.services import web_search
@@ -129,6 +127,7 @@ def completions(request, response, ctx):
         proxy_body.pop("web_search_max_results", None)
 
         api_url = chat_service.get_local_chat_api_url(target)
+        parsed_api = urllib.parse.urlparse(api_url)
         headers = {"Content-Type": "application/json"}
         authorization = external_server.resolve_llama_authorization(
             ctx,
@@ -137,13 +136,27 @@ def completions(request, response, ctx):
         )
         if authorization:
             headers["Authorization"] = authorization
-        req = urllib.request.Request(
-            api_url,
+        # Pinned connect: the destination host was validated above, and is
+        # resolved and pinned again here so it cannot re-resolve off-machine
+        # between the two points.
+        with open_pinned_local_request(
+            parsed_api.hostname,
+            parsed_api.port,
+            parsed_api.path or "/v1/chat/completions",
+            method="POST",
             data=json.dumps(proxy_body).encode("utf-8"),
             headers=headers,
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=300) as resp:
+            timeout=300,
+        ) as resp:
+            if resp.status >= 400:
+                err = resp.read().decode("utf-8", errors="replace")
+                tunnel_active = bool(ctx.state.remote_tunnel.snapshot().get("url"))
+                if tunnel_active:
+                    print(f"[sanitize_sse_error] HTTPError {resp.status}: {err}", file=sys.stderr)
+                    _write_stream_error(writer, "Chat request failed.")
+                else:
+                    _write_stream_error(writer, f"llama-server returned HTTP {resp.status}: {err}")
+                return
             while True:
                 line = resp.readline()
                 if not line:
@@ -159,17 +172,6 @@ def completions(request, response, ctx):
     # socket that had just died.
     except ConnectionError:
         return
-    except urllib.error.HTTPError as exc:
-        try:
-            err = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            err = str(exc)
-        tunnel_active = bool(ctx.state.remote_tunnel.snapshot().get("url"))
-        if tunnel_active:
-            print(f"[sanitize_sse_error] HTTPError {exc.code}: {err}", file=sys.stderr)
-            _write_stream_error(writer, "Chat request failed.")
-        else:
-            _write_stream_error(writer, f"llama-server returned HTTP {exc.code}: {err}")
     except Exception as exc:
         tunnel_active = bool(ctx.state.remote_tunnel.snapshot().get("url"))
         _write_stream_error(writer, sanitize_sse_error(exc, tunnel_active))

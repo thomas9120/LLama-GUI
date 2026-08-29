@@ -27,7 +27,11 @@ def start_update(request, response, ctx):
             (request.body or {}).get("channel", "stable")
         )
         result = git_update.update_app_from_git(ctx, channel=channel)
-        if result.get("error"):
+        if result.get("already_in_progress"):
+            response.error(
+                result.get("error", "App update already in progress."), 409
+            )
+        elif result.get("error"):
             response.error(
                 result.get("error", "App update failed"),
                 400,
