@@ -1,5 +1,6 @@
 """Cloudflare tunnel management."""
 
+import json
 import os
 import re
 import shutil
@@ -9,13 +10,35 @@ import sys
 import tarfile
 import tempfile
 import threading
+import urllib.request
 from pathlib import Path
 from typing import Optional
 
 from .. import config
 from ..context import AppContext
 from ..http import build_http_origin, sanitize_error
-from ..services.llama_manager import download_file
+from ..services.llama_manager import download_file, get_release_asset_sha256, sha256_file
+
+CLOUDFLARED_RELEASE_API = "https://api.github.com/repos/cloudflare/cloudflared/releases/latest"
+
+
+def _cloudflared_asset_name(spec: dict) -> str:
+    return Path(str(spec.get("url") or "")).name
+
+
+def _fetch_cloudflared_release_asset(ctx: AppContext, asset_name: str) -> dict:
+    req = urllib.request.Request(
+        CLOUDFLARED_RELEASE_API,
+        headers={"Accept": "application/vnd.github+json"},
+    )
+    with ctx.services.urlopen_with_ssl(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+    for asset in data.get("assets", []) or []:
+        if isinstance(asset, dict) and asset.get("name") == asset_name:
+            return asset
+    raise RuntimeError(
+        f"Cloudflared release metadata did not include the expected asset {asset_name}."
+    )
 
 
 def get_cloudflared_asset(platform: str, arch: str) -> Optional[dict]:
@@ -127,9 +150,28 @@ def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Pat
     staging_dir = Path(tempfile.mkdtemp(prefix=".cloudflared-", dir=cloudflared_dir))
     try:
         staged_binary = staging_dir / spec["filename"]
+        asset_name = _cloudflared_asset_name(spec)
+        release_asset = _fetch_cloudflared_release_asset(ctx, asset_name)
+        download_url = spec["url"]
+        candidate = release_asset.get("browser_download_url")
+        if isinstance(candidate, str) and candidate.strip():
+            download_url = candidate.strip()
+        expected_sha = get_release_asset_sha256(release_asset, asset_name)
+        if expected_sha is None:
+            raise RuntimeError(
+                f"Cloudflared release metadata did not provide a usable SHA256 digest for {asset_name}."
+            )
         if spec["archive"]:
             archive_path = staging_dir / Path(spec["url"]).name
-            download_file(ctx, spec["url"], archive_path)
+            # Prefer the resolved download URL's basename when it differs, but
+            # keep the file under staging_dir so the extraction step always
+            # sees the same path we verified.
+            if download_url != spec["url"]:
+                archive_path = staging_dir / Path(download_url).name
+            download_file(ctx, download_url, archive_path)
+            actual = sha256_file(archive_path)
+            if actual.lower() != expected_sha.lower():
+                raise RuntimeError(f"SHA256 mismatch for {asset_name}")
             with tarfile.open(archive_path, "r:gz") as tf:
                 member = next(
                     (
@@ -147,7 +189,10 @@ def ensure_cloudflared(ctx: AppContext, generation: Optional[int] = None) -> Pat
                 with src, open(staged_binary, "wb") as out:
                     shutil.copyfileobj(src, out)
         else:
-            download_file(ctx, spec["url"], staged_binary)
+            download_file(ctx, download_url, staged_binary)
+            actual = sha256_file(staged_binary)
+            if actual.lower() != expected_sha.lower():
+                raise RuntimeError(f"SHA256 mismatch for {asset_name}")
 
         if not staged_binary.is_file() or staged_binary.stat().st_size == 0:
             raise RuntimeError("Downloaded cloudflared helper was empty.")
@@ -297,11 +342,20 @@ def start_remote_tunnel(ctx: AppContext) -> dict:
             message="Preparing Cloudflare tunnel...",
             log="",
         )
-    threading.Thread(
-        target=_start_remote_tunnel_worker,
-        args=(ctx, generation),
-        daemon=True,
-    ).start()
+    try:
+        threading.Thread(
+            target=_start_remote_tunnel_worker,
+            args=(ctx, generation),
+            daemon=True,
+        ).start()
+    except Exception as exc:
+        print(f"[tunnel] failed to start tunnel thread: {exc}", file=sys.stderr)
+        with ctx.state.remote_tunnel_lock:
+            if ctx.state.remote_tunnel_generation == generation:
+                ctx.state.remote_tunnel.update(
+                    status="error", url="", message=sanitize_error(exc, 500), log=""
+                )
+        return get_remote_tunnel_snapshot(ctx)
     return get_remote_tunnel_snapshot(ctx)
 
 

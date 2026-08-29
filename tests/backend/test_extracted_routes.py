@@ -138,6 +138,10 @@ def make_context(root):
         config_store.update(config_data)
 
     ctx.services.load_config = lambda: dict(config_store)
+    ctx.services.normalize_llama_api_target = lambda host, port: {
+        "host": str(host or ctx.config.llama_host),
+        "port": int(port or ctx.config.llama_port),
+    }
     ctx.services.save_config = save_config
     return ctx
 
@@ -1659,6 +1663,47 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertTrue(install_free, "install_lock was held across runtime validation")
         self.assertTrue(process_free, "process_lock was held across runtime validation")
 
+    def test_launch_does_not_hold_locks_across_api_target_resolution(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+
+            def slow_resolution(_ctx, _args):
+                entered.set()
+                release.wait(5)
+                raise ValueError("stopped after DNS resolution")
+
+            with mock.patch.object(
+                process_manager,
+                "_validate_launch_environment",
+                return_value=(Path(tmp) / "llama-server", None),
+            ), mock.patch.object(
+                process_manager, "validate_launch_api_target", slow_resolution
+            ), mock.patch.object(process_manager.subprocess, "Popen") as popen:
+                launcher = threading.Thread(
+                    target=process_manager.launch_process,
+                    args=(ctx, "llama-server", ["--host", "slow.test"]),
+                    daemon=True,
+                )
+                launcher.start()
+                self.assertTrue(entered.wait(5), "target resolution never started")
+
+                install_free = ctx.state.install_lock.acquire(timeout=2)
+                if install_free:
+                    ctx.state.install_lock.release()
+                process_free = ctx.state.process_lock.acquire(timeout=2)
+                if process_free:
+                    ctx.state.process_lock.release()
+
+                release.set()
+                launcher.join(5)
+
+        self.assertTrue(install_free, "install_lock was held across target resolution")
+        self.assertTrue(process_free, "process_lock was held across target resolution")
+        popen.assert_not_called()
+
     def test_launch_rechecks_install_state_after_validation(self):
         """Moving validation outside the locks opens a window; the authoritative
         re-check inside them is what closes it."""
@@ -2025,6 +2070,10 @@ class ExtractedRouteTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
                 validate_runtime_dependencies=lambda tools=None: {
@@ -2188,6 +2237,10 @@ class ExtractedRouteTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
             )
@@ -2532,50 +2585,40 @@ class ExtractedRouteTests(unittest.TestCase):
         ctx, _ = self._make_health_context()
 
         with mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             return_value=FakeHealthUpstream(200),
-        ) as mock_urlopen:
+        ) as mock_pinned:
             ready = process_manager.get_llama_health(ctx, "4")
 
         self.assertEqual(ready["state"], "ready")
         self.assertTrue(ready["ready"])
-        request = mock_urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8080/health")
-        self.assertEqual(request.get_header("Accept"), "application/json")
-        self.assertIsNone(request.get_header("Authorization"))
-        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 2)
-
-        http_503 = urllib.error.HTTPError(
-            "http://127.0.0.1:8080/health", 503, "loading", {}, None
+        mock_pinned.assert_called_once_with(
+            "127.0.0.1", 8080, "/health", headers={"Accept": "application/json"}, timeout=2
         )
+
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=http_503
+            process_manager, "open_pinned_local_request", return_value=FakeHealthUpstream(503)
         ):
             loading = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(loading["state"], "loading")
         self.assertFalse(loading["ready"])
 
         with mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             starting = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(starting["state"], "starting")
         self.assertNotIn("connection refused", starting["message"])
 
-        error_body = io.BytesIO(b"failed")
-        http_500 = urllib.error.HTTPError(
-            "http://127.0.0.1:8080/health", 500, "failed", {}, error_body
-        )
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=http_500
+            process_manager, "open_pinned_local_request", return_value=FakeHealthUpstream(500)
         ):
             error = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(error["state"], "error")
         self.assertEqual(error["message"], "llama-server health returned HTTP 500.")
-        self.assertTrue(error_body.closed)
 
     def test_llama_health_handles_stopped_failed_and_superseded_generations(self):
         stopped_ctx = AppContext()
@@ -2583,12 +2626,12 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertEqual(stopped["state"], "stopped")
 
         ctx, process_handle = self._make_health_context()
-        with mock.patch.object(process_manager.urllib.request, "urlopen") as mock_urlopen:
+        with mock.patch.object(process_manager, "open_pinned_local_request") as mock_pinned:
             superseded_before_probe = process_manager.get_llama_health(ctx, 3)
         self.assertEqual(superseded_before_probe["state"], "superseded")
-        mock_urlopen.assert_not_called()
+        mock_pinned.assert_not_called()
 
-        def replace_runtime(request, timeout):
+        def replace_runtime(*args, **kwargs):
             self.assertTrue(ctx.state.process_lock.acquire(blocking=False))
             try:
                 next_process = mock.Mock()
@@ -2606,20 +2649,47 @@ class ExtractedRouteTests(unittest.TestCase):
             return FakeHealthUpstream(200)
 
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=replace_runtime
+            process_manager, "open_pinned_local_request", side_effect=replace_runtime
         ):
             superseded_after_probe = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(superseded_after_probe["state"], "superseded")
         self.assertEqual(superseded_after_probe["generation"], 5)
 
+        rejected_ctx, _ = self._make_health_context()
+
+        def replace_runtime_then_reject(*args, **kwargs):
+            with rejected_ctx.state.process_lock:
+                replacement = mock.Mock()
+                replacement.poll.return_value = None
+                rejected_ctx.state.process = replacement
+                rejected_ctx.state.runtime_generation = 5
+                rejected_ctx.state.active_runtime = {
+                    "generation": 5,
+                    "tool": "llama-server",
+                    "host": "127.0.0.1",
+                    "port": 8081,
+                }
+            raise ValueError("Blocked: proxy target must resolve to this machine.")
+
+        with mock.patch.object(
+            process_manager,
+            "open_pinned_local_request",
+            side_effect=replace_runtime_then_reject,
+        ):
+            superseded_after_rejection = process_manager.get_llama_health(
+                rejected_ctx, 4
+            )
+        self.assertEqual(superseded_after_rejection["state"], "superseded")
+        self.assertEqual(superseded_after_rejection["generation"], 5)
+
         failed_ctx, failed_process = self._make_health_context(7)
 
-        def exit_during_probe(request, timeout):
+        def exit_during_probe(*args, **kwargs):
             failed_process.poll.return_value = 9
             return FakeHealthUpstream(200)
 
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=exit_during_probe
+            process_manager, "open_pinned_local_request", side_effect=exit_during_probe
         ):
             failed = process_manager.get_llama_health(failed_ctx, 7)
         self.assertEqual(failed["state"], "failed")
@@ -2634,8 +2704,8 @@ class ExtractedRouteTests(unittest.TestCase):
         ctx, _ = self._make_health_context()
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             side_effect=RuntimeError("private upstream detail"),
         ):
             result = process_manager.get_llama_health(ctx, 4)
@@ -5294,6 +5364,10 @@ class SubprocessWindowFlagTests(unittest.TestCase):
                 find_tool_executable=lambda tool: executable,
                 get_tool_filename=lambda tool: tool,
                 load_config=lambda: {},
+                normalize_llama_api_target=lambda host, port: {
+                    "host": host,
+                    "port": int(port),
+                },
                 set_llama_api_target=lambda host, port: {"host": host, "port": int(port)},
                 get_llama_api_target=lambda: {"host": "127.0.0.1", "port": 8080},
             )

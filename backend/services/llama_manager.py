@@ -243,7 +243,7 @@ def get_release_asset_sha256(asset: Mapping[str, Any], filename: str) -> Optiona
     detail = "missing" if digest in (None, "") else "unsupported or malformed"
     print(
         f"WARNING: SHA256 digest metadata is {detail} for release asset {filename}; "
-        "skipping checksum verification.",
+        "checksum verification is unavailable.",
         file=sys.stderr,
     )
     return None

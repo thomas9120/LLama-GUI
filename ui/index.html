@@ -188,7 +188,7 @@
                 </div>
             </div>
 
-            <div class="stacked-cards">
+            <div class="stacked-cards install-cards">
                 <div class="card">
                     <h3>Install</h3>
                     <div id="install-status" class="status-box"></div>
@@ -212,7 +212,6 @@
                         <select id="backend-select">
                             <option value="">Loading available backends...</option>
                         </select>
-                        <p class="help-text">ROCm (Lemonade) builds target a specific AMD GPU architecture &mdash; choose the gfx target matching your GPU (e.g. gfx110X = RDNA3, gfx103X = RDNA2, gfx1150/gfx1151 = Ryzen AI).</p>
                     </div>
 
                     <div id="custom-backend-info" style="display:none;">
@@ -239,18 +238,6 @@
                 </div>
 
                 <div class="card">
-                    <h3>Installed</h3>
-                    <div id="installed-info"></div>
-                    <div class="section">
-                        <h3>Folders</h3>
-                        <div class="form-row">
-                            <button id="btn-open-models" class="btn" type="button">Open Models</button>
-                            <button id="btn-open-llama" class="btn" type="button">Open llama.cpp</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
                     <h3>Llama GUI App Updates</h3>
                     <div class="form-group">
                         <label class="form-label" for="app-update-channel">Update channel</label>
@@ -271,7 +258,19 @@
                     </p>
                 </div>
 
-                <div class="card card-danger">
+                <div class="card span-full">
+                    <h3>Installed</h3>
+                    <div id="installed-info"></div>
+                    <div class="section">
+                        <h3>Folders</h3>
+                        <div class="form-row">
+                            <button id="btn-open-models" class="btn" type="button">Open Models</button>
+                            <button id="btn-open-llama" class="btn" type="button">Open llama.cpp</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card card-danger span-full">
                     <h3>Danger Zone</h3>
                     <p class="help-text">These actions remove files or stop the app itself. They ask for confirmation, but use them deliberately.</p>
                     <div class="form-row">

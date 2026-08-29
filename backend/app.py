@@ -214,6 +214,7 @@ def configure_services(ctx=APP_CONTEXT):
     ctx.services.is_process_running = is_process_running
     ctx.services.llama_tools = LLAMA_TOOLS
     ctx.services.load_config = load_config
+    ctx.services.normalize_llama_api_target = normalize_llama_api_target
     ctx.services.save_config = save_config
     ctx.services.ssl_context = SSL_CONTEXT
     ctx.services.urlopen_with_ssl = urlopen_with_ssl
@@ -253,12 +254,18 @@ def normalize_local_proxy_host(host):
     return proxy_host
 
 
+def normalize_llama_api_target(host=None, port=None):
+    return {
+        "host": normalize_local_proxy_host(host),
+        "port": parse_port(port),
+    }
+
+
 def set_llama_api_target(host=None, port=None):
-    proxy_host = normalize_local_proxy_host(host)
-    proxy_port = parse_port(port)
+    target = normalize_llama_api_target(host, port)
     state = APP_CONTEXT.state
     with state.llama_api_target_lock:
-        return state.llama_api_target.update(host=proxy_host, port=proxy_port)
+        return state.llama_api_target.update(**target)
 
 
 def get_llama_api_target():
