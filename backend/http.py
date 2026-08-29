@@ -109,7 +109,8 @@ def resolve_local_addresses(host: Any, port: Any) -> tuple[list, str]:
     try:
         infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     except OSError as exc:
-        return [], f"Failed to resolve host: {exc}"
+        print(f"[http] failed to resolve local proxy host {host!r}: {exc}", file=sys.stderr)
+        return [], "Failed to resolve host."
     if not infos:
         return [], f"No addresses found for host: {host!r}"
     local_addresses = get_local_interface_addresses()

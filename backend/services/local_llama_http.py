@@ -33,27 +33,29 @@ def _fetch_local_llama_endpoint(
     headers = {"Accept": accept}
     if authorization:
         headers["Authorization"] = authorization
+    response = None
     try:
-        # Resolves and pins the address here, at connect time, so a hostname
-        # that passed validation cannot re-resolve somewhere off-machine.
-        response = open_pinned_local_request(
-            proxy_host, parsed_port, path, headers=headers, timeout=3
-        )
-    except ValueError as exc:
-        return None, str(exc)
-    except Exception as exc:
-        # Raw exception text can carry WinError strings and host details; it
-        # would surface verbatim as a 502 body, readable over the tunnel.
-        print(f"[llama_http] failed to fetch llama-server {label}: {exc}", file=sys.stderr)
-        return None, f"Failed to fetch llama-server {label}."
-    try:
+        try:
+            # Resolves and pins the address here, at connect time, so a hostname
+            # that passed validation cannot re-resolve somewhere off-machine.
+            response = open_pinned_local_request(
+                proxy_host, parsed_port, path, headers=headers, timeout=3
+            )
+        except ValueError as exc:
+            return None, str(exc)
         if response.status >= 400:
             return None, f"llama-server {label} returned HTTP {response.status}."
         raw = response.read(config.WEB_SEARCH_FETCH_BYTES)
         charset = response.headers.get_content_charset() or "utf-8"
         return raw.decode(charset, errors="replace"), ""
+    except Exception as exc:
+        # Raw exception text can carry WinError strings and host details; it
+        # would surface verbatim as a 502 body, readable over the tunnel.
+        print(f"[llama_http] failed to fetch llama-server {label}: {exc}", file=sys.stderr)
+        return None, f"Failed to fetch llama-server {label}."
     finally:
-        response.close()
+        if response is not None:
+            response.close()
 
 
 def get_local_llama_metrics(host, port, authorization=""):

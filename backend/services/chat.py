@@ -99,9 +99,8 @@ def get_local_proxy_host(host: Any) -> tuple[str, str]:
         return config.LLAMA_HOST, ""
     infos, error = resolve_local_addresses(value, None)
     if not infos:
-        if error.startswith("Failed to resolve host:"):
-            detail = error.split(":", 1)[1].strip()
-            return "", f"Invalid llama-server metrics host: {detail}"
+        if error.startswith("Failed to resolve host"):
+            return "", "Invalid llama-server metrics host: resolution failed."
         return "", "Blocked: metrics proxy can only target this machine."
     return value, ""
 

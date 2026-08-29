@@ -645,6 +645,26 @@ async function main() {
         );
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().temperature === 0.85);
 
+        // An unrelated flag edit must update mirrored values without replacing
+        // the structural option nodes in Quick Launch or Model Switcher.
+        const structuralOptionsStayedMounted = await page.evaluate(async () => {
+            const quickModelOption = document.querySelector("#quick-model-select option");
+            const quickSamplerOption = document.querySelector("#quick-sampler-select option");
+            const modelSwitcherOption = document.querySelector("#model-switch-select-a option");
+            window.LlamaGui.flagCore.setFlagValue("temperature", 0.84);
+            await new Promise(resolve => setTimeout(resolve, 0));
+            return {
+                quickModel: quickModelOption === document.querySelector("#quick-model-select option"),
+                quickSampler: quickSamplerOption === document.querySelector("#quick-sampler-select option"),
+                modelSwitcher: modelSwitcherOption === document.querySelector("#model-switch-select-a option"),
+            };
+        });
+        assert.deepEqual(structuralOptionsStayedMounted, {
+            quickModel: true,
+            quickSampler: true,
+            modelSwitcher: true,
+        });
+
         // Trailing zeros are the sharper case: "0.0" parses to 0, so a plain
         // value-equality guard would still rewrite the field to "0" mid-typing.
         await page.evaluate(() => { document.getElementById("flag-temperature").value = ""; });

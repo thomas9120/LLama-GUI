@@ -298,6 +298,30 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 )
                 self.assertIn("offline", logged)
 
+    def test_endpoint_body_read_errors_are_sanitized_but_logged(self):
+        response = self.make_response(b"")
+        response.read.side_effect = OSError("secret connection reset detail")
+        stderr = io.StringIO()
+        with (
+            mock.patch.object(
+                local_llama_http,
+                "get_metrics_host",
+                return_value=("127.0.0.1", ""),
+            ),
+            mock.patch.object(
+                local_llama_http,
+                "open_pinned_local_request",
+                return_value=response,
+            ),
+            contextlib.redirect_stderr(stderr),
+        ):
+            result = local_llama_http.get_local_llama_metrics("localhost", 8080)
+
+        self.assertEqual(result, (None, "Failed to fetch llama-server metrics."))
+        self.assertNotIn("secret", result[1])
+        self.assertIn("secret connection reset detail", stderr.getvalue())
+        response.close.assert_called_once()
+
 
 def make_service_context(root):
     root = pathlib.Path(root)
@@ -3076,6 +3100,10 @@ class PinnedLocalRequestTests(unittest.TestCase):
 
     def test_resolve_keeps_loopback_entries_and_rejects_public_only_hosts(self):
         with mock.patch.object(
+            backend_http,
+            "get_local_interface_addresses",
+            return_value=frozenset({"127.0.0.1"}),
+        ), mock.patch.object(
             backend_http.socket, "getaddrinfo", return_value=self.LOOPBACK
         ):
             infos, error = backend_http.resolve_local_addresses("local.test", 9090)
@@ -3083,11 +3111,29 @@ class PinnedLocalRequestTests(unittest.TestCase):
         self.assertEqual(error, "")
 
         with mock.patch.object(
+            backend_http,
+            "get_local_interface_addresses",
+            return_value=frozenset({"127.0.0.1"}),
+        ), mock.patch.object(
             backend_http.socket, "getaddrinfo", return_value=self.PUBLIC
         ):
             infos, error = backend_http.resolve_local_addresses("evil.test", 9090)
         self.assertEqual(infos, [])
         self.assertEqual(error, "Blocked: proxy target must resolve to this machine.")
+
+    def test_resolve_failure_logs_detail_without_returning_it(self):
+        stderr = io.StringIO()
+        with mock.patch.object(
+            backend_http.socket,
+            "getaddrinfo",
+            side_effect=OSError("WinError 11001: secret resolver detail"),
+        ), contextlib.redirect_stderr(stderr):
+            infos, error = backend_http.resolve_local_addresses("rebind.test", 9090)
+
+        self.assertEqual(infos, [])
+        self.assertEqual(error, "Failed to resolve host.")
+        self.assertNotIn("secret", error)
+        self.assertIn("secret resolver detail", stderr.getvalue())
 
     def test_open_blocks_rebinding_between_validation_and_connect(self):
         """First resolution (validation gate) returns loopback, second
@@ -3097,6 +3143,10 @@ class PinnedLocalRequestTests(unittest.TestCase):
             backend_http.socket,
             "getaddrinfo",
             side_effect=[self.LOOPBACK, self.PUBLIC],
+        ), mock.patch.object(
+            backend_http,
+            "get_local_interface_addresses",
+            return_value=frozenset({"127.0.0.1"}),
         ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned:
             host, error = chat_service.get_local_proxy_host("rebind.test")
             self.assertEqual((host, error), ("rebind.test", ""))
@@ -3143,6 +3193,10 @@ class PinnedLocalRequestTests(unittest.TestCase):
             backend_http.socket,
             "getaddrinfo",
             side_effect=[self.LOOPBACK, self.PUBLIC],
+        ), mock.patch.object(
+            backend_http,
+            "get_local_interface_addresses",
+            return_value=frozenset({"127.0.0.1"}),
         ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned:
             text, error = local_llama_http.get_local_llama_metrics("rebind.test", 9090)
 
