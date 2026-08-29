@@ -2,8 +2,11 @@
 
 from dataclasses import dataclass, field
 from email.message import Message
+import functools
+import http.client
 import ipaddress
 import json
+import socket
 import sys
 from typing import Any, Mapping, Optional, Sequence
 import urllib.parse
@@ -79,6 +82,139 @@ def format_origin_host(host: str) -> str:
 
 def build_http_origin(host: str, port: int) -> str:
     return f"http://{format_origin_host(host)}:{port}"
+
+
+@functools.lru_cache(maxsize=1)
+def get_local_interface_addresses() -> frozenset:
+    """Addresses that count as "this machine" for the local-proxy policy."""
+    addresses = {config.LLAMA_HOST, "::1"}
+    hostnames = {socket.gethostname(), socket.getfqdn()}
+    for name in hostnames:
+        try:
+            for info in socket.getaddrinfo(name, None):
+                addresses.add(info[4][0])
+        except OSError:
+            pass
+    return frozenset(addresses)
+
+
+def resolve_local_addresses(host: Any, port: Any) -> tuple[list, str]:
+    """Resolve *host* and keep only the entries pointing at this machine.
+
+    Returns ``(getaddrinfo entries, error)``. Callers use this both as the
+    up-front validation gate and again immediately before connecting, so a
+    hostname that validated earlier cannot re-resolve to a remote address
+    between validation and connect (DNS-rebinding TOCTOU).
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError as exc:
+        return [], f"Failed to resolve host: {exc}"
+    if not infos:
+        return [], f"No addresses found for host: {host!r}"
+    local_addresses = get_local_interface_addresses()
+    local_infos = []
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+        except ValueError:
+            continue
+        if ip.is_loopback or info[4][0] in local_addresses:
+            local_infos.append(info)
+    if not local_infos:
+        return [], "Blocked: proxy target must resolve to this machine."
+    return local_infos, ""
+
+
+def connect_pinned(addresses: list, timeout: float, source_address: Any = None) -> socket.socket:
+    """Connect directly to one of the pre-resolved *addresses*."""
+    last_error = None
+    for family, socktype, proto, _, sockaddr in addresses:
+        sock = socket.socket(family, socktype, proto)
+        try:
+            sock.settimeout(timeout)
+            if source_address:
+                sock.bind(source_address)
+            sock.connect(sockaddr)
+            return sock
+        except OSError as exc:
+            last_error = exc
+            sock.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError("No pinned addresses available")
+
+
+class PinnedHTTPConnection(http.client.HTTPConnection):
+    """HTTP connection that only dials the addresses it was given.
+
+    The system resolver is never consulted at connect time, so a DNS answer
+    cannot change between validation and the actual connection.
+    """
+
+    def __init__(self, host: str, port: int, addresses: list, timeout: float) -> None:
+        self._pinned_addresses = addresses
+        super().__init__(host, port=port, timeout=timeout)
+
+    def connect(self) -> None:
+        self.sock = connect_pinned(
+            self._pinned_addresses,
+            self.timeout,
+            self.source_address,
+        )
+
+
+class PinnedHTTPSConnection(http.client.HTTPSConnection):
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        addresses: list,
+        timeout: float,
+        ssl_context: Optional[Any],
+    ) -> None:
+        self._pinned_addresses = addresses
+        super().__init__(host, port=port, timeout=timeout, context=ssl_context)
+
+    def connect(self) -> None:
+        sock = connect_pinned(
+            self._pinned_addresses,
+            self.timeout,
+            self.source_address,
+        )
+        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
+
+
+def open_pinned_local_request(
+    host: Any,
+    port: Any,
+    path: str,
+    *,
+    method: str = "GET",
+    data: Optional[bytes] = None,
+    headers: Optional[Mapping[str, str]] = None,
+    timeout: float = 30.0,
+) -> http.client.HTTPResponse:
+    """Open a plain-HTTP request to a target that must live on this machine.
+
+    The hostname is resolved here — not earlier, not by the OS again at
+    connect time — and restricted to local addresses; the socket then dials
+    one of those pinned addresses directly. Redirects are never followed.
+
+    Raises ``ValueError`` when the target does not resolve locally and
+    ``OSError`` (or an ``http.client`` exception) for transport failures.
+    The caller owns the returned response and must close it.
+    """
+    infos, error = resolve_local_addresses(host, port)
+    if not infos:
+        raise ValueError(error)
+    connection = PinnedHTTPConnection(str(host), int(port), infos, timeout)
+    try:
+        connection.request(method, path, body=data, headers=dict(headers or {}))
+        return connection.getresponse()
+    except Exception:
+        connection.close()
+        raise
 
 
 def is_ip_literal(host: str) -> bool:

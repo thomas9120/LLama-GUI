@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-28
+- Closed a DNS-rebinding gap in the local proxies: the chat proxy, metrics/slots/props proxy, external-server health probe, and the generic `/v1` proxy previously validated a hostname once and then let the OS resolve it again at connect time, so a hostname could swing to an off-machine address in between. All four now share one pinned-connection primitive (`backend/http.py`) that re-resolves at connect time, refuses anything that no longer points at this machine, and never follows redirects; the web-search fetcher reuses the same pinned connection classes.
 - The Chat tab now tolerates blocked browser storage (e.g. "block all cookies"): its settings reads/writes go through the same tolerant helpers as the rest of the UI, so Chat initialization and its controls keep working with session defaults instead of dying on the first storage access.
 - Several error paths no longer send raw exception text (OS error strings, local paths) to the UI: buffer/device discovery, memory estimates, custom backend activation, install download progress, and the local metrics fetch now show fixed messages and keep the full detail in the backend log.
 - Child process output streams now decode as UTF-8 with replacement: a non-UTF-8 byte in llama-server output no longer kills the output reader for that pipe, which previously left the pipe undrained so the child could block on a full pipe and appear hung.

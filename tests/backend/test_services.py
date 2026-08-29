@@ -1,12 +1,15 @@
 import contextlib
 import hashlib
+import http.server
 import io
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import tarfile
 import tempfile
+import threading
 import unittest
 import urllib.error
 import zipfile
@@ -15,6 +18,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 from backend import config
+from backend import http as backend_http
 from backend.context import AppContext, AppPaths, ServerConfig
 from backend.services import chat as chat_service
 from backend.services import external_server as external_server_service
@@ -64,8 +68,9 @@ class FakeDownloadResponseTests(unittest.TestCase):
 
 class LocalLlamaHttpTests(unittest.TestCase):
     @staticmethod
-    def make_response(body, content_type=""):
+    def make_response(body, content_type="", status=200):
         response = mock.MagicMock()
+        response.status = status
         response.read.return_value = body
         response.headers = Message()
         if content_type:
@@ -85,24 +90,25 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 return_value=("127.0.0.1", ""),
             ),
             mock.patch.object(
-                local_llama_http.urllib.request,
-                "urlopen",
+                local_llama_http,
+                "open_pinned_local_request",
                 return_value=response,
-            ) as urlopen,
+            ) as open_pinned,
         ):
             text, error = local_llama_http.get_local_llama_metrics(
                 "localhost", "9090", "Bearer secret"
             )
 
         self.assertEqual((text, error), ("café", ""))
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:9090/metrics")
-        self.assertEqual(request.get_header("Accept"), "text/plain")
-        self.assertEqual(request.get_header("Authorization"), "Bearer secret")
-        self.assertEqual(urlopen.call_args.kwargs, {"timeout": 3})
+        self.assertEqual(open_pinned.call_args.args, ("127.0.0.1", 9090, "/metrics"))
+        self.assertEqual(
+            open_pinned.call_args.kwargs["headers"],
+            {"Accept": "text/plain", "Authorization": "Bearer secret"},
+        )
+        self.assertEqual(open_pinned.call_args.kwargs["timeout"], 3)
         response.read.assert_called_once_with(config.WEB_SEARCH_FETCH_BYTES)
 
-    def test_metrics_brackets_an_ipv6_host(self):
+    def test_metrics_keeps_an_ipv6_host_literal_for_the_pinned_connect(self):
         response = self.make_response(b"metric 1")
         with (
             mock.patch.object(
@@ -111,18 +117,15 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 return_value=("::1", ""),
             ),
             mock.patch.object(
-                local_llama_http.urllib.request,
-                "urlopen",
+                local_llama_http,
+                "open_pinned_local_request",
                 return_value=response,
-            ) as urlopen,
+            ) as open_pinned,
         ):
             text, error = local_llama_http.get_local_llama_metrics("::1", 9090)
 
         self.assertEqual((text, error), ("metric 1", ""))
-        self.assertEqual(
-            urlopen.call_args.args[0].full_url,
-            "http://[::1]:9090/metrics",
-        )
+        self.assertEqual(open_pinned.call_args.args, ("::1", 9090, "/metrics"))
 
     def test_chat_url_brackets_an_ipv6_host(self):
         with mock.patch.object(
@@ -141,20 +144,18 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 return_value=("127.0.0.1", ""),
             ),
             mock.patch.object(
-                local_llama_http.urllib.request,
-                "urlopen",
+                local_llama_http,
+                "open_pinned_local_request",
                 return_value=response,
-            ) as urlopen,
+            ) as open_pinned,
         ):
             text, error = local_llama_http.get_local_llama_slots(
                 "127.0.0.1", 8080
             )
 
         self.assertEqual((text, error), ('[{"id":0}]', ""))
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8080/slots")
-        self.assertEqual(request.get_header("Accept"), "application/json")
-        self.assertIsNone(request.get_header("Authorization"))
+        self.assertEqual(open_pinned.call_args.args, ("127.0.0.1", 8080, "/slots"))
+        self.assertEqual(open_pinned.call_args.kwargs["headers"], {"Accept": "application/json"})
 
     def test_app_delegates_and_default_service_wiring_are_preserved(self):
         from backend import app
@@ -227,14 +228,14 @@ class LocalLlamaHttpTests(unittest.TestCase):
                 return_value=("", "Blocked local host."),
             ),
             mock.patch.object(
-                local_llama_http.urllib.request,
-                "urlopen",
-            ) as urlopen,
+                local_llama_http,
+                "open_pinned_local_request",
+            ) as open_pinned,
         ):
             result = local_llama_http.get_local_llama_slots("remote", 8080)
 
         self.assertEqual(result, (None, "Blocked local host."))
-        urlopen.assert_not_called()
+        open_pinned.assert_not_called()
 
     def test_endpoint_specific_http_errors_are_preserved(self):
         cases = (
@@ -243,14 +244,7 @@ class LocalLlamaHttpTests(unittest.TestCase):
         )
         for fetch, label in cases:
             with self.subTest(label=label):
-                error_body = io.BytesIO(b"unavailable")
-                error = urllib.error.HTTPError(
-                    "http://127.0.0.1:8080/endpoint",
-                    503,
-                    "Unavailable",
-                    None,
-                    error_body,
-                )
+                response = self.make_response(b"unavailable", status=503)
                 with (
                     mock.patch.object(
                         local_llama_http,
@@ -258,9 +252,9 @@ class LocalLlamaHttpTests(unittest.TestCase):
                         return_value=("127.0.0.1", ""),
                     ),
                     mock.patch.object(
-                        local_llama_http.urllib.request,
-                        "urlopen",
-                        side_effect=error,
+                        local_llama_http,
+                        "open_pinned_local_request",
+                        return_value=response,
                     ),
                 ):
                     result = fetch("localhost", 8080)
@@ -269,7 +263,7 @@ class LocalLlamaHttpTests(unittest.TestCase):
                     result,
                     (None, f"llama-server {label} returned HTTP 503."),
                 )
-                self.assertTrue(error_body.closed)
+                response.close.assert_called_once()
 
     def test_endpoint_network_errors_are_sanitized_but_logged(self):
         """Raw exception text (WinError strings, host details) must not reach
@@ -287,8 +281,8 @@ class LocalLlamaHttpTests(unittest.TestCase):
                         return_value=("127.0.0.1", ""),
                     ),
                     mock.patch.object(
-                        local_llama_http.urllib.request,
-                        "urlopen",
+                        local_llama_http,
+                        "open_pinned_local_request",
                         side_effect=OSError("offline"),
                     ),
                     mock.patch.object(local_llama_http.sys, "stderr") as fake_stderr,
@@ -2779,40 +2773,33 @@ class ExternalServerServiceTests(unittest.TestCase):
 
     def test_connect_probes_the_target_and_reports_a_rejected_key(self):
         ctx = self.make_context()
-        error_body = io.BytesIO(b"")
-        error = urllib.error.HTTPError(
-            "http://127.0.0.1:9001/health",
-            401,
-            "Unauthorized",
-            Message(),
-            error_body,
-        )
 
         with mock.patch.object(
-            external_server_service, "_open_probe_request", side_effect=error
+            external_server_service,
+            "open_pinned_local_request",
+            return_value=FakeHealthResponse(401, b""),
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001, "wrong-key")
 
         self.assertEqual(target["probe_status"], 401)
         self.assertIn("rejected the API key", target["warning"])
         self.assertIsNotNone(external_server_service.get_target(ctx))
-        self.assertTrue(error_body.closed)
 
     def test_connect_sends_the_api_key_with_the_probe(self):
         ctx = self.make_context()
         captured = {}
 
-        def fake_urlopen(request, timeout):
-            captured["url"] = request.full_url
-            captured["authorization"] = request.get_header("Authorization")
+        def fake_open(host, port, path, **kwargs):
+            captured["target"] = (host, port, path)
+            captured["authorization"] = kwargs.get("headers", {}).get("Authorization")
             return FakeHealthResponse(200)
 
         with mock.patch.object(
-            external_server_service, "_open_probe_request", side_effect=fake_urlopen
+            external_server_service, "open_pinned_local_request", side_effect=fake_open
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001, "probe-key")
 
-        self.assertEqual(captured["url"], "http://127.0.0.1:9001/health")
+        self.assertEqual(captured["target"], ("127.0.0.1", 9001, "/health"))
         self.assertEqual(captured["authorization"], "Bearer probe-key")
         self.assertEqual(target["probe_status"], 200)
         self.assertEqual(target["warning"], "")
@@ -2822,11 +2809,28 @@ class ExternalServerServiceTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
-            side_effect=urllib.error.URLError("connection refused"),
+            "open_pinned_local_request",
+            side_effect=ConnectionRefusedError("connection refused"),
         ), self.assertRaises(external_server_service.ExternalServerUnreachable):
             external_server_service.connect(ctx, "127.0.0.1", 9001)
 
+        self.assertIsNone(external_server_service.get_target(ctx))
+
+    def test_connect_refuses_a_host_that_rebinds_off_machine_during_the_probe(self):
+        """Validation-time DNS returns loopback, probe-time DNS returns a
+        public address: registration must fail before any socket is opened."""
+        ctx = self.make_context()
+        loopback = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 9001))]
+        public = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 9001))]
+
+        with mock.patch.object(
+            backend_http.socket, "getaddrinfo", side_effect=[loopback, public]
+        ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned, self.assertRaises(
+            external_server_service.ExternalServerUnreachable
+        ):
+            external_server_service.connect(ctx, "rebind.test", 9001)
+
+        connect_pinned.assert_not_called()
         self.assertIsNone(external_server_service.get_target(ctx))
 
     def test_connect_survives_an_unconfigured_v1_proxy_service(self):
@@ -2898,7 +2902,7 @@ class ExternalServerServiceTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthResponse(200),
         ):
             target = external_server_service.reconnect_remembered(ctx)
@@ -2914,7 +2918,7 @@ class ExternalServerServiceTests(unittest.TestCase):
         )
 
         with mock.patch.object(
-            external_server_service, "_open_probe_request"
+            external_server_service, "open_pinned_local_request"
         ) as open_probe:
             self.assertIsNone(external_server_service.reconnect_remembered(ctx))
 
@@ -2933,7 +2937,7 @@ class ExternalServerServiceTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
         ), self.assertRaises(external_server_service.ExternalServerUnreachable):
             external_server_service.reconnect_remembered(ctx)
@@ -2945,7 +2949,7 @@ class ExternalServerServiceTests(unittest.TestCase):
 
         with mock.patch.object(
             external_server_service,
-            "_open_probe_request",
+            "open_pinned_local_request",
             return_value=FakeHealthResponse(200, b"<html>some other dev server</html>"),
         ):
             target = external_server_service.connect(ctx, "127.0.0.1", 9001)
@@ -2966,44 +2970,29 @@ class ExternalServerServiceTests(unittest.TestCase):
             with self.subTest(body=body):
                 with mock.patch.object(
                     external_server_service,
-                    "_open_probe_request",
+                    "open_pinned_local_request",
                     return_value=FakeHealthResponse(200, body),
                 ):
                     result = external_server_service.probe("127.0.0.1", 9001)
                 self.assertEqual(result["identified"], expected)
                 self.assertEqual(result["status"], 200)
 
-    def test_probe_uses_a_no_redirect_opener_for_authorized_requests(self):
-        opener = mock.Mock()
-        opener.open.return_value = FakeHealthResponse(200)
-
+    def test_probe_sends_the_key_to_the_pinned_local_target_and_never_redirects(self):
+        """The probe must never follow redirects: a 302 away from the
+        operator-selected origin could leak the API key. The pinned
+        http.client connection structurally never follows redirects; this
+        test pins the call shape the probe uses."""
         with mock.patch.object(
-            external_server_service.urllib.request,
-            "build_opener",
-            return_value=opener,
-        ) as build_opener:
-            result = external_server_service.probe(
-                "::1", 9001, "Bearer secret-key"
-            )
+            external_server_service,
+            "open_pinned_local_request",
+            return_value=FakeHealthResponse(200),
+        ) as open_pinned:
+            result = external_server_service.probe("::1", 9001, "Bearer secret-key")
 
-        redirect_handler = build_opener.call_args.args[0]
-        self.assertIsInstance(
-            redirect_handler, external_server_service._NoProbeRedirects
-        )
-        original_request = opener.open.call_args.args[0]
-        self.assertEqual(original_request.full_url, "http://[::1]:9001/health")
+        self.assertEqual(open_pinned.call_args.args, ("::1", 9001, "/health"))
         self.assertEqual(
-            original_request.get_header("Authorization"), "Bearer secret-key"
-        )
-        self.assertIsNone(
-            redirect_handler.redirect_request(
-                original_request,
-                None,
-                302,
-                "Found",
-                Message(),
-                "https://example.test/collect",
-            )
+            open_pinned.call_args.kwargs["headers"],
+            {"Accept": "*/*", "Authorization": "Bearer secret-key"},
         )
         self.assertEqual(result["status"], 200)
 
@@ -3025,7 +3014,7 @@ class GetLocalProxyHostTests(unittest.TestCase):
 
     def test_allows_loopback_address(self):
         with mock.patch.object(
-            chat_service.socket,
+            backend_http.socket,
             "getaddrinfo",
             return_value=[(None, None, None, None, ("127.0.0.1", 0))],
         ):
@@ -3036,11 +3025,11 @@ class GetLocalProxyHostTests(unittest.TestCase):
 
     def test_allows_known_local_interface_address(self):
         with mock.patch.object(
-            chat_service.socket,
+            backend_http.socket,
             "getaddrinfo",
             return_value=[(None, None, None, None, ("192.168.1.25", 0))],
         ), mock.patch.object(
-            chat_service,
+            backend_http,
             "get_local_interface_addresses",
             return_value=frozenset({"192.168.1.25"}),
         ):
@@ -3051,11 +3040,11 @@ class GetLocalProxyHostTests(unittest.TestCase):
 
     def test_rejects_public_address(self):
         with mock.patch.object(
-            chat_service.socket,
+            backend_http.socket,
             "getaddrinfo",
             return_value=[(None, None, None, None, ("93.184.216.34", 0))],
         ), mock.patch.object(
-            chat_service,
+            backend_http,
             "get_local_interface_addresses",
             return_value=frozenset({"127.0.0.1"}),
         ):
@@ -3066,7 +3055,7 @@ class GetLocalProxyHostTests(unittest.TestCase):
 
     def test_rejects_malformed_host(self):
         with mock.patch.object(
-            chat_service.socket,
+            backend_http.socket,
             "getaddrinfo",
             side_effect=OSError("bad host"),
         ):
@@ -3074,6 +3063,92 @@ class GetLocalProxyHostTests(unittest.TestCase):
 
         self.assertEqual(result, "")
         self.assertIn("Invalid llama-server metrics host:", error)
+
+
+class PinnedLocalRequestTests(unittest.TestCase):
+    """DNS rebinding is the whole point of the pinned local-HTTP primitive:
+    a hostname may pass the up-front local-only validation and then resolve
+    somewhere off-machine by the time the request is actually made. Every
+    consumer must resolve again at connect time and refuse."""
+
+    LOOPBACK = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 9090))]
+    PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 9090))]
+
+    def test_resolve_keeps_loopback_entries_and_rejects_public_only_hosts(self):
+        with mock.patch.object(
+            backend_http.socket, "getaddrinfo", return_value=self.LOOPBACK
+        ):
+            infos, error = backend_http.resolve_local_addresses("local.test", 9090)
+        self.assertEqual(infos, self.LOOPBACK)
+        self.assertEqual(error, "")
+
+        with mock.patch.object(
+            backend_http.socket, "getaddrinfo", return_value=self.PUBLIC
+        ):
+            infos, error = backend_http.resolve_local_addresses("evil.test", 9090)
+        self.assertEqual(infos, [])
+        self.assertEqual(error, "Blocked: proxy target must resolve to this machine.")
+
+    def test_open_blocks_rebinding_between_validation_and_connect(self):
+        """First resolution (validation gate) returns loopback, second
+        resolution (connect time) returns a public address: the request must
+        be refused without any socket being opened."""
+        with mock.patch.object(
+            backend_http.socket,
+            "getaddrinfo",
+            side_effect=[self.LOOPBACK, self.PUBLIC],
+        ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned:
+            host, error = chat_service.get_local_proxy_host("rebind.test")
+            self.assertEqual((host, error), ("rebind.test", ""))
+            with self.assertRaises(ValueError):
+                backend_http.open_pinned_local_request("rebind.test", 9090, "/metrics")
+        connect_pinned.assert_not_called()
+
+    def test_open_connects_to_the_pinned_address_without_re_resolving(self):
+        """The fake hostname has no real DNS record: reaching the local server
+        proves the connect used the pinned addresses, not the resolver."""
+
+        class PongHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"pong")
+
+            def log_message(self, *args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), PongHandler)
+        self.addCleanup(server.server_close)
+        port = server.server_address[1]
+        server_thread = threading.Thread(target=server.handle_request, daemon=True)
+        server_thread.start()
+
+        pinned = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+        with mock.patch.object(
+            backend_http.socket, "getaddrinfo", return_value=pinned
+        ):
+            response = backend_http.open_pinned_local_request(
+                "pinned-only.test", port, "/health"
+            )
+        try:
+            self.assertEqual(response.status, 200)
+            self.assertEqual(response.read(), b"pong")
+        finally:
+            response.close()
+        server_thread.join(5)
+
+    def test_metrics_stay_pinned_when_dns_rebinds_after_validation(self):
+        with mock.patch.object(
+            backend_http.socket,
+            "getaddrinfo",
+            side_effect=[self.LOOPBACK, self.PUBLIC],
+        ), mock.patch.object(backend_http, "connect_pinned") as connect_pinned:
+            text, error = local_llama_http.get_local_llama_metrics("rebind.test", 9090)
+
+        self.assertIsNone(text)
+        self.assertEqual(error, "Blocked: proxy target must resolve to this machine.")
+        connect_pinned.assert_not_called()
 
 
 class BuildSearchQueriesTests(unittest.TestCase):
