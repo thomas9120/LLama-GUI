@@ -5615,6 +5615,28 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(result["installed"])
         self.assertIn("ERROR", result["error"])
 
+    def test_install_deps_timeout_is_reported_not_raised(self):
+        """A wedged pip used to pin the HTTP handler thread forever; the
+        subprocess is now bounded and the timeout surfaces as an error."""
+        (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+        with mock.patch.object(srv.subprocess, "run") as mock_run:
+            mock_run.side_effect = srv.subprocess.TimeoutExpired(cmd="pip", timeout=5)
+            result = srv.install_python_dependencies(self.ctx)
+        self.assertFalse(result["installed"])
+        self.assertEqual(result["error"], "Dependency installation timed out.")
+        self.assertEqual(
+            mock_run.call_args.kwargs["timeout"], srv.DEPENDENCY_INSTALL_TIMEOUT_SECONDS
+        )
+
+    def test_install_deps_failure_is_logged(self):
+        (self.ctx.paths.root / "requirements.txt").write_text("bad_package\n")
+        stderr = io.StringIO()
+        with mock.patch.object(srv.subprocess, "run") as mock_run, contextlib.redirect_stderr(stderr):
+            mock_run.return_value = self.proc_result(returncode=1, stderr="ERROR: boom")
+            result = srv.install_python_dependencies(self.ctx)
+        self.assertFalse(result["installed"])
+        self.assertIn("ERROR: boom", stderr.getvalue())
+
     def test_create_windows_shortcuts_skips_non_windows(self):
         with mock.patch.object(srv.sys, "platform", "linux"):
             result = srv.create_windows_shortcuts(self.ctx)
@@ -5633,6 +5655,20 @@ class GitUpdateRouteTests(unittest.TestCase):
         args = mock_run.call_args[0][0]
         self.assertIn("-ShortcutsOnly", args)
         self.assertIn(str(shortcut_script), args)
+
+    def test_create_windows_shortcuts_timeout_is_reported_not_raised(self):
+        self.write_shortcut_helper()
+        with (
+            mock.patch.object(srv.sys, "platform", "win32"),
+            mock.patch.object(srv.subprocess, "run") as mock_run,
+        ):
+            mock_run.side_effect = srv.subprocess.TimeoutExpired(cmd="powershell", timeout=5)
+            result = srv.create_windows_shortcuts(self.ctx)
+        self.assertFalse(result["created"])
+        self.assertEqual(result["error"], "Desktop shortcut creation timed out.")
+        self.assertEqual(
+            mock_run.call_args.kwargs["timeout"], srv.SHORTCUT_TIMEOUT_SECONDS
+        )
 
     def test_create_windows_shortcuts_reports_nonfatal_error(self):
         self.write_shortcut_helper()
@@ -5941,6 +5977,45 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertFalse(result["updated"])
         self.assertIn("Not possible", result["error"])
 
+    def test_concurrent_updates_only_one_proceeds(self):
+        """Two concurrent /api/app-update requests used to race on git index
+        operations. The second must be refused while the first is mid-flight,
+        exactly one merge must run, and the slot must be released after."""
+        pip_started = threading.Event()
+        release_pip = threading.Event()
+
+        def blocking_pip(*args, **kwargs):
+            pip_started.set()
+            release_pip.wait(5)
+            return self.proc_result(stdout="Successfully installed")
+
+        call_log = []
+        with (
+            self.patched_git(counts="0\t3", call_log=call_log, merge_stdout="Fast-forward"),
+            mock.patch.object(srv.subprocess, "run", side_effect=blocking_pip),
+            self.patched_shortcuts(created=False),
+        ):
+            (self.ctx.paths.root / "requirements.txt").write_text("requests\n")
+            worker = threading.Thread(
+                target=srv.update_app_from_git, args=(self.ctx,), daemon=True
+            )
+            worker.start()
+            try:
+                self.assertTrue(pip_started.wait(5), "the first update never reached pip")
+                second = srv.update_app_from_git(self.ctx)
+                self.assertTrue(second.get("already_in_progress"))
+                self.assertEqual(second["error"], "App update already in progress.")
+                self.assertFalse(second["updated"])
+            finally:
+                release_pip.set()
+            worker.join(10)
+
+        self.assertFalse(
+            self.ctx.state.app_update_in_progress,
+            "the update slot must be released when the update finishes",
+        )
+        self.assertEqual(len(self.git_calls(call_log, "merge")), 1)
+
     def test_update_deps_failure(self):
         with (
             self.patched_git(counts="0\t3", merge_stdout="Updating abc..def"),
@@ -6023,6 +6098,21 @@ class GitUpdateRouteTests(unittest.TestCase):
         self.assertEqual(response.status, 400)
         self.assertIn("Something went wrong", response.payload["error"])
         self.assertIn("status", response.payload)
+
+    def test_app_update_route_reports_a_concurrent_update_with_409(self):
+        with mock.patch.object(srv, "update_app_from_git", return_value={
+            "updated": False,
+            "already_in_progress": True,
+            "error": "App update already in progress.",
+        }):
+            response = DummyResponse()
+            git_update.start_update(
+                Request("POST", "/api/app-update", "", {}, body={}),
+                response,
+                self.ctx,
+            )
+        self.assertEqual(response.status, 409)
+        self.assertIn("already in progress", response.payload["error"])
 
     def test_app_update_route_returns_success(self):
         with mock.patch.object(srv, "update_app_from_git", return_value={
