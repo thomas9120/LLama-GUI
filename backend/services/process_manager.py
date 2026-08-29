@@ -1261,6 +1261,8 @@ def launch_process(
                 stderr=subprocess.PIPE,
                 stdin=subprocess.PIPE,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 env=env,
                 cwd=str(ctx.paths.root),
                 creationflags=creationflags,

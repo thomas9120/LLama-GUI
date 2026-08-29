@@ -4,8 +4,10 @@ import io
 import json
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
+import time
 import types
 import unittest
 import urllib.error
@@ -2099,6 +2101,77 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertIn("launch_context", result["error"])
         self.assertIsNone(ctx.state.active_runtime)
         mock_popen.assert_not_called()
+
+    def test_launch_output_readers_survive_invalid_utf8(self):
+        """Undecodable bytes in child output must not kill the output readers.
+
+        The launch Popen used text=True with the default strict decoding, so a
+        single non-UTF-8 byte (progress bars, localized crash text, driver
+        output) raised UnicodeDecodeError in stream_output and the reader for
+        that pipe died. The pipe then went undrained; once the OS buffer filled
+        the child blocked on write and appeared hung. The child below emits
+        invalid bytes on both pipes and then writes far more than the pipe
+        buffer holds, so it only exits if both readers keep draining.
+        """
+        # 0x81/0x8D/0x8F/0x90 are invalid both as UTF-8 lead bytes and in
+        # cp1252 (undefined), so the strict-decode failure reproduces on
+        # Windows (locale code page) and POSIX (UTF-8) alike.
+        script = "\n".join(
+            [
+                "import sys",
+                "chunk = b'x' * 8192",
+                "sys.stdout.buffer.write(b'stdout-before' + bytes([10]))",
+                "sys.stdout.buffer.write(bytes([0x81, 0x8D]) + b' invalid utf8' + bytes([10]))",
+                "for i in range(40):",
+                "    sys.stdout.buffer.write(b'stdout-after-' + str(i).encode() + b'-' + chunk + bytes([10]))",
+                "sys.stdout.buffer.flush()",
+                "sys.stderr.buffer.write(b'stderr-before' + bytes([10]))",
+                "sys.stderr.buffer.write(bytes([0x8F, 0x90]) + b' invalid utf8' + bytes([10]))",
+                "for i in range(20):",
+                "    sys.stderr.buffer.write(b'stderr-after-' + str(i).encode() + b'-' + chunk + bytes([10]))",
+                "sys.stderr.buffer.flush()",
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            ctx.services.set_llama_api_target = lambda host, port: {"host": host, "port": port}
+            ctx.services.get_llama_api_target = lambda: {"host": "127.0.0.1", "port": 8080}
+            script_path = Path(tmp) / "fake_llama_server.py"
+            script_path.write_text(script)
+
+            def fake_validation(_ctx, _tool):
+                return Path(sys.executable), None
+
+            with mock.patch.object(
+                process_manager, "_validate_launch_environment", fake_validation
+            ):
+                result = process_manager.launch_process(
+                    ctx, "llama-server", [str(script_path)]
+                )
+            self.assertIn("pid", result, result)
+
+            process = ctx.state.process
+            try:
+                exit_code = process.wait(20)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(5)
+                self.fail("child blocked on a full pipe (dead output reader)")
+            self.assertEqual(exit_code, 0)
+
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with ctx.state.output_buffer_lock:
+                    if ctx.state.output_reader_count == 0:
+                        break
+                time.sleep(0.05)
+            with ctx.state.output_buffer_lock:
+                lines = list(ctx.state.output_buffer)
+            for marker in ("stdout-before", "stdout-after-39", "stderr-before", "stderr-after-19"):
+                self.assertTrue(
+                    any(line.startswith(marker) for line in lines),
+                    f"missing {marker!r} output",
+                )
 
     def test_process_manager_records_normalized_switch_context_after_launch(self):
         with tempfile.TemporaryDirectory() as tmp:
