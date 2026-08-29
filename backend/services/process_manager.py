@@ -19,6 +19,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from .. import config
 from ..context import AppContext
+from ..http import open_pinned_local_request
 from .subprocess_utils import get_no_window_creationflags
 
 
@@ -348,16 +349,21 @@ def get_llama_health(ctx: AppContext, expected_generation: Any = None) -> dict[s
             "The active llama-server target is invalid.",
         )
 
-    url_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
-    request = urllib.request.Request(
-        f"http://{url_host}:{port}/health",
-        headers={"Accept": "application/json"},
-    )
+    response = None
     try:
-        with urllib.request.urlopen(request, timeout=_HEALTH_TIMEOUT_SECONDS) as upstream:
-            status = getattr(upstream, "status", None)
+        try:
+            response = open_pinned_local_request(
+                host,
+                port,
+                "/health",
+                headers={"Accept": "application/json"},
+                timeout=_HEALTH_TIMEOUT_SECONDS,
+            )
+            status = getattr(response, "status", None)
             if status is None:
-                status = upstream.getcode()
+                status = response.getcode()
+        except ValueError as exc:
+            return _health_result("error", generation, expected, str(exc))
         if status == 200:
             observed = _health_result(
                 "ready", generation, expected, "llama-server is ready."
@@ -373,22 +379,6 @@ def get_llama_health(ctx: AppContext, expected_generation: Any = None) -> dict[s
                 expected,
                 f"llama-server health returned HTTP {status}.",
             )
-    except urllib.error.HTTPError as exc:
-        try:
-            if exc.code == 503:
-                observed = _health_result(
-                    "loading", generation, expected, "llama-server is loading the model."
-                )
-            else:
-                observed = _health_result(
-                    "error",
-                    generation,
-                    expected,
-                    f"llama-server health returned HTTP {exc.code}.",
-                )
-        finally:
-            if exc.fp is not None:
-                exc.close()
     except (urllib.error.URLError, TimeoutError, socket.timeout, ConnectionError, OSError):
         observed = _health_result(
             "starting", generation, expected, "llama-server is starting."
@@ -398,7 +388,12 @@ def get_llama_health(ctx: AppContext, expected_generation: Any = None) -> dict[s
         observed = _health_result(
             "error", generation, expected, "The llama-server health check failed."
         )
-
+    finally:
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
     current = get_process_status_snapshot(ctx)
     current_runtime = current.get("active_runtime")
     if isinstance(current_runtime, Mapping):

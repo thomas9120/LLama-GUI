@@ -380,5 +380,15 @@ def start_hf_model_download(
                 ctx.state.model_download_in_progress = False
                 ctx.state.model_download_cancel.clear()
 
-    threading.Thread(target=_worker, daemon=True).start()
+    try:
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception as exc:
+        with ctx.state.model_download_lock:
+            ctx.state.model_download_in_progress = False
+            ctx.state.model_download_cancel.clear()
+        set_model_download_state(
+            ctx, status="error", message=sanitize_error(exc, 500), current_file=""
+        )
+        print(f"[hf_download] failed to start download thread: {exc}", file=sys.stderr)
+        raise
     return get_model_download_snapshot(ctx)

@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-08-29
+- **Batch 1 low-severity follow-up (L6, L1, M3 health):** `cloudflared` helper downloads from `latest` are now verified against the GitHub release digest (`CLOUDFLARED_RELEASE_API` → `get_release_asset_sha256`/`sha256_file`; missing digest warns, mismatch raises `SHA256 mismatch` before `chmod`/`exec` and the staging dir is always cleaned); a wedged `Thread.start()` can no longer leave `install_in_progress`, `model_download_in_progress`, or tunnel `preparing` stuck until restart (`install.py` + `hf_download.py` + `tunnel.py` wrap `.start()` in try/except, release the slot / set `error` snapshot, log to stderr, and return a sanitized error); and the runtime health poll (`process_manager.get_llama_health`) now uses the same `open_pinned_local_request` (`PinnedHTTPConnection`) as chat/metrics/v1 so a hostname cannot re-resolve off-machine between validation and the health `GET /health`.
+
 ## 2026-08-28
 - Completed the medium-severity review follow-up: local pinned-proxy DNS failures now keep raw resolver details in backend logs, observability response-read failures return their established sanitized errors, and unrelated flag edits no longer rebuild Quick Launch model/sampler options or Model Switcher preset options.
 - Hardened the git-based app update: `pip install` and the PowerShell desktop-shortcut helper now run with timeouts (a wedged one used to pin the HTTP handler thread forever), failures and timeouts are logged, and concurrent update requests are serialized through a dedicated update slot — the second request gets a 409 instead of racing the first on git index operations.

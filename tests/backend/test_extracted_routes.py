@@ -2532,50 +2532,40 @@ class ExtractedRouteTests(unittest.TestCase):
         ctx, _ = self._make_health_context()
 
         with mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             return_value=FakeHealthUpstream(200),
-        ) as mock_urlopen:
+        ) as mock_pinned:
             ready = process_manager.get_llama_health(ctx, "4")
 
         self.assertEqual(ready["state"], "ready")
         self.assertTrue(ready["ready"])
-        request = mock_urlopen.call_args.args[0]
-        self.assertEqual(request.full_url, "http://127.0.0.1:8080/health")
-        self.assertEqual(request.get_header("Accept"), "application/json")
-        self.assertIsNone(request.get_header("Authorization"))
-        self.assertEqual(mock_urlopen.call_args.kwargs["timeout"], 2)
-
-        http_503 = urllib.error.HTTPError(
-            "http://127.0.0.1:8080/health", 503, "loading", {}, None
+        mock_pinned.assert_called_once_with(
+            "127.0.0.1", 8080, "/health", headers={"Accept": "application/json"}, timeout=2
         )
+
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=http_503
+            process_manager, "open_pinned_local_request", return_value=FakeHealthUpstream(503)
         ):
             loading = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(loading["state"], "loading")
         self.assertFalse(loading["ready"])
 
         with mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             side_effect=urllib.error.URLError("connection refused"),
         ):
             starting = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(starting["state"], "starting")
         self.assertNotIn("connection refused", starting["message"])
 
-        error_body = io.BytesIO(b"failed")
-        http_500 = urllib.error.HTTPError(
-            "http://127.0.0.1:8080/health", 500, "failed", {}, error_body
-        )
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=http_500
+            process_manager, "open_pinned_local_request", return_value=FakeHealthUpstream(500)
         ):
             error = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(error["state"], "error")
         self.assertEqual(error["message"], "llama-server health returned HTTP 500.")
-        self.assertTrue(error_body.closed)
 
     def test_llama_health_handles_stopped_failed_and_superseded_generations(self):
         stopped_ctx = AppContext()
@@ -2583,12 +2573,12 @@ class ExtractedRouteTests(unittest.TestCase):
         self.assertEqual(stopped["state"], "stopped")
 
         ctx, process_handle = self._make_health_context()
-        with mock.patch.object(process_manager.urllib.request, "urlopen") as mock_urlopen:
+        with mock.patch.object(process_manager, "open_pinned_local_request") as mock_pinned:
             superseded_before_probe = process_manager.get_llama_health(ctx, 3)
         self.assertEqual(superseded_before_probe["state"], "superseded")
-        mock_urlopen.assert_not_called()
+        mock_pinned.assert_not_called()
 
-        def replace_runtime(request, timeout):
+        def replace_runtime(*args, **kwargs):
             self.assertTrue(ctx.state.process_lock.acquire(blocking=False))
             try:
                 next_process = mock.Mock()
@@ -2606,7 +2596,7 @@ class ExtractedRouteTests(unittest.TestCase):
             return FakeHealthUpstream(200)
 
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=replace_runtime
+            process_manager, "open_pinned_local_request", side_effect=replace_runtime
         ):
             superseded_after_probe = process_manager.get_llama_health(ctx, 4)
         self.assertEqual(superseded_after_probe["state"], "superseded")
@@ -2614,12 +2604,12 @@ class ExtractedRouteTests(unittest.TestCase):
 
         failed_ctx, failed_process = self._make_health_context(7)
 
-        def exit_during_probe(request, timeout):
+        def exit_during_probe(*args, **kwargs):
             failed_process.poll.return_value = 9
             return FakeHealthUpstream(200)
 
         with mock.patch.object(
-            process_manager.urllib.request, "urlopen", side_effect=exit_during_probe
+            process_manager, "open_pinned_local_request", side_effect=exit_during_probe
         ):
             failed = process_manager.get_llama_health(failed_ctx, 7)
         self.assertEqual(failed["state"], "failed")
@@ -2634,8 +2624,8 @@ class ExtractedRouteTests(unittest.TestCase):
         ctx, _ = self._make_health_context()
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr), mock.patch.object(
-            process_manager.urllib.request,
-            "urlopen",
+            process_manager,
+            "open_pinned_local_request",
             side_effect=RuntimeError("private upstream detail"),
         ):
             result = process_manager.get_llama_health(ctx, 4)

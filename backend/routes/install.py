@@ -109,7 +109,14 @@ def start_install(request, response, ctx):
             with ctx.state.install_lock:
                 ctx.state.install_in_progress = False
 
-    threading.Thread(target=_install, args=(tag, backend), daemon=True).start()
+    try:
+        threading.Thread(target=_install, args=(tag, backend), daemon=True).start()
+    except Exception as exc:
+        print(f"[install] failed to start install thread: {exc}", file=sys.stderr)
+        with ctx.state.install_lock:
+            ctx.state.install_in_progress = False
+        response.error(sanitize_error(exc, 500), 500)
+        return
     response.json({"status": "started"})
 
 
@@ -166,7 +173,14 @@ def start_update(request, response, ctx):
             with ctx.state.install_lock:
                 ctx.state.install_in_progress = False
 
-    threading.Thread(target=_update, args=(latest, backend), daemon=True).start()
+    try:
+        threading.Thread(target=_update, args=(latest, backend), daemon=True).start()
+    except Exception as exc:
+        print(f"[update] failed to start update thread: {exc}", file=sys.stderr)
+        with ctx.state.install_lock:
+            ctx.state.install_in_progress = False
+        response.error(sanitize_error(exc, 500), 500)
+        return
     response.json({"status": "started", "from": tag, "to": latest})
 
 
