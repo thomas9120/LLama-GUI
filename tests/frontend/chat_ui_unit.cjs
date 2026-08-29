@@ -238,7 +238,14 @@ function makeFetch(mode, hooks = {}) {
 
 // --- context ---
 
-function makeContext({ fetchImpl, seedConversations = [], flagValues = {}, status }) {
+function makeContext({
+    fetchImpl,
+    seedConversations = [],
+    flagValues = {},
+    status,
+    storageMode = "normal",
+    extraElementIds = [],
+}) {
     const elements = new Map();
     const storageMap = new Map();
     if (seedConversations.length) {
@@ -264,6 +271,7 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {}, statu
         "chat-val-temp",
         "chat-slider-max-tokens",
         "chat-val-max-tokens",
+        ...extraElementIds,
     ]) {
         addElement(id);
     }
@@ -281,22 +289,36 @@ function makeContext({ fetchImpl, seedConversations = [], flagValues = {}, statu
         },
     };
 
+    // "throw" simulates a browser with storage blocked entirely (e.g. "block
+    // all cookies"), where every localStorage access raises.
+    const localStorageStub = storageMode === "throw"
+        ? {
+            getItem: () => { throw new Error("storage is blocked"); },
+            setItem: () => { throw new Error("storage is blocked"); },
+            removeItem: () => { throw new Error("storage is blocked"); },
+        }
+        : {
+            getItem: (key) => (storageMap.has(key) ? storageMap.get(key) : null),
+            setItem: (key, value) => storageMap.set(key, String(value)),
+            removeItem: (key) => storageMap.delete(key),
+        };
+
     const context = {
         // Must be set before chat-ui.js is evaluated: the _test* hooks are only
         // attached to the namespace when this opt-in flag is present.
         window: { LlamaGui: {}, __LLAMA_GUI_TEST_HOOKS__: true },
         document: documentStub,
-        localStorage: {
-            getItem: (key) => (storageMap.has(key) ? storageMap.get(key) : null),
-            setItem: (key, value) => storageMap.set(key, String(value)),
-            removeItem: (key) => storageMap.delete(key),
-        },
+        localStorage: localStorageStub,
         fetch: fetchImpl,
         AbortController,
         TextDecoder,
         TextEncoder,
         crypto,
-        console,
+        // Blocked storage logs the expected tolerant-path warnings on every
+        // access; keep the suite output readable.
+        console: storageMode === "throw"
+            ? { ...console, debug: () => {}, warn: () => {} }
+            : console,
         Date,
         setTimeout: (handler) => {
             handler();
@@ -812,6 +834,45 @@ async function runAbortScenario(action) {
             [["user", "hi"], ["assistant", PARTIAL_TOKEN]],
             "regenerated reply replaces the stale one in storage"
         );
+    }
+
+    // M4: with storage blocked, init() must not throw before the primary
+    // button handlers are wired, and storage-touching controls must keep
+    // working on session defaults.
+    {
+        const { api, elements } = makeContext({
+            fetchImpl: makeFetch("complete"),
+            storageMode: "throw",
+            extraElementIds: [
+                "btn-chat-send",
+                "btn-chat-stop",
+                "btn-chat-undo",
+                "btn-chat-regenerate",
+                "btn-chat-focus",
+                "chat-sidebar",
+                "btn-collapse-sidebar",
+                "btn-open-sidebar",
+                "chat-web-search-toggle",
+                "chat-web-search-max-results",
+            ],
+        });
+
+        assert.doesNotThrow(() => api.init(), "init() must survive blocked localStorage");
+
+        for (const id of ["btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"]) {
+            const listeners = elements.get(id)._listeners.click || [];
+            assert.ok(listeners.length > 0, `${id} must stay wired when storage is blocked`);
+        }
+
+        // Controls that persist their state must not throw when storage is
+        // blocked; they just lose persistence for the session.
+        const webSearchToggle = elements.get("chat-web-search-toggle");
+        webSearchToggle.checked = true;
+        assert.doesNotThrow(() => webSearchToggle._listeners.change.forEach((handler) => handler()));
+        const maxResults = elements.get("chat-web-search-max-results");
+        maxResults.value = "7";
+        assert.doesNotThrow(() => maxResults._listeners.change.forEach((handler) => handler()));
+        assert.doesNotThrow(() => elements.get("btn-collapse-sidebar")._listeners.click.forEach((handler) => handler()));
     }
 
     // Sidebar sliders: empty or non-numeric flag values must fall back to the
