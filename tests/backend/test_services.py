@@ -365,6 +365,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("vulkan", specs)
         self.assertIn("sycl", specs)
         self.assertIn("hip", specs)
+        self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
@@ -372,6 +373,14 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertEqual(
             specs["hip"]["asset"],
             "llama-{tag}-bin-win-rocm-7.14-x64.zip",
+        )
+        self.assertEqual(
+            specs["lemonade-rocm-10.0"],
+            {
+                "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
+                "asset": "llama-{tag}-bin-win-rocm-10.0-x64.zip",
+                "repo_api": llama_manager.LEMONADE_STABLE_ROCM_REPO_API,
+            },
         )
         self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
@@ -407,11 +416,20 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("cpu", specs)
         self.assertIn("vulkan", specs)
         self.assertIn("rocm", specs)
+        self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
         self.assertEqual(specs["rocm"]["label"], "ROCm 7.14 (AMD, Official)")
         self.assertEqual(
             specs["rocm"]["asset"],
             "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
+        )
+        self.assertEqual(
+            specs["lemonade-rocm-10.0"],
+            {
+                "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
+                "asset": "llama-{tag}-bin-ubuntu-rocm-10.0-x64.tar.gz",
+                "repo_api": llama_manager.LEMONADE_STABLE_ROCM_REPO_API,
+            },
         )
         self.assertIn("openvino-2026.2.1", specs["openvino"]["asset"])
 
