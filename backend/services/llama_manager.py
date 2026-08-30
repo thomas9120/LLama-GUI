@@ -37,6 +37,9 @@ RUNTIME_HEALTH_CACHE_TTL_SECONDS = 5.0
 LEMONADE_ROCM_REPO_API = (
     "https://api.github.com/repos/lemonade-sdk/llamacpp-rocm/releases"
 )
+LEMONADE_STABLE_ROCM_REPO_API = (
+    "https://api.github.com/repos/lemonade-sdk/llama.cpp/releases"
+)
 CUSTOM_BACKEND_SPEC = {"label": "Custom (User-Provided)"}
 
 # (gpu_target, family label) for every target upstream publishes.
@@ -118,6 +121,11 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "label": "ROCm 7.14 (AMD, Official)",
                 "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
             },
+            "lemonade-rocm-10.0": {
+                "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                "asset": "llama-{tag}-bin-win-rocm-10.0-x64.zip",
+                "repo_api": LEMONADE_STABLE_ROCM_REPO_API,
+            },
             "openvino": {
                 "label": "OpenVINO",
                 "asset": "llama-{tag}-bin-win-openvino-2026.2.1-x64.zip",
@@ -154,6 +162,11 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "rocm": {
                     "label": "ROCm 7.14 (AMD, Official)",
                     "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
+                },
+                "lemonade-rocm-10.0": {
+                    "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                    "asset": "llama-{tag}-bin-ubuntu-rocm-10.0-x64.tar.gz",
+                    "repo_api": LEMONADE_STABLE_ROCM_REPO_API,
                 },
                 "openvino": {
                     "label": "OpenVINO",

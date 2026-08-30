@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-08-30
 - Renamed the architecture-specific Lemonade install options from ROCm 7 to ROCm Nightly so their labels remain accurate as the bundled TheRock runtime advances.
+- Added Lemonade's stable-fork ROCm 10.0 binaries as one install option on Windows x64 and Linux x64, separate from the architecture-specific Lemonade nightlies.
 
 ## 2026-08-29
 - Moved Llama GUI's in-app update controls beside the llama.cpp installer at the top of Install and Update, tightened both cards into a responsive two-column layout, and removed the backend dropdown's ROCm description.
