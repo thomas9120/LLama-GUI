@@ -369,7 +369,10 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("openvino", specs)
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
-        self.assertEqual(specs["hip"]["label"], "ROCm 7.14 (AMD, Official)")
+        self.assertEqual(
+            specs["hip"]["label"],
+            "ROCm 7.14 (AMD, Official; separate runtime required)",
+        )
         self.assertEqual(
             specs["hip"]["asset"],
             "llama-{tag}-bin-win-rocm-7.14-x64.zip",
@@ -418,7 +421,10 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("rocm", specs)
         self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
-        self.assertEqual(specs["rocm"]["label"], "ROCm 7.14 (AMD, Official)")
+        self.assertEqual(
+            specs["rocm"]["label"],
+            "ROCm 7.14 (AMD, Official; separate runtime required)",
+        )
         self.assertEqual(
             specs["rocm"]["asset"],
             "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",

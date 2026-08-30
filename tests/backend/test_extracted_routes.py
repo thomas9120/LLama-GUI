@@ -4297,7 +4297,7 @@ class InstallRouteTests(unittest.TestCase):
 
     def test_install_get_releases_filters_selected_backend_to_compatible_assets(self):
         self.ctx.services.backend_specs["rocm"] = {
-            "label": "ROCm 7.14 (AMD, Official)",
+            "label": "ROCm 7.14 (AMD, Official; separate runtime required)",
             "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
         }
         fake_releases = [
@@ -4322,7 +4322,7 @@ class InstallRouteTests(unittest.TestCase):
 
     def test_install_get_releases_pages_past_incompatible_release_window(self):
         self.ctx.services.backend_specs["rocm"] = {
-            "label": "ROCm 7.14 (AMD, Official)",
+            "label": "ROCm 7.14 (AMD, Official; separate runtime required)",
             "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
         }
         first_page = [
