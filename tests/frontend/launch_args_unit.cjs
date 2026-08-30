@@ -150,7 +150,7 @@ function launchResult() {
         "--mirostat-ent",
         "--mtmd-batch-max-tokens",
         "--reasoning-format",
-        "--tensor-read-lazy",
+        "--lazy-mode",
     ]) {
         assert.ok(!args.includes(flag), `default launch args should omit ${flag}`);
     }
@@ -219,13 +219,13 @@ function launchResult() {
         window.LlamaGui.flagCore.setFlagValue("tensor_read_lazy", "on");
     `, context);
     let args = flatLaunchArgs();
-    let flagIndex = args.indexOf("--tensor-read-lazy");
+    let flagIndex = args.indexOf("--lazy-mode");
     assert.notEqual(flagIndex, -1);
     assert.equal(args[flagIndex + 1], "on");
 
     vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("tensor_read_lazy", "off")`, context);
     args = flatLaunchArgs();
-    flagIndex = args.indexOf("--tensor-read-lazy");
+    flagIndex = args.indexOf("--lazy-mode");
     assert.notEqual(flagIndex, -1);
     assert.equal(args[flagIndex + 1], "off");
 }

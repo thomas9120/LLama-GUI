@@ -1887,12 +1887,12 @@ const FLAGS = [
 	// Advanced
 	{
 		id: "tensor_read_lazy",
-		flag: "--tensor-read-lazy",
+		flag: "--lazy-mode",
 		category: "advanced",
 		type: "enum",
-		label: "Lazy Tensor Reading",
+		label: "Lazy Mode",
 		short_desc: "Read eligible model tensors from disk on demand to reduce resident RAM use.",
-		desc: "Controls on-demand reading for tensors marked as eligible by the model architecture, such as large per-layer embedding tables. Requires mmap. Auto uses llama.cpp's default behavior (lazy only above 4 GiB); On trades some inference speed for lower resident RAM; Off keeps eligible tensors resident. Available in llama.cpp b10653+.",
+		desc: "Controls on-demand reading for tensors marked as eligible by the model architecture, such as large per-layer embedding tables. Requires mmap. Auto uses llama.cpp's default behavior (lazy only above 4 GiB); On trades some inference speed for lower resident RAM; Off keeps eligible tensors resident.",
 		tool: "both",
 		default: "",
 		options: [
