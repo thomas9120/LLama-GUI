@@ -32,7 +32,7 @@ SHA256_DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
 RUNTIME_HEALTH_CACHE_TTL_SECONDS = 5.0
 
 # Optional llamacpp-rocm backend (https://github.com/lemonade-sdk/llamacpp-rocm).
-# Publishes nightly ROCm 7 llama.cpp archives for Windows and Ubuntu, one asset
+# Publishes nightly ROCm llama.cpp archives for Windows and Ubuntu, one asset
 # per AMD GPU target. Users must choose the target matching their GPU arch.
 LEMONADE_ROCM_REPO_API = (
     "https://api.github.com/repos/lemonade-sdk/llamacpp-rocm/releases"
@@ -53,7 +53,7 @@ LEMONADE_ROCM_TARGETS = [
 
 def _lemonade_rocm_backend(platform_token: str, gpu_target: str, family: str) -> dict[str, Any]:
     return {
-        "label": f"ROCm 7 {gpu_target} ({family}, Lemonade)",
+        "label": f"ROCm Nightly {gpu_target} ({family}, Lemonade)",
         "asset": f"llama-{{tag}}-{platform_token}-rocm-{gpu_target}-x64.zip",
         "provider": "lemonade-rocm",
         "repo_api": LEMONADE_ROCM_REPO_API,
