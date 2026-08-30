@@ -4673,7 +4673,7 @@ class InstallRouteTests(unittest.TestCase):
 
     def test_get_releases_uses_backend_repo_api_for_lemonade(self):
         self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
-            "label": "ROCm 7 gfx110X (Lemonade)",
+            "label": "ROCm Nightly gfx110X (Lemonade)",
             "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
         }
         response = DummyResponse()
@@ -4725,7 +4725,7 @@ class InstallRouteTests(unittest.TestCase):
 
     def test_update_uses_installed_backend_repo_api_for_lemonade(self):
         self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
-            "label": "ROCm 7 gfx110X (Lemonade)",
+            "label": "ROCm Nightly gfx110X (Lemonade)",
             "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
         }
         self.ctx.services.load_config = lambda: {

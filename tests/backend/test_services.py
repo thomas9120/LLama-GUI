@@ -495,6 +495,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         specs = llama_manager.build_backend_specs("win32", "x64")
 
         spec = specs["lemonade-rocm-gfx110X"]
+        self.assertEqual(spec["label"], "ROCm Nightly gfx110X (AMD RDNA3, Lemonade)")
         self.assertEqual(spec["provider"], "lemonade-rocm")
         self.assertEqual(spec["repo_api"], llama_manager.LEMONADE_ROCM_REPO_API)
         self.assertIs(spec["preserve_paths"], True)
@@ -2197,7 +2198,7 @@ class LlamaManagerDownloadTests(unittest.TestCase):
             }
             backend_specs = {
                 "lemonade-rocm-gfx110X": {
-                    "label": "ROCm 7 gfx110X (AMD RDNA3, Lemonade)",
+                    "label": "ROCm Nightly gfx110X (AMD RDNA3, Lemonade)",
                     "asset": "llama-{tag}-windows-rocm-gfx110X-x64.zip",
                     "provider": "lemonade-rocm",
                     "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
