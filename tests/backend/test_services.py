@@ -377,7 +377,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertEqual(
             specs["lemonade-rocm-10.0"],
             {
-                "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
                 "asset": "llama-{tag}-bin-win-rocm-10.0-x64.zip",
                 "repo_api": llama_manager.LEMONADE_STABLE_ROCM_REPO_API,
             },
@@ -426,7 +426,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertEqual(
             specs["lemonade-rocm-10.0"],
             {
-                "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
                 "asset": "llama-{tag}-bin-ubuntu-rocm-10.0-x64.tar.gz",
                 "repo_api": llama_manager.LEMONADE_STABLE_ROCM_REPO_API,
             },

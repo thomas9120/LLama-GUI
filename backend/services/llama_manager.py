@@ -122,7 +122,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
             },
             "lemonade-rocm-10.0": {
-                "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
                 "asset": "llama-{tag}-bin-win-rocm-10.0-x64.zip",
                 "repo_api": LEMONADE_STABLE_ROCM_REPO_API,
             },
@@ -164,7 +164,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
                 },
                 "lemonade-rocm-10.0": {
-                    "label": "ROCm 10.0 (AMD, Lemonade Stable)",
+                    "label": "ROCm 10.0 (AMD, Lemonade Stable; separate runtime required)",
                     "asset": "llama-{tag}-bin-ubuntu-rocm-10.0-x64.tar.gz",
                     "repo_api": LEMONADE_STABLE_ROCM_REPO_API,
                 },
