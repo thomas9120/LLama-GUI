@@ -118,7 +118,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-sycl-x64.zip",
             },
             "hip": {
-                "label": "ROCm 7.14 (AMD, Official)",
+                "label": "ROCm 7.14 (AMD, Official; separate runtime required)",
                 "asset": "llama-{tag}-bin-win-rocm-7.14-x64.zip",
             },
             "lemonade-rocm-10.0": {
@@ -160,7 +160,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                     "asset": "llama-{tag}-bin-ubuntu-vulkan-x64.tar.gz",
                 },
                 "rocm": {
-                    "label": "ROCm 7.14 (AMD, Official)",
+                    "label": "ROCm 7.14 (AMD, Official; separate runtime required)",
                     "asset": "llama-{tag}-bin-ubuntu-rocm-7.14-x64.tar.gz",
                 },
                 "lemonade-rocm-10.0": {
