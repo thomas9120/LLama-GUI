@@ -137,18 +137,36 @@ def get_hf_gguf_files(repo_id: str, revision: str = "main", token: Optional[str]
 
 
 def get_hf_file_size(repo_id: str, filename: str, revision: str, token: Optional[str] = None) -> int:
+    metadata = get_hf_download_metadata(repo_id, filename, revision, token)
     try:
-        from huggingface_hub import get_hf_file_metadata, hf_hub_url
-    except ImportError:
+        return int(metadata.size or 0) if metadata is not None else 0
+    except (TypeError, ValueError):
         return 0
 
+
+def get_hf_download_metadata(
+    repo_id: str,
+    filename: str,
+    revision: str,
+    token: Optional[str] = None,
+) -> Any:
     try:
-        url = hf_hub_url(repo_id=repo_id, filename=filename, revision=revision)
-        metadata = get_hf_file_metadata(url, token=token or False, timeout=20)
-        return int(metadata.size or 0)
+        from huggingface_hub import get_hf_file_metadata
+    except ImportError:
+        return None
+
+    try:
+        return get_hf_file_metadata(
+            build_hf_download_url(repo_id, filename, revision),
+            token=token or False,
+            timeout=20,
+        )
     except Exception as exc:
-        print(f"[hf_download] failed to read file size for {repo_id}/{filename}: {exc}", file=sys.stderr)
-        return 0
+        print(
+            f"[hf_download] failed to read file metadata for {repo_id}/{filename}: {exc}",
+            file=sys.stderr,
+        )
+        return None
 
 
 def build_hf_download_url(repo_id: str, filename: str, revision: str) -> str:
@@ -201,9 +219,16 @@ def cancel_hf_model_download(ctx: AppContext) -> Mapping[str, Any]:
         }:
             return snapshot
         ctx.state.model_download_cancel.set()
-        return ctx.state.model_download.update(
+        xet_group = ctx.state.model_download_xet_group
+        snapshot = ctx.state.model_download.update(
             status="cancelling", message="Cancelling download..."
         )
+    if xet_group is not None:
+        try:
+            xet_group.abort()
+        except Exception as exc:
+            print(f"[hf_download] failed to abort Xet download: {exc}", file=sys.stderr)
+    return snapshot
 
 
 def _content_length(resp: Any) -> Optional[int]:
@@ -217,6 +242,91 @@ def _content_length(resp: Any) -> Optional[int]:
     return size if size >= 0 else None
 
 
+def download_hf_file_xet(
+    ctx: AppContext,
+    filename: str,
+    token: Optional[str],
+    dest: pathlib.Path,
+    completed_bytes: int,
+    total_bytes: int,
+    metadata: Any,
+) -> Optional[int]:
+    """Use Xet's concurrent range downloader when the file and runtime support it."""
+    xet_data = getattr(metadata, "xet_file_data", None)
+    try:
+        expected_bytes = int(getattr(metadata, "size", 0) or 0)
+    except (TypeError, ValueError):
+        expected_bytes = 0
+    if xet_data is None or expected_bytes <= 0:
+        return None
+
+    try:
+        import hf_xet
+        from huggingface_hub import constants as hf_constants
+    except ImportError:
+        return None
+    if getattr(hf_constants, "HF_HUB_DISABLE_XET", False):
+        return None
+    session_type = getattr(hf_xet, "XetSession", None)
+    file_info_type = getattr(hf_xet, "XetFileInfo", None)
+    if not callable(session_type) or not callable(file_info_type):
+        return None
+
+    tmp_path = dest.with_suffix(dest.suffix + ".part")
+    tmp_path.unlink(missing_ok=True)
+    headers = {"User-Agent": "Llama-GUI"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    def _update_progress(group_report: Any, _item_reports: Any = None) -> None:
+        downloaded = int(getattr(group_report, "total_bytes_completed", 0) or 0)
+        set_model_download_state(
+            ctx,
+            downloaded=completed_bytes + min(downloaded, expected_bytes),
+            total=total_bytes,
+            current_file=pathlib.PurePosixPath(filename).name,
+        )
+
+    group = session_type().new_file_download_group(
+        token_refresh_url=xet_data.refresh_route,
+        token_refresh_headers=headers,
+        custom_headers={"User-Agent": "Llama-GUI"},
+        progress_callback=_update_progress,
+    )
+    try:
+        with group:
+            with ctx.state.model_download_lock:
+                ctx.state.model_download_xet_group = group
+                cancelled = ctx.state.model_download_cancel.is_set()
+            if cancelled:
+                raise InterruptedError("Download cancelled.")
+            group.start_download_file(
+                file_info_type(xet_data.file_hash, expected_bytes),
+                str(tmp_path),
+            )
+    except InterruptedError:
+        raise
+    except Exception as exc:
+        if ctx.state.model_download_cancel.is_set():
+            raise InterruptedError("Download cancelled.") from exc
+        raise
+    finally:
+        with ctx.state.model_download_lock:
+            if ctx.state.model_download_xet_group is group:
+                ctx.state.model_download_xet_group = None
+
+    if ctx.state.model_download_cancel.is_set():
+        raise InterruptedError("Download cancelled.")
+    actual_bytes = tmp_path.stat().st_size
+    if actual_bytes != expected_bytes:
+        raise OSError(
+            f"Download of {filename} was incomplete: got {actual_bytes} bytes, "
+            f"expected {expected_bytes}."
+        )
+    tmp_path.replace(dest)
+    return actual_bytes
+
+
 def download_hf_file(
     ctx: AppContext,
     repo_id: str,
@@ -227,7 +337,20 @@ def download_hf_file(
     completed_bytes: int,
     total_bytes: int,
     urlopen: UrlOpen = urllib.request.urlopen,
+    metadata: Any = None,
 ) -> int:
+    xet_downloaded = download_hf_file_xet(
+        ctx,
+        filename,
+        token,
+        dest,
+        completed_bytes,
+        total_bytes,
+        metadata,
+    )
+    if xet_downloaded is not None:
+        return xet_downloaded
+
     url = build_hf_download_url(repo_id, filename, revision)
     headers = {"User-Agent": "Llama-GUI"}
     if token:
@@ -327,9 +450,12 @@ def start_hf_model_download(
             destinations.append(mmproj_dest)
         try:
             model_dest.parent.mkdir(parents=True, exist_ok=True)
-            total = get_hf_file_size(repo_id, model_file, revision, token)
+            model_metadata = get_hf_download_metadata(repo_id, model_file, revision, token)
+            total = int(getattr(model_metadata, "size", 0) or 0)
+            mmproj_metadata = None
             if mmproj_file:
-                total += get_hf_file_size(repo_id, mmproj_file, revision, token)
+                mmproj_metadata = get_hf_download_metadata(repo_id, mmproj_file, revision, token)
+                total += int(getattr(mmproj_metadata, "size", 0) or 0)
             reset_model_download_state(
                 ctx,
                 status="downloading",
@@ -337,7 +463,18 @@ def start_hf_model_download(
                 total=total,
                 downloaded=0,
             )
-            completed = download_hf_file(ctx, repo_id, model_file, revision, token, model_dest, 0, total, urlopen)
+            completed = download_hf_file(
+                ctx,
+                repo_id,
+                model_file,
+                revision,
+                token,
+                model_dest,
+                0,
+                total,
+                urlopen,
+                model_metadata,
+            )
             mmproj_path = ""
             if mmproj_file and mmproj_dest:
                 set_model_download_state(ctx, message=f"Downloading {mmproj_dest.name}...")
@@ -351,6 +488,7 @@ def start_hf_model_download(
                     completed,
                     total,
                     urlopen,
+                    mmproj_metadata,
                 )
                 mmproj_path = str(mmproj_dest)
             set_model_download_state(
@@ -377,6 +515,7 @@ def start_hf_model_download(
             )
         finally:
             with ctx.state.model_download_lock:
+                ctx.state.model_download_xet_group = None
                 ctx.state.model_download_in_progress = False
                 ctx.state.model_download_cancel.clear()
 
@@ -384,6 +523,7 @@ def start_hf_model_download(
         threading.Thread(target=_worker, daemon=True).start()
     except Exception as exc:
         with ctx.state.model_download_lock:
+            ctx.state.model_download_xet_group = None
             ctx.state.model_download_in_progress = False
             ctx.state.model_download_cancel.clear()
         set_model_download_state(

@@ -648,7 +648,7 @@ Model discovery, Open Models, model-related file pickers, and HF model/projector
 ### Backend API
 
 - `POST /api/hf/repo-files`: Takes `repo_id`, `revision`, `token`. Uses `huggingface_hub.HfApi.model_info()` to list GGUF files. Returns separated model and mmproj file lists.
-- `POST /api/hf/download`: Takes `repo_id`, `revision`, `model_file`, `mmproj_file`, `token`, `overwrite`. Downloads in a background thread with cancellation support. Validates filenames and repo IDs.
+- `POST /api/hf/download`: Takes `repo_id`, `revision`, `model_file`, `mmproj_file`, `token`, `overwrite`. Downloads in a background thread with cancellation support. Xet-backed files use concurrent range transfers with scoped group cancellation; unsupported or non-Xet files retain the streaming HTTP fallback. Validates filenames and repo IDs.
 - `GET /api/hf/download-status`: Returns current download progress (total, downloaded, status, current_file, model_name, model_path, mmproj_path).
 - `POST /api/hf/download-cancel`: Sets cancellation event to abort in-progress download.
 
