@@ -3480,6 +3480,127 @@ class DownloadHfFileLengthTests(unittest.TestCase):
             self.assertEqual(dest.read_bytes(), b"abc")
 
 
+class DownloadHfFileXetTests(unittest.TestCase):
+    @staticmethod
+    def _fake_xet(payload, on_start=None):
+        calls = {}
+
+        class FakeGroup:
+            def __init__(self, progress_callback):
+                self.progress_callback = progress_callback
+                self.abort_calls = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                if exc_type is not None:
+                    self.abort()
+                return False
+
+            def start_download_file(self, file_info, dest_path):
+                calls["file_info"] = file_info
+                calls["dest_path"] = dest_path
+                if on_start is not None:
+                    on_start(self)
+                pathlib.Path(dest_path).write_bytes(payload)
+                self.progress_callback(
+                    SimpleNamespace(total_bytes_completed=len(payload)),
+                    {},
+                )
+
+            def abort(self):
+                self.abort_calls += 1
+
+        class FakeSession:
+            def new_file_download_group(self, **kwargs):
+                calls["group_kwargs"] = kwargs
+                group = FakeGroup(kwargs["progress_callback"])
+                calls["group"] = group
+                return group
+
+        return SimpleNamespace(
+            XetSession=FakeSession,
+            XetFileInfo=lambda file_hash, size: (file_hash, size),
+        ), calls
+
+    def test_uses_xet_progress_and_preserves_destination_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            payload = b"xet-gguf"
+            dest = pathlib.Path(tmp) / "model.gguf"
+            metadata = SimpleNamespace(
+                size=len(payload),
+                xet_file_data=SimpleNamespace(
+                    file_hash="xet-hash",
+                    refresh_route="https://example.test/xet-token",
+                ),
+            )
+            fake_xet, calls = self._fake_xet(payload)
+
+            with mock.patch.dict("sys.modules", {"hf_xet": fake_xet}):
+                downloaded = hf_service.download_hf_file(
+                    ctx,
+                    repo_id="owner/model",
+                    filename="Q4/model.gguf",
+                    revision="main",
+                    token="hf_test",
+                    dest=dest,
+                    completed_bytes=4,
+                    total_bytes=4 + len(payload),
+                    urlopen=lambda *_args, **_kwargs: self.fail("HTTP fallback used"),
+                    metadata=metadata,
+                )
+
+            self.assertEqual(downloaded, len(payload))
+            self.assertEqual(dest.read_bytes(), payload)
+            self.assertFalse(dest.with_suffix(".gguf.part").exists())
+            self.assertEqual(calls["file_info"], ("xet-hash", len(payload)))
+            self.assertEqual(
+                calls["group_kwargs"]["token_refresh_headers"]["Authorization"],
+                "Bearer hf_test",
+            )
+            snapshot = hf_service.get_model_download_snapshot(ctx)
+            self.assertEqual(snapshot["downloaded"], 4 + len(payload))
+            self.assertEqual(snapshot["total"], 4 + len(payload))
+            self.assertEqual(snapshot["current_file"], "model.gguf")
+            self.assertIsNone(ctx.state.model_download_xet_group)
+
+    def test_cancel_aborts_active_xet_group(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            ctx.state.model_download_in_progress = True
+            ctx.state.model_download.update(status="downloading")
+            metadata = SimpleNamespace(
+                size=8,
+                xet_file_data=SimpleNamespace(
+                    file_hash="xet-hash",
+                    refresh_route="https://example.test/xet-token",
+                ),
+            )
+
+            def cancel_after_start(_group):
+                hf_service.cancel_hf_model_download(ctx)
+                raise RuntimeError("Xet group aborted")
+
+            fake_xet, calls = self._fake_xet(b"xet-gguf", cancel_after_start)
+            with mock.patch.dict("sys.modules", {"hf_xet": fake_xet}):
+                with self.assertRaises(InterruptedError):
+                    hf_service.download_hf_file_xet(
+                        ctx,
+                        filename="model.gguf",
+                        token=None,
+                        dest=pathlib.Path(tmp) / "model.gguf",
+                        completed_bytes=0,
+                        total_bytes=8,
+                        metadata=metadata,
+                    )
+
+            self.assertGreaterEqual(calls["group"].abort_calls, 1)
+            self.assertTrue(ctx.state.model_download_cancel.is_set())
+            self.assertIsNone(ctx.state.model_download_xet_group)
+
+
 class StartHfModelDownloadPathTests(unittest.TestCase):
     def test_downloads_into_repo_subfolder(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3490,7 +3611,11 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
                 return FakeDownloadResponse([payload], content_length=len(payload))
 
             with (
-                mock.patch.object(hf_service, "get_hf_file_size", return_value=len(payload)),
+                mock.patch.object(
+                    hf_service,
+                    "get_hf_download_metadata",
+                    return_value=SimpleNamespace(size=len(payload), xet_file_data=None),
+                ),
                 mock.patch.object(
                     hf_service,
                     "build_hf_download_url",
@@ -3563,12 +3688,18 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
                 def start(self):
                     self.target()
 
-            with mock.patch.object(hf_service.threading, "Thread", ImmediateThread), mock.patch.object(
-                hf_service, "get_hf_file_size", return_value=len(payload)
-            ), mock.patch.object(
-                hf_service,
-                "build_hf_download_url",
-                return_value="https://example.test/model.gguf",
+            with (
+                mock.patch.object(hf_service.threading, "Thread", ImmediateThread),
+                mock.patch.object(
+                    hf_service,
+                    "get_hf_download_metadata",
+                    return_value=SimpleNamespace(size=len(payload), xet_file_data=None),
+                ),
+                mock.patch.object(
+                    hf_service,
+                    "build_hf_download_url",
+                    return_value="https://example.test/model.gguf",
+                ),
             ):
                 hf_service.start_hf_model_download(
                     ctx,
@@ -3605,7 +3736,7 @@ class StartHfModelDownloadPathTests(unittest.TestCase):
                 hf_service.threading, "Thread", ImmediateThread
             ), mock.patch.object(
                 hf_service,
-                "get_hf_file_size",
+                "get_hf_download_metadata",
                 side_effect=RuntimeError("private download failure"),
             ):
                 snapshot = hf_service.start_hf_model_download(

@@ -118,6 +118,7 @@ class ServerState:
     model_download_in_progress: bool = False
     model_download_lock: threading.Lock = field(default_factory=threading.Lock)
     model_download_cancel: threading.Event = field(default_factory=threading.Event)
+    model_download_xet_group: Any = None
 
     gui_server: Any = None
     remote_tunnel_process: Any = None
