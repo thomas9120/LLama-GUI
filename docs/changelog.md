@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-08-30
+- Corrected the Xet downloader dependency bounds to versions published on PyPI with Python 3.9 wheels, keeping Linux CI and older supported Python installs resolvable.
 - Accelerated Hugging Face model and projector downloads with the standard Xet concurrent range-transfer backend when available, while preserving progress, scoped cancellation, atomic partial-file handling, and the existing HTTP fallback on unsupported systems.
 - Updated the Advanced Configure lazy tensor-reading control for llama.cpp PR #27969: it now emits `--lazy-mode` instead of the removed `--tensor-read-lazy` name while preserving existing saved preset values.
 - Renamed the architecture-specific Lemonade install options from ROCm 7 to ROCm Nightly so their labels remain accurate as the bundled TheRock runtime advances.
