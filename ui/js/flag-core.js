@@ -575,9 +575,14 @@
                     args.push([f.flag]);
                 }
             } else if (f.type === "multi_enum") {
-                const values = normalizeMultiEnumValue(val);
-                if (values.length > 0) {
-                    args.push([f.flag, values.join(",")]);
+                const selectedValues = normalizeMultiEnumValue(val);
+                const allowedValues = new Set((f.options || []).map(option => String(option.value)));
+                const supportedValues = selectedValues.filter(value => allowedValues.has(value));
+                for (const value of selectedValues.filter(value => !allowedValues.has(value))) {
+                    warnings.push(`Unsupported ${f.label || f.id} value "${value}" — omitted.`);
+                }
+                if (supportedValues.length > 0) {
+                    args.push([f.flag, supportedValues.join(",")]);
                 }
             } else if (f.type === "text_list") {
                 const items = Array.isArray(val) ? val : String(val).split(/\r?\n/);

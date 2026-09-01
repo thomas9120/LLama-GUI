@@ -1,4 +1,4 @@
-// NOTE: "conversation", "lora", and "grammar" are used as both category ids and flag ids.
+// NOTE: "lora" and "grammar" are used as both category ids and flag ids.
 // This is intentional and harmless: categories and flags occupy separate data domains
 // (FLAG_CATEGORIES vs FLAGS). The structural definition test explicitly allows these collisions.
 // Do not add another collision without reviewing tests/frontend/flag_definitions_unit.cjs.

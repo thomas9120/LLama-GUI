@@ -486,7 +486,7 @@
             } else if (f.id === "load_mode") {
                 // "" ("Legacy controls") is a deliberate choice, not "unset":
                 // undefined would delete the key, so a saved preset would lose
-                // it and loading would resurrect the "mmap" default, silently
+                // it and loading would resurrect the "auto" default, silently
                 // suppressing the legacy mlock/mmap/direct_io switches saved
                 // alongside it.
                 getFlagCore().setFlagValue(f.id, sel.value);

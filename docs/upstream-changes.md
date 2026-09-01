@@ -4,6 +4,14 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### Unified KV per-slot context cap (`--kv-unified-per-slot`) — deferred
+
+- **Upstream:** [ggml-org/llama.cpp#24124](https://github.com/ggml-org/llama.cpp/pull/24124), merged on 2026-08-27 as commit `1844325`.
+- **Behavior:** Sets a maximum context length for each parallel server slot while retaining one unified KV pool. For example, `--parallel 4 --kv-unified-per-slot 16000` creates a 64K shared pool when `-c` / `--ctx-size` is omitted, while preventing any one slot from exceeding 16K tokens.
+- **Use case:** Gives multi-user servers predictable per-request context limits and prevents one unusually large prompt from monopolizing the shared KV cache. It adds little beyond `--ctx-size` for a single-slot server.
+- **Local interaction:** Llama-GUI currently emits its default `-c 64000`, so merely adding `--kv-unified-per-slot 16000` would keep the 64K pool and apply only the 16K per-slot cap. Upstream auto-sizing to `parallel × per-slot` requires omitting `-c` entirely; explicitly passing `-c 0` also prevents auto-sizing.
+- **Deferred decision:** If implemented, add an optional server integer beside the existing unified-KV controls. Decide whether it is intentionally cap-only or whether shared launch generation should omit `-c` while the per-slot value is active. Keep all writes in shared flag state and cover the command preview / launch arguments in `launch_args_unit.cjs` and `npm run test:frontend`.
+
 ### Native reasoning-effort support — residual compatibility window - - - Done
 
 - **Upstream:** [ggml-org/llama.cpp#26941](https://github.com/ggml-org/llama.cpp/pull/26941), merged on 2026-08-14 as commit `7e4c0a9`, first release `b10434`.
@@ -49,4 +57,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Recheck when:** Upstream changes the actual default or a bundled llama.cpp release includes that change.
 - **Local decision:** Either keep Llama-GUI's explicit 8080 default or change the frontend, backend target fallback, external-server form, tests, and documentation to 9931 together.
 
-Last checked: 2026-08-25.
+Last checked: 2026-08-31.

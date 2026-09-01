@@ -229,12 +229,14 @@ const FLAGS = [
 		short_desc: "Choose llama.cpp's model loading strategy.",
 		desc: "Preferred replacement for the deprecated mmap, mlock, and Direct I/O switches. Selecting a mode suppresses those legacy arguments in the generated command.",
 		tool: "both",
-		default: "mmap",
+		default: "auto",
 		options: [
 			{ value: "", label: "Legacy controls" },
+			{ value: "auto", label: "Auto (Recommended)" },
 			{ value: "none", label: "None" },
 			{ value: "mmap", label: "Memory map" },
-			{ value: "mlock", label: "Memory map + lock" },
+			{ value: "mlock", label: "Lock in RAM (No mmap)" },
+			{ value: "mmap+mlock", label: "Memory map + lock" },
 			{ value: "dio", label: "Direct I/O" },
 		],
 	},
@@ -1038,16 +1040,6 @@ const FLAGS = [
 
 	// Conversation & Chat
 	{
-		id: "conversation",
-		flag: "-cnv",
-		category: "conversation",
-		type: "bool",
-		label: "Conversation Mode",
-		desc: "Run in interactive conversation mode",
-		tool: "cli",
-		default: false,
-	},
-	{
 		id: "system_prompt",
 		flag: "-sys",
 		category: "conversation",
@@ -1211,7 +1203,7 @@ const FLAGS = [
 		category: "conversation",
 		type: "bool",
 		label: "Single Turn",
-		desc: "Run for a single turn then exit",
+		desc: "Exit after one response instead of continuing the interactive CLI conversation.",
 		tool: "cli",
 		default: false,
 	},
@@ -1719,7 +1711,7 @@ const FLAGS = [
 			},
 			{ value: "write_file", label: "Write File", risk: "high" },
 			{ value: "edit_file", label: "Edit File", risk: "high" },
-			{ value: "get_datetime", label: "Get Date & Time" },
+			{ value: "get_info", label: "Get Runtime Info" },
 		],
 	},
 	{
