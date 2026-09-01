@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-08-31
+- Removed llama-cli's obsolete `-cnv` Conversation Mode control; the existing supported `-st` Single Turn control remains available, and current llama-cli stays conversational by default.
+- Updated llama-server's built-in tool choices by removing the retired `get_datetime`, adding `get_info`, and preventing stale multi-select values from being emitted in launch commands.
+- Aligned Model Load Mode with current llama.cpp: Auto is now the default, `mmap+mlock` is selectable, and `mlock` is correctly labeled as lock-only without mmap.
+
 ## 2026-08-30
 - Corrected the Xet downloader dependency bounds to versions published on PyPI with Python 3.9 wheels, keeping Linux CI and older supported Python installs resolvable.
 - Accelerated Hugging Face model and projector downloads with the standard Xet concurrent range-transfer backend when available, while preserving progress, scoped cancellation, atomic partial-file handling, and the existing HTTP fallback on unsupported systems.

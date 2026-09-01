@@ -233,7 +233,6 @@ const current = loadCurrentDefinitions();
 assert.deepEqual(validateFlags(current.flags, current.categories), {
     errors: [],
     warnings: [
-        'Category id "conversation" collides with flag id "conversation".',
         'Category id "lora" collides with flag id "lora".',
         'Category id "grammar" collides with flag id "grammar".',
     ],
@@ -258,6 +257,20 @@ assert.equal(nCpuFfn.tool, "both");
 
     const tools = current.flags.find((flag) => flag.id === "tools");
     assert.ok(!tools.options.some((option) => option.value === "apply_diff"));
+    assert.ok(!tools.options.some((option) => option.value === "get_datetime"));
+    assert.ok(tools.options.some((option) => option.value === "get_info"));
+
+    const loadMode = current.flags.find((flag) => flag.id === "load_mode");
+    assert.equal(loadMode.default, "auto");
+    assert.deepEqual(
+        Array.from(loadMode.options, (option) => option.value),
+        ["", "auto", "none", "mmap", "mlock", "mmap+mlock", "dio"]
+    );
+
+    const singleTurn = current.flags.find((flag) => flag.id === "single_turn");
+    assert.equal(singleTurn.flag, "-st");
+    assert.equal(singleTurn.tool, "cli");
+    assert.ok(!current.flags.some((flag) => flag.id === "conversation" || flag.flag === "-cnv"));
 }
 
 // Configure keeps exactly these six sampling flags at the top level; every other sampling

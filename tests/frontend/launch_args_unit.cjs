@@ -67,6 +67,21 @@ function launchResult() {
 }
 
 {
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue("llama-cli");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("single_turn", true);
+    `, context);
+    const args = flatLaunchArgs();
+    assert.ok(args.includes("-st"));
+    assert.ok(!args.includes("-cnv"));
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue("llama-server");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+}
+
+{
     vm.runInContext(
         'window.LlamaGui.flagCore.setFlagValue("mmproj_device", "Vulkan0")',
         context
@@ -128,7 +143,7 @@ function launchResult() {
         false,
         "deprecated mmap control should be disabled by default"
     );
-    assert.ok(args.includes("--load-mode") && args.includes("mmap"), "default launch args should use mmap load mode");
+    assert.ok(args.includes("--load-mode") && args.includes("auto"), "default launch args should use auto load mode");
     assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"), "default launch args should not use deprecated mmap flags");
     assert.ok(args.includes("--jinja"), "default launch args should reflect llama.cpp's enabled Jinja default");
     assert.ok(!args.includes("--no-jinja"), "default launch args should not disable Jinja");
@@ -205,12 +220,35 @@ function launchResult() {
 {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
-        window.LlamaGui.flagCore.setFlagValue("load_mode", "dio");
     `, context);
-    const args = flatLaunchArgs();
+    let args = flatLaunchArgs();
+    let loadModeIndex = args.indexOf("--load-mode");
+    assert.notEqual(loadModeIndex, -1);
+    assert.equal(args[loadModeIndex + 1], "auto");
+
+    vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("load_mode", "mmap+mlock")`, context);
+    args = flatLaunchArgs();
+    loadModeIndex = args.indexOf("--load-mode");
+    assert.equal(args[loadModeIndex + 1], "mmap+mlock");
+
+    vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("load_mode", "dio")`, context);
+    args = flatLaunchArgs();
     assert.ok(args.includes("--load-mode") && args.includes("dio"));
     assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"));
     assert.ok(!args.includes("--mlock") && !args.includes("-dio"));
+}
+
+{
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("tools", ["get_datetime", "get_info"]);
+    `, context);
+    const result = launchResult();
+    const args = Array.from(result.args).flat().map(String);
+    const toolsIndex = args.indexOf("--tools");
+    assert.notEqual(toolsIndex, -1);
+    assert.equal(args[toolsIndex + 1], "get_info");
+    assert.ok(Array.from(result.warnings).some((warning) => warning.includes('get_datetime')));
 }
 
 {
@@ -867,7 +905,7 @@ console.log("launch args unit tests passed");
     assert.equal(
         vm.runInContext("window.LlamaGui.flagCore.getFlagValues().load_mode", context),
         "",
-        "loading the preset must restore Legacy controls, not the mmap default"
+        "loading the preset must restore Legacy controls, not the auto default"
     );
     const roundTripArgs = flatLaunchArgs();
     assert.ok(roundTripArgs.includes("--mlock"), "legacy mlock must survive a Legacy-controls preset round-trip");
