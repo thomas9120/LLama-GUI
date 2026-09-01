@@ -1311,6 +1311,17 @@ const FLAGS = [
 			{ value: "disabled", label: "Disabled" },
 		],
 	},
+	{
+		id: "kv_unified_per_slot",
+		flag: "--kv-unified-per-slot",
+		category: "kv",
+		type: "int",
+		label: "Per-Slot Context Limit",
+		desc: "Maximum context length for each server slot when using the unified KV cache. This caps each slot without changing the configured total context window.",
+		tool: "server",
+		min: 1,
+		placeholder: "No per-slot cap",
+	},
 
 	// Speculative Decoding
 	{

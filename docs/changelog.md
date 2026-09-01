@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-01
+- Added an optional server-only Per-Slot Context Limit control for unified KV cache deployments. It emits `--kv-unified-per-slot` while preserving the configured total context window, giving concurrent slots a predictable maximum without enabling upstream automatic pool sizing.
+
 ## 2026-08-31
 - Removed llama-cli's obsolete `-cnv` Conversation Mode control; the existing supported `-st` Single Turn control remains available, and current llama-cli stays conversational by default.
 - Updated llama-server's built-in tool choices by removing the retired `get_datetime`, adding `get_info`, and preventing stale multi-select values from being emitted in launch commands.

@@ -990,6 +990,7 @@
                 continue;
             }
             if (!el) continue;
+            if (f.id === "kv_unified_per_slot") el.disabled = values.kv_unified === "disabled";
             if (f.type === "bool") {
                 el.checked = val === true;
                 const lbl = el.parentElement.querySelector("label");
