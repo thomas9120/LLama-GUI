@@ -93,6 +93,42 @@ function launchResult() {
 }
 
 {
+    let args = flatLaunchArgs();
+    assert.ok(!args.includes("--kv-unified-per-slot"), "unset per-slot KV cap should be omitted");
+
+    vm.runInContext(
+        'window.LlamaGui.flagCore.setFlagValue("kv_unified_per_slot", 16000)',
+        context
+    );
+    args = flatLaunchArgs();
+    const perSlotIndex = args.indexOf("--kv-unified-per-slot");
+    assert.notEqual(perSlotIndex, -1);
+    assert.equal(args[perSlotIndex + 1], "16000");
+    assert.ok(args.includes("-c") && args.includes("64000"), "per-slot cap should preserve total context");
+
+    vm.runInContext(
+        'window.LlamaGui.flagCore.setFlagValue("kv_unified", "disabled")',
+        context
+    );
+    args = flatLaunchArgs();
+    assert.ok(!args.includes("--kv-unified-per-slot"), "per-slot cap should be inert without unified KV");
+    vm.runInContext(
+        'window.LlamaGui.flagCore.setFlagValue("kv_unified", "enabled")',
+        context
+    );
+    assert.ok(flatLaunchArgs().includes("--kv-unified-per-slot"), "re-enabling unified KV should restore the cap");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue("llama-cli");
+    `, context);
+    assert.ok(!flatLaunchArgs().includes("--kv-unified-per-slot"), "per-slot KV cap is server-only");
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue("llama-server");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+}
+
+{
     const recognizedModelArgs = [
         [["-m", "models/local.gguf"]],
         [["--model", "models/local.gguf"]],

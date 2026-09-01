@@ -685,6 +685,25 @@ async function main() {
         });
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 100000);
         assert.match(await page.textContent("#command-preview-text"), /-c 100000/);
+
+        await page.fill("#config-search", "per-slot context");
+        await page.waitForSelector("#flag-kv_unified_per_slot", { state: "visible" });
+        assert.equal(await page.locator("#flag-kv_unified_per_slot").getAttribute("min"), "1");
+        await page.fill("#flag-kv_unified_per_slot", "16000");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().kv_unified_per_slot === 16000);
+        assert.match(await page.textContent("#command-preview-text"), /--kv-unified-per-slot 16000/);
+        assert.match(await page.textContent("#command-preview-text"), /-c 100000/);
+
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("kv_unified", "disabled"));
+        await page.waitForFunction(() => document.querySelector("#flag-kv_unified_per_slot")?.disabled === true);
+        assert.doesNotMatch(await page.textContent("#command-preview-text"), /--kv-unified-per-slot/);
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("kv_unified", "enabled"));
+        await page.waitForFunction(() => document.querySelector("#flag-kv_unified_per_slot")?.disabled === false);
+        assert.match(await page.textContent("#command-preview-text"), /--kv-unified-per-slot 16000/);
+
+        await page.fill("#flag-kv_unified_per_slot", "");
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().kv_unified_per_slot === undefined);
+        await page.fill("#config-search", "");
         assert.equal(await page.inputValue("#flag-chat_template"), "phi4");
         await page.evaluate(() => {
             window.LlamaGui.flagCore.setMultipleFlagValues({
