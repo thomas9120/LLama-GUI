@@ -25,6 +25,8 @@ def select_file(request, response, ctx):
                 "path": selected_path,
             }
         )
+    except file_picker.NativePickerUnavailableError as exc:
+        response.error(str(exc), 503)
     except ValueError as exc:
         response.error(str(exc), 409)
     except Exception as exc:
@@ -42,5 +44,7 @@ def select_folder(request, response, ctx):
             initial_dir=initial_dir,
         )
         response.json({"selected": bool(selected_path), "path": selected_path})
+    except file_picker.NativePickerUnavailableError as exc:
+        response.error(str(exc), 503)
     except Exception as exc:
         response.error(sanitize_error(exc, 500), 500)

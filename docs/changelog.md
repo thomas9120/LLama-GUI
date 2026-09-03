@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-03
+- Fixed native file-picker failures on Linux installations without Tk: the API now returns actionable package guidance instead of a generic server error, and the Unix installer warns without failing or installing privileged system packages. Windows' existing Tk picker and macOS' AppleScript picker are unchanged.
+
 ## 2026-09-02
 - Added the official llama.cpp ROCm 10.0 binaries as a platform-aware Windows x64/Linux x64 install option, labeled to note that a separate ROCm runtime is required.
 

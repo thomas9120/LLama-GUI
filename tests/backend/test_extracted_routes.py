@@ -4166,6 +4166,27 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertEqual(response.payload["error"], "Internal server error")
             self.assertIn("private picker failure", stderr.getvalue())
 
+    def test_file_picker_routes_report_missing_tk_as_actionable_503(self):
+        message = "Install Tk and restart Llama GUI."
+        cases = (
+            (file_picker.select_file, "select_file_in_native_dialog", "/api/select-file"),
+            (file_picker.select_folder, "select_folder_in_native_dialog", "/api/select-folder"),
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_context(tmp)
+            for handler, native_name, path in cases:
+                with self.subTest(path=path):
+                    response = DummyResponse()
+                    with mock.patch.object(
+                        file_picker.file_picker,
+                        native_name,
+                        side_effect=file_picker.file_picker.NativePickerUnavailableError(message),
+                    ):
+                        handler(Request("POST", path, "", {}, body={}), response, ctx)
+
+                    self.assertEqual(response.status, 503)
+                    self.assertEqual(response.payload["error"], message)
+
     def test_file_picker_route_handles_initial_directory_creation_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
