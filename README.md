@@ -126,6 +126,10 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 | --- | --- |
 | ![Install tab](docs/images/install.png) | ![Presets tab](docs/images/presets.png) |
 
+| Monitor |
+| --- |
+| ![Monitor tab](docs/images/monitor.png) |
+
 ## Getting Models
 
 Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). To use an existing library elsewhere, open **Configure → Models Folder → Change…** and select that folder; **Reset to default** returns to `models/`. The active folder's models appear in **Quick Launch** and **Configure**. Vision projector filenames are excluded from the launch-model list; the legacy `models/mmproj/` folder remains excluded too.
@@ -141,7 +145,7 @@ Downloads land under `<active models folder>/<owner_repo>/` (repo id with `/` �
 1. Install a backend in **Install** and confirm the badge shows an installed version (not `Not Installed`).
 2. Add at least one `.gguf` to `models/`, or select an existing library from **Configure → Models Folder**.
 3. In **Quick Launch**: keep `API Server`, choose a model, keep defaults or pick a profile, click **Launch**.
-4. Confirm: header shows `Running`, output has startup logs, stats bar appears (if metrics enabled).
+4. Confirm: header shows `Running`, **Monitor** shows startup logs, stats bar appears (if metrics enabled).
 5. Optional: **Chat** (enable **Web Search** for current-events questions), **API** snippets for `/v1/chat/completions`, or **Configure** for full flags.
 
 If first run fails, use **Install → Repair Install** and relaunch.
@@ -193,6 +197,10 @@ Full flag browser (search, expand/collapse, beginner tips), command preview, **C
 Defaults: tool `llama-server`, `-fit on`, context `64000`. Stats require `--metrics` (on by default); toggled from Quick Launch (“Show server stats bar”) or Configure (“Prometheus Metrics”) — both stay in sync.
 
 **MCP Settings**: `--ui-mcp-proxy` and `--tools` (high-risk tools are marked and warned).
+
+### Monitor
+
+The live process output terminal (moved out of Configure) with Auto-scroll and a Clear that never replays the backlog, CPU/RAM/disk cards, best-effort disk I/O, one card per detected NVIDIA/AMD GPU, and evidence-gated setup guidance when vendor tools are missing. System and GPU telemetry poll only while the tab is visible; **Recheck** forces a fresh sample. An optional **Inference** card shares one baseline with the fixed stats bar — Reset updates both. Every card except Process Output can be hidden and restored.
 
 ### Benchmarking
 

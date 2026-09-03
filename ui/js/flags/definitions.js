@@ -1977,5 +1977,8 @@ const FLAGS = [
 		desc: "Size each speculative draft from measured acceptance instead of always drafting --spec-draft-n-max tokens. Available in the LaurentZuijdwijk llama.cpp fork; upstream builds may reject this flag.",
 		tool: "both",
 		default: false,
+		// Fork-only on purpose (docs/upstream-changes.md): the installed-binary
+		// compatibility check never holds this flag against upstream builds.
+		fork_only: true,
 	},
 ];

@@ -38,4 +38,4 @@ Rerun the platform install script so `ddgs` is present; check internet access; t
 
 ## Still stuck
 
-Copy recent errors from **Output** in Configure. Retry a minimal setup (`CPU`, one local model, defaults). Include logs, backend, and model name when reporting issues.
+Copy recent errors from the live process output on the **Monitor** tab. Retry a minimal setup (`CPU`, one local model, defaults). Include logs, backend, and model name when reporting issues.
