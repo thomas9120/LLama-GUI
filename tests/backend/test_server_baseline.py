@@ -829,6 +829,14 @@ class ReleaseManifestTests(unittest.TestCase):
             self.assertIn(f'"{directory}"', release_script)
         self.assertIn("mkdir -p llama/custom/bin llama/custom/grammars", unix_installer)
 
+    def test_linux_installer_warns_when_optional_tk_is_missing(self):
+        root, _items = self._release_items()
+        unix_installer = (root / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("import tkinter", unix_installer)
+        self.assertIn("Arch/CachyOS: sudo pacman -S tk", unix_installer)
+        self.assertIn("Llama GUI will still install", unix_installer)
+
 
 class ImportSmokeTests(unittest.TestCase):
     def test_server_py_is_compatibility_entrypoint(self):

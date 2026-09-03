@@ -13,6 +13,38 @@ from backend.services import model_dir
 FileTypes = Sequence[Tuple[str, str]]
 
 
+class NativePickerUnavailableError(RuntimeError):
+    """The platform-native picker cannot start because its GUI runtime is missing."""
+
+
+def _native_picker_unavailable_message() -> str:
+    if platform.system() == "Linux":
+        return (
+            "Native file picker unavailable because Python cannot load Tk. "
+            "Install it with your system package manager "
+            "(Arch/CachyOS: sudo pacman -S tk; Debian/Ubuntu: sudo apt install python3-tk), "
+            "then restart Llama GUI."
+        )
+    return (
+        "Native file picker unavailable because this Python installation cannot load Tcl/Tk. "
+        "Repair or reinstall Python with Tcl/Tk support, then restart Llama GUI."
+    )
+
+
+def _create_tk_root():
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        return tk.Tk(), filedialog
+    except Exception as exc:
+        print(
+            f"[file_picker] native picker unavailable: {type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
+        raise NativePickerUnavailableError(_native_picker_unavailable_message()) from exc
+
+
 def _extensions_from_filetypes(filetypes: Optional[FileTypes]) -> list[str]:
     extensions: list[str] = []
     seen = set()
@@ -77,26 +109,20 @@ def select_file_in_native_dialog(
     if platform.system() == "Darwin":
         return select_file_with_osascript(title, initial_dir, filetypes)
 
+    root, filedialog = _create_tk_root()
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except Exception as exc:
-        raise RuntimeError(f"Native file picker unavailable: {exc}") from exc
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception as exc:
+            print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
 
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        root.attributes("-topmost", True)
-    except Exception as exc:
-        print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
+        dialog_options: dict[str, Any] = {"title": title, "parent": root}
+        if initial_dir:
+            dialog_options["initialdir"] = str(initial_dir)
+        if filetypes:
+            dialog_options["filetypes"] = filetypes
 
-    dialog_options: dict[str, Any] = {"title": title, "parent": root}
-    if initial_dir:
-        dialog_options["initialdir"] = str(initial_dir)
-    if filetypes:
-        dialog_options["filetypes"] = filetypes
-
-    try:
         root.update()
         selected = filedialog.askopenfilename(**dialog_options)
         return selected or ""
@@ -141,23 +167,17 @@ def select_folder_in_native_dialog(
     if platform.system() == "Darwin":
         return select_folder_with_osascript(title, initial_dir)
 
+    root, filedialog = _create_tk_root()
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except Exception as exc:
-        raise RuntimeError(f"Native folder picker unavailable: {exc}") from exc
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception as exc:
+            print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
 
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        root.attributes("-topmost", True)
-    except Exception as exc:
-        print(f"[file_picker] failed to set dialog topmost: {exc}", file=sys.stderr)
-
-    options: dict[str, Any] = {"title": title, "parent": root, "mustexist": True}
-    if initial_dir:
-        options["initialdir"] = str(initial_dir)
-    try:
+        options: dict[str, Any] = {"title": title, "parent": root, "mustexist": True}
+        if initial_dir:
+            options["initialdir"] = str(initial_dir)
         root.update()
         return filedialog.askdirectory(**options) or ""
     finally:
