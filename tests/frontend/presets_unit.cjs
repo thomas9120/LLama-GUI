@@ -351,6 +351,22 @@ assert.equal(
     "renaming a preset with no local state must not invent entries"
 );
 
+const deleteContext = createStoredContext({
+    llama_gui_preset_favorites_v1: JSON.stringify({ Deleted: true, Kept: true }),
+    llama_gui_preset_last_used_v1: JSON.stringify({ Deleted: 1234, Kept: 99 }),
+});
+vm.runInContext("deletePresetLocalState('Deleted')", deleteContext);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_favorites_v1'))", deleteContext),
+    JSON.stringify({ Kept: true }),
+    "confirmed deletion must remove only that preset's favorite"
+);
+assert.equal(
+    vm.runInContext("JSON.stringify(loadPresetJsonMap('llama_gui_preset_last_used_v1'))", deleteContext),
+    JSON.stringify({ Kept: 99 }),
+    "confirmed deletion must remove only that preset's usage history"
+);
+
 // bulk favorite/unfavorite: one storage write for the whole selection
 function countWrites(ctx) {
     return vm.runInContext("__writes", ctx);
@@ -938,6 +954,39 @@ function createPresetLoadElement() {
     return element;
 }
 
+async function testPresetRefreshPreservesMissingFavorite() {
+    const store = {
+        llama_gui_preset_favorites_v1: JSON.stringify({ Visible: true, TemporarilyMissing: true }),
+    };
+    const container = createPresetLoadElement();
+    const ctx = {
+        window: {},
+        document: {
+            getElementById: (id) => (id === "presets-list" ? container : null),
+        },
+        console: { ...console, debug: () => {}, warn: () => {} },
+        localStorage: {
+            getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+            setItem: (key, value) => { store[key] = String(value); },
+        },
+        FLAGS: [],
+        fetchJson: async () => [{ name: "Visible", data: { model: "", flags: {} } }],
+    };
+    ctx.window = ctx;
+    ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
+    vm.createContext(ctx);
+    vm.runInContext(source, ctx, { filename: "presets.js" });
+    vm.runInContext("renderPresetGroups = () => {}", ctx);
+
+    await vm.runInContext("loadPresets()", ctx);
+
+    assert.equal(
+        store.llama_gui_preset_favorites_v1,
+        JSON.stringify({ Visible: true, TemporarilyMissing: true }),
+        "an incomplete successful refresh must not discard favorites"
+    );
+}
+
 async function testPresetLoadFailureClearsAuxiliaryState() {
     const elements = new Map();
     for (const id of [
@@ -1043,6 +1092,7 @@ async function testSetPresetArchivedPostsBatchPayload() {
 }
 
 testSetPresetArchivedPostsBatchPayload()
+    .then(() => testPresetRefreshPreservesMissingFavorite())
     .then(() => testPresetLoadFailureClearsAuxiliaryState())
     .then(() => console.log("presets unit tests passed"))
     .catch((error) => {
