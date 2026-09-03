@@ -7,9 +7,11 @@ import os
 import pathlib
 import socket
 import subprocess
+import sys
 import tarfile
 import tempfile
 import threading
+import types
 import unittest
 import urllib.error
 import zipfile
@@ -2365,6 +2367,55 @@ class FilePickerServiceTests(unittest.TestCase):
         completed = SimpleNamespace(returncode=0, stdout="__CANCEL__", stderr="")
         with mock.patch.object(file_picker_service.subprocess, "run", return_value=completed):
             self.assertEqual(file_picker_service.select_folder_with_osascript(), "")
+
+    def test_linux_picker_reports_missing_tk_without_exposing_raw_error(self):
+        fake_tk = types.ModuleType("tkinter")
+        fake_tk.filedialog = SimpleNamespace()
+        fake_tk.Tk = mock.Mock(side_effect=RuntimeError("private libtk8.6.so failure"))
+        stderr = io.StringIO()
+
+        with (
+            contextlib.redirect_stderr(stderr),
+            mock.patch.dict(sys.modules, {"tkinter": fake_tk}),
+            mock.patch.object(file_picker_service.platform, "system", return_value="Linux"),
+            self.assertRaises(file_picker_service.NativePickerUnavailableError) as raised,
+        ):
+            file_picker_service.select_file_in_native_dialog()
+
+        self.assertIn("Arch/CachyOS: sudo pacman -S tk", str(raised.exception))
+        self.assertNotIn("private", str(raised.exception))
+        self.assertIn("private libtk8.6.so failure", stderr.getvalue())
+
+    def test_windows_picker_success_path_is_unchanged(self):
+        root = mock.Mock()
+        filedialog = SimpleNamespace(askopenfilename=mock.Mock(return_value=r"C:\models\test.gguf"))
+        fake_tk = types.ModuleType("tkinter")
+        fake_tk.filedialog = filedialog
+        fake_tk.Tk = mock.Mock(return_value=root)
+
+        with (
+            mock.patch.dict(sys.modules, {"tkinter": fake_tk}),
+            mock.patch.object(file_picker_service.platform, "system", return_value="Windows"),
+        ):
+            selected = file_picker_service.select_file_in_native_dialog(title="Pick Model")
+
+        self.assertEqual(selected, r"C:\models\test.gguf")
+        filedialog.askopenfilename.assert_called_once_with(title="Pick Model", parent=root)
+        root.destroy.assert_called_once_with()
+
+    def test_macos_native_picker_still_bypasses_tk(self):
+        with (
+            mock.patch.object(file_picker_service.platform, "system", return_value="Darwin"),
+            mock.patch.object(
+                file_picker_service,
+                "select_folder_with_osascript",
+                return_value="/Users/test/Models",
+            ) as picker,
+        ):
+            selected = file_picker_service.select_folder_in_native_dialog(title="Pick Folder")
+
+        self.assertEqual(selected, "/Users/test/Models")
+        picker.assert_called_once_with("Pick Folder", None)
 
 
 class GetLatestUserMessageTests(unittest.TestCase):
