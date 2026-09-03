@@ -35,6 +35,14 @@ if [ ! -x "$VENV_PYTHON" ]; then
     exit 1
 fi
 
+if [ "$(uname -s)" = "Linux" ] && ! "$VENV_PYTHON" -c 'import tkinter' >/dev/null 2>&1; then
+    echo
+    echo "[WARNING] Native file pickers need the optional Tk system package."
+    echo "  Arch/CachyOS: sudo pacman -S tk"
+    echo "  Debian/Ubuntu: sudo apt install python3-tk"
+    echo "Llama GUI will still install; add Tk and restart it to enable Browse/Change dialogs."
+fi
+
 echo "Upgrading pip..."
 "$VENV_PYTHON" -m pip install --upgrade pip
 

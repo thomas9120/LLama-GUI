@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-03
+- Fixed the live Context statistic to use the fullest llama-server slot's retained token count instead of adding lifetime prompt and generation counters, so context shifts now reduce the displayed value correctly; clarified that the adjacent token counts are cumulative processed/generated totals.
+- Prevented successful but temporarily incomplete preset-library refreshes from silently clearing favorites and usage history; that browser-local metadata is now removed only after a confirmed preset deletion or migrated after a rename.
+- Fixed native file-picker failures on Linux installations without Tk: the API now returns actionable package guidance instead of a generic server error, and the Unix installer warns without failing or installing privileged system packages. Windows' existing Tk picker and macOS' AppleScript picker are unchanged.
+
 ## 2026-09-02
 - Added the official llama.cpp ROCm 10.0 binaries as a platform-aware Windows x64/Linux x64 install option, labeled to note that a separate ROCm runtime is required.
 

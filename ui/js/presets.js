@@ -466,6 +466,15 @@ function renamePresetLocalState(oldName, newName) {
     }
 }
 
+function deletePresetLocalState(name) {
+    for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
+        const map = loadPresetJsonMap(storageKey);
+        if (!Object.prototype.hasOwnProperty.call(map, name)) continue;
+        delete map[name];
+        savePresetJsonMap(storageKey, map);
+    }
+}
+
 function buildDuplicatePresetName(name, existingNames) {
     // Duck-typed rather than `instanceof Set`, which is false for a Set built in
     // another realm (an iframe/worker). The fallback copies any iterable, so
@@ -492,20 +501,6 @@ function buildDuplicatePresetName(name, existingNames) {
     let suffix = 2;
     while (isTaken(`${base} ${suffix}`)) suffix++;
     return `${base} ${suffix}`;
-}
-
-function prunePresetLocalState(existingNames) {
-    for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
-        const map = loadPresetJsonMap(storageKey);
-        let changed = false;
-        for (const name of Object.keys(map)) {
-            if (!existingNames.has(name)) {
-                delete map[name];
-                changed = true;
-            }
-        }
-        if (changed) savePresetJsonMap(storageKey, map);
-    }
 }
 
 function getModelQuantLabel(modelLabel) {
@@ -1621,7 +1616,6 @@ async function loadPresets() {
         if (requestId !== loadPresetsRequestId) return;
         presetArchivedCount = presets.filter((preset) => preset.archived === true).length;
         renderPresetArchiveChip();
-        prunePresetLocalState(new Set(presets.map((preset) => preset.name)));
         currentPresetGroups = buildPresetGroups(presets);
         const visibleEntries = getVisiblePresetEntries();
         const visibleNames = new Set(visibleEntries.map((entry) => entry.name));
@@ -1957,6 +1951,7 @@ async function deletePreset(name) {
     if (!ok) return;
     try {
         await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
+        deletePresetLocalState(name);
         loadPresets();
         showPresetActionStatus(`Deleted preset \"${name}\"`, "success");
     } catch (e) {
@@ -2044,6 +2039,7 @@ async function deleteSelectedPresets() {
     try {
         for (const name of names) {
             await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
+            deletePresetLocalState(name);
         }
         selectedPresetNames.clear();
         if (names.includes(selectedPresetName)) {

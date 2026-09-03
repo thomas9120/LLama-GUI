@@ -885,6 +885,7 @@ async function main() {
         assert.equal(await page.textContent("#stats-prompt-tokens"), "40",
             "fresh launches must retain tokens processed before the first stats poll");
         assert.equal(await page.textContent("#stats-gen-tokens"), "20");
+        assert.equal(await page.textContent("#stats-context"), "60");
 
         statsMetrics = {
             promptTokens: 1000,
@@ -902,6 +903,8 @@ async function main() {
         assert.equal(await page.textContent("#stats-prompt-tokens"), "0",
             "pre-poll chat resets must not expose lifetime prompt counters after reconnect");
         assert.equal(await page.textContent("#stats-gen-tokens"), "0");
+        assert.equal(await page.textContent("#stats-context"), "125",
+            "context must use the fullest live slot instead of lifetime token counters");
         assert.equal(await page.textContent("#stats-kv-usage"), "13%");
 
         statsMetrics.processing = 1;
@@ -922,6 +925,7 @@ async function main() {
         const liveGenSpeed = Number(await page.textContent("#stats-gen-speed"));
         assert.ok(liveGenSpeed > 20 && liveGenSpeed < 35,
             `generation speed must use live slot deltas, got ${liveGenSpeed}`);
+        assert.equal(await page.textContent("#stats-context"), "140");
 
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");
