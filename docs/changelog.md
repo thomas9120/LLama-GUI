@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-02
+- Added the official llama.cpp ROCm 10.0 binaries as a platform-aware Windows x64/Linux x64 install option, labeled to note that a separate ROCm runtime is required.
+
 ## 2026-09-01
 - Added an optional server-only Per-Slot Context Limit control for unified KV cache deployments. It emits `--kv-unified-per-slot` while preserving the configured total context window, giving concurrent slots a predictable maximum without enabling upstream automatic pool sizing.
 
@@ -16,7 +19,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 - Updated the Advanced Configure lazy tensor-reading control for llama.cpp PR #27969: it now emits `--lazy-mode` instead of the removed `--tensor-read-lazy` name while preserving existing saved preset values.
 - Renamed the architecture-specific Lemonade install options from ROCm 7 to ROCm Nightly so their labels remain accurate as the bundled TheRock runtime advances.
 - Added Lemonade's stable-fork ROCm 10.0 binaries as one install option on Windows x64 and Linux x64, separate from the architecture-specific Lemonade nightlies; its label warns that a separate ROCm runtime is required.
-- Clarified that the official llama.cpp ROCm 7.14 install options also require a separately installed ROCm runtime.
+- Marked the official llama.cpp ROCm 7.14 install options as legacy and clarified that they require a separately installed ROCm runtime.
 
 ## 2026-08-29
 - Moved Llama GUI's in-app update controls beside the llama.cpp installer at the top of Install and Update, tightened both cards into a responsive two-column layout, and removed the backend dropdown's ROCm description.
