@@ -59,6 +59,7 @@ from backend.routes import install as install_routes
 from backend.routes import process as process_routes
 from backend.routes import search as search_routes
 from backend.routes import status as status_routes
+from backend.routes import system_stats as system_stats_routes
 from backend.routes import tunnel as tunnel_routes
 from backend.routes import git_update as git_update_routes
 from backend.routes import lifecycle as lifecycle_routes
@@ -943,6 +944,7 @@ API_ROUTER = (
     .add("GET", "/api/llama/metrics", metrics_routes.get_metrics)
     .add("GET", "/api/llama/slots", metrics_routes.get_slots)
     .add("GET", "/api/llama/props", metrics_routes.get_props)
+    .add("GET", "/api/system-stats", system_stats_routes.get_system_stats)
     .add("GET", "/api/models", models_routes.list_models)
     .add("GET", "/api/app-update-status", git_update_routes.get_status)
     .add("GET", "/api/presets", presets_routes.list_presets)

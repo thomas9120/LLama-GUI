@@ -1085,7 +1085,7 @@ flagCore.setFlagValue("temperature", 0.5);
 </div>
 
 <h2 id="api">API surface</h2>
-<p class="sub">All 47 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+<p class="sub">All 48 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
 
 <div class="tablewrap">
 <table>
@@ -1103,6 +1103,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/system-stats</td><td>System, disk, and GPU telemetry for the Monitor tab</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under the active model root</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Stable-tag or nightly-branch Git comparison</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/presets</td><td>List saved presets</td></tr>

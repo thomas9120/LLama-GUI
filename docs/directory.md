@@ -79,7 +79,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 46 exact routes plus one prefix route, 47 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 47 exact routes plus one prefix route, 48 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -97,6 +97,7 @@
 | `git_update.py` | `GET /api/app-update-status`, `POST /api/app-update` |
 | `search.py` | `POST /api/web-search` |
 | `status.py` | `GET /api/status` |
+| `system_stats.py` | `GET /api/system-stats` — read-only CPU/RAM/disk + GPU telemetry for the Monitor tab (`?refresh=1` bypasses the short-lived cache) |
 | `lifecycle.py` | `POST /api/shutdown`, `POST /api/restart`, `POST /api/open-folder` |
 | `file_picker.py` | `POST /api/select-file` — native file dialog, `POST /api/select-folder` — native directory dialog |
 
@@ -117,6 +118,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics, slots, and props HTTP fetching |
+| `system_stats.py` | Monitor telemetry: stdlib/ctypes CPU/RAM/disk collectors, nvidia-smi/amd-smi probes, coalesced sample cache |
 | `file_picker.py` | Native file and directory dialogs |
 
 ### State Pattern

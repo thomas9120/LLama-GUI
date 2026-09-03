@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-04
+- Added the Monitor tab's backend foundation: a read-only `GET /api/system-stats` endpoint (`?refresh=1` recheck) that reports CPU, RAM, and application-disk usage from Python stdlib/ctypes collectors, plus best-effort disk I/O on Linux. It probes `nvidia-smi` and `amd-smi` when present (bounded timeouts, cached results, never installs or executes anything), returns evidence-gated per-provider setup states instead of errors, and coalesces concurrent/repeated recheck requests into a single probe run. No new required packages.
+
 ## 2026-09-03
 - Fixed the live Context statistic to use the fullest llama-server slot's retained token count instead of adding lifetime prompt and generation counters, so context shifts now reduce the displayed value correctly; clarified that the adjacent token counts are cumulative processed/generated totals.
 - Prevented successful but temporarily incomplete preset-library refreshes from silently clearing favorites and usage history; that browser-local metadata is now removed only after a confirmed preset deletion or migrated after a rename.
