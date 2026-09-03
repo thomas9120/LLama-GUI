@@ -1,0 +1,1609 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="tokyo">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Llama GUI — Monitor Tab Mockup · V2</title>
+    <link rel="stylesheet" href="../../../ui/css/style.css">
+    <style>
+        /* ══════════════════════════════════════════════════════════
+           V2 — "Instrument rack"
+           One full-bleed console: a command rail on top, a vertical
+           bay of tube gauges on the left, live output + throughput on
+           the right. Card grids are replaced by hardware channels.
+           ══════════════════════════════════════════════════════════ */
+        :root {
+            --v2-seam: var(--border-strong);
+            --v2-bezel: var(--bg-surface);
+            --v2-glass: var(--bg-elevated);
+        }
+
+        /* sidebar footer runtime chip (shared class names, v2 look) */
+        .sidebar-runtime-actions {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 36px;
+            gap: var(--space-2);
+        }
+
+        .v2-runtime {
+            display: flex;
+            align-items: center;
+            gap: var(--space-2);
+            padding: 6px var(--space-3);
+            border: 1px solid var(--green-border);
+            border-radius: 4px;
+            background: var(--green-subtle);
+            color: var(--green);
+            font-family: var(--mono);
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: .8px;
+            text-transform: uppercase;
+        }
+
+        .v2-runtime .status-dot { flex: 0 0 auto; }
+
+        .main-content {
+            padding: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        .v2 {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            font-family: var(--mono);
+        }
+
+        /* ---------- command rail ---------- */
+        .v2-rail {
+            display: flex;
+            align-items: center;
+            gap: var(--space-4);
+            padding: 0 var(--space-5);
+            height: 54px;
+            flex: 0 0 54px;
+            border-bottom: 1px solid var(--v2-seam);
+            background:
+                linear-gradient(180deg, var(--bg-raised), var(--bg-surface));
+            font-size: 10px;
+            letter-spacing: .9px;
+            text-transform: uppercase;
+            color: var(--fg-muted);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+
+        .v2-rail::-webkit-scrollbar { display: none; }
+
+        .v2-led {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--fg-bright);
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .v2-led i {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 0 3px var(--green-subtle), 0 0 10px var(--green);
+            animation: v2-pulse 2.4s ease-in-out infinite;
+        }
+
+        @keyframes v2-pulse {
+            50% { box-shadow: 0 0 0 5px var(--green-subtle), 0 0 4px var(--green); }
+        }
+
+        .v2-stamp {
+            padding-left: var(--space-4);
+            border-left: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        .v2-stamp b { color: var(--fg); font-weight: 600; }
+
+        .v2-chips {
+            display: flex;
+            gap: var(--space-2);
+            margin-left: auto;
+        }
+
+        .v2-chip {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            min-width: 88px;
+            padding: 4px 10px 5px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--inset-md);
+            box-shadow: var(--shadow-inset);
+        }
+
+        .v2-chip span {
+            font-size: 8px;
+            letter-spacing: .8px;
+            color: var(--fg-faint);
+        }
+
+        .v2-chip strong {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: -.3px;
+            color: var(--fg-bright);
+        }
+
+        .v2-chip strong em {
+            margin-left: 3px;
+            font-style: normal;
+            font-size: 9px;
+            color: var(--fg-muted);
+        }
+
+        .v2-seg {
+            display: inline-flex;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        .v2-seg button {
+            padding: 5px 9px;
+            border: 0;
+            border-right: 1px solid var(--border);
+            background: var(--bg-raised);
+            color: var(--fg-muted);
+            font: inherit;
+            font-size: 9px;
+            letter-spacing: .6px;
+            cursor: pointer;
+        }
+
+        .v2-seg button:last-child { border-right: 0; }
+
+        .v2-seg button[aria-pressed="true"] {
+            background: var(--accent-subtle);
+            color: var(--accent-text);
+            font-weight: 700;
+        }
+
+        .v2-run {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 12px;
+            border: 1px solid var(--red-border);
+            border-radius: 4px;
+            background: var(--red-subtle);
+            color: var(--red-fg);
+            font: inherit;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: .8px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        /* ---------- body split ---------- */
+        .v2-body {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 232px minmax(0, 1fr);
+            min-height: 0;
+        }
+
+        /* ---------- gauge bay ---------- */
+        .v2-bay {
+            display: flex;
+            flex-direction: column;
+            gap: var(--space-3);
+            padding: var(--space-4) var(--space-3);
+            overflow-y: auto;
+            border-right: 1px solid var(--v2-seam);
+            background:
+                repeating-linear-gradient(0deg, transparent 0 3px, rgba(0, 0, 0, .05) 3px 4px),
+                var(--bg-base);
+        }
+
+        .v2-bay-label {
+            font-size: 9px;
+            letter-spacing: 1.4px;
+            color: var(--fg-faint);
+            text-transform: uppercase;
+        }
+
+        .v2-ch {
+            position: relative;
+            display: grid;
+            grid-template-columns: 34px minmax(0, 1fr);
+            gap: var(--space-3);
+            padding: var(--space-3) 10px 10px;
+            border: 1px solid var(--v2-seam);
+            border-radius: 8px;
+            background:
+                radial-gradient(circle at 8px 8px, var(--border-strong) 1.4px, transparent 1.6px),
+                radial-gradient(circle at calc(100% - 8px) 8px, var(--border-strong) 1.4px, transparent 1.6px),
+                radial-gradient(circle at 8px calc(100% - 8px), var(--border-strong) 1.4px, transparent 1.6px),
+                radial-gradient(circle at calc(100% - 8px) calc(100% - 8px), var(--border-strong) 1.4px, transparent 1.6px),
+                linear-gradient(180deg, var(--bg-raised), var(--v2-bezel));
+            box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255, 255, 255, .03);
+        }
+
+        .v2-tube {
+            position: relative;
+            height: 100%;
+            min-height: 108px;
+            border: 1px solid var(--border-strong);
+            border-radius: 5px;
+            background:
+                repeating-linear-gradient(0deg, transparent 0 10.9px, var(--border) 10.9px 11px),
+                var(--v2-glass);
+            box-shadow: var(--shadow-inset);
+            overflow: hidden;
+        }
+
+        .v2-tube::after {
+            /* specular streak down the glass */
+            content: "";
+            position: absolute;
+            inset: 0 auto 0 4px;
+            width: 5px;
+            background: linear-gradient(180deg, rgba(255, 255, 255, .10), rgba(255, 255, 255, .02));
+            border-radius: 3px;
+        }
+
+        .v2-fill {
+            position: absolute;
+            inset: auto 0 0 0;
+            height: 0%;
+            background:
+                linear-gradient(180deg, var(--c2), color-mix(in srgb, var(--c2) 55%, transparent));
+            box-shadow: 0 0 12px var(--c2);
+            transition: height .7s cubic-bezier(.22, .61, .36, 1);
+        }
+
+        .v2-fill::before {
+            /* hot meniscus at the top of the column */
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: var(--c2);
+        }
+
+        .v2-mark {
+            position: absolute;
+            left: -3px;
+            right: -3px;
+            height: 1px;
+            background: var(--fg-bright);
+            opacity: .55;
+            transition: bottom .7s cubic-bezier(.22, .61, .36, 1);
+        }
+
+        .v2-meta {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .v2-tag {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 6px;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.1px;
+            color: var(--fg-muted);
+            text-transform: uppercase;
+        }
+
+        .v2-tag em {
+            font-style: normal;
+            padding: 1px 5px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            font-size: 7.5px;
+            letter-spacing: .7px;
+            color: var(--fg-faint);
+        }
+
+        .v2-num {
+            margin: 2px 0 0;
+            font-size: 30px;
+            font-weight: 600;
+            line-height: 1.05;
+            letter-spacing: -1.6px;
+            color: var(--fg-bright);
+            white-space: nowrap;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .v2-num i {
+            margin-left: 3px;
+            font-style: normal;
+            font-size: 11px;
+            letter-spacing: 0;
+            color: var(--fg-muted);
+        }
+
+        .v2-sub {
+            font-size: 9px;
+            line-height: 1.5;
+            color: var(--fg-faint);
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .v2-spark {
+            display: block;
+            width: 100%;
+            height: 30px;
+            margin-top: auto;
+        }
+
+        .v2-ch.down .v2-num { color: var(--fg-faint); letter-spacing: -3px; }
+        .v2-ch.down .v2-tube { background: var(--v2-glass); }
+
+        .v2-setup-btn {
+            margin-top: 6px;
+            padding: 4px 6px;
+            border: 1px dashed var(--yellow-border);
+            border-radius: 4px;
+            background: var(--yellow-subtle);
+            color: var(--yellow);
+            font: inherit;
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: .8px;
+            text-transform: uppercase;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .v2-setup {
+            display: none;
+            margin-top: 6px;
+            padding: 8px;
+            border: 1px solid var(--yellow-border);
+            border-radius: 4px;
+            background: var(--yellow-subtle);
+        }
+
+        .v2-setup.open { display: block; }
+
+        .v2-setup p {
+            font-size: 9px;
+            line-height: 1.55;
+            color: var(--fg-muted);
+        }
+
+        .v2-setup code {
+            display: block;
+            margin: 6px 0;
+            padding: 5px 6px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: var(--inset-md);
+            color: var(--fg);
+            font-size: 9px;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        .v2-setup .row {
+            display: flex;
+            gap: 6px;
+        }
+
+        .v2-tiny {
+            padding: 3px 8px;
+            border: 1px solid var(--border-strong);
+            border-radius: 3px;
+            background: var(--bg-raised);
+            color: var(--fg);
+            font: inherit;
+            font-size: 8.5px;
+            letter-spacing: .6px;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        /* ---------- right stack ---------- */
+        .v2-stack {
+            display: grid;
+            grid-template-rows: minmax(0, 1fr) auto;
+            min-width: 0;
+            min-height: 0;
+        }
+
+        .v2-console {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            background: var(--bg-base);
+        }
+
+        .v2-toolbar {
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: 8px var(--space-4);
+            border-bottom: 1px solid var(--v2-seam);
+            background: var(--bg-surface);
+            font-size: 9px;
+            letter-spacing: .8px;
+            text-transform: uppercase;
+            color: var(--fg-faint);
+        }
+
+        .v2-filters {
+            display: inline-flex;
+            gap: 4px;
+        }
+
+        .v2-filters button {
+            padding: 4px 9px;
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            background: transparent;
+            color: var(--fg-muted);
+            font: inherit;
+            font-weight: 600;
+            letter-spacing: .8px;
+            cursor: pointer;
+        }
+
+        .v2-filters button[aria-pressed="true"] {
+            border-color: var(--accent-border);
+            background: var(--accent-subtle);
+            color: var(--accent-text);
+        }
+
+        .v2-search {
+            flex: 1 1 160px;
+            min-width: 120px;
+            max-width: 300px;
+            padding: 5px 9px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--inset-md);
+            color: var(--fg);
+            font: inherit;
+            font-size: 10px;
+            letter-spacing: 0;
+            text-transform: none;
+        }
+
+        .v2-search::placeholder { color: var(--fg-faint); }
+
+        .v2-toolbar label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .v2-toolbar input[type="checkbox"] { accent-color: var(--accent); }
+
+        .v2-screen {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+            padding: 10px 0 14px;
+            background:
+                linear-gradient(180deg, rgba(0, 0, 0, .22), transparent 60px),
+                var(--bg-raised);
+            scrollbar-color: var(--border-strong) transparent;
+        }
+
+        .v2-console::after {
+            /* CRT scanline wash over the whole terminal block */
+            content: "";
+            position: absolute;
+            inset: 44px 0 0 0;
+            pointer-events: none;
+            background: repeating-linear-gradient(180deg, rgba(0, 0, 0, .13) 0 1px, transparent 1px 3px);
+            opacity: .6;
+            mix-blend-mode: multiply;
+        }
+
+        .v2-line {
+            display: grid;
+            grid-template-columns: 78px 12px 52px minmax(0, 1fr);
+            gap: 8px;
+            align-items: baseline;
+            padding: 1px var(--space-4) 1px 0;
+            font-size: 11px;
+            line-height: 1.65;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .v2-line:hover { background: var(--bg-hover); }
+
+        .v2-ts { color: var(--fg-faint); font-size: 10px; }
+
+        .v2-lvl {
+            width: 7px;
+            height: 7px;
+            border-radius: 2px;
+            background: var(--fg-faint);
+            justify-self: center;
+        }
+
+        .v2-src {
+            font-size: 9px;
+            letter-spacing: .4px;
+            color: var(--fg-faint);
+            text-transform: uppercase;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .v2-msg { color: var(--fg-muted); }
+
+        .v2-line.info .v2-lvl { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); }
+        .v2-line.info .v2-msg { color: var(--cyan); }
+        .v2-line.good .v2-lvl { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .v2-line.good .v2-msg { color: var(--green); }
+        .v2-line.warn .v2-lvl { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+        .v2-line.warn .v2-msg { color: var(--yellow); }
+        .v2-line.err .v2-lvl { background: var(--red); box-shadow: 0 0 6px var(--red); }
+        .v2-line.err .v2-msg { color: var(--red-fg); }
+        .v2-line.dim .v2-msg { color: var(--fg-faint); }
+
+        .v2-cursor {
+            display: inline-block;
+            width: 7px;
+            height: 13px;
+            margin-left: 2px;
+            background: var(--accent-text);
+            vertical-align: -2px;
+            animation: v2-blink 1.1s steps(1) infinite;
+        }
+
+        @keyframes v2-blink { 50% { opacity: 0; } }
+
+        .v2-deck {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 124px 224px;
+            gap: var(--space-3);
+            padding: var(--space-3) var(--space-5) var(--space-4);
+            border-top: 1px solid var(--v2-seam);
+            background: linear-gradient(180deg, var(--bg-surface), var(--bg-base));
+        }
+
+        .v2-deck h3 {
+            margin-bottom: 6px;
+            color: var(--fg-faint);
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1.3px;
+            text-transform: uppercase;
+        }
+
+        /* dual-pen chart recorder + analog decode dial */
+        .v2-rec {
+            min-width: 0;
+        }
+
+        .v2-rec-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: var(--space-3);
+        }
+
+        .v2-rec-head h3 em {
+            color: var(--fg-faint);
+            font-style: normal;
+            letter-spacing: .6px;
+        }
+
+        .v2-legend {
+            display: flex;
+            gap: 10px;
+            font-size: 8px;
+            letter-spacing: .6px;
+            text-transform: uppercase;
+        }
+
+        .v2-legend span {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .v2-legend span::before {
+            content: "";
+            width: 12px;
+            height: 2px;
+            border-radius: 2px;
+            background: currentColor;
+        }
+
+        .v2-legend .k-event::before {
+            width: 0;
+            height: 0;
+            background: none;
+            border-left: 4px solid currentColor;
+            border-top: 3px solid transparent;
+            border-bottom: 3px solid transparent;
+        }
+
+        .k-decode { color: var(--accent-text); }
+        .k-prefill { color: var(--green); }
+        .k-event { color: var(--yellow); }
+
+        .v2-rec-body {
+            height: 92px;
+            margin-top: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: radial-gradient(120% 100% at 50% 0%, var(--bg-raised), var(--v2-glass));
+            box-shadow: var(--shadow-inset);
+        }
+
+        .v2-rec-body canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .v2-tacho {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .v2-tacho svg {
+            display: block;
+            width: auto;
+            height: 74px;
+            margin: 2px auto 0;
+        }
+
+        .d-track { fill: none; stroke: var(--border-strong); stroke-width: 5; }
+        .d-nominal { fill: none; stroke: var(--green); stroke-width: 5; opacity: .35; }
+        .d-stall { fill: none; stroke: var(--red); stroke-width: 5; opacity: .5; }
+        .d-tick { stroke: var(--fg-faint); stroke-width: 1; }
+        .d-tick.maj { stroke: var(--fg-muted); stroke-width: 1.6; }
+        .d-label { fill: var(--fg-faint); font-size: 7px; text-anchor: middle; }
+        .d-ghost { stroke: var(--yellow); stroke-width: 1.2; opacity: .8; }
+        .d-needle { fill: var(--accent-text); }
+        .d-hub { fill: var(--bg-elevated); stroke: var(--accent-border); stroke-width: 1; }
+
+        #needle, #ghost {
+            transform-box: view-box;
+            transform-origin: 50px 46px;
+            transition: transform .5s cubic-bezier(.22, .61, .36, 1);
+        }
+
+        .v2-tacho-val {
+            margin-top: 1px;
+            color: var(--fg-bright);
+            font-size: 17px;
+            font-weight: 600;
+            letter-spacing: -.8px;
+            text-align: center;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .v2-tacho-val i {
+            margin-left: 2px;
+            font-style: normal;
+            font-size: 8px;
+            letter-spacing: .4px;
+            color: var(--fg-muted);
+        }
+
+        .v2-tacho-sub {
+            color: var(--fg-faint);
+            font-size: 8px;
+            letter-spacing: .4px;
+            text-align: center;
+            text-transform: uppercase;
+        }
+
+        .v2-odo {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 4px 8px;
+            margin-bottom: 6px;
+        }
+        .v2-odo > span {
+            font-size: 8px;
+            letter-spacing: .7px;
+            color: var(--fg-faint);
+            text-transform: uppercase;
+        }
+
+        .v2-digits {
+            display: flex;
+            gap: 2px;
+            margin-left: auto;
+        }
+
+        .v2-digits b {
+            width: 17px;
+            padding: 3px 0;
+            overflow: hidden;
+            border: 1px solid var(--border-strong);
+            border-radius: 3px;
+            background: linear-gradient(180deg, var(--bg-raised), var(--inset-md));
+            box-shadow: var(--shadow-inset);
+            color: var(--fg-bright);
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .v2-digits b.roll {
+            animation: v2-roll .34s ease-out;
+        }
+
+        @keyframes v2-roll {
+            from { transform: translateY(-72%); opacity: .25; }
+            to { transform: none; opacity: 1; }
+        }
+
+        .v2-counters {
+            min-width: 0;
+        }
+
+        .v2-kpis {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1px;
+            align-content: start;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            border-radius: 5px;
+            background: var(--border);
+        }
+
+        .v2-kpi {
+            padding: 7px 9px;
+            background: var(--bg-raised);
+        }
+
+        .v2-kpi span {
+            display: block;
+            font-size: 8px;
+            letter-spacing: .8px;
+            color: var(--fg-faint);
+            text-transform: uppercase;
+        }
+
+        .v2-kpi strong {
+            font-size: 15px;
+            font-weight: 600;
+            letter-spacing: -.6px;
+            color: var(--fg-bright);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .v2-kpi strong i {
+            font-style: normal;
+            font-size: 9px;
+            letter-spacing: 0;
+            color: var(--fg-muted);
+        }
+
+        .v2-kpi.ctx73 strong { color: var(--yellow); }
+
+        .v2-note {
+            padding: 5px 8px;
+            border: 1px solid var(--accent-border);
+            border-radius: 4px;
+            background: var(--accent-subtle);
+            color: var(--accent-text);
+            font-size: 8.5px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+
+        @media (max-width: 1080px) {
+            .v2-body { grid-template-columns: 200px minmax(0, 1fr); }
+            .v2-deck { grid-template-columns: minmax(0, 1fr) 112px 190px; }
+        }
+
+        @media (max-width: 820px) {
+            .v2 { height: auto; }
+            .v2-body { grid-template-columns: 1fr; }
+            .v2-bay {
+                flex-direction: row;
+                overflow-x: auto;
+                border-right: 0;
+                border-bottom: 1px solid var(--v2-seam);
+            }
+            .v2-ch { flex: 0 0 190px; }
+            .v2-chips { display: none; }
+            .v2-deck { grid-template-columns: minmax(0, 1fr) 112px; }
+            .v2-rec { grid-column: 1 / -1; }
+            .v2-console { min-height: 320px; }
+            .v2-screen { max-height: 58vh; }
+            .v2-chips { display: none; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+    <aside class="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-logo">
+                <img src="../../../Llama-GUI Logo.png" alt="Llama GUI logo">
+            </div>
+            <div>
+                <div class="sidebar-title">Llama GUI</div>
+                <div class="sidebar-subtitle">llama.cpp Launcher</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav" aria-label="Primary navigation">
+            <div class="nav-section-label">Setup</div>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                Install and Update
+            </button>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                Quick Launch
+            </button>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/></svg></span>
+                Configure
+            </button>
+            <button class="nav-item active" type="button" aria-current="page">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="3 12 7 12 10 4 14 20 17 12 21 12"/><line x1="3" y1="20" x2="21" y2="20"/></svg></span>
+                Monitor
+            </button>
+
+            <div class="nav-section-label">Interact</div>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                Chat
+            </button>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+                API
+            </button>
+
+            <div class="nav-section-label">Manage</div>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Benchmarking
+            </button>
+            <button class="nav-item" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg></span>
+                Presets
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-runtime-actions">
+                <button class="btn btn-danger sidebar-runtime-btn" type="button">
+                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span>
+                    Stop
+                </button>
+                <button class="btn btn-danger sidebar-runtime-power" type="button" aria-label="Stop Python server">
+                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                </button>
+            </div>
+            <div class="v2-runtime">
+                <span class="status-dot"></span>
+                <span>llama-server running</span>
+            </div>
+            <div class="sidebar-meta-row">
+                <button class="theme-menu-trigger" type="button" aria-label="Current theme">
+                    <span class="theme-menu-swatch" aria-hidden="true"></span>
+                    <span>Tokyo</span>
+                </button>
+                <span class="badge badge-neutral">b10742</span>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <div class="v2">
+            <!-- ══ COMMAND RAIL ══ -->
+            <header class="v2-rail">
+                <span class="v2-led"><i></i> llama-server</span>
+                <span class="v2-stamp">pid <b>18472</b> · up <b id="uptime">01:24:37</b></span>
+                <span class="v2-stamp">qwen3-30b-a3b · q4_k_m</span>
+                <span class="v2-stamp">127.0.0.1:<b>8080</b></span>
+
+                <div class="v2-chips">
+                    <div class="v2-chip"><span>gen tok/s</span><strong id="chip-gen">42.4</strong></div>
+                    <div class="v2-chip"><span>prompt tok/s</span><strong id="chip-prompt">651.0</strong></div>
+                    <div class="v2-chip"><span>context</span><strong id="chip-ctx">73<em>%</em></strong></div>
+                </div>
+
+                <div class="v2-seg" role="group" aria-label="Poll interval">
+                    <button type="button" data-int="1" aria-pressed="true">1s</button>
+                    <button type="button" data-int="5" aria-pressed="false">5s</button>
+                    <button type="button" data-int="10" aria-pressed="false">10s</button>
+                </div>
+                <button class="v2-run" id="halt" type="button"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span> Pause</button>
+                <span class="v2-note">V2 mockup</span>
+            </header>
+
+            <div class="v2-body">
+                <!-- ══ GAUGE BAY ══ -->
+                <aside class="v2-bay" aria-label="System and accelerator gauges">
+                    <div class="v2-bay-label">Channels · live</div>
+
+                    <div class="v2-ch" style="--c2: var(--accent)">
+                        <div class="v2-tube"><span class="v2-fill"></span><span class="v2-mark"></span></div>
+                        <div class="v2-meta">
+                            <div class="v2-tag">CPU <em>psutil</em></div>
+                            <div class="v2-num"><b data-num>34</b><i>%</i></div>
+                            <div class="v2-sub">Ryzen 9 7950X · 16C/32T · 4.82 GHz</div>
+                            <canvas class="v2-spark" width="280" height="60"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="v2-ch" style="--c2: var(--cyan)">
+                        <div class="v2-tube"><span class="v2-fill"></span><span class="v2-mark"></span></div>
+                        <div class="v2-meta">
+                            <div class="v2-tag">RAM <em>system</em></div>
+                            <div class="v2-num"><b data-num>61</b><i>%</i></div>
+                            <div class="v2-sub">19.6 / 32.0 GB · 12.4 free</div>
+                            <canvas class="v2-spark" width="280" height="60"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="v2-ch" style="--c2: var(--green)">
+                        <div class="v2-tube"><span class="v2-fill"></span><span class="v2-mark"></span></div>
+                        <div class="v2-meta">
+                            <div class="v2-tag">Disk <em>C:\ nvme</em></div>
+                            <div class="v2-num"><b data-num>38</b><i>% used</i></div>
+                            <div class="v2-sub">702 GB of 1.8 TB · R128 W42</div>
+                            <canvas class="v2-spark" width="280" height="60"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="v2-ch" style="--c2: var(--green)">
+                        <div class="v2-tube"><span class="v2-fill"></span><span class="v2-mark"></span></div>
+                        <div class="v2-meta">
+                            <div class="v2-tag">GPU0 <em>nvidia-smi</em></div>
+                            <div class="v2-num"><b data-num>78</b><i>%</i></div>
+                            <div class="v2-sub">RTX 4090 · 18.2/24G · 68°C · 322W</div>
+                            <canvas class="v2-spark" width="280" height="60"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="v2-ch down" style="--c2: var(--yellow)">
+                        <div class="v2-tube"><span class="v2-fill" style="height:0%"></span></div>
+                        <div class="v2-meta">
+                            <div class="v2-tag">GPU1 <em>hip</em></div>
+                            <div class="v2-num">––<i>%</i></div>
+                            <div class="v2-sub">RX 7900 XTX · no telemetry source</div>
+                            <button class="v2-setup-btn" id="setup-toggle" type="button">! setup required →</button>
+                            <div class="v2-setup" id="setup-panel">
+                                <p>AMD SMI was not found. Install the package for your ROCm driver. LLama-GUI never runs privileged commands.</p>
+                                <code>sudo apt install rocm-smi</code>
+                                <div class="row">
+                                    <button class="v2-tiny" type="button">Copy</button>
+                                    <button class="v2-tiny" type="button">Docs</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+
+                <!-- ══ CONSOLE + DECK ══ -->
+                <section class="v2-stack">
+                    <div class="v2-console">
+                        <div class="v2-toolbar">
+                            <span>Stdout / stderr</span>
+                            <div class="v2-filters" role="group" aria-label="Log level filter">
+                                <button type="button" data-lvl="all" aria-pressed="true">All</button>
+                                <button type="button" data-lvl="info" aria-pressed="false">Info</button>
+                                <button type="button" data-lvl="warn" aria-pressed="false">Warn</button>
+                                <button type="button" data-lvl="err" aria-pressed="false">Error</button>
+                            </div>
+                            <input class="v2-search" id="q" type="search" placeholder="filter lines…" aria-label="Filter log lines">
+                            <label><input type="checkbox" id="autoscroll" checked> Auto-scroll</label>
+                            <button class="v2-tiny" id="clear" type="button">Clear</button>
+                            <span id="buf" style="margin-left:auto">1,248 lines buffered</span>
+                        </div>
+                        <div class="v2-screen" id="screen" role="log" aria-label="llama-server output" aria-live="polite"></div>
+                    </div>
+
+                    <div class="v2-deck">
+                        <section class="v2-rec">
+                            <div class="v2-rec-head">
+                                <h3>Generation recorder <em>· 60 s paper · dual pen</em></h3>
+                                <div class="v2-legend">
+                                    <span class="k-decode">decode t/s</span>
+                                    <span class="k-prefill">prefill t/s</span>
+                                    <span class="k-event">log event</span>
+                                </div>
+                            </div>
+                            <div class="v2-rec-body">
+                                <canvas id="recorder" role="img" aria-label="Decoding and prefill throughput over the last 60 seconds"></canvas>
+                            </div>
+                        </section>
+
+                        <section class="v2-tacho" aria-label="Decoding rate dial">
+                            <h3>Decode dial</h3>
+                            <svg id="dial" viewBox="0 0 100 70" aria-hidden="true"></svg>
+                            <div class="v2-tacho-val"><span id="t-val">42.4</span><i>t/s</i></div>
+                            <div class="v2-tacho-sub">peak <span id="t-peak">48.9</span> · avg <span id="t-avg">43.1</span></div>
+                        </section>
+
+                        <section class="v2-counters">
+                            <h3>Inference counters</h3>
+                            <div class="v2-odo">
+                                <span>tokens decoded</span>
+                                <div class="v2-digits" id="digits"></div>
+                            </div>
+                            <div class="v2-kpis">
+                                <div class="v2-kpi"><span>Prompt tok</span><strong>812</strong></div>
+                                <div class="v2-kpi"><span>Prefill</span><strong id="k-prefill">651<i> t/s</i></strong></div>
+                                <div class="v2-kpi ctx73"><span>Context</span><strong id="k-ctx">73<i>%</i></strong></div>
+                                <div class="v2-kpi"><span>KV cache</span><strong id="k-kv">68<i>%</i></strong></div>
+                            </div>
+                        </section>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+    // ── Channel state: random walk keeps the mockup alive ──────────────
+    const channels = [...document.querySelectorAll(".v2-ch")].map((el) => {
+        const num = el.querySelector("[data-num]");
+        return {
+            el,
+            fill: el.querySelector(".v2-fill"),
+            mark: el.querySelector(".v2-mark"),
+            num,
+            spark: el.querySelector(".v2-spark"),
+            live: !!num,
+            value: num ? parseFloat(num.textContent) : 0,
+            target: num ? parseFloat(num.textContent) : 0,
+            hist: [],
+        };
+    });
+
+    channels.forEach((c) => {
+        for (let i = 0; i < 44; i++) c.hist.push(Math.max(2, Math.min(98, c.target + (Math.random() - .5) * 18)));
+    });
+
+    // --c2 holds a token like var(--accent); resolve it to rgb() once per channel.
+    function sparkColor(c) {
+        if (!c.color) {
+            const token = c.el.style.getPropertyValue("--c2").trim();
+            const name = token.match(/--[\w-]+/)?.[0] || "--accent";
+            const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim() || "#7aa2f7";
+            c.color = toRgb(raw);
+        }
+        return c.color;
+    }
+
+    function drawSpark(c) {
+        const cv = c.spark, ctx = cv.getContext("2d");
+        const color = sparkColor(c);
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = color;
+        ctx.beginPath();
+        c.hist.forEach((v, i) => {
+            const x = (i / (c.hist.length - 1)) * (cv.width - 6) + 3;
+            const y = cv.height - 5 - (v / 100) * (cv.height - 14);
+            if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+        });
+        ctx.stroke();
+        ctx.lineTo(cv.width, cv.height);
+        ctx.lineTo(0, cv.height);
+        ctx.closePath();
+        ctx.fillStyle = color.replace("rgb(", "rgba(").replace(")", ", .16)");
+        ctx.fill();
+    }
+
+    function toRgb(color) {
+        // color may be hex (#88b4f5) → convert to rgb() so we can add alpha
+        const el = document.createElement("span");
+        el.style.color = color;
+        el.style.display = "none";
+        document.body.appendChild(el);
+        const rgb = getComputedStyle(el).color;
+        el.remove();
+        return rgb;
+    }
+
+    function paint(c) {
+        const v = c.value.toFixed(0) + "%";
+        c.fill.style.height = v;
+        if (c.mark) c.mark.style.bottom = v;
+        c.num.textContent = c.value.toFixed(0);
+    }
+
+    function tick() {
+        channels.forEach((c) => {
+            if (!c.live) return;
+            c.target += (Math.random() - .48) * 9;
+            c.target = Math.max(6, Math.min(96, c.target));
+            c.value += (c.target - c.value) * .45;
+            c.hist.push(c.value);
+            if (c.hist.length > 44) c.hist.shift();
+            paint(c);
+            drawSpark(c);
+        });
+        updateDeck();
+    }
+
+    // ── Log stream ─────────────────────────────────────────────────────
+    const seed = [
+        ["dim", "arg", "00:00:11.038", "common_arg_parse: n_ctx = 8192, ngl = 99, n_threads = 16"],
+        ["dim", "server", "00:00:11.041", "build: 10742 (a4c987cb) with MSVC 19.44 for x86_64-pc-windows-msvc"],
+        ["dim", "srv", "00:00:11.044", "system_info: n_threads = 16 / 32 | CUDA : ARCHS = 500,610,700,750,800,860,890"],
+        ["dim", "srv", "00:00:11.044", "system_stats: mem.total = 32643 MB, mem.available = 12943 MB"],
+        ["info", "load", "00:00:11.048", "main: loading model 'models/Qwen3-30B-A3B-Q4_K_M.gguf'"],
+        ["dim", "load", "00:00:11.050", "load_mmproj: no multimodal projector supplied — vision disabled"],
+        ["dim", "load", "00:00:11.052", "load_tensors: offloading 49 repeating layers to GPU"],
+        ["dim", "load", "00:00:11.055", "load_tensors: offloaded 49/49 layers to GPU"],
+        ["dim", "load", "00:00:11.059", "load_tensors: CUDA0 model buffer size = 18182.44 MiB"],
+        ["dim", "kv", "00:00:11.063", "kv     cache:   n_layers = 49, size = 8192 cells"],
+        ["warn", "sched", "00:00:11.065", "scheduler: only 6.4 GiB free on CUDA0 after weights — KV trimmed"],
+        ["dim", "chat", "00:00:11.068", "chat_template: using built-in preset 'chatml' (reverse-mapped)"],
+        ["good", "srv", "00:00:11.071", "server: model loaded successfully in 8.42 s"],
+        ["good", "srv", "00:00:11.072", "http: listening on 127.0.0.1:8080"],
+        ["dim", "http", "00:00:11.090", 'GET /health - 200 in 0.62 ms'],
+        ["dim", "slot", "00:01:24.110", "slot init_slot_: id  0 | task -1 | created"],
+        ["dim", "slot", "00:01:24.114", 'slot launch_slot_: id  0 | task 17 | processing task'],
+        ["dim", "load", "00:01:24.201", "mmap: using MAP_NORESERVE for model buffer"],
+        ["dim", "perf", "00:01:25.362", "prompt eval time = 1,247.42 ms / 812 tokens (651.0 tokens per second)"],
+        ["info", "cache", "00:01:25.400", "cache: reused 640 prefix tokens (78% hit)"],
+        ["dim", "slot", "00:01:26.881", "slot print_timing: id  0 | n =  128 | speed = 44.1 t/s"],
+        ["dim", "slot", "00:01:28.140", "slot print_timing: id  0 | n =  176 | speed = 43.6 t/s"],
+        ["warn", "slot", "00:01:30.091", "slot 0: context usage 73% — consider -c 16384"],
+        ["dim", "slot", "00:01:31.552", "slot print_timing: id  0 | n =  191 | stop = eos_token"],
+        ["dim", "perf", "00:01:31.558", "eval time = 4,502.17 ms / 191 tokens (42.4 tokens per second)"],
+        ["good", "http", "00:01:31.574", 'POST /v1/chat/completions - 200 in 5,744 ms'],
+        ["dim", "http", "00:01:33.002", 'GET /props - 200 in 1.02 ms'],
+    ];
+
+    const pool = [
+        ["dim", "slot", 'slot print_timing: id  0 | task 42 | n =  512 | prompt per second = 648.91'],
+        ["dim", "perf", "eval time = 4,502.17 ms / 191 tokens (42.4 tokens per second)"],
+        ["info", "http", 'POST /v1/chat/completions - completed 200 in 5,744 ms'],
+        ["dim", "srv", "kv cache: n_tokens = 1003, memory = 412.8 MiB"],
+        ["warn", "srv", "context full: 8192 / 8192 tokens — truncating oldest turn"],
+        ["dim", "http", 'OPTIONS /health - 200 in 0.41 ms'],
+        ["info", "srv", "cache: reused 640 prefix tokens (78% hit)"],
+        ["err", "srv", "decode: unexpected token <|im_end|> in structured output — retrying"],
+        ["dim", "slot", "slot run: id  0 | task 43 | n_decoded =  288"],
+        ["good", "http", 'GET /props - 200 in 1.02 ms'],
+        ["dim", "load", "mmap: using MAP_NORESERVE for model buffer"],
+        ["warn", "gpu", "nvidia-smi: power draw 341 W approaching 360 W limit"],
+    ];
+
+    const screen = document.getElementById("screen");
+    const bufEl = document.getElementById("buf");
+    let buffered = 1248;
+    let levelFilter = "all";
+    let query = "";
+
+    function stamp() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, "0");
+        return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, "0")}`;
+    }
+
+    function visible(line) {
+        if (levelFilter !== "all" && !line.classList.contains(levelFilter)) return false;
+        if (!query) return true;
+        return line.textContent.toLowerCase().includes(query);
+    }
+
+    var recorderReady = false;
+
+    function flagEvent(level, msg) {
+        if (recorderReady) recPushFlag(level, msg);
+    }
+
+    function addLine(level, src, ts, msg) {
+        const el = document.createElement("div");
+        el.className = "v2-line " + level;
+        const tsEl = document.createElement("span"); tsEl.className = "v2-ts"; tsEl.textContent = ts;
+        const lvl = document.createElement("span"); lvl.className = "v2-lvl";
+        const s = document.createElement("span"); s.className = "v2-src"; s.textContent = src;
+        const m = document.createElement("span"); m.className = "v2-msg"; m.textContent = msg;
+        el.append(tsEl, lvl, s, m);
+        screen.appendChild(el);
+        if (level === "warn" || level === "err" || level === "good") flagEvent(level, msg);
+        if (visible(el)) el.style.display = "";
+        while (screen.children.length > 260) screen.removeChild(screen.firstChild);
+        buffered += 1;
+        bufEl.textContent = buffered.toLocaleString() + " lines buffered";
+        if (document.getElementById("autoscroll").checked) screen.scrollTop = screen.scrollHeight;
+    }
+
+    seed.forEach(([l, s, t, m]) => addLine(l, s, t, m));
+    const cursor = document.createElement("div");
+    cursor.className = "v2-line dim";
+    cursor.innerHTML = '<span class="v2-ts"></span><span class="v2-lvl"></span><span class="v2-src">out</span><span class="v2-msg">$<span class="v2-cursor"></span></span>';
+    screen.appendChild(cursor);
+
+    function applyFilter() {
+        [...screen.querySelectorAll(".v2-line")].forEach((l) => {
+            l.style.display = visible(l) ? "" : "none";
+        });
+        if (document.getElementById("autoscroll").checked) screen.scrollTop = screen.scrollHeight;
+    }
+
+    document.querySelectorAll(".v2-filters button").forEach((b) => {
+        b.addEventListener("click", () => {
+            document.querySelectorAll(".v2-filters button").forEach((x) => x.setAttribute("aria-pressed", "false"));
+            b.setAttribute("aria-pressed", "true");
+            levelFilter = b.dataset.lvl;
+            applyFilter();
+        });
+    });
+
+    document.getElementById("q").addEventListener("input", (e) => {
+        query = e.target.value.trim().toLowerCase();
+        applyFilter();
+    });
+
+    document.getElementById("clear").addEventListener("click", () => {
+        screen.querySelectorAll(".v2-line").forEach((l) => l.remove());
+        screen.appendChild(cursor);
+        buffered = 0;
+        bufEl.textContent = "buffer cleared";
+    });
+
+    // ── Generation recorder + decode dial ──────────────────────────────
+    const GEN_MAX = 70, PRE_MAX = 900, FEED_MS = 500;
+    const SAMPLES = 120;                       // 60 s of paper at 500 ms feed
+    const cv = document.getElementById("recorder");
+    const cctx = cv.getContext("2d");
+    const mono = getComputedStyle(cv).fontFamily || "monospace";
+    const rootVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || "#7aa2f7";
+    const pal = {
+        accent: toRgb(rootVar("--accent-text")),
+        green: toRgb(rootVar("--green")),
+        yellow: toRgb(rootVar("--yellow")),
+        red: toRgb(rootVar("--red")),
+        faint: toRgb(rootVar("--fg-faint")),
+    };
+    const trace = { gen: [], pre: [], flags: [], abs: 0, lastFeed: performance.now() };
+
+    function recPushFlag(level, msg) {
+        trace.flags.push({ abs: trace.abs, level, text: msg.slice(0, 44) });
+        while (trace.flags.length > 6) trace.flags.shift();
+    }
+
+    let genWalk = 43, preWalk = 646, tokens = 12840;
+
+    function rollOdometer(total) {
+        const s = String(Math.min(999999, Math.floor(total))).padStart(6, "0");
+        for (let i = 0; i < cells.length; i++) {
+            if (cells[i].textContent === s[i]) continue;
+            cells[i].textContent = s[i];
+            cells[i].classList.remove("roll");
+            void cells[i].offsetWidth;
+            cells[i].classList.add("roll");
+        }
+    }
+
+    // ── analog dial geometry (240° sweep, gap at the bottom) ───────────
+    const NS = "http://www.w3.org/2000/svg";
+    const CX = 50, CY = 46, R = 34;
+    const angle = (v) => -120 + (Math.max(0, Math.min(GEN_MAX, v)) / GEN_MAX) * 240;
+    const at = (r, deg) => {
+        const a = (deg - 90) * Math.PI / 180;
+        return [CX + r * Math.cos(a), CY + r * Math.sin(a)];
+    };
+    function arc(r, from, to) {
+        const [x1, y1] = at(r, from), [x2, y2] = at(r, to);
+        return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${to - from > 180 ? 1 : 0} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+    }
+    function svgEl(name, attrs, text) {
+        const node = document.createElementNS(NS, name);
+        for (const k in attrs) node.setAttribute(k, attrs[k]);
+        if (text != null) node.textContent = text;
+        return node;
+    }
+
+    const dial = document.getElementById("dial");
+    dial.append(
+        svgEl("path", { class: "d-track", d: arc(R, angle(0), angle(GEN_MAX)) }),
+        svgEl("path", { class: "d-nominal", d: arc(R, angle(30), angle(55)) }),
+        svgEl("path", { class: "d-stall", d: arc(R, angle(0), angle(12)) })
+    );
+    for (let v = 0; v <= GEN_MAX; v += 5) {
+        const maj = v % 10 === 0, a = angle(v);
+        const [x1, y1] = at(R + 4, a), [x2, y2] = at(R + (maj ? 10 : 7), a);
+        dial.appendChild(svgEl("line", { class: "d-tick" + (maj ? " maj" : ""), x1, y1, x2, y2 }));
+        if (maj && v % 20 === 0) {
+            const [lx, ly] = at(R - 11, a);
+            dial.appendChild(svgEl("text", { class: "d-label", x: lx, y: ly + 2 }, String(v)));
+        }
+    }
+    const ghost = svgEl("g", { id: "ghost" }, null);
+    ghost.appendChild(svgEl("line", { class: "d-ghost", x1: CX, y1: CY, x2: CX, y2: CY - (R - 3) }));
+    const needle = svgEl("g", { id: "needle" }, null);
+    needle.appendChild(svgEl("polygon", { class: "d-needle", points: `48.9,${CY} 51.1,${CY} ${CX},${CY - (R - 3)}` }));
+    dial.append(ghost, needle, svgEl("circle", { class: "d-hub", cx: CX, cy: CY, r: 3.4 }));
+
+    const digitsEl = document.getElementById("digits");
+    const cells = [];
+    for (let i = 0; i < 6; i++) {
+        const b = document.createElement("b");
+        b.textContent = "0";
+        digitsEl.appendChild(b);
+        cells.push(b);
+    }
+
+    function setDial(v) {
+        needle.style.transform = `rotate(${angle(v).toFixed(1)}deg)`;
+        const peak = Math.max.apply(null, trace.gen);
+        const avg = trace.gen.reduce((a, b) => a + b, 0) / trace.gen.length;
+        ghost.style.transform = `rotate(${angle(peak).toFixed(1)}deg)`;
+        document.getElementById("t-val").textContent = v.toFixed(1);
+        document.getElementById("t-peak").textContent = peak.toFixed(1);
+        document.getElementById("t-avg").textContent = avg.toFixed(1);
+        document.getElementById("chip-gen").textContent = v.toFixed(1);
+        document.getElementById("chip-prompt").textContent = preWalk.toFixed(1);
+        document.getElementById("k-prefill").innerHTML = preWalk.toFixed(0) + "<i> t/s</i>";
+    }
+
+    function feed() {
+        if (paused) return;
+        genWalk = Math.max(17, Math.min(64, genWalk + (Math.random() - .5) * 6));
+        preWalk = Math.max(520, Math.min(780, preWalk + (Math.random() - .5) * 70));
+        trace.gen.push(genWalk);
+        trace.pre.push(preWalk);
+        trace.abs += 1;
+        trace.lastFeed = performance.now();
+        while (trace.gen.length > SAMPLES) { trace.gen.shift(); trace.pre.shift(); }
+        while (trace.flags.length && trace.abs - trace.flags[0].abs > SAMPLES) trace.flags.shift();
+        tokens += genWalk * FEED_MS / 1000;
+        rollOdometer(tokens);
+        setDial(genWalk);
+    }
+
+    function drawTrace(now) {
+        const w = cv.clientWidth, h = cv.clientHeight;
+        const dpr = window.devicePixelRatio || 1;
+        if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+            cv.width = Math.round(w * dpr);
+            cv.height = Math.round(h * dpr);
+        }
+        cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        cctx.clearRect(0, 0, w, h);
+
+        const padL = 26, padR = 30, padT = 16, padB = 13;
+        const pw = Math.max(10, w - padL - padR), ph = Math.max(10, h - padT - padB);
+        const step = pw / (SAMPLES - 1);
+        const phase = paused ? 0 : Math.min(1, (now - trace.lastFeed) / FEED_MS);
+        if (paused) trace.lastFeed = now;
+        const n = trace.gen.length;
+        const xOf = (i) => padL + pw - (n - 1 - i + phase) * step;
+        const yOf = (v, max) => padT + ph - (v / max) * ph;
+
+        // graticule: 10 s columns ride the paper, level rows stay put
+        cctx.font = "8px " + mono;
+        cctx.lineWidth = 1;
+        cctx.globalAlpha = .5;
+        cctx.strokeStyle = pal.faint;
+        cctx.fillStyle = pal.faint;
+        for (let s = 0; s <= 60; s += 10) {
+            const x = Math.round(padL + pw - (s / 60) * pw) + .5;
+            cctx.beginPath();
+            cctx.moveTo(x, padT - 4);
+            cctx.lineTo(x, padT + ph + 3);
+            cctx.stroke();
+        }
+
+        // time ruler: labels sit under the fixed grid
+        for (let s = 10; s <= 60; s += 10) {
+            const x = padL + pw - (s / 60) * pw;
+            cctx.globalAlpha = .8;
+            cctx.textAlign = "center";
+            cctx.fillText(s === 10 ? "−10s" : "−" + s + "s", x, h - 3);
+            cctx.globalAlpha = .5;
+        }
+        cctx.textAlign = "center";
+        cctx.globalAlpha = .9;
+        cctx.fillText("now", padL + pw, h - 3);
+        cctx.globalAlpha = .35;
+        cctx.fillStyle = pal.accent;
+        for (const v of [20, 40, 60]) {
+            cctx.beginPath();
+            cctx.moveTo(padL, yOf(v, GEN_MAX));
+            cctx.lineTo(padL + pw, yOf(v, GEN_MAX));
+            cctx.stroke();
+            cctx.textAlign = "right";
+            cctx.fillText(String(v), padL - 4, yOf(v, GEN_MAX) + 3);
+        }
+        cctx.fillStyle = pal.green;
+        for (const v of [700, 900]) {
+            cctx.textAlign = "left";
+            cctx.fillText(String(v), padL + pw + 4, yOf(v, PRE_MAX) + 3);
+        }
+        cctx.globalAlpha = 1;
+
+        // paper-feed rail: sprocket notches ride with the plot
+        cctx.fillStyle = pal.faint;
+        cctx.globalAlpha = .5;
+        for (let x = padL - ((phase * step) % 9); x < padL + pw; x += 9) cctx.fillRect(x, 2, 3, 3);
+        cctx.globalAlpha = 1;
+
+        // event flags pinned to the paper; only the newest carries a label
+        for (let i = 0; i < trace.flags.length; i++) {
+            const f = trace.flags[i];
+            const x = xOf(SAMPLES - 1 - (trace.abs - f.abs));
+            if (x < padL || x > padL + pw) continue;
+            cctx.strokeStyle = cctx.fillStyle = f.level === "err" ? pal.red : f.level === "warn" ? pal.yellow : pal.green;
+            cctx.globalAlpha = .45;
+            cctx.setLineDash([1, 3]);
+            cctx.beginPath();
+            cctx.moveTo(x, padT - 4);
+            cctx.lineTo(x, padT + ph);
+            cctx.stroke();
+            cctx.setLineDash([]);
+            cctx.globalAlpha = 1;
+            cctx.beginPath();
+            cctx.moveTo(x - 3, padT - 8);
+            cctx.lineTo(x + 3, padT - 8);
+            cctx.lineTo(x, padT - 3);
+            cctx.closePath();
+            cctx.fill();
+            if (i === trace.flags.length - 1) {
+                const right = x > padL + pw - 170;
+                cctx.textAlign = right ? "right" : "left";
+                cctx.fillText(f.text.slice(0, 42), x + (right ? -6 : 6), padT - 7);
+            }
+        }
+
+        // prefill pen rides its own right-hand scale
+        cctx.strokeStyle = pal.green;
+        cctx.lineWidth = 1.2;
+        cctx.setLineDash([4, 3]);
+        cctx.beginPath();
+        trace.pre.forEach((v, i) => (i ? cctx.lineTo(xOf(i), yOf(v, PRE_MAX)) : cctx.moveTo(xOf(i), yOf(v, PRE_MAX))));
+        cctx.stroke();
+        cctx.setLineDash([]);
+
+        // decode pen: phosphor fill + trace + persistence tail
+        cctx.beginPath();
+        trace.gen.forEach((v, i) => (i ? cctx.lineTo(xOf(i), yOf(v, GEN_MAX)) : cctx.moveTo(xOf(i), yOf(v, GEN_MAX))));
+        cctx.lineTo(xOf(n - 1), padT + ph);
+        cctx.lineTo(xOf(0), padT + ph);
+        cctx.closePath();
+        cctx.globalAlpha = .1;
+        cctx.fillStyle = pal.accent;
+        cctx.fill();
+
+        cctx.globalAlpha = 1;
+        cctx.strokeStyle = pal.accent;
+        cctx.lineWidth = 1.5;
+        cctx.lineJoin = "round";
+        cctx.shadowColor = pal.accent;
+        cctx.shadowBlur = 6;
+        cctx.beginPath();
+        trace.gen.forEach((v, i) => (i ? cctx.lineTo(xOf(i), yOf(v, GEN_MAX)) : cctx.moveTo(xOf(i), yOf(v, GEN_MAX))));
+        cctx.stroke();
+        cctx.shadowBlur = 0;
+
+        // pen head + its level line to the left axis
+        const hx = xOf(n - 1), hy = yOf(trace.gen[n - 1], GEN_MAX);
+        cctx.globalAlpha = .35;
+        cctx.setLineDash([2, 3]);
+        cctx.beginPath();
+        cctx.moveTo(padL, hy);
+        cctx.lineTo(hx, hy);
+        cctx.stroke();
+        cctx.setLineDash([]);
+        cctx.globalAlpha = 1;
+        cctx.fillStyle = pal.accent;
+        cctx.beginPath();
+        cctx.arc(hx, hy, 2.4, 0, Math.PI * 2);
+        cctx.fill();
+        cctx.globalAlpha = .35;
+        cctx.beginPath();
+        cctx.arc(hx, hy, 5.5, 0, Math.PI * 2);
+        cctx.fill();
+        cctx.globalAlpha = 1;
+
+        requestAnimationFrame(drawTrace);
+    }
+
+    // prefill the paper so the recorder reads as already-running
+    for (let i = 0; i < SAMPLES; i++) {
+        genWalk = Math.max(20, Math.min(60, genWalk + (Math.random() - .5) * 6));
+        preWalk = Math.max(540, Math.min(760, preWalk + (Math.random() - .5) * 60));
+        trace.gen.push(genWalk);
+        trace.pre.push(preWalk);
+        trace.abs += 1;
+    }
+    recPushFlag("warn", "context usage 73% — consider -c 16384");
+    recPushFlag("good", "POST /v1/chat/completions - 200");
+    rollOdometer(tokens);
+    setDial(genWalk);
+    recorderReady = true;
+    requestAnimationFrame(drawTrace);
+
+    setInterval(feed, FEED_MS);
+
+    function updateDeck() {
+        const ctxPct = 70 + Math.random() * 8;
+        document.getElementById("chip-ctx").innerHTML = ctxPct.toFixed(0) + "<em>%</em>";
+        document.getElementById("k-ctx").innerHTML = ctxPct.toFixed(0) + "<i>%</i>";
+        document.getElementById("k-kv").innerHTML = (ctxPct - 5).toFixed(0) + "<i>%</i>";
+    }
+
+    // ── Uptime ─────────────────────────────────────────────────────────
+    let seconds = 5077;
+    const upEl = document.getElementById("uptime");
+    function bumpUptime() {
+        seconds += 1;
+        const h = String(Math.floor(seconds / 3600)).padStart(2, "0");
+        const m = String(Math.floor(seconds / 60) % 60).padStart(2, "0");
+        const s = String(seconds % 60).padStart(2, "0");
+        upEl.textContent = `${h}:${m}:${s}`;
+    }
+
+    // ── Timers + controls ──────────────────────────────────────────────
+    let interval = 1000;
+    let paused = false;
+    let metricTimer = setInterval(tick, interval);
+    let logTimer = setInterval(() => {
+        if (paused) return;
+        const [l, s, m] = pool[Math.floor(Math.random() * pool.length)];
+        addLine(l, s, stamp(), m);
+    }, 1600);
+    let upTimer = setInterval(bumpUptime, 1000);
+
+    document.querySelectorAll(".v2-seg button").forEach((b) => {
+        b.addEventListener("click", () => {
+            document.querySelectorAll(".v2-seg button").forEach((x) => x.setAttribute("aria-pressed", "false"));
+            b.setAttribute("aria-pressed", "true");
+            interval = Number(b.dataset.int) * 1000;
+            clearInterval(metricTimer);
+            metricTimer = setInterval(tick, interval);
+        });
+    });
+
+    document.getElementById("halt").addEventListener("click", (e) => {
+        paused = !paused;
+        e.currentTarget.lastChild.textContent = paused ? " Resume" : " Pause";
+        e.currentTarget.style.borderColor = paused ? "var(--yellow-border)" : "var(--red-border)";
+    });
+
+    const st = document.getElementById("setup-toggle"), sp = document.getElementById("setup-panel");
+    st.addEventListener("click", () => {
+        const open = sp.classList.toggle("open");
+        st.style.display = open ? "none" : "";
+    });
+
+    tick();
+    updateDeck();
+    screen.scrollTop = screen.scrollHeight;
+</script>
+</body>
+</html>
