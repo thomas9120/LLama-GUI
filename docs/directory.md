@@ -161,7 +161,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 18. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
 19. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
 20. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-21. `app.js` — main orchestration (wires everything together)
+21. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+22. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -184,7 +185,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/searchable-select.js` | `window.LlamaGui.searchableSelect` | Searchable combobox wrapper that visually replaces a native `<select>` (button + popup with search) while keeping the select in the DOM as the source of truth for options, value, and change events |
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |
-| `ui/js/output-cursor.js` | `window.LlamaGui.outputCursor` | Shared monotonic cursor consumer for main and benchmark process-output polling |
+| `ui/js/output-cursor.js` | `window.LlamaGui.outputCursor` | Shared monotonic cursor consumer for main and benchmark process-output polling; `invalidate()` advances the epoch while preserving the cursor so clearing the terminal does not replay the backlog |
 | `ui/js/process-lifecycle.js` | `window.LlamaGui.processLifecycle` | Race-resistant launch, stop, switch, restore, authoritative-status reconciliation, generation-keyed readiness, and one-shot prolonged-load diagnostics with injectable UI hooks |
 | `ui/js/sampler-presets.js` | `window.LlamaGui.samplerPresets` | Sampler preset storage, normalization, apply behavior, import/export, and Configure-tab controls; writes sampler values through injected `flagCore` |
 | `ui/js/chat-rendering.js` | `window.LlamaGui.chatRendering` | Markdown and low-level chat DOM rendering helpers |
@@ -195,7 +196,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
-| `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, stats polling, shared template helpers, toasts, module initialization, and cache-busting reload |
+| `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (auto-scroll, trim, cursor-preserving clear), GPU/setup/state card rendering, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
+| `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, shared template helpers, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Stylesheet and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
 | `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
 | `ui/templates/` | — | Bundled Jinja chat template files for Kobold-style presets |
@@ -207,10 +209,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 1. **Install**: Download and install `llama.cpp` releases, select backend, update app from git.
 2. **Quick Launch**: One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
 3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
-4. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
-5. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
-6. **API**: View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
-7. **Presets**: Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
+4. **Monitor**: Live process output, CPU/RAM/disk usage, best-effort disk I/O, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
+5. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
+6. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
+7. **API**: View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
+8. **Presets**: Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
 
 ---
 

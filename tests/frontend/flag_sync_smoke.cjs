@@ -179,6 +179,42 @@ async function main() {
         ];
         let statsSlots = idleStatsSlots;
 
+        // Monitor tab fixtures.
+        const systemStatsRequests = [];
+        let systemStatsBody = {
+            sampled_at: 1788278400.5,
+            interval_seconds: 2.0,
+            system: {
+                cpu: { available: true, percent: 18.4 },
+                memory: { available: true, used_bytes: 12884901888, total_bytes: 34359738368, percent: 37.5 },
+                disk: {
+                    available: true,
+                    path_label: "Application disk",
+                    used_bytes: 500000000000,
+                    total_bytes: 1000000000000,
+                    percent: 50,
+                    read_bytes_per_second: 1240000,
+                    write_bytes_per_second: 420000,
+                },
+            },
+            gpus: [{
+                provider: "nvidia",
+                id: "nvidia:uuid:GPU-SMOKE-0001",
+                id_persistent: true,
+                index: 0,
+                name: "Smoke GPU",
+                utilization_percent: 42,
+                memory_used_bytes: 4000000000,
+                memory_total_bytes: 8000000000,
+                temperature_c: 55,
+            }],
+            gpu_setup: [],
+        };
+        const outputRequests = [];
+        let outputQueue = [];
+        let outputCursorValue = 0;
+        let outputRunningFlag = false;
+
         page.on("pageerror", (error) => {
             pageErrors.push(error.message || String(error));
         });
@@ -425,6 +461,33 @@ async function main() {
                 status: 200,
                 contentType: "application/json",
                 body: JSON.stringify(statsSlots),
+            });
+        });
+
+        await page.route("**/api/system-stats**", async (route) => {
+            systemStatsRequests.push(route.request().url());
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(systemStatsBody),
+            });
+        });
+
+        await page.route("**/api/output**", async (route) => {
+            outputRequests.push(route.request().url());
+            const lines = outputQueue.splice(0);
+            outputCursorValue += lines.length;
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                    lines,
+                    next_cursor: outputCursorValue,
+                    dropped: false,
+                    running: outputRunningFlag,
+                    runtime_generation: 0,
+                    active_process_tool: "llama-server",
+                }),
             });
         });
 
@@ -878,14 +941,16 @@ async function main() {
             next_token: { n_decoded: 20 },
         }];
         await page.evaluate(async () => {
-            startStatsPolling(null, { operation: "manual-launch" });
-            snapshotStatsBaseline();
+            startStatsPolling({ generation: 1 }, { operation: "manual-launch" });
             await pollStats();
         });
         assert.equal(await page.textContent("#stats-prompt-tokens"), "40",
             "fresh launches must retain tokens processed before the first stats poll");
         assert.equal(await page.textContent("#stats-gen-tokens"), "20");
-        assert.equal(await page.textContent("#stats-context"), "60");
+        assert.equal(await page.textContent("#stats-context"), "60",
+            "Session tokens must sum prompt plus generated since the baseline");
+        assert.ok((await page.textContent("#stats-bar")).includes("Session tokens"),
+            "the fixed bar labels cumulative tokens as Session tokens, not Context");
 
         statsMetrics = {
             promptTokens: 1000,
@@ -896,16 +961,16 @@ async function main() {
         };
         statsSlots = idleStatsSlots;
         await page.evaluate(async () => {
-            startStatsPolling();
-            snapshotStatsBaseline();
+            startStatsPolling({ generation: 2 }, { operation: "restore" });
             await pollStats();
         });
         assert.equal(await page.textContent("#stats-prompt-tokens"), "0",
             "pre-poll chat resets must not expose lifetime prompt counters after reconnect");
         assert.equal(await page.textContent("#stats-gen-tokens"), "0");
-        assert.equal(await page.textContent("#stats-context"), "125",
-            "context must use the fullest live slot instead of lifetime token counters");
-        assert.equal(await page.textContent("#stats-kv-usage"), "13%");
+        assert.equal(await page.textContent("#stats-context"), "0",
+            "a restored target baselines on its first sample, so session tokens start at zero");
+        assert.equal(await page.textContent("#stats-kv-usage"), "13%",
+            "KV must come from the most-filled slot's n_prompt_tokens / n_ctx");
 
         statsMetrics.processing = 1;
         statsSlots = [{
@@ -925,7 +990,8 @@ async function main() {
         const liveGenSpeed = Number(await page.textContent("#stats-gen-speed"));
         assert.ok(liveGenSpeed > 20 && liveGenSpeed < 35,
             `generation speed must use live slot deltas, got ${liveGenSpeed}`);
-        assert.equal(await page.textContent("#stats-context"), "140");
+        assert.equal(await page.textContent("#stats-context"), "0",
+            "session tokens stay baseline-relative while slot context moves independently");
 
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");
@@ -1924,6 +1990,108 @@ async function main() {
             .some(option => option.value === "smoke-model.gguf"));
         assert.equal(modelsDirRequests.length, 2);
         assert.equal(modelsDirRequests[1].path, null);
+
+        // ── Monitor tab ─────────────────────────────────────────────────
+        // Tab wiring and the moved process-output DOM (IDs preserved).
+        await selectSection(page, "monitor");
+        assert.equal(await page.locator("#section-monitor #output-terminal").count(), 1,
+            "the process terminal must live in the Monitor tab");
+        assert.equal(await page.locator("#section-configure #output-terminal").count(), 0,
+            "Configure must not keep a mirrored copy of the terminal");
+        assert.equal(await page.locator("#section-monitor #input-row").count(), 1);
+        assert.equal(await page.isChecked("#monitor-auto-scroll"), true,
+            "auto-scroll defaults to enabled");
+
+        // System/GPU cards render from the mocked endpoint while visible.
+        await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4");
+        assert.equal(await page.textContent("#monitor-memory-value"), "37.5");
+        assert.equal(await page.textContent("#monitor-disk-read"), "1.2 MB/s");
+        assert.match(await page.textContent("#monitor-live-badge"), /Live/);
+        await page.waitForFunction(() => document.querySelectorAll("#monitor-gpu-grid [data-monitor-key]").length === 1);
+        assert.match(await page.textContent("#monitor-gpu-grid"), /Smoke GPU/);
+        assert.ok(await page.locator("#monitor-gpu-setup").evaluate(el => el.classList.contains("hidden")),
+            "working probes produce no setup cards");
+
+        // Recheck bypasses the backend cache via the fixed refresh=1 form.
+        await page.click("#btn-monitor-recheck");
+        await wait(200);
+        assert.ok(systemStatsRequests.some(url => url.includes("refresh=1")),
+            "Recheck must request /api/system-stats?refresh=1");
+
+        // Backlog renders, Clear empties the terminal without replaying it.
+        outputRunningFlag = true;
+        outputQueue = ["smoke line one", "smoke line two"];
+        await page.evaluate(() => startOutputPolling(null));
+        await page.waitForFunction(() => document.getElementById("output-terminal").textContent.includes("smoke line two"));
+        await page.click("#btn-clear-output");
+        assert.equal(await page.locator("#output-terminal div").count(), 0, "Clear empties the terminal");
+        assert.match(await page.evaluate(() => processOutputCursor.getUrl()), /since=\d+/,
+            "Clear must preserve the cursor so the backlog does not replay");
+        const outputCountAfterClear = outputRequests.length;
+        await wait(400);
+        assert.ok(outputRequests.slice(outputCountAfterClear).every(url => url.includes("since=")),
+            "polls after Clear must not request the backlog from the start");
+        assert.ok(!(await page.textContent("#output-terminal")).includes("smoke line one"),
+            "no replayed backlog after Clear");
+        await page.evaluate(() => stopOutputPolling());
+        outputRunningFlag = false;
+
+        // Hide/restore: everything except Process Output can be hidden.
+        await page.click('[data-monitor-hide="system:cpu"]');
+        await page.waitForFunction(() => document.querySelector('[data-monitor-key="system:cpu"]')
+            ?.classList.contains("hidden"));
+        assert.match(await page.textContent("#monitor-hidden-count"), /1 card hidden/);
+        await page.evaluate(() => { document.getElementById("monitor-hidden-controls").open = true; });
+        await page.click("#btn-monitor-show-all");
+        await page.waitForFunction(() => !document.querySelector('[data-monitor-key="system:cpu"]')
+            ?.classList.contains("hidden"));
+        assert.ok(await page.locator("#monitor-hidden-controls").evaluate(el => el.classList.contains("hidden")),
+            "the restore control disappears when nothing is hidden");
+
+        // Inference card: empty state without a server, then one shared
+        // snapshot feeds both the fixed bar and the card with one baseline.
+        assert.ok(await page.locator("#monitor-inference-empty").isVisible(),
+            "the Inference card shows its empty state before any target");
+        statsMetrics = {
+            promptTokens: 70,
+            promptSpeed: 5,
+            genTokens: 30,
+            genSpeed: 3,
+            processing: 1,
+        };
+        statsSlots = [{
+            id: 0,
+            id_task: 1,
+            n_ctx: 1000,
+            is_processing: true,
+            n_prompt_tokens: 250,
+            n_prompt_tokens_processed: 70,
+            next_token: { n_decoded: 30 },
+        }];
+        await page.evaluate(async () => {
+            startStatsPolling({ generation: 99 }, { operation: "manual-launch" });
+            await pollStats();
+        });
+        assert.equal(await page.textContent("#stats-context"), "100");
+        assert.equal(await page.textContent("#monitor-inference-total"), "100 tokens",
+            "the Inference card must agree with the fixed bar's session baseline");
+        assert.match(await page.textContent("#monitor-inference-context-reading"), /250 \/ 1,000/);
+        assert.match(await page.textContent("#monitor-inference-context-label"), /active/,
+            "a processing slot is labeled active");
+        assert.match(await page.textContent("#monitor-inference-state-badge"), /1 active/);
+
+        // Reset updates both views immediately from the shared baseline.
+        await page.click("#btn-reset-inference");
+        assert.equal(await page.textContent("#stats-context"), "0");
+        assert.equal(await page.textContent("#monitor-inference-total"), "0 tokens");
+        await page.evaluate(() => stopStatsPolling());
+
+        // System polling stops while the Monitor panel is hidden.
+        const systemCountWhileVisible = systemStatsRequests.length;
+        await selectSection(page, "configure");
+        await wait(2600);
+        assert.equal(systemStatsRequests.length, systemCountWhileVisible,
+            "system stats must not poll while the Monitor tab is hidden");
 
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 

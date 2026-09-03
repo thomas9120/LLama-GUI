@@ -44,4 +44,24 @@ assert.ok(!received.includes("old process"));
 cursor.reset();
 assert.equal(cursor.getUrl(), "/api/output");
 
+// invalidate() rejects in-flight responses without discarding the cursor.
+// Clearing the terminal relies on this: a reset() to a null cursor would
+// make the next cursorless request replay the whole backend backlog.
+cursor.consume({ lines: ["keep"], next_cursor: 7, dropped: false });
+assert.equal(cursor.getUrl(), "/api/output?since=7");
+const inFlight = cursor.getRequest();
+cursor.invalidate();
+assert.equal(cursor.getUrl(), "/api/output?since=7", "invalidate must keep the cursor");
+assert.equal(cursor.isCurrent(inFlight.epoch), false, "invalidate must reject in-flight requests");
+const staleAfterInvalidate = cursor.consume(
+    { lines: ["replayed backlog"], next_cursor: 3, dropped: false },
+    inFlight.epoch,
+);
+assert.equal(staleAfterInvalidate.current, false);
+assert.ok(!received.includes("replayed backlog"));
+const freshAfterInvalidate = cursor.consume({ lines: ["fresh"], next_cursor: 8, dropped: false });
+assert.equal(freshAfterInvalidate.current, true);
+assert.deepEqual(received.slice(-2), ["keep", "fresh"]);
+assert.equal(cursor.getUrl(), "/api/output?since=8");
+
 console.log("output cursor unit tests passed");

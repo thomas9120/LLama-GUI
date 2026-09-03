@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-09-04
+- Added the Monitor tab: the live process terminal moved out of Configure (IDs and cursor/lifecycle ownership preserved) with Auto-scroll and a Clear that no longer replays the backlog; CPU/RAM/disk cards poll `GET /api/system-stats` only while the tab and document are visible; one card per detected NVIDIA/AMD GPU with provider-specific setup guidance and a generic no-telemetry state; every card except Process Output can be hidden and restored. The fixed stats bar and the new optional Inference card now share one target-keyed snapshot from independent `/metrics` + `/slots` fetches, with a shared Reset baseline, honest "Session tokens" vs most-filled-slot context labels, and per-target counter isolation for GUI launches, restores, and external connect/restore/reconnect.
 - Added the Monitor tab's backend foundation: a read-only `GET /api/system-stats` endpoint (`?refresh=1` recheck) that reports CPU, RAM, and application-disk usage from Python stdlib/ctypes collectors, plus best-effort disk I/O on Linux. It probes `nvidia-smi` and `amd-smi` when present (bounded timeouts, cached results, never installs or executes anything), returns evidence-gated per-provider setup states instead of errors, and coalesces concurrent/repeated recheck requests into a single probe run. No new required packages.
 
 ## 2026-09-03
