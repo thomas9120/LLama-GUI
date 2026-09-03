@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<!--
+  Monitor tab — static design mockup (companion to docs/monitor-tab-docs/monitor-plan.md).
+
+  - Renders with the REAL app stylesheets (ui/css/tokens.css, ui/css/style.css) and the
+    real theme registry (ui/js/theme-ui.js), so every shipped theme is live in the menu.
+  - Reuses existing app components only: .card, .badge, .progress-bar, .terminal,
+    .status-box, .empty-state, .form-row, .output-header, .stats-bar. The small
+    `monitor-*` block below is layout-only, token-pure, and is the candidate CSS for the
+    eventual style.css addition.
+  - The four plan states (full telemetry, GPU tools missing, no process, external
+    server) are pre-rendered and switched with the scenario chips. No backend calls.
+  - The process output DOM keeps the real IDs (#output-terminal, #btn-clear-output,
+    #input-row, #cli-input, #btn-send-input) so this doubles as the move-target markup.
+
+  Open directly in a browser: docs/monitor-tab-docs/monitor-mockup.html
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark">
+    <title>Monitor — Llama GUI (Static Mockup)</title>
+    <link rel="icon" type="image/x-icon" href="../../assets/Llama-GUI.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+        // Same pre-paint theme application as ui/index.html: apply the stored theme
+        // before first render so the mockup never flashes the default palette.
+        (function () {
+            var theme = "tokyo";
+            var scheme = "";
+            try {
+                var stored = localStorage.getItem("llama_gui_theme");
+                if (stored && /^[a-z][a-z0-9-]*$/.test(stored)) theme = stored;
+                var storedScheme = localStorage.getItem("llama_gui_theme_scheme");
+                if (storedScheme === "light" || storedScheme === "dark") scheme = storedScheme;
+            } catch (e) {
+                console.debug("Failed to apply stored theme before paint", e);
+            }
+            document.documentElement.dataset.theme = theme;
+            if (scheme) {
+                var meta = document.querySelector('meta[name="color-scheme"]');
+                if (meta) meta.setAttribute("content", scheme === "light" ? "light dark" : "dark light");
+            }
+        })();
+    </script>
+    <link rel="stylesheet" href="../../ui/css/tokens.css">
+    <link rel="stylesheet" href="../../ui/css/style.css">
+    <style>
+        /* ════════════════════════════════════════════════════════════════
+           Mockup chrome — scenario switcher. Deliberately outside the app's
+           visual language; it will not exist in the real tab.
+           ════════════════════════════════════════════════════════════════ */
+        :root { --mockup-banner-h: 46px; }
+
+        .mockup-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 200;
+            height: var(--mockup-banner-h);
+            display: flex;
+            align-items: center;
+            gap: var(--space-3);
+            padding: 0 var(--space-4);
+            background: var(--bg-raised);
+            border-bottom: 1px solid var(--border-strong);
+            font-size: 12px;
+            color: var(--fg-muted);
+        }
+        .mockup-banner-title { font-weight: 700; color: var(--fg-bright); white-space: nowrap; }
+        .mockup-banner-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--fg-faint); white-space: nowrap; }
+        .mockup-chips { display: flex; gap: var(--space-1); overflow-x: auto; }
+        .mockup-chip {
+            padding: 3px 12px;
+            border-radius: 999px;
+            border: 1px solid var(--border-strong);
+            background: var(--bg-elevated);
+            color: var(--fg-muted);
+            font-family: var(--font);
+            font-size: 11.5px;
+            font-weight: 600;
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all var(--ease-fast);
+        }
+        .mockup-chip:hover { background: var(--bg-hover); color: var(--fg); }
+        .mockup-chip.active { background: var(--accent-subtle); border-color: var(--accent-border); color: var(--accent-text); }
+        .mockup-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+        /* Offset the fixed shell below the banner. */
+        .mockup-offset .sidebar { top: var(--mockup-banner-h); }
+        .mockup-offset .main-content { padding-top: calc(var(--mockup-banner-h) + var(--space-4)); }
+        .mockup-offset .mobile-toggle { top: calc(var(--mockup-banner-h) + var(--space-3)); }
+
+        /* ════════════════════════════════════════════════════════════════
+           Monitor tab layout. Token-pure; candidate additions for the real
+           style.css when the tab is implemented.
+           ════════════════════════════════════════════════════════════════ */
+        .monitor-page-header { flex-wrap: wrap; gap: var(--space-3); }
+        .monitor-header-actions { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+        .monitor-updated { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
+
+        .monitor-section { margin-top: var(--space-5); }
+        .monitor-metrics-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+        .monitor-gpu-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); }
+        .monitor-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+        .monitor-metric-value {
+            font-family: var(--mono);
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.2;
+            color: var(--fg-bright);
+            margin-bottom: var(--space-2);
+        }
+        .monitor-metric-unit { font-size: 13px; font-weight: 600; color: var(--fg-muted); margin-left: 2px; }
+        .monitor-metric-sub { margin-top: var(--space-3); font-size: 11.5px; color: var(--fg-muted); }
+
+        .monitor-metric-block { margin-bottom: var(--space-3); }
+        .monitor-metric-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: var(--space-2);
+            margin-bottom: 6px;
+        }
+        .monitor-metric-label {
+            font-size: 10.5px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            color: var(--fg-faint);
+        }
+        .monitor-metric-reading { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--fg-bright); }
+        /* Plan contract: unsupported fields render as "Not available", never zero. */
+        .monitor-not-available { font-family: var(--font); font-size: 12px; font-style: italic; font-weight: 500; color: var(--fg-faint); }
+
+        .monitor-gpu-meta { display: grid; gap: 6px; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+        .monitor-gpu-meta .monitor-metric-row { margin-bottom: 0; }
+
+        .monitor-io-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: var(--space-2);
+            margin-top: var(--space-3);
+            padding-top: var(--space-3);
+            border-top: 1px solid var(--border);
+        }
+        .monitor-io-cell { display: flex; flex-direction: column; gap: 2px; }
+        .monitor-io-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--fg-faint); }
+        .monitor-io-value { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--fg-bright); }
+
+        .monitor-output-tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+        .monitor-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
+        .monitor-autoscroll {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            color: var(--fg-muted);
+            cursor: pointer;
+            user-select: none;
+        }
+        .monitor-autoscroll input { cursor: pointer; }
+        .monitor-autoscroll:hover { color: var(--fg); }
+
+        .monitor-command-row { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
+        .monitor-command {
+            flex: 1;
+            min-width: 0;
+            overflow-x: auto;
+            white-space: nowrap;
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--fg);
+            background: var(--inset-md);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: var(--space-2) var(--space-3);
+        }
+
+        a.btn { text-decoration: none; }
+        a.btn:hover { color: var(--fg-bright); }
+        a.btn-primary { color: var(--on-accent); }
+
+        @media (max-width: 1100px) {
+            .monitor-setup-cards { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 900px) {
+            .monitor-metrics-grid { grid-template-columns: 1fr; }
+            /* Banner becomes part of the flow so it can wrap on narrow screens. */
+            .mockup-banner { position: static; height: auto; min-height: var(--mockup-banner-h); flex-wrap: wrap; padding: var(--space-2) var(--space-4); }
+            .mockup-offset .sidebar { top: 0; }
+            .mockup-offset .main-content { padding-top: var(--space-4); }
+            .mockup-offset .mobile-toggle { top: var(--space-3); }
+        }
+    </style>
+</head>
+<body class="mockup-offset">
+
+<!-- ═══ MOCKUP CHROME — scenario switcher (not part of the app) ═══ -->
+<div class="mockup-banner">
+    <span class="mockup-banner-title">Monitor tab · static mockup</span>
+    <span class="mockup-banner-label" id="mockup-scene-label">Scenario</span>
+    <div class="mockup-chips" role="group" aria-labelledby="mockup-scene-label">
+        <button type="button" class="mockup-chip active" data-scene="full" aria-pressed="true">Full telemetry</button>
+        <button type="button" class="mockup-chip" data-scene="gpu-missing" aria-pressed="false">GPU tools missing</button>
+        <button type="button" class="mockup-chip" data-scene="no-process" aria-pressed="false">No process</button>
+        <button type="button" class="mockup-chip" data-scene="external" aria-pressed="false">External server</button>
+    </div>
+</div>
+
+<button class="mobile-toggle" id="mobile-toggle" type="button" aria-label="Open navigation" title="Open navigation">
+    <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></span>
+</button>
+
+<div class="app-shell">
+
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-brand">
+            <div class="sidebar-logo">
+                <img src="../../Llama-GUI%20Logo.png" alt="Llama GUI logo">
+            </div>
+            <div>
+                <div class="sidebar-title">Llama GUI</div>
+                <div class="sidebar-subtitle">llama.cpp Launcher</div>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section-label">Setup</div>
+            <button class="nav-item" data-section="install" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                Install and Update
+            </button>
+            <button class="nav-item" data-section="quick-launch" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                Quick Launch
+            </button>
+            <button class="nav-item" data-section="configure" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
+                Configure
+            </button>
+            <!-- Plan: Monitor sits after Configure, in the Setup section. -->
+            <button class="nav-item active" data-section="monitor" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></span>
+                Monitor
+            </button>
+
+            <div class="nav-section-label">Interact</div>
+            <button class="nav-item" data-section="chat" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                Chat
+            </button>
+            <button class="nav-item" data-section="api" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
+                API
+            </button>
+
+            <div class="nav-section-label">Manage</div>
+            <button class="nav-item" data-section="benchmarking" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Benchmarking
+            </button>
+            <button class="nav-item" data-section="presets" type="button">
+                <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
+                Presets
+            </button>
+        </nav>
+
+        <div class="sidebar-footer">
+            <div class="sidebar-runtime-controls" aria-label="Runtime controls">
+                <div class="sidebar-runtime-actions">
+                    <button id="btn-sidebar-launch" class="btn btn-primary sidebar-runtime-btn hidden" data-show="no-process external" type="button">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+                        Launch
+                    </button>
+                    <button id="btn-sidebar-stop" class="btn btn-danger sidebar-runtime-btn" data-show="full gpu-missing" type="button">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span>
+                        Stop
+                    </button>
+                    <button id="btn-sidebar-stop-app" class="btn btn-danger sidebar-runtime-power" type="button" aria-label="Stop Python Server" title="Stop Python Server">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                    </button>
+                </div>
+                <details class="sidebar-memory-estimate" id="sidebar-memory-estimate">
+                    <summary class="sidebar-memory-summary">
+                        <span class="sidebar-memory-title">Memory</span>
+                        <span class="sidebar-memory-reading">
+                            <span class="sidebar-memory-label">GPU</span>
+                            <strong id="memory-estimate-accelerator">21.2 GB</strong>
+                        </span>
+                        <span class="sidebar-memory-reading">
+                            <span class="sidebar-memory-label">RAM</span>
+                            <strong id="memory-estimate-ram">2.8 GB</strong>
+                        </span>
+                        <span class="sidebar-memory-state" id="memory-estimate-state">Slot A</span>
+                    </summary>
+                    <div class="sidebar-memory-detail" id="memory-estimate-detail">Qwen3-8B Q4_K_M · 36/36 layers offloaded to CUDA0</div>
+                </details>
+            </div>
+            <section class="sidebar-model-switcher" id="sidebar-model-switcher" aria-labelledby="sidebar-model-switcher-label">
+                <div class="sidebar-model-switcher-heading" id="sidebar-model-switcher-label">Model Switcher</div>
+                <div class="sidebar-model-switcher-control">
+                    <span class="sidebar-model-switcher-slot is-active" aria-hidden="true">A</span>
+                    <div class="sidebar-model-switcher-slider" role="slider" tabindex="0" aria-label="Active model switcher slot" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" aria-valuetext="Model A" aria-disabled="true" aria-describedby="sidebar-model-switcher-status">
+                        <span class="sidebar-model-switcher-track" aria-hidden="true"></span>
+                        <span class="sidebar-model-switcher-thumb" aria-hidden="true"></span>
+                    </div>
+                    <span class="sidebar-model-switcher-slot" aria-hidden="true">B</span>
+                </div>
+                <div class="sidebar-model-switcher-status" aria-live="polite">Slot A · llama-server running</div>
+            </section>
+            <div class="sidebar-meta-row">
+                <div class="theme-menu" id="theme-menu">
+                    <button class="theme-menu-trigger" id="theme-menu-trigger" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="theme-menu-list" title="Change theme">
+                        <span class="theme-menu-swatch" id="theme-menu-current-swatch" aria-hidden="true"></span>
+                        <span class="theme-menu-current" id="theme-menu-current">Theme</span>
+                        <span class="icon icon-sm theme-menu-chevron" aria-hidden="true"><svg viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg></span>
+                    </button>
+                    <ul class="theme-menu-list" id="theme-menu-list" role="menu" aria-label="Theme" hidden></ul>
+                </div>
+                <span id="version-badge" class="badge badge-neutral" title="llama.cpp version">b6015 · CUDA</span>
+            </div>
+        </div>
+    </aside>
+
+    <div class="main-content">
+
+        <!-- ═══ MONITOR ═══ -->
+        <div class="section-panel" id="section-monitor">
+            <div class="page-header monitor-page-header">
+                <div>
+                    <div class="page-title">Monitor</div>
+                    <div class="page-title-sub">Live process output, system resources, and GPU telemetry for this machine.</div>
+                </div>
+                <div class="monitor-header-actions">
+                    <span class="badge badge-green" title="Stats poll every 2 seconds while this tab is visible"><span class="badge-dot" style="background: var(--green);"></span> Live · 2 s refresh</span>
+                    <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
+                    <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                        Recheck GPU monitoring
+                    </button>
+                </div>
+            </div>
+
+            <!-- 1 · Process output (moved here from Configure, IDs preserved) -->
+            <div class="card monitor-section" id="monitor-output-card" style="margin-top: var(--space-4);">
+                <div class="output-header">
+                    <h3>Process Output</h3>
+                    <div class="monitor-output-tools">
+                        <span class="badge badge-neutral" data-show="full gpu-missing no-process">llama-server</span>
+                        <span class="badge badge-accent hidden" data-show="external">external server</span>
+                        <span class="badge badge-green" data-show="full gpu-missing"><span class="badge-dot" style="background: var(--green);"></span> Running</span>
+                        <span class="badge badge-dim hidden" data-show="no-process">No process running</span>
+                        <span class="monitor-sep" aria-hidden="true"></span>
+                        <label class="monitor-autoscroll" for="monitor-auto-scroll">
+                            <input type="checkbox" id="monitor-auto-scroll" checked>
+                            Auto-scroll
+                        </label>
+                        <button class="btn btn-sm btn-ghost" id="btn-clear-output" type="button">Clear</button>
+                    </div>
+                </div>
+
+                <p class="help-text hidden" data-show="no-process" style="margin-bottom: var(--space-3);">
+                    No process running — the most recent output backlog is retained until the next launch.
+                </p>
+
+                <div id="output-terminal" class="terminal" data-show="full gpu-missing no-process" aria-label="Process output log">build: 6015 / a1c4c9c8 (built 2026-08-12)
+main: build = 6015 (a1c4c9c8)
+main: built with MSVC 19.44.35207.01 for x64
+main: CMAKE_BUILD_TYPE   = Release
+system_info: n_threads = 8 (backup = 16) / 32 | CPU
+main: loading model from 'models\Qwen3-8B-Q4_K_M.gguf'
+llama_model_loader: loaded meta data with 34 key-value pairs and 342 tensors from models\Qwen3-8B-Q4_K_M.gguf (version GGUF V3 (latest))
+llama_model_loader: - tensor    0:                output.weight q4_K_M [  4096, 151936,     1,     1 ]
+llama_model_loader: - tensor  341:        blk.35.ffn_down.weight q4_K_M [ 14336,   4096,     1,     1 ]
+llama_model_loader: - kv   0:       general.architecture str              = qwen3
+llama_model_loader: - kv   5:          qwen3.block_count u32              = 36
+llama_context: n_ctx = 8192, n_ctx_seq = 8192, n_batch = 2048, n_ubatch = 512, flash_attn = 1
+llama_kv_cache: layer  0..35: dev = CUDA0
+llama_context: CUDA0 model buffer size = 4812.34 MiB
+llama_context: CUDA1 model buffer size = 1203.09 MiB
+llama_new_context_with_model: compute buffer total size = 1187.62 MiB
+llama_server: HTTP server listening on http://127.0.0.1:8080
+llama_server: Web UI is served at http://127.0.0.1:8080
+slot update_slots: id  0 | task 0 | new slot, n_ctx = 8192
+slot update_slots: id  0 | task 0 | prompt processing progress: 24.6%
+slot update_slots: id  0 | task 0 | generation progress: 512 tokens, 28.4 t/s</div>
+
+                <!-- llama-cli stdin row: hidden for llama-server, preserved with real IDs -->
+                <div id="input-row" class="input-row hidden">
+                    <input type="text" id="cli-input" placeholder="Type and press Enter..." />
+                    <button class="btn" id="btn-send-input" type="button">Send</button>
+                </div>
+
+                <!-- External server: stats stay live, but stdout is not owned by Llama GUI -->
+                <div class="hidden" data-show="external">
+                    <div class="status-box info">Connected to an external llama-server. System and GPU stats stay live, but process output is unavailable — Llama GUI does not own that process's stdout.</div>
+                    <div class="empty-state empty-state-sm">
+                        <div class="empty-state-title">No process output</div>
+                        <p>Launch a process from Quick Launch or Configure to see its live log here.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2 · System -->
+            <div class="monitor-section" id="monitor-system-section">
+                <div class="monitor-metrics-grid">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">CPU</div>
+                            </div>
+                            <div class="card-icon icon-blue">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value">34<span class="monitor-metric-unit">%</span></div>
+                        <div class="progress-bar" role="meter" aria-label="CPU usage" aria-valuenow="34" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 34%;"></div></div>
+                        <div class="monitor-metric-sub">32 threads · delta over 2.0 s sample</div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">Memory</div>
+                            </div>
+                            <div class="card-icon icon-magenta">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value">37.5<span class="monitor-metric-unit">%</span></div>
+                        <div class="progress-bar" role="meter" aria-label="Memory usage" aria-valuenow="37.5" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 37.5%;"></div></div>
+                        <div class="monitor-metric-sub">48.0 GB used of 128.0 GB</div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">Disk</div>
+                            </div>
+                            <div class="card-icon icon-cyan">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value">43<span class="monitor-metric-unit">%</span></div>
+                        <div class="progress-bar" role="meter" aria-label="Application disk usage" aria-valuenow="43" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 43%;"></div></div>
+                        <div class="monitor-metric-sub">812 GB used of 1.9 TB · Application disk (C:)</div>
+                        <div class="monitor-io-grid">
+                            <div class="monitor-io-cell">
+                                <span class="monitor-io-label">Read</span>
+                                <span class="monitor-io-value">12.4 MB/s</span>
+                            </div>
+                            <div class="monitor-io-cell">
+                                <span class="monitor-io-label">Write</span>
+                                <span class="monitor-io-value">3.1 MB/s</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3 · GPUs -->
+            <div class="monitor-section" id="monitor-gpu-section">
+                <div class="monitor-gpu-grid" data-show="full no-process external">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">GPU 0 · NVIDIA</div>
+                                <div class="card-title">NVIDIA GeForce RTX 4090</div>
+                            </div>
+                            <div class="card-icon icon-green">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-block">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">Utilization</span>
+                                <span class="monitor-metric-reading">72%</span>
+                            </div>
+                            <div class="progress-bar" role="meter" aria-label="GPU 0 utilization" aria-valuenow="72" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 72%;"></div></div>
+                        </div>
+                        <div class="monitor-metric-block">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">VRAM</span>
+                                <span class="monitor-metric-reading">18.4 / 24 GB</span>
+                            </div>
+                            <div class="progress-bar" role="meter" aria-label="GPU 0 memory" aria-valuenow="77" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 77%;"></div></div>
+                        </div>
+                        <div class="monitor-gpu-meta">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">Temperature</span>
+                                <span class="monitor-metric-reading">63 °C</span>
+                            </div>
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">GPU ID</span>
+                                <span class="monitor-metric-reading" title="GPU-7f3e2a91-4c1d-8b0e-93aa-c2f5d41b09e8">GPU-7f3e2a91…b09e8</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">GPU 1 · NVIDIA</div>
+                                <div class="card-title">NVIDIA GeForce RTX 3060</div>
+                            </div>
+                            <div class="card-icon icon-green">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-block">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">Utilization</span>
+                                <span class="monitor-metric-reading">4%</span>
+                            </div>
+                            <div class="progress-bar" role="meter" aria-label="GPU 1 utilization" aria-valuenow="4" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 4%;"></div></div>
+                        </div>
+                        <div class="monitor-metric-block">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">VRAM</span>
+                                <span class="monitor-metric-reading">0.8 / 12 GB</span>
+                            </div>
+                            <div class="progress-bar" role="meter" aria-label="GPU 1 memory" aria-valuenow="7" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill" style="width: 7%;"></div></div>
+                        </div>
+                        <div class="monitor-gpu-meta">
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">Temperature</span>
+                                <span class="monitor-not-available">Not available</span>
+                            </div>
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label">GPU ID</span>
+                                <span class="monitor-metric-reading" title="PCI bus ID fallback (no UUID reported)">PCI 0000:0B:00.0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Degraded: no vendor probe worked -->
+                <div class="card hidden" data-show="gpu-missing">
+                    <div class="empty-state">
+                        <div class="empty-state-title">No GPU telemetry available</div>
+                        <p>No supported vendor tool was found (<code>nvidia-smi</code>, <code>amd-smi</code>). System metrics keep updating — use the setup options below to enable GPU monitoring, then Recheck.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4 · GPU monitoring setup (hidden whenever a provider probe works) -->
+            <div class="monitor-section hidden" id="monitor-gpu-setup" data-show="gpu-missing">
+                <div class="status-box info">Setup states are reported by <code>GET /api/system-stats</code>. Commands come from a fixed backend allowlist and are shown for you to run — Llama GUI never executes package managers or elevates privileges.</div>
+                <div class="stacked-cards monitor-setup-cards">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">GPU Monitoring Setup</div>
+                                <div class="card-title">NVIDIA</div>
+                            </div>
+                            <div class="card-icon icon-blue">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                            </div>
+                        </div>
+                        <p class="help-text">
+                            <code>nvidia-smi</code> was not found on this machine. It ships with the NVIDIA driver
+                            environment — Llama GUI does not install or upgrade drivers. Install or update the driver
+                            using the official documentation, then Recheck.
+                        </p>
+                        <div class="form-row" style="margin-bottom: 0;">
+                            <a class="btn" href="https://docs.nvidia.com/deploy/nvidia-smi/index.html" target="_blank" rel="noopener noreferrer">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
+                                Open NVIDIA driver documentation
+                            </a>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">GPU Monitoring Setup</div>
+                                <div class="card-title">AMD</div>
+                            </div>
+                            <div class="card-icon icon-magenta">
+                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-row" style="margin-bottom: var(--space-2);">
+                            <span class="monitor-metric-label">Detected</span>
+                            <span class="monitor-metric-reading">Linux · Debian/Ubuntu (apt)</span>
+                        </div>
+                        <p class="help-text">
+                            <code>amd-smi</code> was not found. The AMD repository and a compatible <code>amdgpu</code>
+                            driver must already be configured; then install AMD SMI once with the command below.
+                            Llama GUI shows this command but never runs it.
+                        </p>
+                        <div class="monitor-command-row">
+                            <code class="monitor-command" id="amd-setup-command">sudo apt install amdrocm-amdsmi</code>
+                            <button class="btn btn-sm" id="btn-copy-amd-command" type="button" title="Copy install command">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                        <div class="form-row" style="margin-bottom: 0;">
+                            <a class="btn" href="https://rocm.docs.amd.com/projects/amdsmi/en/develop/install/install.html" target="_blank" rel="noopener noreferrer">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></span>
+                                Open AMD SMI installation docs
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+</div>
+
+<!-- Existing fixed llama-server performance bar — unchanged by the Monitor tab plan -->
+<div id="stats-bar" class="stats-bar" data-show="full gpu-missing">
+    <span class="stats-dot"></span>
+    <span class="stats-label">Running</span>
+    <span class="stats-sep"></span>
+    <span class="stats-item"><span class="stats-value">1,024</span> prompt tokens</span>
+    <span class="stats-sep"></span>
+    <span class="stats-item"><span class="stats-value">342.7</span> tok/s prompt</span>
+    <span class="stats-sep"></span>
+    <span class="stats-item"><span class="stats-value">512</span> gen tokens</span>
+    <span class="stats-sep"></span>
+    <span class="stats-item"><span class="stats-value">28.4</span> tok/s gen</span>
+    <span class="stats-sep"></span>
+    <span class="stats-item">Context <span class="stats-value">8,192</span></span>
+    <span class="stats-sep"></span>
+    <span class="stats-item">KV <span class="stats-value">12%</span></span>
+</div>
+
+<script src="../../ui/js/theme-ui.js"></script>
+<script>
+    (function () {
+        "use strict";
+
+        // Real app theme menu (Tokyo, Nebula, Graphite, Cappuccino, Mint).
+        if (window.LlamaGui && typeof window.LlamaGui.themeUi.init === "function") {
+            window.LlamaGui.themeUi.init();
+        }
+
+        // ── Scenario switching (mockup chrome) ─────────────────────────────
+        // Elements carry data-show="scene scene …"; the active scene decides
+        // visibility via the app's own .hidden class.
+        var SCENES = ["full", "gpu-missing", "no-process", "external"];
+
+        function applyScene(scene) {
+            if (SCENES.indexOf(scene) === -1) scene = "full";
+            document.querySelectorAll("[data-show]").forEach(function (el) {
+                var scenes = (el.getAttribute("data-show") || "").split(/\s+/).filter(Boolean);
+                el.classList.toggle("hidden", scenes.indexOf(scene) === -1);
+            });
+            document.querySelectorAll(".mockup-chip").forEach(function (chip) {
+                var isActive = chip.getAttribute("data-scene") === scene;
+                chip.classList.toggle("active", isActive);
+                chip.setAttribute("aria-pressed", String(isActive));
+            });
+        }
+
+        document.querySelectorAll(".mockup-chip").forEach(function (chip) {
+            chip.addEventListener("click", function () {
+                applyScene(chip.getAttribute("data-scene"));
+            });
+        });
+
+        // Seed the "Updated" stamp with the load time so the page reads live.
+        var stamp = document.getElementById("monitor-last-updated");
+        function refreshStamp() {
+            if (stamp) stamp.textContent = new Date().toLocaleTimeString([], { hour12: false });
+        }
+        refreshStamp();
+
+        // Recheck: static mockup — refresh the stamp and give brief feedback.
+        var recheck = document.getElementById("btn-monitor-recheck");
+        if (recheck) {
+            recheck.addEventListener("click", function () {
+                refreshStamp();
+                var original = recheck.textContent;
+                recheck.textContent = "Rechecking…";
+                recheck.disabled = true;
+                setTimeout(function () {
+                    recheck.textContent = original;
+                    recheck.disabled = false;
+                }, 800);
+            });
+        }
+
+        // Copy the allowlisted AMD setup command (never executed by the app).
+        var copyBtn = document.getElementById("btn-copy-amd-command");
+        var commandEl = document.getElementById("amd-setup-command");
+        if (copyBtn && commandEl) {
+            copyBtn.addEventListener("click", function () {
+                var command = commandEl.textContent;
+                function feedback(text) {
+                    copyBtn.textContent = text;
+                    setTimeout(function () { copyBtn.textContent = "Copy"; }, 1500);
+                }
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(command).then(
+                        function () { feedback("Copied"); },
+                        function () { fallbackSelect(); }
+                    );
+                } else {
+                    fallbackSelect();
+                }
+                function fallbackSelect() {
+                    var range = document.createRange();
+                    range.selectNodeContents(commandEl);
+                    var selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                    feedback("Selected — Ctrl+C");
+                }
+            });
+        }
+
+        applyScene("full");
+    })();
+</script>
+</body>
+</html>
