@@ -1090,8 +1090,8 @@ async function pollStats(epoch = statsEpoch) {
         if (effectiveGenSpeed !== undefined) {
             document.getElementById("stats-gen-speed").textContent = effectiveGenSpeed.toFixed(1);
         }
-        if (deltaPrompt !== null && deltaGen !== null) {
-            document.getElementById("stats-context").textContent = (deltaPrompt + deltaGen).toLocaleString();
+        if (slotStats?.contextTokens !== undefined) {
+            document.getElementById("stats-context").textContent = slotStats.contextTokens.toLocaleString();
         }
         if (kvUsage !== undefined) {
             document.getElementById("stats-kv-usage").textContent = (kvUsage * 100).toFixed(0) + "%";
@@ -1152,6 +1152,8 @@ async function fetchSlotStats(host, port, signal) {
 function getSlotStats(slots) {
     if (!Array.isArray(slots)) return undefined;
     let maxUsage;
+    let maxContextUsage;
+    let contextTokens;
     let processing = 0;
     const samples = [];
     for (const slot of slots) {
@@ -1175,14 +1177,19 @@ function getSlotStats(slots) {
         // tokens). Older builds only expose generated tokens via next_token,
         // which is an object in current builds and was an array before.
         let used = Number(slot?.n_prompt_tokens);
-        if (!Number.isFinite(used) || used < 0) {
+        const hasContextTokens = Number.isFinite(used) && used >= 0;
+        if (!hasContextTokens) {
             used = Number(nextToken?.n_decoded);
         }
         if (!Number.isFinite(used) || used < 0) continue;
         const usage = Math.max(0, Math.min(1, used / nCtx));
         maxUsage = maxUsage === undefined ? usage : Math.max(maxUsage, usage);
+        if (hasContextTokens && (maxContextUsage === undefined || usage > maxContextUsage)) {
+            maxContextUsage = usage;
+            contextTokens = used;
+        }
     }
-    return { kvUsage: maxUsage, processing, samples };
+    return { kvUsage: maxUsage, contextTokens, processing, samples };
 }
 
 async function pollOutput() {

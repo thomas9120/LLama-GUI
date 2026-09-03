@@ -816,11 +816,11 @@ Live performance metrics are polled from `llama-server`'s Prometheus endpoint.
 
 ### Displayed Metrics
 
-- **Prompt tokens**: Total tokens processed in prompts (delta since baseline)
+- **Prompt tokens processed**: Total tokens processed in prompts (delta since baseline)
 - **Prompt speed**: Tokens per second during prompt ingestion
-- **Generated tokens**: Total tokens generated (delta since baseline)
+- **Tokens generated**: Total tokens generated (delta since baseline)
 - **Generation speed**: Tokens per second during generation
-- **Context usage**: Total prompt + generated tokens
+- **Context usage**: Tokens currently retained by the fullest server slot
 - **KV cache usage**: Percentage of KV cache filled
 
 The `snapshotStatsBaseline()` function resets the delta counter (called on conversation load and new chat).
