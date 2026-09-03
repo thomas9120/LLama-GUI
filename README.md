@@ -43,11 +43,10 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - [Advanced Access](#advanced-access)
 - [What Each Tab Does](#what-each-tab-does)
 - [Presets and Samplers](#presets-and-samplers)
-- [Maintenance](#maintenance)
+- [Maintenance](docs/maintenance.md)
 - [Data Locations](#data-locations)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security Notes](#security-notes)
-- [Running Tests](#running-tests)
 
 ## Requirements
 
@@ -252,15 +251,7 @@ Quick Launch, Configure, and Chat samplers share one state. Loading a full app p
 
 ## Maintenance
 
-**Remove llama.cpp Files** clears runtime files under `llama/` (`bin`, `grammars`) and resets install metadata in `config.json`. It does **not** remove `models/`, `presets/`, or `llama/custom/`.
-
-### Custom pre-compiled binaries
-
-1. Put binaries (and needed `.dll` / `.so` / `.dylib`) in `llama/custom/bin/` (`llama-server`, `llama-cli`, optionally `llama-bench`, `llama-perplexity`, etc.). Fresh installs create this directory automatically; **Activate Custom** also creates it if needed.
-2. In **Install**, choose **Custom (User-Provided)** → **Activate Custom**.
-3. Switch back by selecting the preserved official backend and clicking **Activate Existing**; no download is required.
-
-`llama/custom/` is preserved when removing official llama.cpp files.
+For removing llama.cpp files, custom pre-compiled binaries, and running the test suite, see [`docs/maintenance.md`](docs/maintenance.md).
 
 ## Data Locations
 
@@ -286,14 +277,4 @@ For port conflicts, missing models, backend/driver mismatches, antivirus quarant
 - Be careful with `--ui-mcp-proxy` and high-risk `--tools`.
 - Web Search only fetches `http`/`https`, blocks private/loopback/link-local/multicast/reserved addresses, caps redirects, and limits fetch size and injected context.
 
-## Running Tests
-
-Backend:
-
-```bash
-python -m unittest discover tests -v
-```
-
-Frontend smoke tests are for contributors and CI only (`npm ci`, Playwright Chromium, `npm run test:frontend`). Normal installs and Pinokio only need `requirements.txt`.
-
-Test inventory and when to run what: [`docs/tests.md`](docs/tests.md).
+Test inventory and how to run the suite: [`docs/maintenance.md`](docs/maintenance.md).
