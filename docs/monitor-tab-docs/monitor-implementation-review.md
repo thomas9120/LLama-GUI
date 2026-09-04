@@ -17,6 +17,9 @@ Review of the Phase 1–3 Monitor implementation (commits `6a83497`, `1689527`, 
 
 ## Follow-up resolution (2026-09-05)
 
+- **Post-review simplification:** the unreliable Auto-scroll toggle and scroll-position listener
+  were removed. Process output now follows every appended line and returns to the bottom when the
+  Monitor tab becomes visible.
 - **R1:** recovery now passes the authoritative active runtime into `startStatsPolling`; browser
   coverage exercises a refused Stop while the runtime remains live.
 - **R2:** the accepted-status observer is the single inference-target reconciliation path, so an
@@ -317,7 +320,7 @@ Review of the Phase 1–3 Monitor implementation (commits `6a83497`, `1689527`, 
   system/GPU polling; truthful badge states; schedule-after-completion with no overlap. The initial
   page-load restore path is the exception recorded in `R2`.
 - **Terminal move:** IDs preserved, `invalidate()` advances the epoch without discarding the
-  cursor (tested), 5,000/1,000 DOM trim, auto-scroll disabled on upward scroll, process lifecycle
+  cursor (tested), 5,000/1,000 DOM trim, always-follow output, process lifecycle
   and cursor ownership stay in `app.js`.
 - **Card hiding:** namespaced keys, session-only `:index:` hides, tolerant localStorage with
   load-time normalization caps (100 entries / 256-char keys / 120-char labels), dormant entries,

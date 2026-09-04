@@ -638,11 +638,11 @@ function initTabs() {
 
 function switchTab(tabId) {
     if (chatUi && typeof chatUi.onTabChanged === "function") chatUi.onTabChanged(tabId);
-    monitorUi.onTabChanged(tabId);
     document.querySelectorAll(".nav-item").forEach(t => t.classList.toggle("active", t.dataset.section === tabId));
     document.querySelectorAll(".section-panel").forEach(panel => {
         panel.style.display = panel.id === "section-" + tabId ? "" : "none";
     });
+    monitorUi.onTabChanged(tabId);
     const sidebar = document.getElementById("sidebar");
     if (sidebar) sidebar.classList.remove("open");
     if (tabId === "presets") loadPresets();

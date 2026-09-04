@@ -192,18 +192,6 @@
 
         .monitor-output-tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
         .monitor-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
-        .monitor-autoscroll {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            color: var(--fg-muted);
-            cursor: pointer;
-            user-select: none;
-        }
-        .monitor-autoscroll input { cursor: pointer; }
-        .monitor-autoscroll:hover { color: var(--fg); }
-
         .monitor-command-row { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
         .monitor-command {
             flex: 1;
@@ -425,10 +413,6 @@
                         <span class="badge badge-green" data-show="full nvidia-missing amd-missing no-provider hidden"><span class="badge-dot" style="background: var(--green);"></span> Running</span>
                         <span class="badge badge-dim hidden" data-show="no-process">No process running</span>
                         <span class="monitor-sep" aria-hidden="true"></span>
-                        <label class="monitor-autoscroll" for="monitor-auto-scroll">
-                            <input type="checkbox" id="monitor-auto-scroll" checked>
-                            Auto-scroll
-                        </label>
                         <button class="btn btn-sm btn-ghost" id="btn-clear-output" type="button">Clear</button>
                     </div>
                 </div>

@@ -2107,8 +2107,8 @@ async function main() {
         assert.equal(await page.locator("#section-configure #output-terminal").count(), 0,
             "Configure must not keep a mirrored copy of the terminal");
         assert.equal(await page.locator("#section-monitor #input-row").count(), 1);
-        assert.equal(await page.isChecked("#monitor-auto-scroll"), true,
-            "auto-scroll defaults to enabled");
+        assert.equal(await page.locator("#monitor-auto-scroll").count(), 0,
+            "the unreliable auto-scroll toggle must not be present");
 
         // System/GPU cards render from the mocked endpoint while visible.
         await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4%");

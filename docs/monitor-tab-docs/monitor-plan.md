@@ -98,11 +98,11 @@ The Monitor tab contains:
    - When no provider can be inferred, show one generic empty state rather than speculative vendor cards.
    - Recheck bypasses the short-lived backend cache and refreshes capabilities immediately.
 
-### Auto-scroll behavior
+### Output scrolling behavior
 
-- New output scrolls to the bottom only while Auto-scroll is enabled.
-- Scrolling upward disables Auto-scroll so the backlog stays put.
-- Checking Auto-scroll again jumps to the bottom and resumes following output.
+- New output and returning to the Monitor tab always scroll the terminal to the bottom. There is no
+  separate Auto-scroll control or scroll-position detection state; those proved unreliable across
+  tab/layout changes.
 - Clearing the visible terminal invalidates any in-flight output request but retains the current cursor. Resetting the cursor to `null` would make the next cursorless request replay the entire backend backlog.
 - Keep at most 5,000 terminal line elements and trim the oldest 1,000 at a time, matching the backend buffer ceiling.
 
@@ -469,7 +469,7 @@ Acceptance:
 1. Add `monitor-ui.js` and its unit test.
 2. Add the tab and system/GPU markup.
 3. Move the existing process output DOM without duplicating it.
-4. Add auto-scroll, cursor-preserving clear, and bounded terminal DOM behavior.
+4. Add always-follow output, cursor-preserving clear, and bounded terminal DOM behavior.
 5. Add the optional Inference card and refactor the existing llama-server polling into one shared, target-keyed partial snapshot.
 6. Gate system/GPU polling on panel and document visibility; gate inference polling on document visibility while keeping its cross-tab fixed-bar cadence without adding another request.
 7. Add shared hide/restore behavior to every card except Process Output.
@@ -479,7 +479,7 @@ Acceptance:
 
 - Existing launches, stops, reconnects, output backlog, clear, and llama-cli input still work.
 - Clear does not repopulate old output on the next poll, and a long-running process does not grow the terminal DOM past 5,000 lines.
-- Scrolling up preserves the user’s position.
+- Every appended output line returns the terminal to the bottom.
 - System and GPU cards update only while Monitor is visible.
 - Showing inference details causes no additional `/metrics` or `/slots` requests, and hiding it removes only the expanded presentation.
 - `/metrics` failure does not suppress valid `/slots` context, and `/slots` failure does not suppress valid cumulative metrics.
@@ -526,7 +526,7 @@ Add `tests/frontend/monitor_ui_unit.cjs` for:
 - Multiple GPU cards and stable labels.
 - Safe text rendering.
 - Setup-state actions.
-- Auto-scroll enabled, disabled, and re-enabled.
+- Every appended output line follows the bottom without a toggle or scroll listener.
 - Cursor-preserving clear, stale in-flight rejection, and 5,000-line DOM trimming.
 - Poll start/stop for panel and document visibility, schedule-after-completion, no overlap, forced recheck, abort, truthful status badge, and stale-response rejection.
 - Provider rendering: no speculative cards without evidence and mixed-provider success/failure states.
@@ -539,7 +539,8 @@ Extend:
 
 - `output_cursor_unit.cjs` for invalidation that rejects an in-flight response without discarding the current cursor.
 - `module_namespace_unit.cjs` for `window.LlamaGui.monitorUi`.
-- `flag_sync_smoke.cjs` for tab wiring, moved output, cursor-preserving clear, backlog, and auto-scroll.
+- `flag_sync_smoke.cjs` for tab wiring, moved output, cursor-preserving clear, backlog, and the
+  absence of an Auto-scroll toggle.
 - Existing fixed-stats coverage for the “Session tokens” label and agreement with the Inference card after Reset.
 - `test_docs_sync.py` expectations through the documented route tables, not by weakening drift checks.
 

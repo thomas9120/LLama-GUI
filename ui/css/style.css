@@ -4482,19 +4482,6 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 .monitor-output-tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .monitor-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
 
-.monitor-autoscroll {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    color: var(--fg-muted);
-    cursor: pointer;
-    user-select: none;
-}
-
-.monitor-autoscroll input { cursor: pointer; }
-.monitor-autoscroll:hover { color: var(--fg); }
-
 .monitor-command-row { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
 
 .monitor-command {

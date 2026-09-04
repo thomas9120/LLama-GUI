@@ -441,7 +441,6 @@
     const POLL_INTERVAL_MS = 2000;
     const TERMINAL_MAX_LINES = 5000;
     const TERMINAL_TRIM = 1000;
-    const NEAR_BOTTOM_PX = 8;
 
     let deps = {};
     let panelVisible = false;
@@ -453,8 +452,6 @@
     let lastSuccessAt = 0;
     let lastPollFailed = false;
     let everSucceeded = false;
-    let autoScroll = true;
-
     // key -> { label, sessionOnly }
     let hiddenCards = new Map();
 
@@ -591,6 +588,7 @@
         if (panelVisible) {
             applyHiddenCardsToDom();
             updateProcessHeader();
+            scrollTerminalToBottom();
         }
         reevaluatePolling();
     }
@@ -994,6 +992,11 @@
         return byId("output-terminal");
     }
 
+    function scrollTerminalToBottom() {
+        const terminal = terminalEl();
+        if (terminal) terminal.scrollTop = terminal.scrollHeight;
+    }
+
     function trimTerminal() {
         const terminal = terminalEl();
         if (!terminal) return;
@@ -1017,7 +1020,7 @@
         line.textContent = text;
         terminal.appendChild(line);
         trimTerminal();
-        if (autoScroll) terminal.scrollTop = terminal.scrollHeight;
+        scrollTerminalToBottom();
     }
 
     function clearTerminal() {
@@ -1026,25 +1029,6 @@
         // Advance the cursor epoch without discarding the cursor; otherwise
         // the next cursorless request would replay the whole backend backlog.
         if (typeof deps.invalidateCursor === "function") deps.invalidateCursor();
-    }
-
-    function setAutoScroll(enabled, options = {}) {
-        autoScroll = Boolean(enabled);
-        const checkbox = byId("monitor-auto-scroll");
-        if (checkbox && checkbox.checked !== autoScroll) checkbox.checked = autoScroll;
-        const terminal = terminalEl();
-        if (autoScroll && terminal && !options.skipJump) {
-            terminal.scrollTop = terminal.scrollHeight;
-        }
-    }
-
-    function onTerminalScroll() {
-        if (!autoScroll) return;
-        const terminal = terminalEl();
-        if (!terminal) return;
-        const nearBottom = terminal.scrollTop + terminal.clientHeight
-            >= terminal.scrollHeight - NEAR_BOTTOM_PX;
-        if (!nearBottom) setAutoScroll(false, { skipJump: true });
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1273,7 +1257,6 @@
         lastSuccessAt = 0;
         lastPollFailed = false;
         everSucceeded = false;
-        autoScroll = true;
         hiddenCards = new Map();
     }
 
@@ -1283,14 +1266,6 @@
 
     function init() {
         loadHiddenCards();
-
-        const checkbox = byId("monitor-auto-scroll");
-        if (checkbox) {
-            autoScroll = checkbox.checked !== false;
-            checkbox.addEventListener("change", () => setAutoScroll(checkbox.checked));
-        }
-        const terminal = terminalEl();
-        if (terminal) terminal.addEventListener("scroll", onTerminalScroll);
 
         const recheckBtn = byId("btn-monitor-recheck");
         if (recheckBtn) recheckBtn.addEventListener("click", recheck);
@@ -1333,7 +1308,6 @@
         recheck,
         appendOutputLine,
         clearTerminal,
-        setAutoScroll,
         updateProcessHeader,
         renderInferenceSnapshot,
         // Shared stats helpers used by app.js's single poller:

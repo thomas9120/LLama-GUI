@@ -19,7 +19,7 @@ Status: **complete** (2026-09-04).
 
 - [x] Launches, stops, reconnects, output backlog, clear, llama-cli input still work *(smoke: full suite incl. existing launch/stop/external flows)*
 - [x] Clear does not replay backlog; terminal DOM capped at 5,000 lines *(unit: trim + invalidate; smoke: `since=` preserved after Clear)*
-- [x] Scrolling up preserves position; Auto-scroll re-check jumps to bottom *(unit)*
+- [x] Appended output and returning to Monitor follow the bottom; no toggle or scroll listener *(unit)*
 - [x] System/GPU cards poll only while Monitor panel + document visible *(unit lifecycle + smoke: zero requests while hidden)*
 - [x] Inference card adds no `/metrics` or `/slots` requests; hiding removes presentation only *(monitor-ui never fetches llama endpoints; card visibility is a view preference)*
 - [x] `/metrics` failure keeps `/slots` context and vice versa *(unit: independent source failures; sources never carried forward as live)*

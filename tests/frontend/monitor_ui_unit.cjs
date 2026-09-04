@@ -1,6 +1,6 @@
 // Unit tests for ui/js/monitor-ui.js: formatting, inference snapshot
 // normalization, the shared inference engine, system/GPU rendering,
-// auto-scroll and terminal behavior, polling lifecycle, and hidden-card
+// always-follow terminal behavior, polling lifecycle, and hidden-card
 // preferences.
 "use strict";
 
@@ -287,7 +287,6 @@ function buildStandardDom() {
     mount("monitor-live-badge", "span");
     mount("monitor-last-updated", "span");
     mount("btn-monitor-recheck", "button");
-    mount("monitor-auto-scroll", "input").checked = true;
     const terminal = mount("output-terminal");
     terminal.scrollHeight = 100;
     terminal.clientHeight = 50;
@@ -1141,7 +1140,7 @@ buildStandardDom();
 }
 
 // ═════════════════════════════════════════════════════════════════════════
-// 6. Terminal: auto-scroll, trim, cursor-preserving clear
+// 6. Terminal: always follow output, trim, cursor-preserving clear
 // ═════════════════════════════════════════════════════════════════════════
 
 {
@@ -1149,28 +1148,25 @@ buildStandardDom();
     monitorUi.configure({ invalidateCursor: () => { invalidated += 1; } });
     monitorUi.init();
     const terminal = documentStub.getElementById("output-terminal");
-    const checkbox = documentStub.getElementById("monitor-auto-scroll");
     terminal.scrollHeight = 500;
     terminal.clientHeight = 100;
 
-    monitorUi.setAutoScroll(true);
     monitorUi.appendOutputLine("line one");
     assert.equal(terminal.children.length, 1);
     assert.equal(terminal.children[0].textContent, "line one");
-    assert.equal(terminal.scrollTop, terminal.scrollHeight, "auto-scroll follows output");
+    assert.equal(terminal.scrollTop, terminal.scrollHeight, "output follows the newest line");
 
-    // Scrolling up disables auto-scroll and keeps the user's position.
+    // A manual position never disables following; the next line returns to the bottom.
     terminal.scrollTop = 10;
-    terminal.children[0].dispatch.call(terminal, "scroll");
-    assert.equal(checkbox.checked, false, "scrolling up unchecks Auto-scroll");
     terminal.scrollHeight = 800;
     monitorUi.appendOutputLine("line two");
-    assert.equal(terminal.scrollTop, 10, "position preserved while auto-scroll is off");
+    assert.equal(terminal.scrollTop, terminal.scrollHeight, "new output always returns to the bottom");
 
-    // Re-enabling jumps back to the bottom.
-    checkbox.checked = true;
-    checkbox.dispatch("change");
-    assert.equal(terminal.scrollTop, terminal.scrollHeight);
+    terminal.scrollTop = 10;
+    terminal.scrollHeight = 900;
+    monitorUi.onTabChanged("monitor");
+    assert.equal(terminal.scrollTop, terminal.scrollHeight, "returning to Monitor follows the bottom");
+    monitorUi.onTabChanged("configure");
 
     // DOM stays bounded at 5,000 lines, trimming 1,000 at a time.
     for (let i = 0; i < 5001; i += 1) monitorUi.appendOutputLine(`bulk ${i}`);

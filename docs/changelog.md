@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-09-05
+- Removed the unreliable Monitor Auto-scroll checkbox and scroll-position listener; process output now follows each appended line and returns to the bottom when the Monitor tab becomes visible.
 - Fixed Monitor inference telemetry recovery and startup reconciliation, made metrics/slots failures independent, and tightened counter baselines plus slot-rate identity/age rules so stale or partial data is never presented as live. The fixed bar now labels its fullest-slot reading as Context.
 - Improved Monitor presentation and accessibility: system utilization includes `%`, CPU's first sample is a waiting state, unknown inference activity is no longer called idle, unavailable meters expose no invented numeric value, setup-link styling is scoped, and hidden-card persistence keeps the 100 most recent stable identities.
 - Corrected CPU rollback handling so inconsistent idle-counter deltas produce an unavailable sample and establish a fresh baseline; removed the unused AMD probe argument without changing platform or WSL gating.
