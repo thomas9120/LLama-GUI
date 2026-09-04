@@ -101,11 +101,11 @@ class ServerState:
     runtime_health_lock: threading.Lock = field(default_factory=threading.Lock)
 
     # Monitor tab system/GPU telemetry. `system_stats_lock` guards the previous
-    # counter sample, the response cache, the cache generation, and the AMD
-    # probe cache; it is never held across a vendor subprocess. The separate
-    # `system_stats_collection_lock` serialises cold/forced collections, and
-    # waiters compare `system_stats_generation` around it so concurrent polls
-    # share one collection and repeated Recheck clicks coalesce.
+    # counter sample, the response cache, the cache generation, and the
+    # all-smi/AMD probe caches; it is never held across a GPU subprocess. The
+    # separate `system_stats_collection_lock` serialises cold/forced
+    # collections, and waiters compare `system_stats_generation` around it so
+    # concurrent polls share one collection and repeated Recheck clicks coalesce.
     system_stats_lock: threading.Lock = field(default_factory=threading.Lock)
     system_stats_collection_lock: threading.Lock = field(default_factory=threading.Lock)
     system_stats_previous: Optional[dict[str, Any]] = None

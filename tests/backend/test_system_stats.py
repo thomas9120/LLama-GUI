@@ -44,6 +44,11 @@ def make_context(backend="cuda-12.4", platform="linux"):
         "tag": "b6015",
         "version": None,
     }
+    # Keep pre-existing collector tests independent of optional tools installed
+    # on the developer machine. Tests exercising all-smi clear this entry.
+    ctx.state.system_stats_probe_cache["all_smi"] = (
+        float("inf"), ("missing", [], None)
+    )
     return ctx
 
 
@@ -341,6 +346,134 @@ class CollectorFailureTests(unittest.TestCase):
         self.assertFalse(data["system"]["cpu"]["available"])
         self.assertFalse(data["system"]["memory"]["available"])
         self.assertFalse(data["system"]["disk"]["available"])
+
+
+class AllSmiTests(unittest.TestCase):
+    SNAPSHOT = json.dumps({
+        "schema": 1,
+        "timestamp": "2026-09-04T12:00:00Z",
+        "hostname": "workstation",
+        "gpus": [
+            {
+                "uuid": "GPU-abcd",
+                "name": "NVIDIA GeForce RTX 4090",
+                "device_type": "GPU",
+                "utilization": 72.5,
+                "temperature": 63,
+                "used_memory": 8_000_000_000,
+                "total_memory": 24_000_000_000,
+            },
+            {
+                "uuid": r"PCI\VEN_1002&DEV_744C",
+                "name": "AMD Radeon PRO W7900",
+                "device_type": "GPU",
+                "utilization": -1,
+                "temperature": 0,
+                "used_memory": 0,
+                "total_memory": 48_000_000_000,
+            },
+        ],
+        "errors": [],
+    })
+
+    def test_parser_normalizes_multi_gpu_snapshot_and_unavailable_sentinels(self):
+        devices = svc.parse_all_smi_json(self.SNAPSHOT)
+        self.assertEqual(len(devices), 2)
+        self.assertEqual(devices[0]["provider"], "nvidia")
+        self.assertEqual(devices[0]["id"], "all-smi:uuid:GPU-ABCD")
+        self.assertAlmostEqual(devices[0]["utilization_percent"], 72.5)
+        self.assertEqual(devices[0]["memory_total_bytes"], 24_000_000_000)
+        self.assertEqual(devices[1]["provider"], "amd")
+        self.assertTrue(devices[1]["id"].startswith("all-smi:uuid-sha256:"))
+        self.assertTrue(devices[1]["id_persistent"])
+        self.assertIsNone(devices[1]["utilization_percent"])
+        self.assertIsNone(devices[1]["temperature_c"])
+        self.assertEqual(devices[1]["memory_used_bytes"], 0)
+
+    def test_parser_rejects_unknown_schema_and_missing_gpu_list(self):
+        for payload in ({"schema": 2, "gpus": []}, {"schema": 1}):
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                svc.parse_all_smi_json(json.dumps(payload))
+
+    def test_parser_skips_bad_rows_without_losing_valid_devices(self):
+        payload = json.loads(self.SNAPSHOT)
+        payload["gpus"].insert(0, None)
+        payload["gpus"].insert(1, {"name": "", "uuid": ""})
+        self.assertEqual(len(svc.parse_all_smi_json(json.dumps(payload))), 2)
+
+    def test_url_normalization_accepts_only_loopback_snapshot_endpoint(self):
+        self.assertEqual(
+            svc.normalize_all_smi_url("http://127.0.0.1:9090"),
+            "http://127.0.0.1:9090/snapshot?include=gpu",
+        )
+        self.assertEqual(
+            svc.normalize_all_smi_url("http://localhost:9090/snapshot?include=cpu"),
+            "http://127.0.0.1:9090/snapshot?include=gpu",
+        )
+        for url in (
+            "https://127.0.0.1:9090",
+            "http://192.168.1.10:9090",
+            "http://example.com:9090",
+            "http://127.0.0.1:9090/metrics",
+            "http://user:pass@127.0.0.1:9090",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                svc.normalize_all_smi_url(url)
+
+    def test_cli_probe_uses_fixed_bounded_snapshot_command(self):
+        completed = SimpleNamespace(returncode=0, stdout=self.SNAPSHOT, stderr="")
+        with mock.patch.dict(
+                svc.os.environ,
+                {"LLAMA_GUI_ALL_SMI_URL": "", "LLAMA_GUI_ALL_SMI_PATH": ""},
+                clear=False,
+            ), mock.patch.object(
+                svc, "resolve_all_smi", return_value=(r"C:\tools\all-smi.exe", False)
+            ), mock.patch.object(svc.subprocess, "run", return_value=completed) as run:
+            status, devices, details = svc.probe_all_smi()
+        self.assertEqual(status, "ok")
+        self.assertEqual(len(devices), 2)
+        self.assertIsNone(details)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                r"C:\tools\all-smi.exe", "snapshot", "--format", "json",
+                "--include", "gpu", "--timeout-ms", "2000",
+            ],
+        )
+        self.assertFalse(run.call_args.kwargs["shell"])
+        self.assertEqual(
+            run.call_args.kwargs["timeout"], svc.ALL_SMI_PROBE_TIMEOUT_SECONDS
+        )
+
+    def test_explicit_api_url_wins_over_executable(self):
+        with mock.patch.dict(
+                svc.os.environ,
+                {"LLAMA_GUI_ALL_SMI_URL": "http://localhost:9090"},
+                clear=False,
+            ), mock.patch.object(
+                svc, "_read_all_smi_snapshot_url", return_value=self.SNAPSHOT
+            ) as read_url, mock.patch.object(svc, "resolve_all_smi") as resolve:
+            status, devices, details = svc.probe_all_smi()
+        self.assertEqual(status, "ok")
+        self.assertEqual(len(devices), 2)
+        self.assertIsNone(details)
+        read_url.assert_called_once_with("http://127.0.0.1:9090/snapshot?include=gpu")
+        resolve.assert_not_called()
+
+    def test_configured_missing_executable_is_reported(self):
+        missing = r"C:\missing\all-smi.exe"
+        with mock.patch.dict(
+                svc.os.environ,
+                {"LLAMA_GUI_ALL_SMI_URL": "", "LLAMA_GUI_ALL_SMI_PATH": missing},
+                clear=False,
+            ), mock.patch.object(
+                svc, "resolve_all_smi", return_value=(missing, True)
+            ), mock.patch.object(svc.os.path, "isfile", return_value=False):
+            status, devices, details = svc.probe_all_smi()
+        self.assertEqual(status, "error")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "not_found")
+        self.assertEqual(details["executable"], missing)
 
 
 class NvidiaParserTests(unittest.TestCase):
@@ -724,7 +857,8 @@ class SetupStateTests(unittest.TestCase):
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["provider"], "")
         self.assertEqual(entries[0]["state"], "unavailable")
-        self.assertIn("AMD SMI supports Linux only", entries[0]["message"])
+        self.assertIn("AMD SMI itself supports Linux only", entries[0]["message"])
+        self.assertIn("all-smi", entries[0]["message"])
         self.assertIn("nvidia-smi", entries[0]["message"])
 
     def test_no_evidence_state_explains_linux_vendor_tools(self):
@@ -733,6 +867,7 @@ class SetupStateTests(unittest.TestCase):
         )
         self.assertIn("nvidia-smi", entries[0]["message"])
         self.assertIn("amd-smi", entries[0]["message"])
+        self.assertIn("all-smi", entries[0]["message"])
 
     def test_working_provider_suppresses_only_its_own_row(self):
         entries = svc.build_gpu_setup_entries(
@@ -854,11 +989,66 @@ class SetupStateTests(unittest.TestCase):
             entry = entries[0]
             self.assertEqual(entry["state"], "unsupported", platform)
             self.assertIn("Linux bare metal", entry["message"])
-            self.assertIn("Windows and WSL users can still run models normally", entry["message"])
-            self.assertIn("cannot currently collect AMD GPU metrics", entry["message"])
+            self.assertIn("all-smi", entry["message"])
+            self.assertIn("Models can still run normally", entry["message"])
 
 
 class CollectSampleTests(unittest.TestCase):
+    def test_all_smi_devices_are_authoritative_without_vendor_duplicates(self):
+        ctx = make_context(backend="hip", platform="win32")
+        ctx.state.system_stats_probe_cache.clear()
+        gpu = {
+            "provider": "amd", "id": "all-smi:uuid:GPU-A", "id_persistent": True,
+            "index": 0, "name": "AMD Radeon", "utilization_percent": 50.0,
+            "memory_used_bytes": 1, "memory_total_bytes": 2, "temperature_c": 60.0,
+        }
+        with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
+                mock.patch.object(svc, "probe_all_smi", return_value=("ok", [gpu], None)), \
+                mock.patch.object(svc, "probe_nvidia") as nvidia, \
+                mock.patch.object(svc, "probe_amd") as amd, \
+                mock.patch.object(svc, "is_wsl_environment", return_value=False):
+            data, _ = svc.collect_sample(ctx, None)
+        self.assertEqual(data["gpus"], [gpu])
+        self.assertEqual(data["gpu_setup"], [])
+        nvidia.assert_not_called()
+        amd.assert_not_called()
+
+    def test_all_smi_failure_falls_back_to_working_vendor_probe(self):
+        ctx = make_context(backend="cuda-12.4")
+        ctx.state.system_stats_probe_cache.clear()
+        gpu = {
+            "provider": "nvidia", "id": "nvidia:uuid:GPU-A", "id_persistent": True,
+            "index": 0, "name": "RTX", "utilization_percent": 50.0,
+            "memory_used_bytes": 1, "memory_total_bytes": 2, "temperature_c": 60.0,
+        }
+        with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
+                mock.patch.object(
+                    svc, "probe_all_smi",
+                    return_value=("error", [], {"reason": "parse_error"}),
+                ), mock.patch.object(
+                    svc, "probe_nvidia", return_value=("ok", [gpu], None)
+                ), mock.patch.object(
+                    svc, "probe_amd", return_value=("missing", [], None)
+                ), mock.patch.object(svc, "is_wsl_environment", return_value=False):
+            data, _ = svc.collect_sample(ctx, None)
+        self.assertEqual(data["gpus"], [gpu])
+        self.assertEqual(data["gpu_setup"], [])
+
+    def test_all_smi_failure_is_visible_when_every_probe_is_empty(self):
+        ctx = make_context(backend="vulkan", platform="win32")
+        ctx.state.system_stats_probe_cache.clear()
+        details = {"reason": "exit_code", "executable": "all-smi", "exit_code": 1}
+        with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
+                mock.patch.object(svc, "probe_all_smi", return_value=("error", [], details)), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(
+                    svc, "probe_amd", return_value=("unsupported_platform", [], None)
+                ), mock.patch.object(svc, "is_wsl_environment", return_value=False):
+            data, _ = svc.collect_sample(ctx, None)
+        self.assertEqual(data["gpus"], [])
+        self.assertEqual(data["gpu_setup"][0]["provider"], "all-smi")
+        self.assertEqual(data["gpu_setup"][0]["details"], details)
+
     def test_counters_are_read_before_vendor_probes(self):
         call_order = []
         counters = make_counters(monotonic=100.0)
@@ -957,6 +1147,7 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
             mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
@@ -977,6 +1168,7 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
             mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
@@ -996,6 +1188,7 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
             mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
@@ -1025,6 +1218,7 @@ class CachingTests(unittest.TestCase):
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", side_effect=blocking_probe),
             mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
@@ -1065,6 +1259,7 @@ class CachingTests(unittest.TestCase):
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", side_effect=blocking_probe),
             mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
@@ -1103,6 +1298,30 @@ class CachingTests(unittest.TestCase):
         self.assertEqual(calls["probe"], 2)
         self.assertEqual(holder["first"], holder["second"])
 
+    def test_forced_refresh_bypasses_all_smi_probe_cache(self):
+        ctx = make_context(backend="vulkan")
+        ctx.state.system_stats_probe_cache.clear()
+        calls = {"all_smi": 0}
+        gpu = {
+            "provider": "all-smi", "id": "all-smi:uuid:GPU-A",
+            "id_persistent": True, "index": 0, "name": "GPU A",
+            "utilization_percent": 1.0, "memory_used_bytes": 1,
+            "memory_total_bytes": 2, "temperature_c": None,
+        }
+
+        def counting_all_smi():
+            calls["all_smi"] += 1
+            return "ok", [gpu], None
+
+        with mock.patch.object(
+                svc, "collect_system_counters", return_value=make_counters()
+            ), mock.patch.object(svc, "probe_all_smi", side_effect=counting_all_smi):
+            svc.get_system_stats(ctx)
+            ctx.state.system_stats_cache["expires_at"] = time.monotonic() - 1
+            svc.get_system_stats(ctx)
+            svc.get_system_stats(ctx, force_refresh=True)
+        self.assertEqual(calls["all_smi"], 2)
+
     def test_forced_refresh_bypasses_amd_probe_cache(self):
         ctx = make_context(backend="hip")
         calls = {"amd": 0}
@@ -1113,6 +1332,7 @@ class CachingTests(unittest.TestCase):
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
+            mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_amd", side_effect=counting_amd),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),

@@ -3,18 +3,19 @@
 Design rules (see ``docs/monitor-tab-docs/monitor-plan.md``):
 
 * Read-only. Never installs anything, never elevates, never runs a package
-  manager. Vendor probes are bounded ``subprocess.run`` calls against tools
-  already on the machine (``nvidia-smi``, ``amd-smi``).
+  manager. GPU probes are bounded calls against tools already on the machine
+  (``all-smi``, ``nvidia-smi``, ``amd-smi``) or an explicitly configured
+  loopback all-smi API.
 * Missing vendor tools and unsupported fields are normal capability states:
   ``gpu_setup`` entries and per-field ``null`` values, never page-level errors.
   Optional numerics are ``null`` when unavailable; zero is never invented.
 * CPU and disk throughput are deltas between cumulative counter samples. The
   monotonic and wall-clock timestamps are captured immediately beside the
-  counter reads, and the (slow) vendor probes run afterwards, so probes can
+  counter reads, and the (slow) GPU probes run afterwards, so probes can
   neither distort the sample interval nor change ``sampled_at``.
 * ``state.system_stats_lock`` guards the previous sample, the response cache,
-  the cache generation, and the AMD probe cache. The state lock is never held
-  while a vendor subprocess runs. ``state.system_stats_collection_lock``
+  the cache generation, and the all-smi/AMD probe caches. The state lock is
+  never held while a GPU subprocess runs. ``state.system_stats_collection_lock``
   serialises cold/forced collections; waiters compare the cache generation
   around the lock so concurrent polls share one collection and repeated
   Recheck clicks coalesce instead of queueing serial forced probes.
@@ -23,7 +24,9 @@ Design rules (see ``docs/monitor-tab-docs/monitor-plan.md``):
 import csv
 import ctypes
 import glob
+import hashlib
 import io
+import ipaddress
 import json
 import math
 import os
@@ -32,6 +35,9 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 
 from .subprocess_utils import get_no_window_creationflags
 
@@ -41,7 +47,8 @@ from .subprocess_utils import get_no_window_creationflags
 # --------------------------------------------------------------------------
 
 # Short-lived response cache, about the Monitor UI poll interval, so a cold
-# probe (including the slow ``amd-smi`` launch) is paid at most once per cycle.
+# probe (including a slow all-smi/``amd-smi`` launch) is paid at most once per
+# cycle.
 CACHE_TTL_SECONDS = 2.0
 
 # Rate windows. The upper bound intentionally discards the first average after
@@ -51,9 +58,14 @@ MAX_RATE_INTERVAL_SECONDS = 30.0
 
 NVIDIA_PROBE_TIMEOUT_SECONDS = 2.0
 AMD_PROBE_TIMEOUT_SECONDS = 5.0
+ALL_SMI_PROBE_TIMEOUT_SECONDS = 5.0
+ALL_SMI_HTTP_TIMEOUT_SECONDS = 3.0
+ALL_SMI_MAX_RESPONSE_BYTES = 1024 * 1024
 # ``amd-smi`` starts a Python interpreter and is much slower than nvidia-smi;
-# reuse its parsed result briefly instead of relaunching it on every sample.
+# all-smi also performs a full multi-vendor scan. Reuse either parsed result
+# briefly instead of relaunching it on every sample.
 AMD_PROBE_CACHE_TTL_SECONDS = 5.0
+ALL_SMI_PROBE_CACHE_TTL_SECONDS = 5.0
 
 NVIDIA_QUERY_FIELDS = (
     "uuid,pci.bus_id,index,name,"
@@ -64,7 +76,6 @@ NVIDIA_DOCS_URL = "https://docs.nvidia.com/deploy/nvidia-smi/index.html"
 AMD_INSTALL_DOCS_URL = (
     "https://rocm.docs.amd.com/projects/amdsmi/en/latest/install/install.html"
 )
-
 # Fixed allowlist: setup commands are only ever displayed/copied, never
 # executed, and never built from user input or string concatenation.
 AMD_SETUP_COMMANDS = {
@@ -541,7 +552,7 @@ def collect_system_counters(ctx, platform_name):
     """One snapshot of cumulative system counters plus its timestamps.
 
     The monotonic and wall-clock timestamps are captured *before* the reads so
-    they sit immediately beside them; vendor probes run later and must not
+    they sit immediately beside them; GPU probes run later and must not
     influence either value. Every collector failure degrades to ``None`` for
     that metric only.
     """
@@ -595,6 +606,211 @@ def collect_system_counters(ctx, platform_name):
             file=sys.stderr,
         )
     return counters
+
+
+# --------------------------------------------------------------------------
+# Optional all-smi probe
+# --------------------------------------------------------------------------
+
+def resolve_all_smi():
+    """Locate an optional all-smi executable.
+
+    ``LLAMA_GUI_ALL_SMI_PATH`` wins over PATH so portable installs do not
+    require a machine-wide PATH edit. A configured missing path is returned
+    to the caller as an observed setup error rather than silently ignored.
+    """
+    configured = os.environ.get("LLAMA_GUI_ALL_SMI_PATH", "").strip()
+    if configured:
+        return os.path.abspath(os.path.expandvars(os.path.expanduser(configured))), True
+    return shutil.which("all-smi"), False
+
+
+def normalize_all_smi_url(raw_url):
+    """Canonical loopback all-smi snapshot URL, or ``None`` when unset."""
+    value = str(raw_url or "").strip()
+    if not value:
+        return None
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme != "http" or not parsed.hostname:
+        raise ValueError("all-smi URL must use http on a loopback host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("all-smi URL must not contain credentials")
+    host = parsed.hostname.rstrip(".").lower()
+    if host != "localhost":
+        try:
+            if not ipaddress.ip_address(host).is_loopback:
+                raise ValueError("all-smi URL host must be loopback")
+        except ValueError as exc:
+            raise ValueError("all-smi URL host must be loopback") from exc
+    try:
+        parsed.port
+    except ValueError as exc:
+        raise ValueError("all-smi URL has an invalid port") from exc
+    if parsed.path.rstrip("/") not in ("", "/snapshot"):
+        raise ValueError("all-smi URL path must be /snapshot")
+    # Avoid a DNS lookup for the friendly localhost spelling. This keeps a
+    # modified hosts file from sending the explicitly local probe elsewhere.
+    netloc = parsed.netloc
+    if host == "localhost":
+        netloc = "127.0.0.1"
+        if parsed.port is not None:
+            netloc += f":{parsed.port}"
+    return urllib.parse.urlunparse(
+        ("http", netloc, "/snapshot", "", "include=gpu", "")
+    )
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _read_all_smi_snapshot_url(url):
+    """Read one bounded snapshot without proxies or redirects."""
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _NoRedirectHandler()
+    )
+    with opener.open(request, timeout=ALL_SMI_HTTP_TIMEOUT_SECONDS) as response:
+        payload = response.read(ALL_SMI_MAX_RESPONSE_BYTES + 1)
+    if len(payload) > ALL_SMI_MAX_RESPONSE_BYTES:
+        raise ValueError("all-smi response exceeded 1 MiB")
+    return payload.decode("utf-8")
+
+
+def _all_smi_provider(node):
+    text = " ".join(
+        str(node.get(key) or "") for key in ("vendor", "name", "uuid")
+    ).lower()
+    if any(marker in text for marker in ("nvidia", "geforce", "quadro", "tesla")):
+        return "nvidia"
+    if any(marker in text for marker in ("amd", "radeon", "ati", "ven_1002")):
+        return "amd"
+    return "all-smi"
+
+
+def parse_all_smi_device(node, fallback_index):
+    if not isinstance(node, dict):
+        return None
+    name = _optional_name(node.get("name"))
+    raw_uuid = str(node.get("uuid") or "").strip()[:512]
+    if name is None and not raw_uuid:
+        return None
+
+    normalized_uuid = _normalize_uuid(raw_uuid)
+    if normalized_uuid is not None:
+        gpu_id = f"all-smi:uuid:{normalized_uuid}"
+        persistent = True
+    elif raw_uuid:
+        # Windows all-smi may use a PNP device identifier containing slashes,
+        # ampersands, and other UI-hostile characters. Hash it into a stable,
+        # bounded card identity rather than exposing the raw identifier.
+        digest = hashlib.sha256(raw_uuid.encode("utf-8", errors="replace")).hexdigest()[:24]
+        gpu_id = f"all-smi:uuid-sha256:{digest}"
+        persistent = True
+    else:
+        gpu_id = f"all-smi:index:{fallback_index}"
+        persistent = False
+
+    utilization = clamp_percent(node.get("utilization"))
+    memory_used = finite_non_negative_int(node.get("used_memory"))
+    memory_total = finite_non_negative_int(node.get("total_memory"))
+    if memory_total is not None and memory_total <= 0:
+        memory_total = None
+    temperature = finite_non_negative(node.get("temperature"))
+    if temperature is not None and temperature <= 0:
+        temperature = None
+    return {
+        "provider": _all_smi_provider(node),
+        "id": gpu_id,
+        "id_persistent": persistent,
+        "index": fallback_index,
+        "name": name,
+        "utilization_percent": utilization,
+        "memory_used_bytes": memory_used,
+        "memory_total_bytes": memory_total,
+        "temperature_c": temperature,
+    }
+
+
+def parse_all_smi_json(text):
+    """Normalize a schema-1 all-smi snapshot into Monitor GPU records."""
+    data = json.loads(text)
+    if (
+        not isinstance(data, dict)
+        or isinstance(data.get("schema"), bool)
+        or data.get("schema") != 1
+    ):
+        raise ValueError("unsupported all-smi snapshot schema")
+    nodes = data.get("gpus")
+    if not isinstance(nodes, list):
+        raise ValueError("all-smi snapshot did not include a GPU list")
+    devices = []
+    for node in nodes:
+        device = parse_all_smi_device(node, fallback_index=len(devices))
+        if device is not None:
+            devices.append(device)
+    return devices
+
+
+def probe_all_smi():
+    """Probe an explicit loopback API or a local optional all-smi binary."""
+    configured_url = os.environ.get("LLAMA_GUI_ALL_SMI_URL", "").strip()
+    executable = None
+    source = configured_url
+    try:
+        if configured_url:
+            url = normalize_all_smi_url(configured_url)
+            output = _read_all_smi_snapshot_url(url)
+        else:
+            executable, configured_path = resolve_all_smi()
+            source = executable
+            if executable is None:
+                return "missing", [], _probe_details("not_found")
+            if configured_path and not os.path.isfile(executable):
+                return "error", [], _probe_details("not_found", executable=executable)
+            result = subprocess.run(
+                [
+                    executable,
+                    "snapshot",
+                    "--format", "json",
+                    "--include", "gpu",
+                    "--timeout-ms", "2000",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=ALL_SMI_PROBE_TIMEOUT_SECONDS,
+                shell=False,
+                creationflags=get_no_window_creationflags(),
+            )
+            if result.returncode != 0:
+                _log_probe_failure(
+                    "all-smi", RuntimeError(f"exit code {result.returncode}")
+                )
+                return "error", [], _probe_details(
+                    "exit_code",
+                    executable=executable,
+                    exit_code=result.returncode,
+                    stderr_text=result.stderr,
+                )
+            output = result.stdout
+        devices = parse_all_smi_json(output)
+    except subprocess.TimeoutExpired as exc:
+        _log_probe_failure("all-smi", exc)
+        return "error", [], _probe_details("timeout", executable=source)
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        _log_probe_failure("all-smi", exc)
+        return "error", [], _probe_details(
+            "launch_failed", executable=source, stderr_text=str(exc)
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        _log_probe_failure("all-smi", exc)
+        return "error", [], _probe_details(
+            "parse_error", executable=source, stderr_text=str(exc)
+        )
+    return "ok", devices, None if devices else _probe_details(
+        "no_devices", executable=source
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1149,10 +1365,10 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text, details=None):
             "package_manager": None,
             "docs_url": AMD_INSTALL_DOCS_URL,
             "message": (
-                "AMD GPU telemetry is currently available only on Linux bare "
-                "metal. Windows and WSL users can still run models normally, "
-                "but Monitor cannot currently collect AMD GPU metrics on this "
-                "platform."
+                "AMD SMI telemetry is available only on Linux bare metal. On "
+                "Windows, the optional cross-vendor all-smi tool can provide AMD "
+                "GPU telemetry; WSL and macOS can also use all-smi where their "
+                "hardware is supported. Models can still run normally."
             ),
         }
     if amd_status == "missing":
@@ -1203,35 +1419,56 @@ def _generic_gpu_state_entry(platform_name, is_wsl):
     if platform_name == "win32":
         message = (
             "No supported GPU telemetry tool was detected. On Windows, NVIDIA "
-            "monitoring requires nvidia-smi from the NVIDIA driver. AMD monitoring "
-            "is unavailable because AMD SMI supports Linux only. Models can still "
-            "run normally, and system metrics keep updating."
+            "monitoring can use nvidia-smi from the NVIDIA driver. AMD SMI itself "
+            "supports Linux only, but the optional cross-vendor all-smi tool can "
+            "provide Windows AMD telemetry. Models can still run normally, and "
+            "system metrics keep updating."
         )
     elif is_wsl:
         message = (
             "No supported GPU telemetry tool was detected in WSL. NVIDIA monitoring "
-            "requires nvidia-smi inside WSL. AMD SMI support under WSL is experimental; "
-            "Monitor can use an already-working amd-smi but does not provide setup "
-            "guidance for it."
+            "can use all-smi or nvidia-smi inside WSL. AMD SMI support under WSL is "
+            "experimental; Monitor can use an already-working all-smi or amd-smi but "
+            "does not provide distribution setup guidance for it."
         )
     elif platform_name.startswith("linux"):
         message = (
-            "No supported GPU telemetry tool was detected. NVIDIA monitoring requires "
-            "nvidia-smi from the NVIDIA driver; AMD monitoring requires amd-smi from "
-            "AMD SMI. Install the appropriate vendor tool, then Recheck."
+            "No supported GPU telemetry tool was detected. Install the optional "
+            "cross-vendor all-smi tool, or use nvidia-smi from the NVIDIA driver / "
+            "amd-smi from AMD SMI, then Recheck."
         )
     elif platform_name == "darwin":
         message = (
-            "GPU telemetry is not currently supported on macOS. Models can still run "
+            "No supported GPU telemetry tool was detected. The optional all-smi tool "
+            "can provide Apple Silicon GPU telemetry on macOS. Models can still run "
             "normally, and system metrics keep updating."
         )
     else:
         message = (
-            "No supported vendor tool or GPU backend identified NVIDIA or AMD hardware. "
-            "System metrics keep updating; Recheck after changing the installed backend "
-            "or driver environment."
+            "No supported GPU telemetry tool was detected. Try the optional all-smi "
+            "tool for cross-vendor monitoring. System metrics keep updating; Recheck "
+            "after changing the installed backend or driver environment."
         )
     return {"provider": "", "state": "unavailable", "message": message}
+
+
+def _all_smi_state_entry(status, details):
+    no_devices = status == "ok"
+    return {
+        "provider": "all-smi",
+        "state": "error",
+        "message": (
+            "all-smi returned no usable GPU devices. Existing vendor probes were "
+            "also tried; run an all-smi snapshot directly to inspect its output, "
+            "then Recheck."
+            if no_devices
+            else
+            "all-smi was detected or configured but its GPU snapshot could not be "
+            "read. Existing vendor probes were also tried; check the probe details "
+            "and the all-smi installation, then Recheck."
+        ),
+        "details": details,
+    }
 
 
 def build_gpu_setup_entries(
@@ -1419,10 +1656,28 @@ def _store_amd_probe(state, probe_result):
         )
 
 
+def _cached_all_smi_probe(state, allow_cache):
+    if not allow_cache:
+        return None
+    with state.system_stats_lock:
+        cached = state.system_stats_probe_cache.get("all_smi")
+    if cached is not None and cached[0] >= time.monotonic():
+        return cached[1]
+    return None
+
+
+def _store_all_smi_probe(state, probe_result):
+    with state.system_stats_lock:
+        state.system_stats_probe_cache["all_smi"] = (
+            time.monotonic() + ALL_SMI_PROBE_CACHE_TTL_SECONDS,
+            probe_result,
+        )
+
+
 def collect_sample(ctx, previous, allow_probe_cache=True):
     """One full response payload plus the next ``previous`` record.
 
-    Counter reads happen first with their timestamps; the slow vendor probes
+    Counter reads happen first with their timestamps; the slow GPU probes
     run afterwards and cannot influence ``sampled_at`` or ``interval_seconds``.
     """
     services = ctx.services
@@ -1436,29 +1691,45 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
             interval_seconds = counters["monotonic"] - previous_monotonic
     interval_ok = valid_rate_interval(interval_seconds)
 
-    nvidia_status, nvidia_devices, nvidia_details = probe_nvidia(platform_name)
-
     is_wsl = platform_name.startswith("linux") and is_wsl_environment()
-    cached_amd = _cached_amd_probe(ctx.state, allow_probe_cache)
-    if cached_amd is not None:
-        amd_status, amd_devices, amd_details = cached_amd
+    cached_all_smi = _cached_all_smi_probe(ctx.state, allow_probe_cache)
+    if cached_all_smi is not None:
+        all_smi_status, all_smi_devices, all_smi_details = cached_all_smi
     else:
-        amd_status, amd_devices, amd_details = probe_amd(platform_name)
-        if amd_status in ("ok", "error"):
-            _store_amd_probe(ctx.state, (amd_status, amd_devices, amd_details))
+        all_smi_status, all_smi_devices, all_smi_details = probe_all_smi()
+        if all_smi_status in ("ok", "error"):
+            _store_all_smi_probe(
+                ctx.state, (all_smi_status, all_smi_devices, all_smi_details)
+            )
 
-    gpu_setup = build_gpu_setup_entries(
-        platform_name,
-        is_wsl,
-        get_backend_name(ctx),
-        nvidia_status,
-        len(nvidia_devices),
-        amd_status,
-        len(amd_devices),
-        os_release_text=read_os_release() if platform_name.startswith("linux") else None,
-        nvidia_details=nvidia_details,
-        amd_details=amd_details,
-    )
+    if all_smi_status == "ok" and all_smi_devices:
+        gpu_devices = list(all_smi_devices)
+        gpu_setup = []
+    else:
+        nvidia_status, nvidia_devices, nvidia_details = probe_nvidia(platform_name)
+        cached_amd = _cached_amd_probe(ctx.state, allow_probe_cache)
+        if cached_amd is not None:
+            amd_status, amd_devices, amd_details = cached_amd
+        else:
+            amd_status, amd_devices, amd_details = probe_amd(platform_name)
+            if amd_status in ("ok", "error"):
+                _store_amd_probe(ctx.state, (amd_status, amd_devices, amd_details))
+
+        gpu_devices = list(nvidia_devices) + list(amd_devices)
+        gpu_setup = build_gpu_setup_entries(
+            platform_name,
+            is_wsl,
+            get_backend_name(ctx),
+            nvidia_status,
+            len(nvidia_devices),
+            amd_status,
+            len(amd_devices),
+            os_release_text=read_os_release() if platform_name.startswith("linux") else None,
+            nvidia_details=nvidia_details,
+            amd_details=amd_details,
+        )
+        if not gpu_devices and all_smi_status in ("ok", "error"):
+            gpu_setup.insert(0, _all_smi_state_entry(all_smi_status, all_smi_details))
 
     data = {
         "sampled_at": counters["wall"],
@@ -1468,7 +1739,7 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
             "memory": _build_memory_metric(counters.get("memory")),
             "disk": _build_disk_metric(previous, counters, interval_seconds, interval_ok),
         },
-        "gpus": list(nvidia_devices) + list(amd_devices),
+        "gpus": gpu_devices,
         "gpu_setup": gpu_setup,
     }
     new_previous = {

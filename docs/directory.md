@@ -118,7 +118,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics, slots, and props HTTP fetching |
-| `system_stats.py` | Monitor telemetry: stdlib/ctypes CPU/RAM/disk collectors, nvidia-smi/amd-smi probes, coalesced sample cache |
+| `system_stats.py` | Monitor telemetry: stdlib/ctypes CPU/RAM/disk collectors, optional local all-smi API/CLI adapter with nvidia-smi/amd-smi fallbacks, coalesced sample cache |
 | `file_picker.py` | Native file and directory dialogs |
 
 ### State Pattern
