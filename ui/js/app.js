@@ -22,6 +22,8 @@ const TOAST_MAX_VISIBLE = 5;
 const DEFAULT_TOAST_DURATION_MS = 4000;
 // Slow-load warning outlives default toasts: the model may still come up.
 const SLOW_LOAD_WARNING_TOAST_MS = 10000;
+// Server-ready toast lingers a little longer so its Monitor shortcut is usable.
+const SERVER_READY_TOAST_MS = 8000;
 
 const monitorUi = window.LlamaGui.monitorUi;
 // One shared inference snapshot feeds the fixed stats bar and the Monitor
@@ -807,7 +809,13 @@ async function handleLifecycleReady(runtime) {
         const { baseUrl } = getServerEndpointConfig();
         appendOutput(`Server ready at ${baseUrl}`);
         appendOutput(`Web UI: ${baseUrl}/`);
-        showToast("Server is ready!", "success");
+        showToast("Server is ready!", "success", {
+            duration: SERVER_READY_TOAST_MS,
+            action: {
+                label: "Open Monitor",
+                onClick: () => switchTab("monitor"),
+            },
+        });
     }
     await refreshRuntimeStatusPanels();
 }
@@ -1374,6 +1382,7 @@ function showToast(message, type, options = {}) {
     const duration = Object.prototype.hasOwnProperty.call(options, "duration")
         ? Number(options.duration)
         : DEFAULT_TOAST_DURATION_MS;
+    const action = options.action;
     const toast = document.createElement("div");
     toast.className = "toast toast-" + (type || "info");
     toast.setAttribute("role", "status");
@@ -1403,6 +1412,20 @@ function showToast(message, type, options = {}) {
     toast.addEventListener("click", () => dismissToast(toast));
     toast.appendChild(icon);
     toast.appendChild(text);
+    if (action && typeof action.label === "string" && action.label
+        && typeof action.onClick === "function") {
+        const actionBtn = document.createElement("button");
+        actionBtn.className = "toast-action";
+        actionBtn.type = "button";
+        // textContent only: toast content must never be HTML (XSS smoke test).
+        actionBtn.textContent = action.label;
+        actionBtn.addEventListener("click", (event) => {
+            event.stopPropagation();
+            dismissToast(toast);
+            action.onClick();
+        });
+        toast.appendChild(actionBtn);
+    }
     toast.appendChild(closeBtn);
     container.appendChild(toast);
     capToastStack(container);

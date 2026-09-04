@@ -2,6 +2,9 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-06
+- The server-ready toast now includes a temporary "Open Monitor" link when llama-server becomes ready; the toast action API is generic (label + onClick, textContent-only) while all other notifications are unchanged.
+
 ## 2026-09-05
 - Removed the unreliable Monitor Auto-scroll checkbox and scroll-position listener; process output now follows each appended line and returns to the bottom when the Monitor tab becomes visible.
 - Fixed Monitor inference telemetry recovery and startup reconciliation, made metrics/slots failures independent, and tightened counter baselines plus slot-rate identity/age rules so stale or partial data is never presented as live. The fixed bar now labels its fullest-slot reading as Context.

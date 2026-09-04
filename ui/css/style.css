@@ -810,7 +810,8 @@ body.chat-focus-mode .main-content {
 .btn-toggle-sidebar:focus-visible,
 .btn-sidebar-open:focus-visible,
 .preset-chip:focus-visible,
-.mobile-toggle:focus-visible {
+.mobile-toggle:focus-visible,
+.toast-action:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
@@ -3340,6 +3341,32 @@ body.chat-focus-mode .stats-bar { left: 0; }
 
 .toast-close:hover,
 .toast-close:focus-visible {
+    background: var(--bg-hover);
+    color: var(--fg-bright);
+}
+
+/* Optional one-shot action on a toast (e.g. "Open Monitor" after server
+   ready). It belongs to the toast row, not the global control palette, so it
+   reuses semantic tokens and adds no theme variables. */
+.toast-action {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin: -2px 0 -2px -2px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.toast-action:hover {
     background: var(--bg-hover);
     color: var(--fg-bright);
 }
