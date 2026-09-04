@@ -493,7 +493,8 @@ def _probe_details(reason, executable=None, exit_code=None, stderr_text=None):
 
     Only facts the probe actually observed are emitted, under a fixed key set:
     ``reason`` is one of ``not_found`` / ``timeout`` / ``exit_code`` /
-    ``parse_error`` / ``no_devices``; ``exit_code`` and ``stderr`` are omitted
+    ``parse_error`` / ``no_devices`` / ``launch_failed``; ``exit_code`` and
+    ``stderr`` are omitted
     when unknown; stderr is cut to its first line and 200 chars so a noisy
     vendor tool cannot bloat the payload.
     """
@@ -727,7 +728,7 @@ def probe_nvidia(platform_name):
     except OSError as exc:
         _log_probe_failure("nvidia-smi", exc)
         return "error", [], _probe_details(
-            "exit_code", executable=executable, stderr_text=str(exc)
+            "launch_failed", executable=executable, stderr_text=str(exc)
         )
     if result.returncode != 0:
         _log_probe_failure(
@@ -1023,9 +1024,8 @@ def probe_amd(platform_name):
         _log_probe_failure("amd-smi", exc)
         return "error", [], _probe_details("timeout", executable=executable)
     except OSError as exc:
-        _log_probe_failure("amd-smi", exc)
         return "error", [], _probe_details(
-            "exit_code", executable=executable, stderr_text=str(exc)
+            "launch_failed", executable=executable, stderr_text=str(exc)
         )
     if result.returncode != 0:
         _log_probe_failure("amd-smi", RuntimeError(f"exit code {result.returncode}"))
@@ -1140,10 +1140,10 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text, details=None):
             "package_manager": None,
             "docs_url": AMD_INSTALL_DOCS_URL,
             "message": (
-                "AMD SMI monitoring is unavailable on this platform in Monitor "
-                "v1. AMD officially supports AMD SMI on Linux bare metal and "
-                "Linux VM guests; the WSL backend is experimental and disabled "
-                "in normal builds."
+                "AMD GPU telemetry is currently available only on Linux bare "
+                "metal. Windows and WSL users can still run models normally, "
+                "but Monitor cannot currently collect AMD GPU metrics on this "
+                "platform."
             ),
         }
     if amd_status == "missing":
@@ -1159,9 +1159,15 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text, details=None):
             "docs_url": AMD_INSTALL_DOCS_URL,
             "message": (
                 "amd-smi was not found. The AMD repository and a compatible "
-                "amdgpu driver must already be configured; then install AMD SMI "
-                "once with the command shown. Llama GUI shows the command but "
-                "never runs it."
+                "amdgpu driver must already be configured; "
+                + (
+                    "then install AMD SMI with the command shown. "
+                    if command
+                    else "then install the amdrocm-amdsmi package using your "
+                    "distribution's package manager. "
+                )
+                + "Llama GUI shows installation guidance but never runs "
+                "package-manager commands."
             ),
         }
         if details is not None:

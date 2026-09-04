@@ -480,6 +480,7 @@
     // index-fallback keys may ride along in memory but are never persisted.
     let cardOrder = [];
     let dragKey = null;
+    let dragContainer = null;
     let dragActive = false;
     // A sample that landed mid-drag; the GPU rebuild would destroy the dragged
     // node and cancel the drag, so it is deferred until the drag ends.
@@ -678,6 +679,7 @@
         exit_code: "Non-zero exit",
         parse_error: "Unparsable output",
         no_devices: "No usable devices",
+        launch_failed: "Could not launch tool",
     };
 
     function appendProbeDetailRows(parent, details) {
@@ -1416,9 +1418,16 @@
     }
 
     function onDragStart(container, event) {
+        const target = event && event.target;
+        if (target && typeof target.closest === "function"
+            && target.closest(".monitor-command, .monitor-probe-details")) {
+            event.preventDefault();
+            return;
+        }
         const card = monitorCardFromEvent(event);
         if (!card) return;
         dragKey = card.dataset.monitorKey;
+        dragContainer = container;
         dragActive = true;
         card.classList.add("dragging");
         if (event.dataTransfer) {
@@ -1433,6 +1442,10 @@
 
     function onDragOver(container, event) {
         if (!dragActive || !dragKey) return;
+        if (dragContainer !== container) {
+            clearDropMarkers();
+            return;
+        }
         const card = monitorCardFromEvent(event);
         if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
         clearDropMarkers();
@@ -1457,7 +1470,7 @@
     }
 
     function onDrop(container, event) {
-        if (!dragActive || !dragKey) return;
+        if (!dragActive || !dragKey || dragContainer !== container) return;
         event.preventDefault();
         reorderCard(container, dragKey, monitorCardFromEvent(event), event.clientY);
         finishDrag();
@@ -1466,6 +1479,7 @@
     function finishDrag() {
         if (!dragActive) return;
         dragKey = null;
+        dragContainer = null;
         dragActive = false;
         if (typeof document.querySelectorAll === "function") {
             for (const card of document.querySelectorAll("[data-monitor-key]")) {
@@ -1491,8 +1505,8 @@
         lastPollFailed = false;
         everSucceeded = false;
         hiddenCards = new Map();
-        cardOrder = [];
         dragKey = null;
+        dragContainer = null;
         dragActive = false;
         deferredRender = null;
     }

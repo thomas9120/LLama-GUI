@@ -404,6 +404,16 @@ class NvidiaParserTests(unittest.TestCase):
         self.assertEqual(details["executable"], "/usr/bin/nvidia-smi")
         self.assertNotIn("exit_code", details)
 
+    def test_probe_launch_failure_is_not_exit_code(self):
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", side_effect=OSError("permission denied")):
+            status, devices, details = svc.probe_nvidia("linux")
+        self.assertEqual(status, "error")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "launch_failed")
+        self.assertNotIn("exit_code", details)
+
+
     def test_probe_missing_executable(self):
         with mock.patch.object(svc, "resolve_nvidia_smi", return_value=None):
             status, devices, details = svc.probe_nvidia("linux")
@@ -571,6 +581,14 @@ class AmdParserTests(unittest.TestCase):
         self.assertEqual(details["reason"], "timeout")
         self.assertEqual(details["executable"], "/opt/rocm/bin/amd-smi")
 
+    def test_probe_launch_failure_is_not_exit_code(self):
+        with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
+                mock.patch("subprocess.run", side_effect=OSError("permission denied")):
+            status, devices, details = svc.probe_amd("linux")
+        self.assertEqual(status, "error")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "launch_failed")
+        self.assertNotIn("exit_code", details)
     def test_probe_malformed_json_is_error(self):
         completed = SimpleNamespace(returncode=0, stdout="not json", stderr="")
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
@@ -748,12 +766,15 @@ class SetupStateTests(unittest.TestCase):
         )
         self.assertEqual(entries[0]["command"], svc.AMD_SETUP_COMMANDS["zypper"])
 
-        # Unknown distribution: docs only, never an invented command.
+        # Unknown distribution: docs plus explicit manual package guidance,
+        # never an invented command.
         entries = svc.build_gpu_setup_entries(
             "linux", False, "hip", "missing", 0, "missing", 0, "ID=gentoo\n"
         )
         self.assertEqual(entries[0]["action"], "open_docs")
         self.assertIsNone(entries[0]["command"])
+        self.assertIn("using your distribution's package manager", entries[0]["message"])
+        self.assertIn("amdrocm-amdsmi", entries[0]["message"])
 
     def test_wsl_is_excluded_before_distribution_detection(self):
         os_release = "ID=ubuntu\nID_LIKE=debian\n"
@@ -773,6 +794,8 @@ class SetupStateTests(unittest.TestCase):
             entry = entries[0]
             self.assertEqual(entry["state"], "unsupported", platform)
             self.assertIn("Linux bare metal", entry["message"])
+            self.assertIn("Windows and WSL users can still run models normally", entry["message"])
+            self.assertIn("cannot currently collect AMD GPU metrics", entry["message"])
 
 
 class CollectSampleTests(unittest.TestCase):
