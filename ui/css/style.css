@@ -2060,8 +2060,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
     font-size: 12px;
     color: var(--green);
     word-break: break-all;
-    max-height: 60px;
-    overflow-y: auto;
+    min-height: 75px;
     white-space: pre-wrap;
 }
 
