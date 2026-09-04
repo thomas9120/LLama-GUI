@@ -137,8 +137,8 @@ def compute_cpu_percent(prev_total, prev_idle, curr_total, curr_idle):
     if delta_total <= 0:
         return None
     delta_idle = curr_idle - prev_idle
-    if delta_idle < 0:
-        delta_idle = 0.0
+    if delta_idle < 0 or delta_idle > delta_total:
+        return None
     busy = max(delta_total - delta_idle, 0.0)
     return clamp_percent(busy / delta_total * 100.0)
 
@@ -958,7 +958,7 @@ def parse_amd_smi_json(text):
     return devices
 
 
-def probe_amd(platform_name, is_wsl):
+def probe_amd(platform_name):
     """Return ``(status, devices)``.
 
     Status is ``ok`` / ``missing`` / ``error`` / ``unsupported_platform``.
@@ -1318,7 +1318,7 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
     if cached_amd is not None:
         amd_status, amd_devices = cached_amd
     else:
-        amd_status, amd_devices = probe_amd(platform_name, is_wsl)
+        amd_status, amd_devices = probe_amd(platform_name)
         if amd_status in ("ok", "error"):
             _store_amd_probe(ctx.state, (amd_status, amd_devices))
 

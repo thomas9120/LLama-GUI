@@ -228,7 +228,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - Benchmarking reads Configure state or saved preset JSON without mutating them, builds tool-compatible benchmark args, can prepare the official WikiText-2 raw test file through `/api/benchmark/wikitext2`, and uses `/api/launch`, `/api/stop`, `/api/output`, and `/api/status` through the existing single process slot.
 - Server output is polled incrementally through the monotonic cursor contract on `/api/output`; each response includes the authoritative runtime generation so stale tabs can invalidate old output and reconcile to a replacement process.
 - Chat completions are streamed via SSE from `/api/chat/completions` (backend proxies to `llama-server`).
-- Stats are polled from `llama-server`'s Prometheus `/metrics` endpoint, with KV/context usage falling back through the local `/slots` proxy when `llamacpp:kv_cache_usage_ratio` is unavailable.
+- Stats are polled from `llama-server`'s Prometheus `/metrics` endpoint, with most-filled-slot context occupancy read independently through the local `/slots` proxy.
 - Remote tunnel status is polled from `/api/remote-tunnel/status`.
 - Model download progress is polled from `/api/hf/download-status`.
 - After app update, the page reloads with a cache-busting `appReload` timestamp parameter.
@@ -825,8 +825,7 @@ Live performance metrics are polled from `llama-server`'s Prometheus endpoint.
 - **Prompt speed**: Tokens per second during prompt ingestion
 - **Tokens generated**: Total tokens generated (delta since baseline)
 - **Generation speed**: Tokens per second during generation
-- **Context usage**: Tokens currently retained by the fullest server slot
-- **KV cache usage**: Percentage of KV cache filled
+- **Context usage**: Tokens and percentage currently retained by the fullest server slot
 
 The `snapshotStatsBaseline()` function resets the delta counter (called on conversation load and new chat).
 

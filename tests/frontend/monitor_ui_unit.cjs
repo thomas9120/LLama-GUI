@@ -447,7 +447,7 @@ const legacySlots = monitorUi.normalizeSlots([
         next_token: [{ n_decoded: 5 }] },
 ]);
 assert.equal(legacySlots.busiest.used, 50);
-assert.equal(legacySlots.samples[0].genTokens, 5);
+assert.equal(legacySlots.samples.length, 0, "slot deltas require an id_task");
 
 // ═════════════════════════════════════════════════════════════════════════
 // 3. Shared inference engine
@@ -518,6 +518,61 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     assert.equal(second.session.prompt, 200);
     assert.equal(second.session.generated, 100);
     assert.equal(second.session.total, 300);
+}
+
+// Counter fields are fresh per successful payload and baseline independently,
+// including when one counter appears after the other.
+{
+    const engine = monitorUi.createInferenceStats({});
+    engine.setTarget("ext:fresh");
+    const firstValues = metricValues();
+    delete firstValues["llamacpp:tokens_predicted_total"];
+    const first = engine.applyPollResult({
+        metricsOk: true, metricsValues: firstValues,
+        slotsOk: false, slotsNormalized: null, now: 1000,
+    });
+    assert.equal(first.session.prompt, 0);
+    assert.equal(first.session.generated, null);
+
+    const secondValues = metricValues();
+    delete secondValues["llamacpp:prompt_tokens_total"];
+    const second = engine.applyPollResult({
+        metricsOk: true, metricsValues: secondValues,
+        slotsOk: false, slotsNormalized: null, now: 2000,
+    });
+    assert.equal(second.session.prompt, null, "missing prompt must not carry forward");
+    assert.equal(second.session.generated, 0, "late generated counter gets its own baseline");
+
+    const third = engine.applyPollResult({
+        metricsOk: true,
+        metricsValues: metricValues({
+            "llamacpp:prompt_tokens_total": 1100,
+            "llamacpp:tokens_predicted_total": 550,
+        }),
+        slotsOk: false, slotsNormalized: null, now: 3000,
+    });
+    assert.equal(third.session.prompt, 100);
+    assert.equal(third.session.generated, 50);
+    assert.equal(third.session.total, 150);
+
+    const empty = engine.applyPollResult({
+        metricsOk: true, metricsValues: {},
+        slotsOk: false, slotsNormalized: null, now: 4000,
+    });
+    assert.equal(empty.sources.metrics, "ok");
+    assert.equal(empty.session.prompt, null, "an empty successful payload is not fresh");
+    assert.equal(empty.session.generated, null);
+
+    const rollback = engine.applyPollResult({
+        metricsOk: true,
+        metricsValues: metricValues({
+            "llamacpp:prompt_tokens_total": 5,
+            "llamacpp:tokens_predicted_total": 600,
+        }),
+        slotsOk: false, slotsNormalized: null, now: 5000,
+    });
+    assert.equal(rollback.session.prompt, 0, "rolled prompt counter rebases");
+    assert.equal(rollback.session.generated, 100, "unrolled counter keeps its own baseline");
 }
 
 // Independent source failures: neither carries the other forward as live.
@@ -614,6 +669,84 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     assert.equal(differentTask.speed.generated, 11);
 }
 
+// A long polling gap uses the metrics gauge for that cycle and reseeds the
+// slot baseline for the next normal interval.
+{
+    const engine = monitorUi.createInferenceStats({});
+    engine.setTarget("gui:gap", { zeroBaseline: true });
+    engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues(),
+        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100), now: 1000,
+    });
+    const afterGap = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_seconds": 123,
+            "llamacpp:predicted_tokens_seconds": 13,
+        }),
+        slotsOk: true, slotsNormalized: slotsSample(0, 2000, 200), now: 33001,
+    });
+    assert.equal(afterGap.speed.prompt, 123);
+    assert.equal(afterGap.speed.generated, 13);
+    const recovered = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues(),
+        slotsOk: true, slotsNormalized: slotsSample(0, 3000, 300), now: 35001,
+    });
+    assert.ok(Math.abs(recovered.speed.prompt - 500) < 0.001);
+    assert.ok(Math.abs(recovered.speed.generated - 50) < 0.001);
+}
+
+// Slot deltas require both identities, and a global slot rate is published
+// only when every currently processing slot is comparable.
+{
+    const missingTask = monitorUi.normalizeSlots([{
+        id: 0, is_processing: true, n_ctx: 1000,
+        n_prompt_tokens_processed: 100, next_token: { n_decoded: 10 },
+    }]);
+    assert.equal(missingTask.samples.length, 0);
+
+    const engine = monitorUi.createInferenceStats({});
+    engine.setTarget("gui:slots", { zeroBaseline: true });
+    engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues(),
+        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100, 1), now: 1000,
+    });
+    const reused = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_seconds": 77,
+            "llamacpp:predicted_tokens_seconds": 7,
+        }),
+        slotsOk: true,
+        slotsNormalized: monitorUi.normalizeSlots([{
+            id: 0, is_processing: true, n_ctx: 8192,
+            n_prompt_tokens_processed: 200, next_token: { n_decoded: 20 },
+        }]),
+        now: 2000,
+    });
+    assert.equal(reused.speed.prompt, 77, "slot reuse without id_task uses the gauge");
+    assert.equal(reused.speed.generated, 7);
+
+    const twoSlots = (first, second) => monitorUi.normalizeSlots([
+        { id: 0, id_task: 1, is_processing: true, n_ctx: 8192,
+            n_prompt_tokens_processed: first, next_token: { n_decoded: first / 10 } },
+        { id: 1, id_task: 2, is_processing: true, n_ctx: 8192,
+            n_prompt_tokens_processed: second, next_token: { n_decoded: second / 10 } },
+    ]);
+    engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues(),
+        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100, 1), now: 3000,
+    });
+    const continuingAndNew = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_seconds": 88,
+            "llamacpp:predicted_tokens_seconds": 8,
+        }),
+        slotsOk: true, slotsNormalized: twoSlots(1100, 100), now: 4000,
+    });
+    assert.equal(continuingAndNew.speed.prompt, 88,
+        "a new processing slot prevents a partial global rate");
+    assert.equal(continuingAndNew.speed.generated, 8);
+}
+
 // 80%/95% context presentation levels.
 {
     const engine = monitorUi.createInferenceStats({});
@@ -654,6 +787,80 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
         slotsNormalized: null, now: 1000,
     });
     assert.equal(first.session.total, 0, "pending reset uses the next sample as baseline");
+
+    // Reset with only one counter ever present must keep the other counter's
+    // baseline pending until that field first appears.
+    const engine3 = monitorUi.createInferenceStats({});
+    engine3.setTarget("gui:pending-counter", { zeroBaseline: true });
+    const promptOnly = metricValues({
+        "llamacpp:prompt_tokens_total": 100,
+    });
+    delete promptOnly["llamacpp:tokens_predicted_total"];
+    engine3.applyPollResult({
+        metricsOk: true, metricsValues: promptOnly, slotsOk: false,
+        slotsNormalized: null, now: 1000,
+    });
+    assert.equal(engine3.resetBaseline(), true, "sampled counter reset succeeds");
+    const resetPendingSnapshot = engine3.getSnapshot();
+    assert.equal(resetPendingSnapshot.session.prompt, 0, "reset renders the current prompt as zero");
+    assert.equal(resetPendingSnapshot.session.generated, null, "missing counter stays pending after reset");
+    const promptOnlyAfterReset = metricValues({
+        "llamacpp:prompt_tokens_total": 125,
+    });
+    delete promptOnlyAfterReset["llamacpp:tokens_predicted_total"];
+    const pendingGenerated = engine3.applyPollResult({
+        metricsOk: true, metricsValues: promptOnlyAfterReset, slotsOk: false,
+        slotsNormalized: null, now: 2000,
+    });
+    assert.equal(pendingGenerated.session.prompt, 25, "present counter advances from the reset baseline");
+    assert.equal(pendingGenerated.session.generated, null, "absent counter stays pending");
+    const lateGeneratedValues = metricValues({
+        "llamacpp:tokens_predicted_total": 7,
+    });
+    delete lateGeneratedValues["llamacpp:prompt_tokens_total"];
+    const lateGenerated = engine3.applyPollResult({
+        metricsOk: true, metricsValues: lateGeneratedValues, slotsOk: false,
+        slotsNormalized: null, now: 3000,
+    });
+    assert.equal(lateGenerated.session.prompt, null, "missing prompt is unavailable");
+    assert.equal(lateGenerated.session.generated, 0, "late counter establishes its own baseline");
+
+    // A reset after a successful payload with a missing field must not anchor
+    // that field to the stale raw counter from before the omission.
+    const engine4 = monitorUi.createInferenceStats({});
+    engine4.setTarget("gui:reset-freshness", { zeroBaseline: true });
+    engine4.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_total": 1000,
+            "llamacpp:tokens_predicted_total": 500,
+        }), slotsOk: false, slotsNormalized: null, now: 1000,
+    });
+    const generatedOmitted = metricValues({
+        "llamacpp:prompt_tokens_total": 1100,
+    });
+    delete generatedOmitted["llamacpp:tokens_predicted_total"];
+    const omitted = engine4.applyPollResult({
+        metricsOk: true, metricsValues: generatedOmitted,
+        slotsOk: false, slotsNormalized: null, now: 2000,
+    });
+    assert.equal(omitted.session.prompt, 1100);
+    assert.equal(omitted.session.generated, null);
+    assert.equal(engine4.resetBaseline(), true);
+    const resetSnapshot = engine4.getSnapshot();
+    assert.equal(resetSnapshot.session.prompt, 0, "reset anchors the current prompt counter");
+    assert.equal(resetSnapshot.session.generated, null,
+        "reset leaves the omitted generated counter pending");
+    const generatedReappeared = metricValues({
+        "llamacpp:tokens_predicted_total": 550,
+    });
+    delete generatedReappeared["llamacpp:prompt_tokens_total"];
+    const reappeared = engine4.applyPollResult({
+        metricsOk: true, metricsValues: generatedReappeared,
+        slotsOk: false, slotsNormalized: null, now: 3000,
+    });
+    assert.equal(reappeared.session.prompt, null);
+    assert.equal(reappeared.session.generated, 0,
+        "reappearing generated counter starts at the reset baseline");
 }
 
 // Target changes never mix counters or rate samples.
@@ -709,7 +916,7 @@ buildStandardDom();
     await wait(80);
 
     const cpuValue = documentStub.getElementById("monitor-cpu-value");
-    assert.equal(cpuValue.textContent, "18.4");
+    assert.equal(cpuValue.textContent, "18.4%");
     const memSub = documentStub.getElementById("monitor-memory-sub");
     assert.ok(memSub.textContent.includes("12.0 GB used of 32.0 GB"), memSub.textContent);
     const diskSub = documentStub.getElementById("monitor-disk-sub");
@@ -717,6 +924,19 @@ buildStandardDom();
     const ioGrid = documentStub.getElementById("monitor-disk-io");
     assert.equal(ioGrid.classList.contains("hidden"), false, "disk I/O shown when supported");
     assert.equal(documentStub.getElementById("monitor-disk-read").textContent, "1.2 MB/s");
+}
+
+// The first CPU sample is a normal pending state, not collector failure.
+{
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            system: { cpu: { available: true, percent: null } },
+        }),
+    });
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "--");
+    assert.equal(documentStub.getElementById("monitor-cpu-sub").textContent.includes("Waiting for first sample"), true);
 }
 
 // Partial metric availability: only the failed metric is unavailable.
@@ -737,7 +957,7 @@ buildStandardDom();
     monitorUi.recheck();
     await wait(80);
     assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "Not available");
-    assert.equal(documentStub.getElementById("monitor-memory-value").textContent, "25.0");
+    assert.equal(documentStub.getElementById("monitor-memory-value").textContent, "25.0%");
     assert.equal(
         documentStub.getElementById("monitor-disk-io").classList.contains("hidden"),
         true,
@@ -895,6 +1115,29 @@ buildStandardDom();
         documentStub.getElementById("monitor-inference-prompt").textContent, "--",
         "metrics failure leaves session tokens unavailable, not stale",
     );
+    const unknownActivity = engine.applyPollResult({
+        metricsOk: false, metricsValues: null,
+        slotsOk: false, slotsNormalized: null, now: 3000,
+    });
+    monitorUi.renderInferenceSnapshot(unknownActivity);
+    assert.match(documentStub.getElementById("monitor-inference-kicker").textContent, /Activity unknown/);
+    assert.equal(documentStub.getElementById("monitor-inference-state-badge").textContent, "Activity unknown");
+    const unavailableBar = documentStub.getElementById("monitor-inference-context-bar").querySelector(".progress-bar");
+    assert.equal(unavailableBar.hasAttribute("aria-valuenow"), false,
+        "unavailable meters must not announce zero");
+    assert.equal(unavailableBar.getAttribute("aria-valuetext"), "Not available");
+
+    monitorUi.renderInferenceSnapshot(engine.applyPollResult({
+        metricsOk: false, metricsValues: null,
+        slotsOk: true,
+        slotsNormalized: monitorUi.normalizeSlots([{
+            id: 3, id_task: 7, is_processing: false, n_ctx: 100, n_prompt_tokens: 97,
+        }]),
+        now: 4000,
+    }));
+    const availableBar = documentStub.getElementById("monitor-inference-context-bar").querySelector(".progress-bar");
+    assert.equal(availableBar.getAttribute("aria-valuenow"), "97");
+    assert.equal(availableBar.hasAttribute("aria-valuetext"), false);
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -1031,7 +1274,7 @@ function deferred() {
     };
     monitorUi.recheck();
     await wait(30);
-    assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "99.9");
+    assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "99.9%");
     staleGate.resolve(makeSample({ system: {
         cpu: { available: true, percent: 1.0 },
         memory: { available: false },
@@ -1039,7 +1282,7 @@ function deferred() {
     } }));
     await wait(30);
     assert.equal(
-        documentStub.getElementById("monitor-cpu-value").textContent, "99.9",
+        documentStub.getElementById("monitor-cpu-value").textContent, "99.9%",
         "a stale response must not overwrite the newer sample",
     );
 
@@ -1047,7 +1290,7 @@ function deferred() {
     behavior = () => Promise.reject(new Error("backend offline"));
     monitorUi.recheck();
     await wait(30);
-    assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "99.9");
+    assert.equal(documentStub.getElementById("monitor-cpu-value").textContent, "99.9%");
     assert.ok(documentStub.getElementById("monitor-live-badge").textContent.includes("Stale"));
     behavior = () => Promise.resolve(makeSample());
     await wait(120);
@@ -1201,6 +1444,34 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     visibleCards()[0].querySelector(".monitor-hide-btn").dispatch("click");
     assert.equal(visibleCards().length, 1,
         "hiding still works for the session when storage is blocked");
+}
+
+// Persistent hidden-card writes retain the most recent 100 entries and do not
+// count session-only index identities toward that cap.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    const storage = makeStorage();
+    context.localStorage = storage;
+    const cappedGpus = Array.from({ length: 105 }, (_value, index) =>
+        makeGpu(`nvidia:uuid:CAP-${index}`, { index }));
+    cappedGpus.unshift(makeGpu("nvidia:index:session", { index: 999 }));
+    monitorUi.configure({
+        fetchJson: async () => makeSample({ gpus: cappedGpus }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+    const cards = () => documentStub.getElementById("monitor-gpu-grid").children;
+    for (const card of Array.from(cards())) card.querySelector(".monitor-hide-btn").dispatch("click");
+    const persisted = JSON.parse(storage.map.get("llama_gui_monitor_hidden_cards"));
+    assert.equal(persisted.length, 100);
+    assert.equal(persisted.some(entry => entry.key.includes("nvidia:index:session")), false);
+    assert.equal(persisted.some(entry => entry.key.includes("CAP-0")), false);
+    assert.equal(persisted.some(entry => entry.key.includes("CAP-104")), true);
 }
 
 // Malformed persisted storage is normalized on load.

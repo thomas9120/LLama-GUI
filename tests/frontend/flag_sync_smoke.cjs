@@ -139,6 +139,8 @@ async function main() {
         const modelsDirRequests = [];
         let statusRunning = false;
         let activeProcessTool = "";
+        let statusActiveRuntime = null;
+        let stopShouldFail = false;
         let externalChatTarget = null;
         let rememberedTarget = null;
         const externalTargetRequests = [];
@@ -348,6 +350,34 @@ async function main() {
                 });
                 return;
             }
+            if (pathName === "/api/llama/health") {
+                if (statusActiveRuntime) {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: "application/json",
+                        body: JSON.stringify({
+                            state: "ready",
+                            ready: true,
+                            generation: statusActiveRuntime.generation,
+                        }),
+                    });
+                } else {
+                    await route.fulfill({
+                        status: 200,
+                        contentType: "application/json",
+                        body: JSON.stringify({ state: "starting", ready: false }),
+                    });
+                }
+                return;
+            }
+            if (pathName === "/api/stop") {
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({ stopped: !stopShouldFail }),
+                });
+                return;
+            }
             if (pathName === "/api/status") {
                 await route.fulfill({
                     status: 200,
@@ -356,6 +386,7 @@ async function main() {
                         installed: true,
                         running: statusRunning,
                         active_process_tool: activeProcessTool,
+                        active_runtime: statusActiveRuntime,
                         external_chat_target: externalChatTarget,
                         backend: installedBackend,
                         tag: installedBackend === "custom" ? "custom" : "smoke",
@@ -970,7 +1001,7 @@ async function main() {
         assert.equal(await page.textContent("#stats-context"), "0",
             "a restored target baselines on its first sample, so session tokens start at zero");
         assert.equal(await page.textContent("#stats-kv-usage"), "13%",
-            "KV must come from the most-filled slot's n_prompt_tokens / n_ctx");
+            "Context (most-filled slot) must use n_prompt_tokens / n_ctx");
 
         statsMetrics.processing = 1;
         statsSlots = [{
@@ -996,6 +1027,68 @@ async function main() {
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");
         assert.equal(slotsHeaders.at(-1).authorization, "Bearer first-secret");
+
+        // A failed Stop leaves the same llama-server alive. Recovery must pass
+        // its runtime through startStatsPolling so inference polling resumes.
+        statusRunning = true;
+        activeProcessTool = "llama-server";
+        statusActiveRuntime = { tool: "llama-server", generation: 42 };
+        stopShouldFail = true;
+        await page.evaluate(async () => {
+            await processLifecycle.restore({
+                running: true,
+                active_process_tool: "llama-server",
+                active_runtime: { tool: "llama-server", generation: 42 },
+            }, { startOutput: () => {}, postReady: () => {} });
+            await stopLlama();
+        });
+        assert.equal(await page.evaluate(() => inferenceStats.getTargetKey()), "gui:42");
+        assert.equal(
+            await page.locator("#stats-bar").evaluate((el) => el.classList.contains("hidden")),
+            false,
+            "failed Stop recovery must keep the fixed stats bar active",
+        );
+        await page.evaluate(() => stopOutputPolling());
+        stopShouldFail = false;
+        statusRunning = false;
+        activeProcessTool = "";
+        statusActiveRuntime = null;
+        await page.evaluate(() => stopStatsPolling());
+
+        // A rejected metrics body must not discard a successful slots response.
+        const independentSourceSnapshot = await page.evaluate(async () => {
+            const originalFetch = window.fetch;
+            window.fetch = async (url) => {
+                const textUrl = String(url);
+                if (textUrl.includes("/api/llama/metrics?")) {
+                    return { ok: true, text: async () => { throw new Error("metrics body failed"); } };
+                }
+                if (textUrl.includes("/api/llama/slots?")) {
+                    return {
+                        ok: true,
+                        json: async () => [{
+                            id: 0,
+                            id_task: 1,
+                            is_processing: false,
+                            n_ctx: 1000,
+                            n_prompt_tokens: 250,
+                        }],
+                    };
+                }
+                return originalFetch(url);
+            };
+            try {
+                startStatsPolling({ generation: 43 }, { operation: "restore" });
+                await pollStats();
+                return inferenceStats.getSnapshot();
+            } finally {
+                window.fetch = originalFetch;
+                stopStatsPolling();
+            }
+        });
+        assert.equal(independentSourceSnapshot.sources.metrics, "unavailable");
+        assert.equal(independentSourceSnapshot.sources.slots, "ok");
+        assert.equal(independentSourceSnapshot.context.used, 250);
 
         await selectSection(page, "chat");
         assert.equal(await page.locator("#chat-input").isDisabled(), true);
@@ -1541,6 +1634,21 @@ async function main() {
             "Reconnected to Saved (127.0.0.1:9002)."
         );
 
+        // Reload with an already-connected external target. The accepted
+        // initial status path must seed inference exactly once without a new
+        // external revision or a duplicate reset.
+        await page.reload({ waitUntil: "domcontentloaded" });
+        await page.waitForFunction(() => window.LlamaGui?.flagCore && window.LlamaGui?.monitorUi);
+        await page.waitForFunction(() => typeof inferenceStats !== "undefined"
+            && inferenceStats.getTargetKey() === "ext:0:127.0.0.1:9002");
+        assert.equal(await page.evaluate(() => externalTargetRevision), 0,
+            "an already-active target must not mint a new external revision");
+        assert.equal(
+            await page.locator("#stats-bar").evaluate((el) => el.classList.contains("hidden")),
+            false,
+            "an already-connected external target must restore inference polling",
+        );
+
         // One that needed a key is prefilled and explained, never auto-connected.
         externalChatTarget = null;
         rememberedTarget = { host: "127.0.0.1", port: 9003, label: "", api_key_required: true };
@@ -2003,8 +2111,8 @@ async function main() {
             "auto-scroll defaults to enabled");
 
         // System/GPU cards render from the mocked endpoint while visible.
-        await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4");
-        assert.equal(await page.textContent("#monitor-memory-value"), "37.5");
+        await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4%");
+        assert.equal(await page.textContent("#monitor-memory-value"), "37.5%");
         assert.equal(await page.textContent("#monitor-disk-read"), "1.2 MB/s");
         assert.match(await page.textContent("#monitor-live-badge"), /Live/);
         await page.waitForFunction(() => document.querySelectorAll("#monitor-gpu-grid [data-monitor-key]").length === 1);

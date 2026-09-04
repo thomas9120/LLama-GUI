@@ -143,6 +143,31 @@ class DeltaMathTests(unittest.TestCase):
         self.assertEqual(new_previous["cpu"]["total"], 1000.0)
         self.assertEqual(new_previous["disk"]["bytes_read"], 1_000_000)
 
+    def test_invalid_cpu_idle_delta_nulls_rate_and_replaces_baseline(self):
+        cases = (
+            (800.0, 600.0, 700.0),  # idle counter rolled back
+            (700.0, 950.0, 1050.0),  # idle delta exceeds total delta
+        )
+        for previous_idle, invalid_idle, next_idle in cases:
+            with self.subTest(previous_idle=previous_idle, invalid_idle=invalid_idle):
+                previous = {
+                    "monotonic": 98.0,
+                    "cpu": {"source": "cpu:/proc/stat", "total": 800.0, "idle": previous_idle},
+                    "disk": None,
+                }
+                data, new_previous = self._sample(
+                    previous,
+                    make_counters(monotonic=100.0, cpu_total=1000.0, cpu_idle=invalid_idle),
+                )
+                self.assertIsNone(data["system"]["cpu"]["percent"])
+                self.assertEqual(new_previous["cpu"]["idle"], invalid_idle)
+
+                next_data, _ = self._sample(
+                    new_previous,
+                    make_counters(monotonic=102.0, cpu_total=1200.0, cpu_idle=next_idle),
+                )
+                self.assertAlmostEqual(next_data["system"]["cpu"]["percent"], 50.0)
+
     def test_disk_source_identity_change_nulls_only_disk_rates(self):
         previous = {
             "monotonic": 98.0,
@@ -165,8 +190,8 @@ class DeltaMathTests(unittest.TestCase):
     def test_compute_helpers_edge_cases(self):
         self.assertIsNone(svc.compute_cpu_percent(100, 50, 100, 50))
         self.assertIsNone(svc.compute_cpu_percent(100, 50, 90, 40))
-        # Idle rollback is clamped rather than producing > 100%.
-        self.assertAlmostEqual(svc.compute_cpu_percent(0, 500, 1000, 0), 100.0)
+        self.assertIsNone(svc.compute_cpu_percent(0, 500, 1000, 0))
+        self.assertIsNone(svc.compute_cpu_percent(0, 0, 1000, 1001))
         self.assertIsNone(svc.compute_bytes_per_second(10, 5, 1.0))
         self.assertIsNone(svc.compute_bytes_per_second(5, 10, 0.05))
         self.assertIsNone(svc.usage_percent(10, 0))
@@ -481,29 +506,29 @@ class AmdParserTests(unittest.TestCase):
     def test_probe_platform_gating(self):
         # Native Windows/macOS must never execute an incidental amd-smi.
         with mock.patch("subprocess.run") as run:
-            status, devices = svc.probe_amd("win32", False)
+            status, devices = svc.probe_amd("win32")
             self.assertEqual(status, "unsupported_platform")
-            status, devices = svc.probe_amd("darwin", False)
+            status, devices = svc.probe_amd("darwin")
             self.assertEqual(status, "unsupported_platform")
             run.assert_not_called()
 
     def test_probe_timeout_and_missing(self):
         with mock.patch.object(svc, "resolve_amd_smi", return_value=None):
-            status, devices = svc.probe_amd("linux", False)
+            status, devices = svc.probe_amd("linux")
         self.assertEqual(status, "missing")
         self.assertEqual(devices, [])
 
         import subprocess as _subprocess
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
                 mock.patch("subprocess.run", side_effect=_subprocess.TimeoutExpired("amd-smi", 5)):
-            status, devices = svc.probe_amd("linux", False)
+            status, devices = svc.probe_amd("linux")
         self.assertEqual(status, "error")
 
     def test_probe_malformed_json_is_error(self):
         completed = SimpleNamespace(returncode=0, stdout="not json", stderr="")
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
                 mock.patch("subprocess.run", return_value=completed):
-            status, devices = svc.probe_amd("linux", False)
+            status, devices = svc.probe_amd("linux")
         self.assertEqual(status, "error")
         self.assertEqual(devices, [])
 

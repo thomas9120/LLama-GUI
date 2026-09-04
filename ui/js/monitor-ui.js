@@ -119,10 +119,13 @@
                 : slot && slot.next_token;
             const samplePrompt = Number(slot && slot.n_prompt_tokens_processed);
             const sampleGen = Number(nextToken && nextToken.n_decoded);
-            if (isProcessing && slot.id !== undefined && (slot.id_task !== undefined
-                || Number.isFinite(samplePrompt) || Number.isFinite(sampleGen))) {
+            const slotId = slot && slot.id;
+            const taskId = slot && slot.id_task;
+            if (isProcessing
+                && slotId !== null && slotId !== undefined && slotId !== ""
+                && taskId !== null && taskId !== undefined && taskId !== "") {
                 samples.push({
-                    key: `${slot.id}:${slot.id_task ?? ""}`,
+                    key: `${slotId}:${taskId}`,
                     promptTokens: Number.isFinite(samplePrompt) && samplePrompt >= 0 ? samplePrompt : null,
                     genTokens: Number.isFinite(sampleGen) && sampleGen >= 0 ? sampleGen : null,
                 });
@@ -191,7 +194,10 @@
             if (key === targetKey) return lastSnapshot;
             targetKey = key;
             seq = 0;
-            baseline = settings.zeroBaseline ? { prompt: 0, gen: 0 } : null;
+            baseline = {
+                prompt: settings.zeroBaseline ? 0 : null,
+                gen: settings.zeroBaseline ? 0 : null,
+            };
             raw = { prompt: null, gen: null };
             sampled = false;
             rate = { at: 0, slots: {} };
@@ -231,8 +237,10 @@
             let processing = null;
             let deferred = null;
             if (metricsValues) {
-                const prompt = finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_total"]);
-                const gen = finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"]);
+                const currentCounters = {
+                    prompt: finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_total"]),
+                    gen: finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"]),
+                };
                 promptSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_seconds"]);
                 genSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:predicted_tokens_seconds"]);
                 processing = finiteNonNegativeOrNull(metricsValues["llamacpp:requests_processing"]);
@@ -241,18 +249,22 @@
                 // A cumulative counter going down without an observed target
                 // change means the upstream server restarted. Rebase instead
                 // of clamping a cross-restart delta to zero.
-                if (sampled) {
-                    const promptRolled = prompt !== null && raw.prompt !== null && prompt < raw.prompt;
-                    const genRolled = gen !== null && raw.gen !== null && gen < raw.gen;
-                    if (promptRolled || genRolled) {
-                        baseline = null;
-                        rate = { at: 0, slots: {} };
+                let counterRolled = false;
+                for (const name of ["prompt", "gen"]) {
+                    const current = currentCounters[name];
+                    if (current === null) continue;
+                    if (raw[name] !== null && current < raw[name]) {
+                        baseline[name] = current;
+                        counterRolled = true;
                     }
+                    raw[name] = current;
+                    // Restored targets baseline each counter independently so a
+                    // field that appears late does not inherit another field's
+                    // first sample.
+                    if (baseline[name] === null) baseline[name] = current;
+                    sampled = true;
                 }
-                if (prompt !== null) raw.prompt = prompt;
-                if (gen !== null) raw.gen = gen;
-                if (prompt !== null || gen !== null) sampled = true;
-                if (!baseline && sampled) baseline = { prompt: raw.prompt, gen: raw.gen };
+                if (counterRolled) rate = { at: 0, slots: {} };
             }
 
             let context = null;
@@ -273,24 +285,27 @@
             const processingBest = processing !== null ? processing : slotsProcessing;
             if (slotsNormalized && rate.at > 0) {
                 const elapsed = (now - rate.at) / 1000;
-                if (elapsed >= 1) {
+                if (elapsed >= 1 && elapsed <= 30) {
                     let promptDelta = 0;
                     let genDelta = 0;
-                    let promptComparable = false;
-                    let genComparable = false;
+                    const allProcessingSampled = slotsNormalized.samples.length === slotsNormalized.processing;
+                    let promptComparable = allProcessingSampled && slotsNormalized.samples.length > 0;
+                    let genComparable = promptComparable;
                     for (const sample of slotsNormalized.samples) {
                         const previous = rate.slots[sample.key];
-                        if (!previous) continue;
+                        if (!previous) {
+                            promptComparable = false;
+                            genComparable = false;
+                            continue;
+                        }
                         if (sample.promptTokens !== null && previous.promptTokens !== null
                             && sample.promptTokens >= previous.promptTokens) {
                             promptDelta += sample.promptTokens - previous.promptTokens;
-                            promptComparable = true;
-                        }
+                        } else promptComparable = false;
                         if (sample.genTokens !== null && previous.genTokens !== null
                             && sample.genTokens >= previous.genTokens) {
                             genDelta += sample.genTokens - previous.genTokens;
-                            genComparable = true;
-                        }
+                        } else genComparable = false;
                     }
                     if (promptComparable) livePromptSpeed = promptDelta / elapsed;
                     else if (processingBest === 0) livePromptSpeed = 0;
@@ -305,12 +320,16 @@
                 };
             }
 
-            const basePrompt = baseline ? baseline.prompt : null;
-            const baseGen = baseline ? baseline.gen : null;
             // Session counters come from /metrics only: when that source is
             // unavailable they are marked unavailable, never carried forward.
-            const sessionPrompt = metricsOk ? sessionValue(raw.prompt, basePrompt) : null;
-            const sessionGen = metricsOk ? sessionValue(raw.gen, baseGen) : null;
+            const sessionPrompt = metricsOk ? sessionValue(
+                metricsValues && finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_total"]),
+                baseline.prompt,
+            ) : null;
+            const sessionGen = metricsOk ? sessionValue(
+                metricsValues && finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"]),
+                baseline.gen,
+            ) : null;
             const sessionTotal = sessionPrompt !== null && sessionGen !== null
                 ? sessionPrompt + sessionGen
                 : null;
@@ -352,10 +371,25 @@
         // stays pending until the next valid sample establishes the baseline.
         function resetBaseline() {
             if (!sampled) {
-                baseline = null;
+                baseline = { prompt: null, gen: null };
                 return false;
             }
-            baseline = { prompt: raw.prompt, gen: raw.gen };
+            const metricsValues = lastInput && lastInput.metricsOk && lastInput.metricsValues
+                ? lastInput.metricsValues
+                : null;
+            const current = {
+                prompt: metricsValues
+                    ? finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_total"])
+                    : null,
+                gen: metricsValues
+                    ? finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"])
+                    : null,
+            };
+            // Reset only what the current payload can prove. Missing fields
+            // stay pending so their next valid sample starts at zero instead
+            // of including tokens from before the reset.
+            baseline = { prompt: current.prompt, gen: current.gen };
+            raw = { prompt: current.prompt, gen: current.gen };
             if (lastInput) rebuild();
             return true;
         }
@@ -584,7 +618,11 @@
         bar.setAttribute("aria-valuemin", "0");
         bar.setAttribute("aria-valuemax", "100");
         const clamped = clampPercent(percent);
-        bar.setAttribute("aria-valuenow", clamped === null ? "0" : String(Math.round(clamped * 10) / 10));
+        if (clamped === null) {
+            bar.setAttribute("aria-valuetext", "Not available");
+        } else {
+            bar.setAttribute("aria-valuenow", String(Math.round(clamped * 10) / 10));
+        }
         const fill = makeEl("div", "progress-fill");
         fill.style.width = clamped === null ? "0%" : `${clamped}%`;
         bar.appendChild(fill);
@@ -651,8 +689,15 @@
         const subEl = byId(`monitor-${prefix}-sub`);
         const barHolder = byId(`monitor-${prefix}-bar`);
         if (valueEl) {
-            if (available && percent !== null && percent !== undefined) {
-                valueEl.textContent = formatPercentValue(percent, 1);
+            if (available && percent !== null && percent !== undefined
+                && clampPercent(percent) !== null) {
+                valueEl.textContent = "";
+                valueEl.replaceChildren(
+                    makeEl("span", "", formatPercentValue(percent, 1)),
+                    makeEl("span", "monitor-metric-unit", "%"),
+                );
+            } else if (available) {
+                valueEl.textContent = "--";
             } else {
                 valueEl.textContent = "Not available";
             }
@@ -1030,12 +1075,17 @@
         }
 
         const processing = snapshot.requests ? snapshot.requests.processingBest : null;
-        const stateText = processing !== null && processing > 0 ? "Generating" : "Idle";
+        const activityUnknown = processing === null || processing === undefined;
+        const stateText = activityUnknown ? "Activity unknown" : processing > 0 ? "Generating" : "Idle";
         kicker.textContent = `Llama server \u00b7 ${stateText}`;
         if (processing !== null && processing > 0) {
             badge.textContent = `${processing} active`;
             badge.classList.remove("badge-dim", "badge-neutral");
             badge.classList.add("badge-green");
+        } else if (activityUnknown) {
+            badge.textContent = stateText;
+            badge.classList.remove("badge-green", "badge-neutral");
+            badge.classList.add("badge-dim");
         } else {
             badge.textContent = stateText;
             badge.classList.remove("badge-green", "badge-dim");
@@ -1124,7 +1174,14 @@
                 if (value.sessionOnly) continue;
                 entries.push({ key, label: value.label });
             }
-            localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(entries));
+            const retained = entries.slice(-HIDDEN_MAX_ENTRIES);
+            localStorage.setItem(HIDDEN_STORAGE_KEY, JSON.stringify(retained));
+            if (entries.length > HIDDEN_MAX_ENTRIES) {
+                const retainedKeys = new Set(retained.map(entry => entry.key));
+                for (const [key, value] of hiddenCards) {
+                    if (!value.sessionOnly && !retainedKeys.has(key)) hiddenCards.delete(key);
+                }
+            }
         } catch (error) {
             console.debug("Could not persist hidden monitor cards", error);
         }
@@ -1171,6 +1228,7 @@
 
     function hideCard(key, label) {
         if (!key) return;
+        hiddenCards.delete(key);
         hiddenCards.set(key, { label: label || key, sessionOnly: isSessionOnlyKey(key) });
         persistHiddenCards();
         applyHiddenCardsToDom();

@@ -287,7 +287,7 @@ function resumeRuntimePolling(status) {
     const runtime = status && status.active_runtime;
     if (!runtime) return;
     startOutputPolling();
-    if (runtime.tool === "llama-server") startStatsPolling();
+    if (runtime.tool === "llama-server") startStatsPolling(runtime);
 }
 
 function setCustomLaunchArgsMessages(result = {}) {
@@ -1105,10 +1105,14 @@ async function pollStats(epoch = statsEpoch) {
         let metricsOk = false;
         let metricsValues = null;
         if (metricsResp && metricsResp.ok) {
-            const text = await metricsResp.text();
-            if (epoch !== statsEpoch) return;
-            metricsValues = monitorUi.parseMetricsText(text);
-            metricsOk = true;
+            try {
+                const text = await metricsResp.text();
+                if (epoch !== statsEpoch) return;
+                metricsValues = monitorUi.parseMetricsText(text);
+                metricsOk = true;
+            } catch (e) {
+                console.debug("Failed to parse llama-server metric stats", e);
+            }
         }
 
         let slotsOk = false;
@@ -1149,7 +1153,6 @@ async function pollStats(epoch = statsEpoch) {
 
 async function refreshRuntimeStatusPanels() {
     const status = await checkStatus();
-    reconcileInferenceTarget(status);
     monitorUi.updateProcessHeader();
     updateChatStatusBadge();
     updateApiEndpoints();
@@ -1222,6 +1225,9 @@ async function reconcileAuthoritativeStatus(status) {
         ? { startOutput: () => {}, postReady: () => {}, onFailed: handleReconciliationFailure }
         : { postReady: () => {}, onFailed: handleReconciliationFailure };
     const outcome = await processLifecycle.reconcile(status, reconcileOptions);
+    // Every accepted status, including the first page-load status, is the
+    // authoritative source for the resolved inference target.
+    reconcileInferenceTarget(status);
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }
