@@ -170,6 +170,7 @@
         let targetKey = null;
         let seq = 0;
         let baseline = null;
+        let averageBaseline = null;
         let raw = { prompt: null, gen: null };
         let sampled = false;
         let rate = { at: 0, slots: {} };
@@ -198,6 +199,10 @@
                 prompt: settings.zeroBaseline ? 0 : null,
                 gen: settings.zeroBaseline ? 0 : null,
             };
+            averageBaseline = {
+                prompt: settings.zeroBaseline ? { tokens: 0, seconds: 0 } : null,
+                gen: settings.zeroBaseline ? { tokens: 0, seconds: 0 } : null,
+            };
             raw = { prompt: null, gen: null };
             sampled = false;
             rate = { at: 0, slots: {} };
@@ -223,6 +228,12 @@
             return Math.max(0, current - base);
         }
 
+        function averageValue(tokens, seconds, base) {
+            if (tokens === null || seconds === null || !base) return null;
+            const elapsed = seconds - base.seconds;
+            return elapsed > 0 ? Math.max(0, tokens - base.tokens) / elapsed : null;
+        }
+
         function rebuild() {
             const input = lastInput;
             seq += 1;
@@ -236,10 +247,16 @@
             let genSpeedGauge = null;
             let processing = null;
             let deferred = null;
+            let currentCounters = { prompt: null, gen: null };
+            let currentSeconds = { prompt: null, gen: null };
             if (metricsValues) {
-                const currentCounters = {
+                currentCounters = {
                     prompt: finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_total"]),
                     gen: finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"]),
+                };
+                currentSeconds = {
+                    prompt: finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_seconds_total"]),
+                    gen: finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_seconds_total"]),
                 };
                 promptSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_seconds"]);
                 genSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:predicted_tokens_seconds"]);
@@ -263,6 +280,13 @@
                     // first sample.
                     if (baseline[name] === null) baseline[name] = current;
                     sampled = true;
+
+                    const seconds = currentSeconds[name];
+                    const averageBase = averageBaseline[name];
+                    if (seconds !== null && (!averageBase
+                        || current < averageBase.tokens || seconds < averageBase.seconds)) {
+                        averageBaseline[name] = { tokens: current, seconds };
+                    }
                 }
                 if (counterRolled) rate = { at: 0, slots: {} };
             }
@@ -333,6 +357,12 @@
             const sessionTotal = sessionPrompt !== null && sessionGen !== null
                 ? sessionPrompt + sessionGen
                 : null;
+            const averagePromptSpeed = averageValue(
+                currentCounters.prompt, currentSeconds.prompt, averageBaseline.prompt,
+            );
+            const averageGenSpeed = averageValue(
+                currentCounters.gen, currentSeconds.gen, averageBaseline.gen,
+            );
 
             const percent = context ? context.percent : null;
             const contextLevel = percent === null
@@ -351,8 +381,12 @@
                 requests: { processing, queued: deferred, processingBest },
                 slots: slotsInfo,
                 speed: {
-                    prompt: livePromptSpeed !== undefined ? livePromptSpeed : promptSpeedGauge,
-                    generated: liveGenSpeed !== undefined ? liveGenSpeed : genSpeedGauge,
+                    prompt: currentSeconds.prompt !== null
+                        ? averagePromptSpeed
+                        : livePromptSpeed !== undefined ? livePromptSpeed : promptSpeedGauge,
+                    generated: currentSeconds.gen !== null
+                        ? averageGenSpeed
+                        : liveGenSpeed !== undefined ? liveGenSpeed : genSpeedGauge,
                 },
                 contextLevel,
                 baselinePending: !sampled,
@@ -385,10 +419,24 @@
                     ? finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_total"])
                     : null,
             };
+            const seconds = {
+                prompt: metricsValues
+                    ? finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_seconds_total"])
+                    : null,
+                gen: metricsValues
+                    ? finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_seconds_total"])
+                    : null,
+            };
             // Reset only what the current payload can prove. Missing fields
             // stay pending so their next valid sample starts at zero instead
             // of including tokens from before the reset.
             baseline = { prompt: current.prompt, gen: current.gen };
+            averageBaseline = {
+                prompt: current.prompt !== null && seconds.prompt !== null
+                    ? { tokens: current.prompt, seconds: seconds.prompt } : null,
+                gen: current.gen !== null && seconds.gen !== null
+                    ? { tokens: current.gen, seconds: seconds.gen } : null,
+            };
             raw = { prompt: current.prompt, gen: current.gen };
             if (lastInput) rebuild();
             return true;

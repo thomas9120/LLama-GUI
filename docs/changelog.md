@@ -6,6 +6,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 - Fixed Monitor AMD telemetry across AMD SMI release shapes by using `metric --json`, accepting the `gpu_data` envelope, and retaining reported GPU indexes when stable IDs are absent. Card reordering now follows horizontal grid geometry, uses a dedicated grip that leaves adjacent controls clickable, supports arrow-key movement, and reports accurate Starting/Loading/Stopping process states without losing the status dot.
 - Kept the Monitor live badge visually stable during routine background polls; the brief Refreshing state now appears only for an explicit GPU monitoring Recheck.
+- Changed Monitor prompt and generation speeds to session averages derived from llama.cpp's cumulative active-processing counters, so the values remain visible while idle and idle time never dilutes them; resetting session counters also resets the averages.
 
 ## 2026-09-03
 

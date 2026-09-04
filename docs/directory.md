@@ -822,12 +822,12 @@ Live performance metrics are polled from `llama-server`'s Prometheus endpoint.
 ### Displayed Metrics
 
 - **Prompt tokens processed**: Total tokens processed in prompts (delta since baseline)
-- **Prompt speed**: Tokens per second during prompt ingestion
+- **Prompt speed**: Session-average tokens per second during prompt ingestion (idle time excluded)
 - **Tokens generated**: Total tokens generated (delta since baseline)
-- **Generation speed**: Tokens per second during generation
+- **Generation speed**: Session-average tokens per second during generation (idle time excluded)
 - **Context usage**: Tokens and percentage currently retained by the fullest server slot
 
-The `snapshotStatsBaseline()` function resets the delta counter (called on conversation load and new chat).
+The `snapshotStatsBaseline()` function resets the session token and speed baselines (called on conversation load and new chat).
 
 Metrics host validation restricts proxying to local addresses only for security.
 

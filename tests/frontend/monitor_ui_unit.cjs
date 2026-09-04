@@ -735,6 +735,51 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     assert.ok(Math.abs(recovered.speed.generated - 50) < 0.001);
 }
 
+// Current llama.cpp builds expose cumulative active-processing time. Session
+// averages use those counters, so idle polls neither zero nor dilute them.
+{
+    const engine = monitorUi.createInferenceStats({});
+    engine.setTarget("gui:averages", { zeroBaseline: true });
+    const first = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_seconds_total": 2,
+            "llamacpp:tokens_predicted_seconds_total": 10,
+        }),
+        slotsOk: false, slotsNormalized: null, now: 1000,
+    });
+    assert.equal(first.speed.prompt, 500);
+    assert.equal(first.speed.generated, 50);
+
+    const idle = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_seconds_total": 2,
+            "llamacpp:tokens_predicted_seconds_total": 10,
+            "llamacpp:prompt_tokens_seconds": 0,
+            "llamacpp:predicted_tokens_seconds": 0,
+            "llamacpp:requests_processing": 0,
+        }),
+        slotsOk: false, slotsNormalized: null, now: 5000,
+    });
+    assert.equal(idle.speed.prompt, 500, "idle time does not dilute the prompt average");
+    assert.equal(idle.speed.generated, 50, "idle time does not dilute the generation average");
+
+    const moreWork = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_total": 1200,
+            "llamacpp:tokens_predicted_total": 700,
+            "llamacpp:prompt_seconds_total": 2.5,
+            "llamacpp:tokens_predicted_seconds_total": 14,
+        }),
+        slotsOk: false, slotsNormalized: null, now: 7000,
+    });
+    assert.equal(moreWork.speed.prompt, 480, "average is weighted by active prompt time");
+    assert.equal(moreWork.speed.generated, 50, "average is weighted by active generation time");
+
+    assert.equal(engine.resetBaseline(), true);
+    assert.equal(engine.getSnapshot().speed.prompt, null);
+    assert.equal(engine.getSnapshot().speed.generated, null);
+}
+
 // Slot deltas require both identities, and a global slot rate is published
 // only when every currently processing slot is comparable.
 {
