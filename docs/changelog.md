@@ -8,6 +8,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 - Kept the Monitor live badge visually stable during routine background polls; the brief Refreshing state now appears only for an explicit GPU monitoring Recheck.
 - Changed Monitor prompt and generation speeds to session averages derived from llama.cpp's cumulative active-processing counters, so the values remain visible while idle and idle time never dilutes them; resetting session counters also resets the averages.
 - Enlarged the Configure command preview and removed its fixed height ceiling so long launch commands expand fully instead of being hidden behind an internal scrollbar.
+- Replaced Monitor's generic no-GPU-telemetry message with platform-specific guidance, including that AMD SMI is Linux-only on native Windows and which vendor tool Linux/NVIDIA users need.
 
 ## 2026-09-03
 

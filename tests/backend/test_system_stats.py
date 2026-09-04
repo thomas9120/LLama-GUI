@@ -717,11 +717,22 @@ class SetupStateTests(unittest.TestCase):
         self.assertIsNone(entry["command"])
         self.assertEqual(entry["docs_url"], svc.NVIDIA_DOCS_URL)
 
-    def test_no_evidence_means_no_setup_rows(self):
+    def test_no_evidence_gets_platform_specific_state(self):
+        entries = svc.build_gpu_setup_entries(
+            "win32", False, "vulkan", "missing", 0, "unsupported_platform", 0
+        )
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["provider"], "")
+        self.assertEqual(entries[0]["state"], "unavailable")
+        self.assertIn("AMD SMI supports Linux only", entries[0]["message"])
+        self.assertIn("nvidia-smi", entries[0]["message"])
+
+    def test_no_evidence_state_explains_linux_vendor_tools(self):
         entries = svc.build_gpu_setup_entries(
             "linux", False, "vulkan", "missing", 0, "missing", 0
         )
-        self.assertEqual(entries, [])
+        self.assertIn("nvidia-smi", entries[0]["message"])
+        self.assertIn("amd-smi", entries[0]["message"])
 
     def test_working_provider_suppresses_only_its_own_row(self):
         entries = svc.build_gpu_setup_entries(

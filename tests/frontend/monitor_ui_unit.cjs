@@ -1215,6 +1215,29 @@ buildStandardDom();
     assert.ok(stateCards[0].textContent.includes("unavailable on this platform"));
 }
 
+// Generic backend guidance is a state card, not an actionable setup card.
+{
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpu_setup: [{
+                provider: "", state: "unavailable",
+                message: "On Windows, AMD monitoring is unavailable because AMD SMI supports Linux only.",
+            }],
+        }),
+    });
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(
+        documentStub.getElementById("monitor-gpu-setup").classList.contains("hidden"),
+        true,
+        "generic guidance gets no setup card",
+    );
+    assert.ok(
+        documentStub.getElementById("monitor-gpu-states").children[0]
+            .textContent.includes("AMD SMI supports Linux only"),
+    );
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // 5. Inference card rendering
 // ═════════════════════════════════════════════════════════════════════════

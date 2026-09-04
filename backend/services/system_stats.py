@@ -1199,6 +1199,41 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text, details=None):
     return entry
 
 
+def _generic_gpu_state_entry(platform_name, is_wsl):
+    if platform_name == "win32":
+        message = (
+            "No supported GPU telemetry tool was detected. On Windows, NVIDIA "
+            "monitoring requires nvidia-smi from the NVIDIA driver. AMD monitoring "
+            "is unavailable because AMD SMI supports Linux only. Models can still "
+            "run normally, and system metrics keep updating."
+        )
+    elif is_wsl:
+        message = (
+            "No supported GPU telemetry tool was detected in WSL. NVIDIA monitoring "
+            "requires nvidia-smi inside WSL. AMD SMI support under WSL is experimental; "
+            "Monitor can use an already-working amd-smi but does not provide setup "
+            "guidance for it."
+        )
+    elif platform_name.startswith("linux"):
+        message = (
+            "No supported GPU telemetry tool was detected. NVIDIA monitoring requires "
+            "nvidia-smi from the NVIDIA driver; AMD monitoring requires amd-smi from "
+            "AMD SMI. Install the appropriate vendor tool, then Recheck."
+        )
+    elif platform_name == "darwin":
+        message = (
+            "GPU telemetry is not currently supported on macOS. Models can still run "
+            "normally, and system metrics keep updating."
+        )
+    else:
+        message = (
+            "No supported vendor tool or GPU backend identified NVIDIA or AMD hardware. "
+            "System metrics keep updating; Recheck after changing the installed backend "
+            "or driver environment."
+        )
+    return {"provider": "", "state": "unavailable", "message": message}
+
+
 def build_gpu_setup_entries(
     platform_name,
     is_wsl,
@@ -1214,9 +1249,9 @@ def build_gpu_setup_entries(
     """Relevant setup/error/unsupported rows only.
 
     A working probe suppresses only its own provider's row; provider states are
-    independent, so mixed success/failure states coexist. Providers without
-    backend evidence produce nothing here — the frontend owns the generic
-    no-hint state. Probe diagnostics are attached as ``details`` when the probe
+    independent, so mixed success/failure states coexist. When no provider is
+    identified, one platform-specific generic state explains the available
+    options. Probe diagnostics are attached as ``details`` when the probe
     observed a failure or found no usable devices.
     """
     nvidia_hint, amd_hint = provider_hints(backend_name)
@@ -1247,6 +1282,14 @@ def build_gpu_setup_entries(
             entries.append(
                 _amd_setup_entry(amd_status, is_wsl, os_release_text, details=amd_details)
             )
+    if (
+        not entries
+        and not nvidia_hint
+        and not amd_hint
+        and nvidia_device_count == 0
+        and amd_device_count == 0
+    ):
+        entries.append(_generic_gpu_state_entry(platform_name, is_wsl))
     return entries
 
 

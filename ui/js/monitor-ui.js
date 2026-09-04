@@ -1215,8 +1215,9 @@
         });
         gpuGrid.classList.toggle("hidden", gpus.length === 0);
 
-        // State cards: one per provider whose probe is not working, or one
-        // generic card when nothing identifies NVIDIA or AMD hardware.
+        // State cards: one per provider whose probe is not working, or the
+        // backend's platform-specific generic state. Keep a generic fallback
+        // for older backends that do not send that state yet.
         const stateEntries = setupEntries.slice();
         if (gpus.length === 0 && setupEntries.length === 0) stateEntries.push(null);
         reconcileCards(stateWrap, stateEntries, {
@@ -1226,7 +1227,8 @@
         });
 
         // Setup cards exist only for setup_required/error states.
-        const actionable = setupEntries.filter(entry => entry.state !== "unsupported");
+        const actionable = setupEntries.filter(entry =>
+            entry.state === "setup_required" || entry.state === "error");
         reconcileCards(setupCards, actionable, {
             keyOf: setupCardKey,
             signatureOf: setupCardSignature,
