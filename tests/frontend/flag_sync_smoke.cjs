@@ -1107,6 +1107,18 @@ async function main() {
         });
         await page.waitForFunction(() => document.querySelector("#chat-slider-temp")?.value === "0.31");
         assert.equal(await page.textContent("#chat-val-temp"), "0.31");
+        for (const limit of [-1, 0, 17, 2049, 200000]) {
+            await page.evaluate((value) => window.LlamaGui.flagCore.setFlagValue("n_predict", value), limit);
+            assert.equal(await page.locator("#chat-slider-max-tokens").inputValue(), String(limit));
+            assert.equal(await page.textContent("#chat-val-max-tokens"), limit === -1 ? "Server default" : String(limit));
+        }
+        await page.locator("#chat-slider-max-tokens").evaluate((el) => {
+            el.value = "1025";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().n_predict), 1025);
+        assert.equal(await page.textContent("#chat-val-max-tokens"), "1025");
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("n_predict", -1));
         await page.fill("#chat-input", Array(40).fill("line").join("\n"));
         await page.dispatchEvent("#chat-input", "input");
         const chatInputHeight = await page.locator("#chat-input").evaluate((el) => parseFloat(el.style.height));

@@ -313,6 +313,7 @@ function makeContext({
         AbortController,
         TextDecoder,
         TextEncoder,
+        URL,
         crypto,
         // Blocked storage logs the expected tolerant-path warnings on every
         // access; keep the suite output readable.
@@ -901,18 +902,62 @@ async function runAbortScenario(action) {
         const maxTokensDisplay = elements.get("chat-val-max-tokens");
         setFlagValues({ n_predict: "abc" });
         api.refreshSidebarUI();
-        assert.equal(maxTokensDisplay.textContent, "512", "non-numeric n_predict must fall back to 512");
-        assert.equal(Number(maxTokensSlider.value), 512);
+        assert.equal(maxTokensDisplay.textContent, "Server default", "non-numeric n_predict is omitted from requests");
+        assert.equal(Number(maxTokensSlider.value), -1);
 
         setFlagValues({ n_predict: "-1" });
         api.refreshSidebarUI();
-        assert.equal(maxTokensDisplay.textContent, "512", "string form of the -1 sentinel must fall back to 512");
-        assert.equal(Number(maxTokensSlider.value), 512);
+        assert.equal(maxTokensDisplay.textContent, "Server default", "the -1 sentinel inherits the server limit");
+        assert.equal(Number(maxTokensSlider.value), -1);
 
         setFlagValues({ n_predict: "2048" });
         api.refreshSidebarUI();
         assert.equal(maxTokensDisplay.textContent, "2048", "numeric-string n_predict must render as a number");
         assert.equal(Number(maxTokensSlider.value), 2048);
+    }
+
+    // Display and wire values agree for inherited limits, small values, and
+    // values above the configured context / former slider cap.
+    for (const value of [undefined, "", "abc", -1, "-1", 0, 17, "2049", 200000]) {
+        let payload;
+        const { api, elements } = makeContext({
+            flagValues: { n_predict: value, ctx_size: 1024 },
+            fetchImpl: makeFetch("complete", { onRequest: (body) => { payload = body; } }),
+        });
+        api.refreshSidebarUI();
+        await api._testSendMessage("check limit");
+        const expected = [undefined, "", "abc", -1, "-1"].includes(value) ? undefined : Number(value);
+        assert.equal(payload.max_tokens, expected);
+        const label = expected === undefined ? "Server default" : String(expected);
+        assert.equal(elements.get("chat-val-max-tokens").textContent, label);
+        const slider = elements.get("chat-slider-max-tokens");
+        assert.equal(Number(slider.value), expected === undefined ? -1 : expected);
+        assert.equal(slider.getAttribute("aria-valuetext"), label);
+        assert.ok(Number(slider.max) >= Number(slider.value));
+    }
+
+    // Saved sources are restored through the safe source renderer; legacy
+    // conversations without sources continue to load.
+    {
+        const { api, elements } = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [{ id: "sources", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "answer", sources: [
+                    { index: 1, title: "Reference", url: "https://example.com/reference" },
+                    { index: 2, title: "Unsafe", url: "javascript:alert(1)" },
+                ] },
+                { role: "assistant", content: "legacy answer" },
+            ] }],
+        });
+        await api._testLoadConversation("sources");
+        const chips = elements.get("chat-messages").querySelectorAll(".chat-source-chip");
+        assert.equal(chips.length, 2);
+        assert.equal(chips[0].tagName, "A");
+        assert.equal(chips[0].href, "https://example.com/reference");
+        assert.equal(chips[0].textContent, "[1] Reference");
+        assert.equal(chips[1].tagName, "SPAN");
+        assert.equal(chips[1].href, undefined);
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

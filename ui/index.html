@@ -1150,10 +1150,10 @@
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
                                     <span class="sidebar-sampler-text">Max Tokens</span>
-                                    <span class="sidebar-sampler-value" id="chat-val-max-tokens">512</span>
+                                    <span class="sidebar-sampler-value" id="chat-val-max-tokens">Server default</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Maximum tokens to generate per response</div>
-                                <input type="range" id="chat-slider-max-tokens" min="64" max="32768" step="64" value="512">
+                                <div class="sidebar-sampler-desc">Maximum tokens per response; -1 uses the server default.</div>
+                                <input type="range" id="chat-slider-max-tokens" aria-label="Max Tokens" min="-1" max="32768" step="1" value="-1">
                             </div>
                         </div>
                     </div>

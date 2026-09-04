@@ -101,16 +101,16 @@
         if (maxTokensSlider && maxTokensDisplay) {
             const ctxSize = parseInt(values.ctx_size, 10);
             const sliderMax = (Number.isFinite(ctxSize) && ctxSize > 0) ? Math.min(ctxSize, 131072) : 32768;
-            maxTokensSlider.max = sliderMax;
             const nPredict = normalizeSamplerNumber(values.n_predict);
-            if (nPredict !== null && nPredict !== -1) {
-                const clamped = Math.trunc(Math.min(nPredict, sliderMax));
-                maxTokensSlider.value = clamped;
-                maxTokensDisplay.textContent = String(clamped);
-            } else {
-                maxTokensSlider.value = 512;
-                maxTokensDisplay.textContent = "512";
-            }
+            const effective = nPredict === null ? -1 : nPredict;
+            // Reflect the shared request value, even outside the usual slider
+            // range. Refreshing Chat must never silently clamp launch state.
+            maxTokensSlider.min = Math.min(-1, effective);
+            maxTokensSlider.max = Math.max(sliderMax, effective);
+            maxTokensSlider.value = effective;
+            const label = effective === -1 ? "Server default" : String(effective);
+            maxTokensDisplay.textContent = label;
+            maxTokensSlider.setAttribute("aria-valuetext", label);
         }
     }
 
@@ -822,7 +822,8 @@
         } else {
             if (empty) empty.style.display = "none";
             for (const msg of chatMessages) {
-                renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
+                const bubble = renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
+                if (msg.role === "assistant") renderChatSources(bubble, msg.sources);
             }
         }
 
@@ -1112,6 +1113,7 @@
                 display.textContent = raw.toFixed(meta.decimals);
                 const val = meta.flag === "top_k" ? parseInt(slider.value, 10) : parseFloat(slider.value);
                 flagCore.setFlagValue(meta.flag, val);
+                if (meta.flag === "n_predict") refreshSidebarUI();
             });
         }
 
