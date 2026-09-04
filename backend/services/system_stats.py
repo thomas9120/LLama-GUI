@@ -1024,6 +1024,7 @@ def probe_amd(platform_name):
         _log_probe_failure("amd-smi", exc)
         return "error", [], _probe_details("timeout", executable=executable)
     except OSError as exc:
+        _log_probe_failure("amd-smi", exc)
         return "error", [], _probe_details(
             "launch_failed", executable=executable, stderr_text=str(exc)
         )

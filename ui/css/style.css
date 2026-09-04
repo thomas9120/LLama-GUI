@@ -4501,13 +4501,27 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     word-break: break-all;
 }
 
-/* Reorderable cards: the whole card is the drag source. A permanent grip
-   glyph in the tools row marks the card as movable; while dragging, the moved
-   card is dimmed with a dashed outline and the insertion slot is an accent bar
-   at the drop edge (inset shadow: no layout shift) with a soft ring on the
-   card under the pointer. */
+/* Reorderable cards: the card (minus its text) is the drag source, and the
+   tools row is the explicit handle. A grip glyph marks the card as movable;
+   while dragging, the moved card is dimmed with a dashed outline and the
+   insertion slot is an accent bar at the drop edge (inset shadow: no layout
+   shift) with a soft ring on the card under the pointer. */
 .monitor-drag-container [data-monitor-key] { cursor: grab; }
 .monitor-drag-container [data-monitor-key]:active { cursor: grabbing; }
+
+/* A draggable ancestor suppresses text selection, so text-bearing regions opt
+   out of dragging and keep the browser's own cursor rather than advertising a
+   drag that would never start. Keep this list in sync with
+   ORDER_SELECTABLE_SELECTOR in ui/js/monitor-ui.js. Placed after the rules
+   above so it also wins while the card is :active (equal specificity). */
+.monitor-drag-container [data-monitor-key] .monitor-command,
+.monitor-drag-container [data-monitor-key] .monitor-probe-details,
+.monitor-drag-container [data-monitor-key] .monitor-metric-label,
+.monitor-drag-container [data-monitor-key] .monitor-metric-reading,
+.monitor-drag-container [data-monitor-key] .card-title,
+.monitor-drag-container [data-monitor-key] code,
+.monitor-drag-container [data-monitor-key] p { cursor: auto; }
+
 .monitor-drag-container .monitor-card-tools::before {
     content: "⠿";
     align-self: center;
@@ -4517,7 +4531,9 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     opacity: 0.45;
     transition: opacity var(--ease-fast);
 }
-.monitor-drag-container .card:hover .monitor-card-tools::before { opacity: 1; }
+/* Reveal the grip on keyboard focus too: it is the only drag affordance. */
+.monitor-drag-container .card:hover .monitor-card-tools::before,
+.monitor-drag-container .card:focus-within .monitor-card-tools::before { opacity: 1; }
 .card.dragging {
     opacity: 0.45;
     outline: 2px dashed var(--accent-border);

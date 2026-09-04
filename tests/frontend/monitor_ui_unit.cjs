@@ -34,23 +34,41 @@ function makeClassList(el) {
     };
 }
 
-function matches(el, selector) {
+function matchesOne(el, selector) {
     if (!el || !el.dataset) return false;
-    if (selector.startsWith("[") && selector.endsWith("]")) {
-        const body = selector.slice(1, -1);
-        const eq = body.indexOf("=");
-        if (eq === -1) {
-            const name = body.replace(/^data-/, "");
-            const key = name.replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
-            return el.dataset[key] !== undefined;
+    // Minimal compound-selector matcher: a tag, any number of `.class` parts
+    // and `[attr]` / `[attr="value"]` parts, in any order — e.g.
+    // `.monitor-metric-row[data-metric="utilization"]`. Silently failing to
+    // match a compound selector is how bugs reach the real DOM untested.
+    const parts = String(selector).match(/^[a-zA-Z][\w-]*|\.[\w-]+|\[[^\]]+\]/g);
+    if (!parts) return false;
+    for (const part of parts) {
+        if (part.startsWith(".")) {
+            if (!el._classes.has(part.slice(1))) return false;
+        } else if (part.startsWith("[")) {
+            const body = part.slice(1, -1);
+            const eq = body.indexOf("=");
+            const rawName = (eq === -1 ? body : body.slice(0, eq)).trim();
+            const key = rawName.replace(/^data-/, "").replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
+            if (eq === -1) {
+                if (el.dataset[key] === undefined) return false;
+            } else {
+                const value = body.slice(eq + 1).trim().replace(/^"|"$/g, "");
+                if (el.dataset[key] !== value) return false;
+            }
+        } else if (el.tagName !== part.toUpperCase()) {
+            return false;
         }
-        const rawName = body.slice(0, eq);
-        const value = body.slice(eq + 1).replace(/^"|"$/g, "");
-        const key = rawName.replace(/^data-/, "").replace(/-([a-z])/g, (_m, c) => c.toUpperCase());
-        return el.dataset[key] === value;
     }
-    if (selector.startsWith(".")) return el._classes.has(selector.slice(1));
-    return el.tagName === selector.toUpperCase();
+    return true;
+}
+
+// Real-DOM semantics: a selector list matches when any member matches. Without
+// this, `closest(".a, .b")` silently matches nothing — which is exactly how a
+// multi-part drag guard shipped untested and ineffective.
+function matches(el, selector) {
+    const parts = String(selector).split(",").map(part => part.trim()).filter(Boolean);
+    return parts.some(part => matchesOne(el, part));
 }
 
 function queryAll(root, selector) {
@@ -137,6 +155,9 @@ function createElement(tagName = "div") {
         hasAttribute(name) {
             return Object.prototype.hasOwnProperty.call(this._attributes, name);
         },
+        removeAttribute(name) {
+            delete this._attributes[name];
+        },
         appendChild(child) {
             // Real-DOM semantics: re-appending an attached node moves it.
             if (child.parentNode) {
@@ -147,8 +168,11 @@ function createElement(tagName = "div") {
             return child;
         },
         replaceChildren(...kids) {
+            // Real-DOM semantics: this removes every child node — including
+            // text nodes — so any direct text goes away with them.
             for (const child of this.children) child.parentNode = null;
             this.children = [];
+            this._textContent = "";
             for (const kid of kids) this.appendChild(kid);
         },
         remove() {
@@ -915,7 +939,7 @@ buildStandardDom();
     const copyCalls = [];
     monitorUi.configure({
         fetchJson: async () => makeSample(),
-        copyText: (text) => copyCalls.push(text),
+        copyText: (text) => { copyCalls.push(text); return Promise.resolve(true); },
         showToast: () => {},
         invalidateCursor: () => {},
         resetStatsBaseline: () => {},
@@ -1577,8 +1601,15 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     assert.deepEqual(keys(), [
         "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB",
     ]);
-    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").title, "Drag to reorder",
-        "cards advertise the drag affordance");
+    // The hint lives on the handle, not the card: the card's text regions stay
+    // selectable and are deliberately not drag sources.
+    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").title, "",
+        "the card as a whole claims no drag affordance");
+    assert.equal(
+        cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-card-tools").title,
+        "Drag to reorder",
+        "the tools row advertises the drag affordance",
+    );
 
     // Drag B into A's upper half -> B lands before A.
     setRects();
@@ -1686,6 +1717,311 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     grid().dispatch("drop", { target: cardByKey("gpu:nvidia:index:9"), clientY: 10 });
     assert.deepEqual(keys(), ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:index:9"],
         "reorder still works for the session when storage is blocked");
+}
+
+// Drag gating on mousedown: a draggable ancestor disables text selection, so
+// draggability is decided per press. Text-bearing regions opt out (staying
+// selectable), the tools row is always a handle, and the rest of the card
+// still drags.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [makeGpu("nvidia:uuid:GPU-AAAA"), makeGpu("nvidia:uuid:GPU-BBBB", { index: 1 })],
+            gpu_setup: [{
+                provider: "amd", state: "error", action: "open_docs",
+                command: null, package_manager: null,
+                docs_url: "https://example.invalid/",
+                message: "amd-smi ran but returned no usable GPU data.",
+                details: {
+                    reason: "exit_code", executable: "/opt/rocm/bin/amd-smi",
+                    exit_code: 9, stderr: "driver problem",
+                },
+            }],
+        }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+
+    const grid = documentStub.getElementById("monitor-gpu-grid");
+    const card = grid.children[0];
+    const press = (el) => grid.dispatch("mousedown", { target: el });
+
+    press(card.querySelector(".monitor-metric-reading"));
+    assert.equal(card.draggable, false, "metric text stays selectable");
+    press(card.querySelector(".monitor-metric-label"));
+    assert.equal(card.draggable, false, "metric labels stay selectable");
+    press(card.querySelector(".monitor-card-tools"));
+    assert.equal(card.draggable, true, "tools row grip is always a drag handle");
+    press(card);
+    assert.equal(card.draggable, true, "the rest of the card still drags");
+
+    const setupCard = documentStub.getElementById("monitor-setup-cards").children[0];
+    press(setupCard.querySelector(".monitor-probe-details"));
+    assert.equal(setupCard.draggable, false, "probe diagnostics stay selectable");
+
+    // A drag that does start still reorders end to end.
+    press(card);
+    grid.dispatch("dragstart", {
+        target: card,
+        dataTransfer: { effectAllowed: "", setData() {}, getData: () => "" },
+    });
+    grid.dispatch("drop", { target: grid.children[1], clientY: 90 });
+    assert.deepEqual(
+        grid.children.map(entry => entry.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA"],
+        "drag still reorders after gating",
+    );
+}
+
+// Periodic refreshes update GPU cards in place instead of rebuilding them, so
+// the user's focus and text selection survive a poll.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    let utilization = 40;
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [
+                makeGpu("nvidia:uuid:GPU-AAAA", { utilization_percent: utilization }),
+                makeGpu("nvidia:uuid:GPU-BBBB", { index: 1, utilization_percent: 55 }),
+            ],
+        }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+
+    const grid = documentStub.getElementById("monitor-gpu-grid");
+    const first = grid.children[0];
+    const utilRow = () => grid.children[0]
+        .querySelector('.monitor-metric-row[data-metric="utilization"]');
+    const utilReading = () => utilRow().querySelector(".monitor-metric-reading").textContent;
+    const utilBarWidth = () => grid.children[0]
+        .querySelectorAll(".progress-bar")[0].querySelector(".progress-fill").style.width;
+
+    assert.equal(utilReading(), "40%");
+    assert.equal(utilBarWidth(), "40%");
+
+    // Same GPU, new sample: reuse the node, update the value.
+    utilization = 91;
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(grid.children[0], first, "GPU card node is reused across polls");
+    assert.equal(utilReading(), "91%", "the reading updates in place");
+    assert.equal(utilBarWidth(), "91%", "the meter updates in place");
+    assert.equal(grid.children.length, 2, "no duplicate cards accumulate");
+
+    // A hidden card stays hidden across a refresh of the same node.
+    grid.children[1].querySelector(".monitor-hide-btn").dispatch("click");
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(grid.children[1].classList.contains("hidden"), true,
+        "hiding survives an in-place refresh");
+
+    // A GPU that disappears is removed; one that appears is added.
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [makeGpu("nvidia:uuid:GPU-CCCC", { utilization_percent: 12 })],
+        }),
+    });
+    monitorUi.recheck();
+    await wait(80);
+    assert.deepEqual(
+        grid.children.map(card => card.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-CCCC"],
+        "stale cards are removed and new ones added",
+    );
+
+    // The Hide button reports the card's current label, not the one captured
+    // when the card was first constructed.
+    const card = grid.children[0];
+    card.querySelector(".monitor-hide-btn").dispatch("click");
+    const stored = JSON.parse(context.localStorage.map.get("llama_gui_monitor_hidden_cards"));
+    assert.equal(stored[stored.length - 1].label, "GPU 0 \u00b7 NVIDIA GeForce RTX 4090",
+        "the hide label comes from the live card");
+}
+
+// Setup cards are reused while the backend repeats the same advice, keeping
+// their Copy button and docs link focusable across polls.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    let message = "amd-smi was not found.";
+    const entry = () => ({
+        provider: "amd", state: "setup_required", action: "copy_command",
+        command: "sudo apt install amdrocm-amdsmi",
+        package_manager: "apt", docs_url: "https://example.invalid/",
+        message, details: { reason: "not_found" },
+    });
+    monitorUi.configure({
+        fetchJson: async () => makeSample({ gpu_setup: [entry()] }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+
+    const setup = documentStub.getElementById("monitor-setup-cards");
+    const first = setup.children[0];
+    assert.equal(setup.children.length, 1);
+
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(setup.children[0], first,
+        "setup card is reused when the advice is unchanged");
+
+    message = "Different guidance from a newer backend.";
+    monitorUi.recheck();
+    await wait(80);
+    assert.ok(setup.children[0] !== first,
+        "setup card is rebuilt when the advice changes");
+    assert.equal(setup.children.length, 1, "exactly one card either way");
+    assert.ok(setup.children[0].textContent.includes(message),
+        "the rebuilt card shows the new advice");
+}
+
+// The Copy button reports only copies that actually reached the clipboard.
+async function copyButtonScenario(copyText) {
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    const toasts = [];
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpu_setup: [{
+                provider: "amd", state: "setup_required", action: "copy_command",
+                command: "sudo apt install amdrocm-amdsmi",
+                package_manager: "apt", docs_url: "https://example.invalid/",
+                message: "amd-smi was not found.", details: { reason: "not_found" },
+            }],
+        }),
+        copyText,
+        showToast: (message, type) => toasts.push(`${type}:${message}`),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+    const setupGrid = documentStub.getElementById("monitor-setup-cards");
+    const button = setupGrid.querySelector(".monitor-command-row").querySelector("button");
+    button.dispatch("click");
+    await wait(20);
+    return toasts;
+}
+
+{
+    const toasts = await copyButtonScenario(() => Promise.resolve(true));
+    assert.deepEqual(toasts, ["info:Command copied"], "success announces the copy");
+}
+
+{
+    const toasts = await copyButtonScenario(() => Promise.resolve(false));
+    assert.deepEqual(toasts, ["error:Could not copy command"],
+        "a rejected clipboard does not claim success");
+}
+
+{
+    const toasts = await copyButtonScenario(() => Promise.reject(new Error("denied")));
+    assert.deepEqual(toasts, ["error:Could not copy command"],
+        "a throwing clipboard reports failure instead of crashing");
+}
+
+// #input-row visibility belongs to app.js (process lifecycle). Monitor used to
+// hide it for external servers but never restore it; now it leaves it alone so
+// the two modules cannot fight over one element.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    let external = { connected: true };
+    monitorUi.configure({
+        fetchJson: async () => makeSample(),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => ({ external_chat_target: external }),
+    });
+    monitorUi.init();
+
+    const inputRow = documentStub.getElementById("input-row");
+    inputRow.classList.remove("hidden");
+
+    monitorUi.updateProcessHeader();
+    assert.equal(inputRow.classList.contains("hidden"), false,
+        "monitor leaves the input row to app.js while an external server is connected");
+
+    external = null;
+    monitorUi.updateProcessHeader();
+    assert.equal(inputRow.classList.contains("hidden"), false,
+        "monitor leaves the input row to app.js after the external server drops");
+
+    // The external-server note it does own still reacts.
+    const note = documentStub.getElementById("monitor-external-note");
+    assert.equal(note.classList.contains("hidden"), true,
+        "the external note hides when the external server drops");
+}
+
+// Reset for tests also clears the in-memory card order, so a later scenario
+// cannot inherit an earlier one's ordering. Most blocks reuse the listeners
+// bound by a previous init(), so the leak is observable without re-init.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    const storage = makeStorage();
+    storage.map.set("llama_gui_monitor_card_order", JSON.stringify([
+        "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB",
+    ]));
+    context.localStorage = storage;
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [makeGpu("nvidia:uuid:GPU-BBBB"), makeGpu("nvidia:uuid:GPU-AAAA", { index: 1 })],
+        }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+    assert.deepEqual(
+        documentStub.getElementById("monitor-gpu-grid").children.map(card => card.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB"],
+        "the stored order is applied",
+    );
+
+    // Next scenario: reset without re-running init(). Re-calling init() would
+    // reload the order from storage and hide the leak this guards against.
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [makeGpu("nvidia:uuid:GPU-BBBB"), makeGpu("nvidia:uuid:GPU-AAAA", { index: 1 })],
+        }),
+    });
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+    assert.deepEqual(
+        documentStub.getElementById("monitor-gpu-grid").children.map(card => card.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA"],
+        "resetForTests clears the leaked card order",
+    );
 }
 
 // Persistent hidden-card writes retain the most recent 100 entries and do not

@@ -749,7 +749,7 @@ function getExecutableSuffix() {
     if (typeof latestStatus !== "undefined" && latestStatus && typeof latestStatus.executable_suffix === "string") {
         return latestStatus.executable_suffix;
     }
-    // ponytail: fallback sniffs navigator.userAgent (frontend platform decision).
+    // TODO: fallback sniffs navigator.userAgent (frontend platform decision).
     // Acceptable because the primary path uses backend status; remove when
     // executable_suffix is guaranteed in every status response.
     const ua = navigator.userAgent || "";
@@ -1336,7 +1336,19 @@ function copyServerUrl(linkId) {
 }
 
 function copyText(text) {
-    navigator.clipboard.writeText(text).catch((e) => console.debug("Clipboard write failed", e));
+    // Resolve to a success flag so callers never claim a copy that failed
+    // (denied permission, insecure context, or no Clipboard API at all).
+    if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+        console.debug("Clipboard API unavailable");
+        return Promise.resolve(false);
+    }
+    return navigator.clipboard.writeText(text).then(
+        () => true,
+        (error) => {
+            console.debug("Clipboard write failed", error);
+            return false;
+        },
+    );
 }
 
 function wireCommandCopyButton(buttonId, previewId) {
@@ -1349,8 +1361,10 @@ function wireCommandCopyButton(buttonId, previewId) {
             showToast("No command to copy yet", "info");
             return;
         }
-        copyText(command);
-        showToast("Command copied", "info");
+        copyText(command).then((copied) => {
+            showToast(copied ? "Command copied" : "Could not copy command",
+                copied ? "info" : "error");
+        });
     });
 }
 

@@ -416,9 +416,25 @@
     const ORDER_MAX_ENTRIES = 100;
     const ORDER_MAX_KEY_LENGTH = 256;
     // Cards reorder within their own container flow only (metrics grid, GPU
-    // grid, state cards, setup cards). ponytail: upgrade path is a single
+    // grid, state cards, setup cards). TODO: upgrade path is a single
     // flattened grid if cross-container moves are ever wanted.
     const ORDER_CONTAINER_SELECTOR = ".monitor-drag-container";
+    // A draggable ancestor disables text selection inside it: Chromium starts
+    // a card drag instead of extending the selection, and cancelling
+    // `dragstart` does not hand the gesture back. Draggability is therefore
+    // decided at mousedown — the tools row (which carries the grip glyph) is
+    // always a handle, text-bearing regions stay selectable, and everything
+    // else on the card drags as before.
+    const ORDER_DRAG_HANDLE_SELECTOR = ".monitor-card-tools";
+    const ORDER_SELECTABLE_SELECTOR = [
+        ".monitor-command",
+        ".monitor-probe-details",
+        ".monitor-metric-label",
+        ".monitor-metric-reading",
+        ".card-title",
+        "code",
+        "p",
+    ].join(", ");
 
     function isSessionOnlyKey(key) {
         // Index-fallback GPU identities are not stable across boots, so their
@@ -641,33 +657,66 @@
         return el;
     }
 
+    function setText(el, text) {
+        const value = text === null || text === undefined ? "" : String(text);
+        // Writing only on change keeps a value the user is selecting intact:
+        // replacing the text node collapses their selection on every poll.
+        if (el && el.textContent !== value) el.textContent = value;
+    }
+
     function makeProgressBar(label, percent) {
         const bar = makeEl("div", "progress-bar");
         bar.setAttribute("role", "meter");
         bar.setAttribute("aria-label", label);
         bar.setAttribute("aria-valuemin", "0");
         bar.setAttribute("aria-valuemax", "100");
-        const clamped = clampPercent(percent);
-        if (clamped === null) {
-            bar.setAttribute("aria-valuetext", "Not available");
-        } else {
-            bar.setAttribute("aria-valuenow", String(Math.round(clamped * 10) / 10));
-        }
-        const fill = makeEl("div", "progress-fill");
-        fill.style.width = clamped === null ? "0%" : `${clamped}%`;
-        bar.appendChild(fill);
+        bar.appendChild(makeEl("div", "progress-fill"));
+        updateProgressBar(bar, percent, label);
         return bar;
     }
 
-    function makeMetricRow(labelText, readingText, unavailable) {
-        const row = makeEl("div", "monitor-metric-row");
-        row.appendChild(makeEl("span", "monitor-metric-label", labelText));
-        if (unavailable) {
-            row.appendChild(makeEl("span", "monitor-not-available", "Not available"));
-        } else {
-            row.appendChild(makeEl("span", "monitor-metric-reading", readingText));
+    function updateProgressBar(bar, percent, label) {
+        if (!bar) return;
+        if (label !== undefined) bar.setAttribute("aria-label", label);
+        const clamped = clampPercent(percent);
+        const fill = bar.querySelector(".progress-fill");
+        if (fill) {
+            const width = clamped === null ? "0%" : `${clamped}%`;
+            if (fill.style.width !== width) fill.style.width = width;
         }
+        // Unavailable meters keep their node (so focus and selection survive)
+        // but render as an empty, hidden track rather than a fake zero.
+        bar.classList.toggle("hidden", clamped === null);
+        if (clamped === null) {
+            bar.removeAttribute("aria-valuenow");
+            bar.setAttribute("aria-valuetext", "Not available");
+        } else {
+            const now = String(Math.round(clamped * 10) / 10);
+            if (bar.getAttribute("aria-valuenow") !== now) bar.setAttribute("aria-valuenow", now);
+            bar.removeAttribute("aria-valuetext");
+        }
+    }
+
+    function makeMetricRow(labelText, metricName) {
+        const row = makeEl("div", "monitor-metric-row");
+        if (metricName) row.dataset.metric = metricName;
+        row.appendChild(makeEl("span", "monitor-metric-label", labelText));
+        row.appendChild(makeEl("span", "monitor-metric-reading", ""));
         return row;
+    }
+
+    function metricRow(card, metricName) {
+        return card && card.querySelector
+            ? card.querySelector(`.monitor-metric-row[data-metric="${metricName}"]`)
+            : null;
+    }
+
+    function updateMetricRow(row, readingText, unavailable) {
+        if (!row) return;
+        const reading = row.querySelector(".monitor-metric-reading");
+        if (!reading) return;
+        setText(reading, unavailable ? "Not available" : readingText);
+        reading.classList.toggle("monitor-not-available", Boolean(unavailable));
     }
 
     // Fixed probe diagnostics from the backend, shown only when a vendor probe
@@ -687,15 +736,22 @@
         const reason = details.reason;
         if (typeof reason !== "string" || !reason) return;
         const wrap = makeEl("div", "monitor-probe-details");
-        wrap.appendChild(makeMetricRow("Reason", PROBE_REASON_LABELS[reason] || reason));
+        wrap.appendChild(makeMetricRow("Reason", "probe-reason"));
+        updateMetricRow(metricRow(wrap, "probe-reason"), PROBE_REASON_LABELS[reason] || reason, false);
         if (typeof details.executable === "string" && details.executable) {
-            wrap.appendChild(makeMetricRow("Tool", details.executable));
+            const row = makeMetricRow("Tool", "probe-tool");
+            updateMetricRow(row, details.executable, false);
+            wrap.appendChild(row);
         }
         if (typeof details.exit_code === "number") {
-            wrap.appendChild(makeMetricRow("Exit code", String(details.exit_code)));
+            const row = makeMetricRow("Exit code", "probe-exit-code");
+            updateMetricRow(row, String(details.exit_code), false);
+            wrap.appendChild(row);
         }
         if (typeof details.stderr === "string" && details.stderr) {
-            wrap.appendChild(makeMetricRow("Stderr", details.stderr));
+            const row = makeMetricRow("Stderr", "probe-stderr");
+            updateMetricRow(row, details.stderr, false);
+            wrap.appendChild(row);
         }
         parent.appendChild(wrap);
     }
@@ -704,7 +760,15 @@
         const button = makeEl("button", "btn btn-sm btn-ghost monitor-hide-btn", "Hide");
         button.type = "button";
         button.setAttribute("aria-label", `Hide ${label} monitor`);
-        button.addEventListener("click", () => hideCard(key, label));
+        button.title = `Hide ${label}`;
+        button.addEventListener("click", () => {
+            // Resolve from the card at click time: in-place updates rewrite a
+            // card's label (a GPU index or name) long after construction.
+            const card = typeof button.closest === "function"
+                ? button.closest("[data-monitor-key]")
+                : null;
+            hideCard(key, (card && card.dataset.monitorLabel) || label || key);
+        });
         return button;
     }
 
@@ -713,7 +777,6 @@
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = label;
         card.draggable = true;
-        card.title = "Drag to reorder";
 
         const header = makeEl("div", "card-header");
         const heading = makeEl("div");
@@ -721,7 +784,11 @@
         heading.appendChild(makeEl("div", "card-title", titleText));
         header.appendChild(heading);
 
+        // The tools row is the drag handle; the card as a whole is not, so the
+        // "Drag to reorder" hint belongs here rather than on the card (where it
+        // would also claim the card's text regions, which stay selectable).
         const tools = makeEl("div", "monitor-card-tools");
+        tools.title = "Drag to reorder";
         tools.appendChild(makeHideButton(key, label));
         if (iconClass && iconSvg) {
             const iconWrap = makeEl("div", `card-icon ${iconClass}`);
@@ -751,25 +818,26 @@
         const subEl = byId(`monitor-${prefix}-sub`);
         const barHolder = byId(`monitor-${prefix}-bar`);
         if (valueEl) {
-            if (available && percent !== null && percent !== undefined
-                && clampPercent(percent) !== null) {
-                valueEl.textContent = "";
-                valueEl.replaceChildren(
-                    makeEl("span", "", formatPercentValue(percent, 1)),
-                    makeEl("span", "monitor-metric-unit", "%"),
-                );
-            } else if (available) {
-                valueEl.textContent = "--";
+            if (available && clampPercent(percent) !== null) {
+                if (valueEl.childElementCount !== 2) {
+                    valueEl.replaceChildren(
+                        makeEl("span", ""),
+                        makeEl("span", "monitor-metric-unit", "%"),
+                    );
+                }
+                setText(valueEl.children[0], formatPercentValue(percent, 1));
             } else {
-                valueEl.textContent = "Not available";
+                setText(valueEl, available ? "--" : "Not available");
             }
         }
-        if (subEl) subEl.textContent = available ? (subText || "") : "Collector unavailable";
+        setText(subEl, available ? (subText || "") : "Collector unavailable");
         if (barHolder) {
-            barHolder.replaceChildren(makeProgressBar(
-                `${prefix} usage`,
-                available ? percent : null,
-            ));
+            let bar = barHolder.querySelector(".progress-bar");
+            if (!bar) {
+                bar = makeProgressBar(`${prefix} usage`, null);
+                barHolder.replaceChildren(bar);
+            }
+            updateProgressBar(bar, available ? percent : null, `${prefix} usage`);
         }
     }
 
@@ -822,54 +890,85 @@
     // Rendering: GPU + setup + state cards (rebuilt per sample)
     // ════════════════════════════════════════════════════════════════════
 
-    function makeGpuCard(gpu) {
-        const id = String(gpu && gpu.id || "");
-        const key = `gpu:${id}`;
-        const index = Number.isFinite(Number(gpu && gpu.index)) ? Number(gpu.index) : null;
-        const name = String(gpu && gpu.name || "").trim() || `${providerLabel(gpu.provider)} GPU`;
-        const label = index === null ? name : `GPU ${index} \u00b7 ${name}`;
-        const kicker = index === null
-            ? providerLabel(gpu.provider)
-            : `GPU ${index} \u00b7 ${providerLabel(gpu.provider)}`;
+    function gpuCardKey(gpu) {
+        return `gpu:${String(gpu && gpu.id || "")}`;
+    }
 
-        const card = cardShell(key, label, kicker, name, "icon-green", GPU_ICON_SVG);
+    function gpuCardName(gpu) {
+        return String(gpu && gpu.name || "").trim() || `${providerLabel(gpu && gpu.provider)} GPU`;
+    }
+
+    function gpuCardIndex(gpu) {
+        return Number.isFinite(Number(gpu && gpu.index)) ? Number(gpu.index) : null;
+    }
+
+    function makeGpuCard(gpu) {
+        const card = cardShell(gpuCardKey(gpu), "", "", "", "icon-green", GPU_ICON_SVG);
+        const utilBlock = makeEl("div", "monitor-metric-block");
+        utilBlock.appendChild(makeMetricRow("Utilization", "utilization"));
+        utilBlock.appendChild(makeProgressBar("", null));
+        card.appendChild(utilBlock);
+
+        const memBlock = makeEl("div", "monitor-metric-block");
+        memBlock.appendChild(makeMetricRow("VRAM", "vram"));
+        memBlock.appendChild(makeProgressBar("", null));
+        card.appendChild(memBlock);
+
+        const meta = makeEl("div", "monitor-gpu-meta");
+        meta.appendChild(makeMetricRow("Temperature", "temperature"));
+        meta.appendChild(makeMetricRow("GPU ID", "gpu-id"));
+        card.appendChild(meta);
+
+        updateGpuCard(card, gpu);
+        return card;
+    }
+
+    function updateGpuCard(card, gpu) {
+        const id = String(gpu && gpu.id || "");
+        const index = gpuCardIndex(gpu);
+        const name = gpuCardName(gpu);
+        const provider = providerLabel(gpu && gpu.provider);
+        const label = index === null ? name : `GPU ${index} \u00b7 ${name}`;
+        const kicker = index === null ? provider : `GPU ${index} \u00b7 ${provider}`;
+
+        card.dataset.monitorLabel = label;
+        setText(card.querySelector(".card-kicker"), kicker);
+        setText(card.querySelector(".card-title"), name);
+        const hideBtn = card.querySelector(".monitor-hide-btn");
+        if (hideBtn) {
+            hideBtn.setAttribute("aria-label", `Hide ${label} monitor`);
+            hideBtn.title = `Hide ${label}`;
+        }
 
         const util = gpu && gpu.utilization_percent;
-        const utilBlock = makeEl("div", "monitor-metric-block");
-        utilBlock.appendChild(makeMetricRow("Utilization",
-            util === null || util === undefined ? "" : `${formatPercentValue(util)}%`,
-            util === null || util === undefined));
-        if (util !== null && util !== undefined) {
-            utilBlock.appendChild(makeProgressBar(`${label} utilization`, util));
-        }
-        card.appendChild(utilBlock);
+        const hasUtil = util !== null && util !== undefined;
+        updateMetricRow(metricRow(card, "utilization"),
+            hasUtil ? `${formatPercentValue(util)}%` : "", !hasUtil);
 
         const memUsed = gpu && gpu.memory_used_bytes;
         const memTotal = gpu && gpu.memory_total_bytes;
         const hasMemory = memUsed !== null && memUsed !== undefined
             && memTotal !== null && memTotal !== undefined && Number(memTotal) > 0;
-        const memBlock = makeEl("div", "monitor-metric-block");
-        memBlock.appendChild(makeMetricRow("VRAM",
-            hasMemory ? `${formatBytes(memUsed)} / ${formatBytes(memTotal)}` : "",
-            !hasMemory));
-        if (hasMemory) {
-            memBlock.appendChild(makeProgressBar(`${label} memory`, Number(memUsed) / Number(memTotal) * 100));
-        }
-        card.appendChild(memBlock);
+        updateMetricRow(metricRow(card, "vram"),
+            hasMemory ? `${formatBytes(memUsed)} / ${formatBytes(memTotal)}` : "", !hasMemory);
 
-        const meta = makeEl("div", "monitor-gpu-meta");
         const temp = gpu && gpu.temperature_c;
-        meta.appendChild(makeMetricRow("Temperature",
-            temp === null || temp === undefined ? "" : `${Math.round(Number(temp))} \u00b0C`,
-            temp === null || temp === undefined));
-        const idRow = makeMetricRow("GPU ID", shortGpuId(id), !id);
-        if (id) {
-            const reading = idRow.querySelector(".monitor-metric-reading");
+        const hasTemp = temp !== null && temp !== undefined;
+        updateMetricRow(metricRow(card, "temperature"),
+            hasTemp ? `${Math.round(Number(temp))} \u00b0C` : "", !hasTemp);
+
+        updateMetricRow(metricRow(card, "gpu-id"), shortGpuId(id), !id);
+        const idReading = metricRow(card, "gpu-id");
+        if (idReading) {
+            const reading = idReading.querySelector(".monitor-metric-reading");
             if (reading) reading.title = id;
         }
-        meta.appendChild(idRow);
-        card.appendChild(meta);
-        return card;
+
+        const bars = card.querySelectorAll(".progress-bar");
+        updateProgressBar(bars[0], hasUtil ? util : null, `${label} utilization`);
+        updateProgressBar(bars[1],
+            hasMemory ? Number(memUsed) / Number(memTotal) * 100 : null,
+            `${label} memory`);
     }
 
     function makeStateCard(entry) {
@@ -885,10 +984,10 @@
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = title;
         card.draggable = true;
-        card.title = "Drag to reorder";
 
         const tools = makeEl("div", "monitor-card-tools");
         tools.style.justifyContent = "flex-end";
+        tools.title = "Drag to reorder";
         tools.appendChild(makeHideButton(key, title));
         card.appendChild(tools);
 
@@ -923,7 +1022,9 @@
             card.appendChild(makeEl("p", "help-text", String(entry.message || "nvidia-smi was not found. It ships with the NVIDIA driver environment \u2014 Llama GUI does not install or upgrade drivers. Install or update the driver using the official documentation, then Recheck.")));
         } else {
             if (entry.package_manager) {
-                card.appendChild(makeMetricRow("Detected", `Linux \u00b7 ${entry.package_manager}`));
+                const detected = makeMetricRow("Detected", "package-manager");
+                updateMetricRow(detected, `Linux \u00b7 ${entry.package_manager}`, false);
+                card.appendChild(detected);
             }
             card.appendChild(makeEl("p", "help-text", String(entry.message || "amd-smi was not found. The AMD repository and a compatible amdgpu driver must already be configured; then install AMD SMI once with the command shown. Llama GUI shows the command but never runs it.")));
             if (entry.command) {
@@ -935,8 +1036,25 @@
                 copyBtn.title = "Copy install command";
                 copyBtn.addEventListener("click", () => {
                     const copyText = deps.copyText;
-                    if (typeof copyText === "function") copyText(entry.command);
-                    if (typeof deps.showToast === "function") deps.showToast("Command copied", "info");
+                    const notify = (message, type) => {
+                        if (typeof deps.showToast === "function") deps.showToast(message, type);
+                    };
+                    if (typeof copyText !== "function") {
+                        notify("Could not copy command", "error");
+                        return;
+                    }
+                    // copyText resolves to a success flag; only claim a copy
+                    // that actually reached the clipboard.
+                    Promise.resolve(copyText(entry.command)).then(
+                        (copied) => notify(
+                            copied ? "Command copied" : "Could not copy command",
+                            copied ? "info" : "error",
+                        ),
+                        (error) => {
+                            console.warn("Could not copy install command", error);
+                            notify("Could not copy command", "error");
+                        },
+                    );
                 });
                 row.appendChild(copyBtn);
                 card.appendChild(row);
@@ -959,6 +1077,88 @@
         return card;
     }
 
+    function stateCardKey(entry) {
+        const provider = String(entry && entry.provider || "");
+        return provider ? `state:${provider}` : "state:generic";
+    }
+
+    function setupCardKey(entry) {
+        return `setup:${String(entry && entry.provider || "")}`;
+    }
+
+    // State and setup cards are pure text plus their own controls, so a card
+    // can be reused untouched whenever the backend repeats the same advice.
+    function stateCardSignature(entry) {
+        return JSON.stringify([
+            stateCardKey(entry),
+            String(entry && entry.state || ""),
+            String(entry && entry.message || ""),
+            (entry && entry.details) || null,
+        ]);
+    }
+
+    function setupCardSignature(entry) {
+        return JSON.stringify([
+            String(entry && entry.state || ""),
+            String(entry && entry.package_manager || ""),
+            String(entry && entry.command || ""),
+            String(entry && entry.docs_url || ""),
+            String(entry && entry.message || ""),
+            (entry && entry.details) || null,
+        ]);
+    }
+
+    // Rebuilt cards are reconciled by key so a periodic refresh updates values
+    // in place. A wholesale replaceChildren() would discard the user's focus
+    // (the Hide/Copy buttons and setup links) and any text selection every
+    // two seconds, and would restart every progress-bar animation.
+    // `signatureOf` returning undefined means "always reusable"; when it
+    // returns a string, a card whose signature changed is rebuilt so its
+    // structure and listeners match the new payload.
+    function reconcileCards(container, entries, handlers) {
+        if (!container) return;
+        const { keyOf, signatureOf, create, update } = handlers;
+        const existing = new Map();
+        for (const child of Array.from(container.children)) {
+            const key = child && child.dataset ? child.dataset.monitorKey : null;
+            if (key && !existing.has(key)) existing.set(key, child);
+        }
+        const wanted = new Set();
+        const desired = [];
+        for (const entry of entries) {
+            const key = keyOf(entry);
+            wanted.add(key);
+            const signature = signatureOf ? signatureOf(entry) : undefined;
+            let card = existing.get(key);
+            if (card && signature !== undefined && card.dataset.monitorSig !== signature) {
+                card.remove();
+                card = null;
+            }
+            if (!card) {
+                card = create(entry);
+                card.dataset.monitorKey = key;
+                if (signature !== undefined) card.dataset.monitorSig = signature;
+                container.appendChild(card);
+            } else if (update) {
+                update(card, entry);
+            }
+            desired.push(card);
+        }
+        for (const [key, card] of existing) {
+            if (!wanted.has(key)) card.remove();
+        }
+        // Reorder only where it differs. Re-appending a card removes and
+        // re-inserts it, which drops focus and collapses a selection even
+        // though the node itself survives.
+        let inOrder = container.children.length === desired.length;
+        for (let i = 0; inOrder && i < desired.length; i += 1) {
+            if (container.children[i] !== desired[i]) inOrder = false;
+        }
+        if (!inOrder) {
+            for (const card of desired) container.appendChild(card);
+        }
+    }
+
     function renderGpuArea(sample) {
         const gpuGrid = byId("monitor-gpu-grid");
         const stateWrap = byId("monitor-gpu-states");
@@ -969,20 +1169,30 @@
         const gpus = Array.isArray(sample && sample.gpus) ? sample.gpus : [];
         const setupEntries = Array.isArray(sample && sample.gpu_setup) ? sample.gpu_setup : [];
 
-        gpuGrid.replaceChildren(...gpus.map(makeGpuCard));
+        reconcileCards(gpuGrid, gpus, {
+            keyOf: gpuCardKey,
+            create: makeGpuCard,
+            update: updateGpuCard,
+        });
         gpuGrid.classList.toggle("hidden", gpus.length === 0);
 
         // State cards: one per provider whose probe is not working, or one
         // generic card when nothing identifies NVIDIA or AMD hardware.
-        const stateCards = setupEntries.map(makeStateCard);
-        if (gpus.length === 0 && setupEntries.length === 0) {
-            stateCards.push(makeStateCard(null));
-        }
-        stateWrap.replaceChildren(...stateCards);
+        const stateEntries = setupEntries.slice();
+        if (gpus.length === 0 && setupEntries.length === 0) stateEntries.push(null);
+        reconcileCards(stateWrap, stateEntries, {
+            keyOf: stateCardKey,
+            signatureOf: stateCardSignature,
+            create: makeStateCard,
+        });
 
         // Setup cards exist only for setup_required/error states.
         const actionable = setupEntries.filter(entry => entry.state !== "unsupported");
-        setupCards.replaceChildren(...actionable.map(makeSetupCard));
+        reconcileCards(setupCards, actionable, {
+            keyOf: setupCardKey,
+            signatureOf: setupCardSignature,
+            create: makeSetupCard,
+        });
         setupSection.classList.toggle("hidden", actionable.length === 0);
 
         applyHiddenCardsToDom();
@@ -1055,8 +1265,9 @@
         if (externalNote) externalNote.classList.toggle("hidden", !externalOnly);
         if (noProcessNote) noProcessNote.classList.toggle("hidden", running || externalOnly);
         if (terminal) terminal.classList.toggle("hidden", externalOnly);
-        const inputRow = byId("input-row");
-        if (inputRow && externalOnly) inputRow.classList.add("hidden");
+        // #input-row visibility belongs to app.js, which owns process
+        // lifecycle and sets it from the active runtime before calling
+        // updateProcessHeader(); touching it here would fight that.
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1364,6 +1575,14 @@
                 return known !== -1 ? known : cardOrder.length + currentIndex.get(card.dataset.monitorKey);
             };
             const sorted = cards.slice().sort((a, b) => orderOf(a) - orderOf(b));
+            // Re-appending a card removes and re-inserts it, which drops focus
+            // and collapses a selection even though the node survives; only
+            // touch the DOM when the order is actually wrong.
+            let inOrder = true;
+            for (let i = 0; i < sorted.length; i += 1) {
+                if (sorted[i] !== cards[i]) { inOrder = false; break; }
+            }
+            if (inOrder) continue;
             for (const card of sorted) container.appendChild(card);
         }
     }
@@ -1385,7 +1604,7 @@
     // order within the same container matters, so the container keys simply
     // move behind the others; unknown keys stay untouched and dead keys stay
     // inert (they can resurrect a card that reappears).
-    function updateCardOrder(draggedKey, containerKeys) {
+    function updateCardOrder(containerKeys) {
         const other = cardOrder.filter(key => !containerKeys.includes(key));
         cardOrder = other.concat(containerKeys);
         persistCardOrder();
@@ -1414,16 +1633,22 @@
             insertAt = remaining.length;
         }
         remaining.splice(insertAt, 0, draggedKey);
-        updateCardOrder(draggedKey, remaining);
+        updateCardOrder(remaining);
+    }
+
+    function onMouseDown(event) {
+        const card = monitorCardFromEvent(event);
+        if (!card) return;
+        const target = event && event.target;
+        const closest = (selector) => (target && typeof target.closest === "function"
+            ? target.closest(selector)
+            : null);
+        // The tools row carries the grip glyph, so it always drags.
+        card.draggable = Boolean(closest(ORDER_DRAG_HANDLE_SELECTOR))
+            || !closest(ORDER_SELECTABLE_SELECTOR);
     }
 
     function onDragStart(container, event) {
-        const target = event && event.target;
-        if (target && typeof target.closest === "function"
-            && target.closest(".monitor-command, .monitor-probe-details")) {
-            event.preventDefault();
-            return;
-        }
         const card = monitorCardFromEvent(event);
         if (!card) return;
         dragKey = card.dataset.monitorKey;
@@ -1505,6 +1730,7 @@
         lastPollFailed = false;
         everSucceeded = false;
         hiddenCards = new Map();
+        cardOrder = [];
         dragKey = null;
         dragContainer = null;
         dragActive = false;
@@ -1552,7 +1778,10 @@
         if (typeof document.querySelectorAll === "function") {
             for (const card of document.querySelectorAll("[data-monitor-key]")) {
                 card.draggable = true;
-                card.title = "Drag to reorder";
+                // The hint belongs on the handle, not the card: the card's
+                // text regions stay selectable and are not drag sources.
+                const tools = card.querySelector(".monitor-card-tools");
+                if (tools) tools.title = "Drag to reorder";
             }
         }
 
@@ -1561,6 +1790,7 @@
         // only (see ORDER_CONTAINER_SELECTOR).
         if (typeof document.querySelectorAll === "function") {
             for (const container of document.querySelectorAll(ORDER_CONTAINER_SELECTOR)) {
+                container.addEventListener("mousedown", onMouseDown);
                 container.addEventListener("dragstart", (event) => onDragStart(container, event));
                 container.addEventListener("dragover", (event) => onDragOver(container, event));
                 container.addEventListener("drop", (event) => onDrop(container, event));

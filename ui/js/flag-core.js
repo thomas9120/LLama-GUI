@@ -635,7 +635,7 @@
                 return { args, error: parsedCustom.error, warnings };
             }
 
-            // ponytail: token-naive duplicate detection — values that happen
+            // TODO: token-naive duplicate detection — values that happen
             // to equal known flag strings are mis-flagged. Fix with flag/value
             // pairing when this produces user-visible false positives.
             const knownCliFlags = getKnownCliFlags();

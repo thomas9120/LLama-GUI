@@ -6,6 +6,8 @@ parsers and failure modes, provider-qualified identity, evidence-gated setup
 states, cache/coalescing behavior, and the thin route contract.
 """
 
+import contextlib
+import io
 import json
 import threading
 import time
@@ -589,6 +591,19 @@ class AmdParserTests(unittest.TestCase):
         self.assertEqual(devices, [])
         self.assertEqual(details["reason"], "launch_failed")
         self.assertNotIn("exit_code", details)
+
+    def test_probe_launch_failure_logs_real_error_to_stderr(self):
+        # Clients get sanitized `details`; the real error must still reach the
+        # server log, so a launch failure is diagnosable offline.
+        buffer = io.StringIO()
+        with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
+                mock.patch("subprocess.run", side_effect=OSError("permission denied")):
+            with contextlib.redirect_stderr(buffer):
+                svc.probe_amd("linux")
+        logged = buffer.getvalue()
+        self.assertIn("amd-smi probe failed", logged)
+        self.assertIn("permission denied", logged)
+
     def test_probe_malformed_json_is_error(self):
         completed = SimpleNamespace(returncode=0, stdout="not json", stderr="")
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
