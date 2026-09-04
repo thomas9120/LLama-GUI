@@ -1054,6 +1054,7 @@ async function main() {
         activeProcessTool = "";
         statusActiveRuntime = null;
         await page.evaluate(() => stopStatsPolling());
+        await page.evaluate(() => refreshRuntimeStatusPanels());
 
         // A rejected metrics body must not discard a successful slots response.
         const independentSourceSnapshot = await page.evaluate(async () => {
