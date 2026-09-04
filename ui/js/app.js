@@ -10,8 +10,8 @@ const processOutputCursor = window.LlamaGui.outputCursor.create(appendOutput);
 flagCore.setCurrentToolValue("llama-server");
 flagCore.replaceFlagValues(getDefaultValues());
 let outputTimer = null;
-let statsTimer = null;
-let statsInitialTimer = null;
+let inferenceTimer = null;
+let inferenceInitialTimer = null;
 let statsEpoch = 0;
 let statsActiveEpoch = null;
 let statsAbortController = null;
@@ -23,10 +23,13 @@ const DEFAULT_TOAST_DURATION_MS = 4000;
 // Slow-load warning outlives default toasts: the model may still come up.
 const SLOW_LOAD_WARNING_TOAST_MS = 10000;
 
-let chatStatsBaseline = null;
-let chatStatsRaw = { promptTokens: 0, genTokens: 0 };
-let chatStatsSampled = false;
-let chatStatsRate = { at: 0, slots: {} };
+const monitorUi = window.LlamaGui.monitorUi;
+// One shared inference snapshot feeds the fixed stats bar and the Monitor
+// Inference card. app.js owns the single polling cycle; the engine owns the
+// target-keyed baselines, rate samples, and per-source availability.
+const inferenceStats = monitorUi.createInferenceStats({ onSnapshot: renderInferenceViews });
+let statsDocumentVisible = true;
+let externalTargetRevision = 0;
 const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
 // Shared Quick Launch and sampler data is defined in app-data.js.
 const apiTab = window.LlamaGui.apiTab;
@@ -71,6 +74,7 @@ externalServerUi.configure({
     fetchJson,
     getLatestStatus: () => latestStatus,
     refreshStatus: refreshRuntimeStatusPanels,
+    onExternalTargetChanged: markExternalTargetChanged,
 });
 const hfDownloadUi = window.LlamaGui.hfDownloadUi;
 hfDownloadUi.configure({
@@ -120,6 +124,15 @@ benchmarkUi.configure({
     getLatestStatus: () => latestStatus,
     refreshRuntimeStatusPanels,
     processLifecycle,
+});
+monitorUi.configure({
+    fetchJson,
+    copyText,
+    showToast,
+    invalidateCursor: () => processOutputCursor.invalidate(),
+    resetStatsBaseline: () => snapshotStatsBaseline(),
+    getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    getLatestStatus: () => latestStatus,
 });
 processLifecycle.configure({
     fetchJson,
@@ -274,7 +287,7 @@ function resumeRuntimePolling(status) {
     const runtime = status && status.active_runtime;
     if (!runtime) return;
     startOutputPolling();
-    if (runtime.tool === "llama-server") startStatsPolling();
+    if (runtime.tool === "llama-server") startStatsPolling(runtime);
 }
 
 function setCustomLaunchArgsMessages(result = {}) {
@@ -520,6 +533,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initQuickLaunch();
     initChatTab();
     benchmarkUi.init();
+    monitorUi.init();
     window.LlamaGui.manager.initModelDirControls();
     configFlagsUi.renderFlags();
     fetchReleases();
@@ -551,6 +565,28 @@ document.addEventListener("DOMContentLoaded", async () => {
     wireCommandCopyButton("btn-copy-command", "command-preview-text");
     wireCommandCopyButton("btn-copy-quick-command", "quick-command-preview");
     wireCommandCopyButton("btn-copy-benchmark-command", "benchmark-command-preview");
+
+    // Pause both polling flows while the browser document is hidden.
+    // Inference polling resumes immediately (it also feeds the global stats
+    // bar across app tabs); Monitor system polling resumes while visible.
+    document.addEventListener("visibilitychange", () => {
+        const visible = document.visibilityState === "visible";
+        statsDocumentVisible = visible;
+        monitorUi.setDocumentVisibility(visible);
+        if (!inferenceStats.getTargetKey()) return;
+        if (visible) {
+            clearInferenceTimers();
+            pollStats(statsEpoch);
+        } else {
+            statsEpoch += 1;
+            clearInferenceTimers();
+            if (statsAbortController) {
+                statsAbortController.abort();
+                statsAbortController = null;
+            }
+            statsActiveEpoch = null;
+        }
+    });
     const btnSavePreset = document.getElementById("btn-save-preset");
     if (btnSavePreset) btnSavePreset.addEventListener("click", savePreset);
     const btnImportPreset = document.getElementById("btn-import-preset");
@@ -606,6 +642,7 @@ function switchTab(tabId) {
     document.querySelectorAll(".section-panel").forEach(panel => {
         panel.style.display = panel.id === "section-" + tabId ? "" : "none";
     });
+    monitorUi.onTabChanged(tabId);
     const sidebar = document.getElementById("sidebar");
     if (sidebar) sidebar.classList.remove("open");
     if (tabId === "presets") loadPresets();
@@ -745,6 +782,7 @@ function handleLifecycleSnapshot(state) {
     updateQuickLaunchActionButtons();
     updateChatStatusBadge();
     updateApiEndpoints();
+    monitorUi.updateProcessHeader();
     if (document.getElementById("model-switch-card")) {
         modelSwitchUi.refresh().catch(error => console.debug("Failed to refresh Model Switcher", error));
     }
@@ -880,46 +918,60 @@ function stopOutputPolling() {
     processOutputCursor.reset();
 }
 
-function startStatsPolling(_runtime, lifecycleState) {
+function startStatsPolling(runtime, lifecycleState) {
     stopStatsPolling();
-    const epoch = statsEpoch;
     // Fresh processes start their counters at zero. Restored processes need a
     // first-poll baseline so their lifetime counters do not become session totals.
     const freshLaunch = lifecycleState && lifecycleState.operation !== "restore";
-    chatStatsBaseline = freshLaunch ? { promptTokens: 0, genTokens: 0 } : null;
-    chatStatsRaw = { promptTokens: 0, genTokens: 0 };
-    chatStatsSampled = false;
-    chatStatsRate = { at: 0, slots: {} };
-    document.getElementById("stats-bar").classList.remove("hidden");
-    statsInitialTimer = setTimeout(() => {
-        statsInitialTimer = null;
-        pollStats(epoch);
-    }, 2000);
-    statsTimer = setInterval(() => pollStats(epoch), 3000);
+    const generation = Number(runtime && runtime.generation);
+    const key = Number.isSafeInteger(generation) && generation >= 1 ? `gui:${generation}` : null;
+    inferenceStats.setTarget(key, { zeroBaseline: freshLaunch });
+    beginInferencePolling();
 }
 
 function stopStatsPolling() {
     statsEpoch += 1;
-    if (statsInitialTimer) {
-        clearTimeout(statsInitialTimer);
-        statsInitialTimer = null;
-    }
-    if (statsTimer) {
-        clearInterval(statsTimer);
-        statsTimer = null;
-    }
+    clearInferenceTimers();
     if (statsAbortController) {
         statsAbortController.abort();
         statsAbortController = null;
     }
     statsActiveEpoch = null;
-    document.getElementById("stats-bar").classList.add("hidden");
-    document.getElementById("stats-prompt-tokens").textContent = "--";
-    document.getElementById("stats-prompt-speed").textContent = "--";
-    document.getElementById("stats-gen-tokens").textContent = "--";
-    document.getElementById("stats-gen-speed").textContent = "--";
-    document.getElementById("stats-context").textContent = "--";
-    document.getElementById("stats-kv-usage").textContent = "--%";
+    inferenceStats.setTarget(null);
+}
+
+function clearInferenceTimers() {
+    if (inferenceInitialTimer) {
+        clearTimeout(inferenceInitialTimer);
+        inferenceInitialTimer = null;
+    }
+    if (inferenceTimer) {
+        clearTimeout(inferenceTimer);
+        inferenceTimer = null;
+    }
+}
+
+function inferencePollingActive() {
+    return Boolean(inferenceInitialTimer || inferenceTimer || statsActiveEpoch !== null);
+}
+
+function beginInferencePolling() {
+    if (!inferenceStats.getTargetKey() || !statsDocumentVisible) return;
+    clearInferenceTimers();
+    const epoch = statsEpoch;
+    inferenceInitialTimer = setTimeout(() => {
+        inferenceInitialTimer = null;
+        pollStats(epoch);
+    }, 2000);
+}
+
+function scheduleNextInferencePoll(epoch) {
+    if (epoch !== statsEpoch || !statsDocumentVisible || !inferenceStats.getTargetKey()) return;
+    if (inferenceTimer) clearTimeout(inferenceTimer);
+    inferenceTimer = setTimeout(() => {
+        inferenceTimer = null;
+        pollStats(epoch);
+    }, 3000);
 }
 
 function formatMiB(mib) {
@@ -991,11 +1043,46 @@ async function updateMemoryEstimate() {
 }
 
 function snapshotStatsBaseline() {
-    if (!chatStatsSampled) return;
-    chatStatsBaseline = {
-        promptTokens: chatStatsRaw.promptTokens,
-        genTokens: chatStatsRaw.genTokens,
-    };
+    // The one and only reset operation. With valid raw counters it re-renders
+    // the fixed bar and the Inference card as zero immediately; otherwise the
+    // reset stays pending until the next valid sample.
+    return inferenceStats.resetBaseline();
+}
+
+function renderInferenceViews(snapshot) {
+    renderStatsBarFromSnapshot(snapshot);
+    monitorUi.renderInferenceSnapshot(snapshot);
+}
+
+function setStatsBarValue(id, value, format) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value === null || value === undefined ? "--" : format(value);
+}
+
+function renderStatsBarFromSnapshot(snapshot) {
+    const bar = document.getElementById("stats-bar");
+    if (!bar) return;
+    if (!snapshot || !snapshot.targetKey) {
+        bar.classList.add("hidden");
+        for (const id of ["stats-prompt-tokens", "stats-prompt-speed", "stats-gen-tokens", "stats-gen-speed", "stats-context"]) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = "--";
+        }
+        const kvEl = document.getElementById("stats-kv-usage");
+        if (kvEl) kvEl.textContent = "--%";
+        return;
+    }
+    bar.classList.remove("hidden");
+    setStatsBarValue("stats-prompt-tokens", snapshot.session.prompt, v => Math.round(v).toLocaleString());
+    setStatsBarValue("stats-prompt-speed", snapshot.speed.prompt, v => v.toFixed(1));
+    setStatsBarValue("stats-gen-tokens", snapshot.session.generated, v => Math.round(v).toLocaleString());
+    setStatsBarValue("stats-gen-speed", snapshot.speed.generated, v => v.toFixed(1));
+    // Session tokens: cumulative prompt plus generated since the shared reset
+    // baseline. Actual context occupancy lives in the Inference card's
+    // most-filled-slot view.
+    setStatsBarValue("stats-context", snapshot.session.total, v => Math.round(v).toLocaleString());
+    setStatsBarValue("stats-kv-usage", snapshot.context ? snapshot.context.percent : null, v => `${Math.round(v)}%`);
 }
 
 async function pollStats(epoch = statsEpoch) {
@@ -1006,113 +1093,122 @@ async function pollStats(epoch = statsEpoch) {
     try {
         const { host, port } = getServerEndpointConfig();
         const params = new URLSearchParams({ host, port: String(port) });
-        const resp = await fetch(`/api/llama/metrics?${params.toString()}`, {
-            headers: getApiAuthorizationHeaders(),
-            signal: controller.signal,
-        });
-        if (epoch !== statsEpoch || !resp.ok) return;
-        const text = await resp.text();
+        const headers = getApiAuthorizationHeaders();
+        // Fetch /metrics and /slots independently: a disabled or unavailable
+        // metrics endpoint must not suppress slot-based context, and vice versa.
+        const [metricsResp, slotsResp] = await Promise.all([
+            fetch(`/api/llama/metrics?${params.toString()}`, { headers, signal: controller.signal }).catch(() => null),
+            fetch(`/api/llama/slots?${params.toString()}`, { headers, signal: controller.signal }).catch(() => null),
+        ]);
         if (epoch !== statsEpoch) return;
-        const metrics = {};
-        for (const line of text.split("\n")) {
-            if (line.startsWith("#") || !line.trim()) continue;
-            const parts = line.trim().split(/\s+/);
-            if (parts.length >= 2) metrics[parts[0]] = parseFloat(parts[1]);
-        }
-        const promptTokens = metrics["llamacpp:prompt_tokens_total"];
-        const promptSpeed = metrics["llamacpp:prompt_tokens_seconds"];
-        const genTokens = metrics["llamacpp:tokens_predicted_total"];
-        const genSpeed = metrics["llamacpp:predicted_tokens_seconds"];
-        const slotStats = await fetchSlotStats(host, port, controller.signal);
-        let kvUsage = metrics["llamacpp:kv_cache_usage_ratio"];
-        if (kvUsage === undefined) kvUsage = slotStats?.kvUsage;
-        if (epoch !== statsEpoch) return;
-        const now = Date.now();
-        const requestsProcessing = metrics["llamacpp:requests_processing"] ?? slotStats?.processing;
-        let livePromptSpeed;
-        let liveGenSpeed;
-        if (slotStats && chatStatsRate.at > 0) {
-            const elapsed = (now - chatStatsRate.at) / 1000;
-            if (elapsed >= 1) {
-                let promptDelta = 0;
-                let genDelta = 0;
-                let promptComparable = false;
-                let genComparable = false;
-                for (const sample of slotStats.samples) {
-                    const previous = chatStatsRate.slots[sample.key];
-                    if (!previous) continue;
-                    if (sample.promptTokens !== null && previous.promptTokens !== null
-                        && sample.promptTokens >= previous.promptTokens) {
-                        promptDelta += sample.promptTokens - previous.promptTokens;
-                        promptComparable = true;
-                    }
-                    if (sample.genTokens !== null && previous.genTokens !== null
-                        && sample.genTokens >= previous.genTokens) {
-                        genDelta += sample.genTokens - previous.genTokens;
-                        genComparable = true;
-                    }
-                }
-                if (promptComparable) livePromptSpeed = promptDelta / elapsed;
-                else if (requestsProcessing === 0) livePromptSpeed = 0;
-                if (genComparable) liveGenSpeed = genDelta / elapsed;
-                else if (requestsProcessing === 0) liveGenSpeed = 0;
+
+        let metricsOk = false;
+        let metricsValues = null;
+        if (metricsResp && metricsResp.ok) {
+            try {
+                const text = await metricsResp.text();
+                if (epoch !== statsEpoch) return;
+                metricsValues = monitorUi.parseMetricsText(text);
+                metricsOk = true;
+            } catch (e) {
+                console.debug("Failed to parse llama-server metric stats", e);
             }
         }
-        if (slotStats) {
-            chatStatsRate = {
-                at: now,
-                slots: Object.fromEntries(slotStats.samples.map(sample => [sample.key, sample])),
-            };
+
+        let slotsOk = false;
+        let slotsNormalized = null;
+        if (slotsResp && slotsResp.ok) {
+            let slotsPayload = null;
+            try {
+                slotsPayload = await slotsResp.json();
+            } catch (e) {
+                console.debug("Failed to parse llama-server slot stats", e);
+            }
+            if (epoch !== statsEpoch) return;
+            slotsNormalized = monitorUi.normalizeSlots(slotsPayload);
+            slotsOk = slotsNormalized !== null;
         }
-        if (promptTokens !== undefined) chatStatsRaw.promptTokens = promptTokens;
-        if (genTokens !== undefined) chatStatsRaw.genTokens = genTokens;
-        if (promptTokens !== undefined || genTokens !== undefined) chatStatsSampled = true;
-        if (!chatStatsBaseline && chatStatsSampled) {
-            snapshotStatsBaseline();
-        }
-        const deltaPrompt = promptTokens !== undefined && chatStatsBaseline
-            ? Math.max(0, promptTokens - chatStatsBaseline.promptTokens)
-            : null;
-        const deltaGen = genTokens !== undefined && chatStatsBaseline
-            ? Math.max(0, genTokens - chatStatsBaseline.genTokens)
-            : null;
-        if (deltaPrompt !== null) {
-            document.getElementById("stats-prompt-tokens").textContent = deltaPrompt.toLocaleString();
-        }
-        const effectivePromptSpeed = livePromptSpeed !== undefined ? livePromptSpeed : promptSpeed;
-        if (effectivePromptSpeed !== undefined) {
-            document.getElementById("stats-prompt-speed").textContent = effectivePromptSpeed.toFixed(1);
-        }
-        if (deltaGen !== null) {
-            document.getElementById("stats-gen-tokens").textContent = deltaGen.toLocaleString();
-        }
-        const effectiveGenSpeed = liveGenSpeed !== undefined ? liveGenSpeed : genSpeed;
-        if (effectiveGenSpeed !== undefined) {
-            document.getElementById("stats-gen-speed").textContent = effectiveGenSpeed.toFixed(1);
-        }
-        if (slotStats?.contextTokens !== undefined) {
-            document.getElementById("stats-context").textContent = slotStats.contextTokens.toLocaleString();
-        }
-        if (kvUsage !== undefined) {
-            document.getElementById("stats-kv-usage").textContent = (kvUsage * 100).toFixed(0) + "%";
-        }
+
+        if (epoch !== statsEpoch) return;
+        inferenceStats.applyPollResult({
+            metricsOk,
+            metricsValues,
+            slotsOk,
+            slotsNormalized,
+            now: Date.now(),
+        });
+        scheduleNextInferencePoll(epoch);
     } catch (e) {
-        if (e.name !== "AbortError" && epoch === statsEpoch) {
+        if (e && e.name !== "AbortError" && epoch === statsEpoch) {
             console.debug("Failed to fetch llama-server metrics", e);
         }
+        if (epoch === statsEpoch) scheduleNextInferencePoll(epoch);
     } finally {
         if (statsActiveEpoch === epoch) statsActiveEpoch = null;
         if (statsAbortController === controller) statsAbortController = null;
     }
 }
 
+
+
 async function refreshRuntimeStatusPanels() {
     const status = await checkStatus();
+    monitorUi.updateProcessHeader();
     updateChatStatusBadge();
     updateApiEndpoints();
     benchmarkUi.refreshStatus();
     modelSwitchUi.refresh().catch(error => console.debug("Failed to refresh Model Switcher", error));
     return status;
+}
+
+function resolveInferenceTargetKey(status) {
+    if (status && status.running && status.active_runtime
+        && status.active_runtime.tool === "llama-server") {
+        const generation = Number(status.active_runtime.generation);
+        if (Number.isSafeInteger(generation) && generation >= 1) return `gui:${generation}`;
+    }
+    const target = status && status.external_chat_target;
+    if (target && target.connected) {
+        const host = String(target.host || "").trim().toLowerCase() || "127.0.0.1";
+        const port = Number(target.port);
+        const normalizedPort = Number.isFinite(port) && port > 0 ? port : 0;
+        // The revision changes on every successful external connect/restore so
+        // even a reconnect to the same address starts a fresh baseline. The
+        // API key is deliberately excluded from the identity.
+        return `ext:${externalTargetRevision}:${host}:${normalizedPort}`;
+    }
+    return null;
+}
+
+function reconcileInferenceTarget(status) {
+    const key = resolveInferenceTargetKey(status);
+    const current = inferenceStats.getTargetKey();
+    if (!key) {
+        if (current !== null) stopStatsPolling();
+        return;
+    }
+    if (key !== current) {
+        if (key.startsWith("gui:")) {
+            // GUI-owned launches and restores belong to the process lifecycle,
+            // which sets the correct baseline through startStatsPolling. Do not
+            // preempt an in-progress transition from here.
+            const lifecycle = processLifecycle.getSnapshot();
+            const lifecycleGeneration = Number(
+                lifecycle.activeRuntime && lifecycle.activeRuntime.generation
+            );
+            if (!lifecycle.ready || lifecycleGeneration !== Number(key.slice(4))) return;
+        }
+        // A target discovered through status (startup restore, external
+        // connect/restore, or an out-of-band replacement) never had its
+        // counters start at zero in this session: the first valid counter
+        // sample becomes the baseline.
+        inferenceStats.setTarget(key, { zeroBaseline: false });
+    }
+    if (!inferencePollingActive()) beginInferencePolling();
+}
+
+function markExternalTargetChanged() {
+    externalTargetRevision += 1;
 }
 
 async function reconcileAuthoritativeStatus(status) {
@@ -1129,68 +1225,14 @@ async function reconcileAuthoritativeStatus(status) {
         ? { startOutput: () => {}, postReady: () => {}, onFailed: handleReconciliationFailure }
         : { postReady: () => {}, onFailed: handleReconciliationFailure };
     const outcome = await processLifecycle.reconcile(status, reconcileOptions);
+    // Every accepted status, including the first page-load status, is the
+    // authoritative source for the resolved inference target.
+    reconcileInferenceTarget(status);
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }
 
-async function fetchSlotStats(host, port, signal) {
-    try {
-        const params = new URLSearchParams({ host, port: String(port) });
-        const resp = await fetch(`/api/llama/slots?${params.toString()}`, {
-            headers: getApiAuthorizationHeaders(),
-            signal,
-        });
-        if (!resp.ok) return undefined;
-        const slots = await resp.json();
-        return getSlotStats(slots);
-    } catch (e) {
-        console.debug("Failed to fetch llama-server slot stats", e);
-        return undefined;
-    }
-}
 
-function getSlotStats(slots) {
-    if (!Array.isArray(slots)) return undefined;
-    let maxUsage;
-    let maxContextUsage;
-    let contextTokens;
-    let processing = 0;
-    const samples = [];
-    for (const slot of slots) {
-        if (slot?.is_processing) processing += 1;
-        const nextToken = Array.isArray(slot?.next_token) ? slot.next_token[0] : slot?.next_token;
-        const promptTokens = Number(slot?.n_prompt_tokens_processed);
-        const genTokens = Number(nextToken?.n_decoded);
-        if (slot?.is_processing && slot?.id !== undefined && (slot?.id_task !== undefined
-            || Number.isFinite(promptTokens) || Number.isFinite(genTokens))) {
-            samples.push({
-                key: `${slot.id}:${slot.id_task ?? ""}`,
-                promptTokens: Number.isFinite(promptTokens) && promptTokens >= 0 ? promptTokens : null,
-                genTokens: Number.isFinite(genTokens) && genTokens >= 0 ? genTokens : null,
-            });
-        }
-
-        const nCtx = Number(slot?.n_ctx);
-        if (!Number.isFinite(nCtx) || nCtx <= 0) continue;
-        // Current llama-server reports total tokens held by the slot as
-        // n_prompt_tokens (prompt + generated, including accepted MTP draft
-        // tokens). Older builds only expose generated tokens via next_token,
-        // which is an object in current builds and was an array before.
-        let used = Number(slot?.n_prompt_tokens);
-        const hasContextTokens = Number.isFinite(used) && used >= 0;
-        if (!hasContextTokens) {
-            used = Number(nextToken?.n_decoded);
-        }
-        if (!Number.isFinite(used) || used < 0) continue;
-        const usage = Math.max(0, Math.min(1, used / nCtx));
-        maxUsage = maxUsage === undefined ? usage : Math.max(maxUsage, usage);
-        if (hasContextTokens && (maxContextUsage === undefined || usage > maxContextUsage)) {
-            maxContextUsage = usage;
-            contextTokens = used;
-        }
-    }
-    return { kvUsage: maxUsage, contextTokens, processing, samples };
-}
 
 async function pollOutput() {
     const request = processOutputCursor.getRequest();
@@ -1249,16 +1291,13 @@ async function pollOutput() {
 }
 
 function appendOutput(text) {
-    const terminal = document.getElementById("output-terminal");
-    const line = document.createElement("div");
-    line.textContent = text;
-    terminal.appendChild(line);
-    terminal.scrollTop = terminal.scrollHeight;
+    monitorUi.appendOutputLine(text);
 }
 
 function clearOutput() {
-    document.getElementById("output-terminal").innerHTML = "";
-    processOutputCursor.reset();
+    // Clears the DOM and advances the cursor epoch without discarding the
+    // cursor, so the next poll does not replay the backend backlog.
+    monitorUi.clearTerminal();
 }
 
 async function sendInput() {

@@ -100,6 +100,19 @@ class ServerState:
     runtime_health_cache: dict[Any, tuple[float, dict[str, Any]]] = field(default_factory=dict)
     runtime_health_lock: threading.Lock = field(default_factory=threading.Lock)
 
+    # Monitor tab system/GPU telemetry. `system_stats_lock` guards the previous
+    # counter sample, the response cache, the cache generation, and the AMD
+    # probe cache; it is never held across a vendor subprocess. The separate
+    # `system_stats_collection_lock` serialises cold/forced collections, and
+    # waiters compare `system_stats_generation` around it so concurrent polls
+    # share one collection and repeated Recheck clicks coalesce.
+    system_stats_lock: threading.Lock = field(default_factory=threading.Lock)
+    system_stats_collection_lock: threading.Lock = field(default_factory=threading.Lock)
+    system_stats_previous: Optional[dict[str, Any]] = None
+    system_stats_cache: Optional[dict[str, Any]] = None
+    system_stats_generation: int = 0
+    system_stats_probe_cache: dict[str, Any] = field(default_factory=dict)
+
     download_progress: AtomicDict = field(
         default_factory=lambda: AtomicDict(default_download_progress())
     )

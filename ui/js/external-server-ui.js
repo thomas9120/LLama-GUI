@@ -112,6 +112,9 @@
             setNote(warning || `Connected to ${describeTarget(target)}.`, warning ? "warning" : "");
             dirtyAddressFields.clear();
             render(target, { syncInputs: true });
+            // A successful connect (even to the same address) starts a fresh
+            // inference baseline; the status refresh below then reconciles it.
+            if (typeof deps.onExternalTargetChanged === "function") deps.onExternalTargetChanged();
             await refreshDependentPanels();
             return target;
         } catch (error) {
@@ -208,6 +211,9 @@
             }
             setNote(`Reconnected to ${describeTarget(target)}.`);
             render(target);
+            // A restored connection is a fresh inference target even when the
+            // address did not change.
+            if (typeof deps.onExternalTargetChanged === "function") deps.onExternalTargetChanged();
             await refreshDependentPanels();
             return target;
         } catch (error) {

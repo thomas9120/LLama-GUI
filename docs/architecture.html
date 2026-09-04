@@ -484,7 +484,7 @@ footer {
     <div class="row center">
         <div class="node cyan" style="max-width:280px">
             <div class="t">Browser</div>
-            <div class="d">The Llama GUI single-page app — 7 tabs, served as static files</div>
+            <div class="d">The Llama GUI single-page app — 8 tabs, served as static files</div>
             <div class="p">http://127.0.0.1:5240</div>
         </div>
     </div>
@@ -587,7 +587,7 @@ footer {
     <div class="band" style="margin-bottom:10px">
         <div class="band-label">Presentation <span class="pill">ui/</span></div>
         <div class="row">
-            <div class="node cyan"><div class="t">index.html</div><div class="d">All 7 tab panels as static markup, 1.5k lines</div></div>
+            <div class="node cyan"><div class="t">index.html</div><div class="d">All 8 tab panels as static markup, 1.7k lines</div></div>
             <div class="node cyan"><div class="t">tab UI modules</div><div class="d">quick-launch · config-flags · chat · benchmark · presets · api-tab</div></div>
             <div class="node cyan"><div class="t">widgets</div><div class="d">searchable-select · theme-ui · chat-rendering · model-switch</div></div>
             <div class="node cyan"><div class="t">css</div><div class="d">style.css (no colors) + tokens.css (all colors)</div></div>
@@ -978,7 +978,7 @@ flagCore.setFlagValue("temperature", 0.5);
     </div>
 </div>
 
-<h2 id="tabs">The seven tabs</h2>
+<h2 id="tabs">The eight tabs</h2>
 
 <div class="tablewrap">
 <table>
@@ -987,6 +987,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><strong>Install</strong></td><td class="mono">#section-install<br>manager.js</td><td>Pick a backend (CPU / CUDA / Vulkan / SYCL / HIP / Metal / ROCm / OpenVINO), install a llama.cpp release, and run in-app git updates. Only backends matching your OS and architecture are offered.</td></tr>
 <tr><td><strong>Quick Launch</strong></td><td class="mono">#section-quick-launch<br>quick-launch-ui.js</td><td>The beginner path: model, profile, context, GPU layers, template, sampler preset, readiness chips, and a sticky launch bar. Also hosts the Hugging Face downloader and the Model Switcher.</td></tr>
 <tr><td><strong>Configure</strong></td><td class="mono">#section-configure<br>config-flags-ui.js</td><td>The full flag surface with live search, collapsible categories and submenus, beginner tips, high-risk warnings, the command preview, and Custom Launch Args.</td></tr>
+<tr><td><strong>Monitor</strong></td><td class="mono">#section-monitor<br>monitor-ui.js</td><td>The live process terminal (moved out of Configure), CPU/RAM/disk cards from <code>/api/system-stats</code> polled only while visible, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.</td></tr>
 <tr><td><strong>Chat</strong></td><td class="mono">#section-chat<br>chat-ui.js</td><td>Streaming OpenAI-compatible chat with markdown, collapsed reasoning, Focus mode, conversation history, sampler sliders, and optional zero-key web search.</td></tr>
 <tr><td><strong>API</strong></td><td class="mono">#section-api<br>api-tab.js</td><td>Endpoint reference and copyable snippets, connecting to a llama-server started outside the GUI, and Cloudflare tunnel start/stop.</td></tr>
 <tr><td><strong>Benchmarking</strong></td><td class="mono">#section-benchmarking<br>benchmark-ui.js</td><td><code>llama-bench</code> throughput and <code>llama-perplexity</code> runs sourced from current Configure state, a saved preset, or a manual model — reading that state without mutating it.</td></tr>
@@ -1023,7 +1024,7 @@ flagCore.setFlagValue("temperature", 0.5);
         <div class="seq-step"><div class="n">5</div><div class="who">reader thread</div><div class="what"><b>Stream stdout/stderr</b> into the ring buffer<em>Sensitive arguments are redacted from the captured output.</em></div></div>
         <div class="seq-step"><div class="n">6</div><div class="who">output-cursor</div><div class="what"><b>Poll GET /api/output</b> with a monotonic cursor<em>Each response carries the authoritative generation, so a stale tab invalidates old output rather than interleaving runs.</em></div></div>
         <div class="seq-step"><div class="n">7</div><div class="who">process-lifecycle</div><div class="what"><b>Poll GET /api/llama/health</b> until ready<em>Generation-keyed. A one-shot prolonged-load diagnostic fires if startup drags.</em></div></div>
-        <div class="seq-step"><div class="n">8</div><div class="who">app.js</div><div class="what"><b>Unlock Chat, start stats polling</b><em>Metrics begin ~2&nbsp;s after launch and refresh every 3&nbsp;s.</em></div></div>
+        <div class="seq-step"><div class="n">8</div><div class="who">app.js</div><div class="what"><b>Unlock Chat, start stats polling</b><em>Inference metrics begin ~2&nbsp;s after launch and refresh every 2&nbsp;s.</em></div></div>
     </div>
 </div>
 
@@ -1085,7 +1086,7 @@ flagCore.setFlagValue("temperature", 0.5);
 </div>
 
 <h2 id="api">API surface</h2>
-<p class="sub">All 47 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+<p class="sub">All 48 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
 
 <div class="tablewrap">
 <table>
@@ -1103,6 +1104,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/hf/download-status</td><td>Hugging Face download progress</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/remote-tunnel/status</td><td>Cloudflare tunnel status + URL</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/chat/target</td><td>Live and remembered external server</td></tr>
+<tr><td><span class="verb get">GET</span></td><td class="mono">/api/system-stats</td><td>System, disk, and GPU telemetry for the Monitor tab</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/models</td><td>GGUF files under the active model root</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/app-update-status</td><td>Stable-tag or nightly-branch Git comparison</td></tr>
 <tr><td><span class="verb get">GET</span></td><td class="mono">/api/presets</td><td>List saved presets</td></tr>
@@ -1155,7 +1157,8 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td>Chat tokens</td><td class="mono">/api/chat/completions</td><td>SSE stream</td><td>Abortable mid-stream; search status lines interleave</td></tr>
 <tr><td>Process output</td><td class="mono">/api/output</td><td>Cursor poll</td><td>Monotonic cursor + <code>output_generation</code></td></tr>
 <tr><td>Readiness</td><td class="mono">/api/llama/health</td><td>Poll while starting</td><td>Keyed to the expected <code>runtime_generation</code></td></tr>
-<tr><td>Server stats</td><td class="mono">/api/llama/metrics</td><td>Every 3&nbsp;s, from ~2&nbsp;s after launch</td><td>Falls back to <code>/api/llama/slots</code> for KV usage</td></tr>
+<tr><td>Server stats</td><td class="mono">/api/llama/metrics + /api/llama/slots</td><td>~2&nbsp;s after launch, then every 2&nbsp;s</td><td>Fetched independently in one shared cycle; one target-keyed baseline feeds the fixed bar and the Monitor Inference card. A failed source only marks its own fields unavailable</td></tr>
+<tr><td>Monitor telemetry</td><td class="mono">/api/system-stats</td><td>While the Monitor tab and document are visible</td><td>Chained schedule, no overlap; Recheck uses <code>?refresh=1</code>, coalesced server-side</td></tr>
 <tr><td>Runtime status</td><td class="mono">/api/status</td><td>Periodic</td><td>Authoritative; observers re-sync the UI on change</td></tr>
 <tr><td>Release install</td><td class="mono">/api/download-progress</td><td>While installing</td><td>AtomicDict snapshot</td></tr>
 <tr><td>Model download</td><td class="mono">/api/hf/download-status</td><td>While downloading</td><td>AtomicDict snapshot</td></tr>

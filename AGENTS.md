@@ -51,7 +51,7 @@ return names && typeof names.has === "function" && typeof names.size === "number
 ## Landmines / non-obvious rules
 
 - **Do not expose `-cd` / `ctx_size_draft`.** Current `llama-server` / `llama-cli` reject it. Keep stale preset values inert; do not emit the flag.
-- New llama.cpp flags: confirm upstream (`common/arg.cpp` / `server.cpp`), add to `FLAGS` in `ui/js/flags/definitions.js`, match enum values exactly, set `false_flag` for negated bools. Run `npm run test:flag-definitions`.
+- New llama.cpp flags: confirm upstream (`common/arg.cpp` / `server.cpp`), add to `FLAGS` in `ui/js/flags/definitions.js`, match enum values exactly, set `false_flag` for negated bools. Run `npm run test:flag-definitions`. Fork-only flags (present in a llama.cpp fork but not upstream, tracked in `docs/upstream-changes.md`) carry `fork_only: true` — the validator requires them to be bools defaulting to false, and `llama_flags_supported_unit.cjs` never holds them against an installed upstream binary.
 - Chat template presets: one entry in `CHAT_TEMPLATE_PRESETS` (`ui/js/flags/chat-templates.js`); bundled `.jinja` under `ui/templates/`. Emit `--chat-template` **or** `--chat-template-file`, never both. Reverse-map builtin name / file path back to the dropdown.
 - Custom launch args: edit `parseCustomLaunchArgs()` in `flag-core.js` and run `node tests/frontend/custom_launch_args_unit.cjs` immediately; extend that file for new cases. Parser errors must block launch and surface near the textarea.
 - Themes: a theme is **one palette block in `ui/css/tokens.css` plus one `THEMES` entry in `ui/js/theme-ui.js`**. Never add a `[data-theme=…]` selector or a color literal to `style.css` — both are absent by design and `theme_ui_unit.cjs` will not let a new theme render as the fallback. Contrast floors are enforced per theme (AA for text, 3:1 for `--fg-faint` and the fill-only `-solid` tokens), measured against `--bg-surface`, `--bg-raised`, `--bg-elevated`, each semantic color's own `-subtle` chip, **and composited interaction-state washes**. On a mid-tone theme the chip sits *lighter* than the surface, so its colors need brightening where light themes need darkening.
@@ -80,6 +80,9 @@ Start at the primary file; touch secondaries only if required.
 | HF download UI | `ui/js/hf-download-ui.js` |
 | Tunnel UI | `ui/js/remote-tunnel-ui.js` |
 | API tab | `ui/js/api-tab.js` |
+| Monitor tab / shared inference snapshot (fixed bar + Inference card) | `ui/js/monitor-ui.js` (`createInferenceStats`), polling/target reconciliation in `ui/js/app.js` |
+| Process output cursor | `ui/js/output-cursor.js` |
+| System stats / GPU telemetry backend | `backend/services/system_stats.py`, `backend/routes/system_stats.py` |
 | Benchmark UI | `ui/js/benchmark-ui.js` |
 | Backend routes | `backend/routes/*.py` → matching `backend/services/*.py` |
 | Route registry / server lifecycle | `backend/app.py`, `backend/routing.py`, `backend/services/lifecycle.py` |

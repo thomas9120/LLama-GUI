@@ -79,6 +79,10 @@
                 <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
                 Configure
             </button>
+            <button class="nav-item" data-section="monitor">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Monitor
+            </button>
 
             <div class="nav-section-label">Interact</div>
             <button class="nav-item" data-section="chat">
@@ -782,18 +786,195 @@
                 </div>
             </div>
 
-            <div id="output-section" class="hidden">
+        </div>
+
+        <!-- ═══ MONITOR ═══ -->
+        <div class="section-panel" id="section-monitor" style="display:none;">
+            <div class="page-header monitor-page-header">
+                <div>
+                    <div class="page-title">Monitor</div>
+                    <div class="page-title-sub">Live process output, inference activity, system resources, and GPU telemetry for this machine.</div>
+                </div>
+                <div class="monitor-header-actions">
+                    <span class="badge badge-dim" id="monitor-live-badge" title="The next poll is scheduled after the previous response completes">Unavailable</span>
+                    <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
+                    <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                        Recheck GPU monitoring
+                    </button>
+                </div>
+            </div>
+
+            <!-- Process output (moved here from Configure, IDs preserved) -->
+            <div class="card monitor-section" id="output-section" style="margin-top: var(--space-4);">
                 <div class="output-header">
-                    <h3>Output</h3>
-                    <div class="form-row">
-                        <button class="btn btn-sm btn-ghost" id="btn-clear-output">Clear</button>
+                    <h3>Process Output</h3>
+                    <div class="monitor-output-tools">
+                        <span class="badge badge-neutral hidden" id="monitor-process-tool"></span>
+                        <span class="badge badge-green hidden" id="monitor-process-state"><span class="badge-dot"></span> Running</span>
+                        <span class="monitor-sep" aria-hidden="true"></span>
+                        <button class="btn btn-sm btn-ghost" id="btn-clear-output" type="button">Clear</button>
                     </div>
                 </div>
-                <div id="output-terminal" class="terminal"></div>
+
+                <p class="help-text hidden" id="monitor-no-process-note" style="margin-bottom: var(--space-3);">
+                    No process running &mdash; the most recent output backlog is retained until the next launch.
+                </p>
+                <div class="status-box info hidden" id="monitor-external-note">
+                    Connected to an external llama-server. System and GPU stats stay live, but process output is unavailable &mdash; Llama GUI does not own that process&rsquo;s stdout.
+                </div>
+
+                <div id="output-terminal" class="terminal" aria-label="Process output log"></div>
                 <div id="input-row" class="input-row hidden">
                     <input type="text" id="cli-input" placeholder="Type and press Enter..." />
-                    <button class="btn" id="btn-send-input">Send</button>
+                    <button class="btn" id="btn-send-input" type="button">Send</button>
                 </div>
+            </div>
+
+            <!-- Shared visibility control. Process Output is the only fixed card. -->
+            <details class="monitor-hidden-bar hidden" id="monitor-hidden-controls">
+                <summary>
+                    <span class="badge badge-neutral" id="monitor-hidden-count">1 card hidden</span>
+                    <span>Show</span>
+                </summary>
+                <div class="monitor-restore-list">
+                    <div id="monitor-restore-items"></div>
+                    <button class="btn btn-sm btn-ghost" id="btn-monitor-show-all" type="button">Show all</button>
+                </div>
+            </details>
+
+            <!-- Compact system cards plus the optional expanded inference card -->
+            <div class="monitor-section" id="monitor-system-section">
+                <div class="monitor-metrics-grid">
+                    <div class="card" data-monitor-key="system:cpu" data-monitor-label="CPU">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">CPU</div>
+                            </div>
+                            <div class="monitor-card-tools">
+                                <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="system:cpu" aria-label="Hide CPU monitor">Hide</button>
+                                <div class="card-icon icon-blue">
+                                    <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value" id="monitor-cpu-value">Not available</div>
+                        <div id="monitor-cpu-bar"></div>
+                        <div class="monitor-metric-sub" id="monitor-cpu-sub"></div>
+                    </div>
+
+                    <div class="card" data-monitor-key="system:memory" data-monitor-label="Memory">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">Memory</div>
+                            </div>
+                            <div class="monitor-card-tools">
+                                <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="system:memory" aria-label="Hide memory monitor">Hide</button>
+                                <div class="card-icon icon-magenta">
+                                    <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value" id="monitor-memory-value">Not available</div>
+                        <div id="monitor-memory-bar"></div>
+                        <div class="monitor-metric-sub" id="monitor-memory-sub"></div>
+                    </div>
+
+                    <div class="card" data-monitor-key="system:disk" data-monitor-label="Application disk">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker">System</div>
+                                <div class="card-title">Disk</div>
+                            </div>
+                            <div class="monitor-card-tools">
+                                <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="system:disk" aria-label="Hide disk monitor">Hide</button>
+                                <div class="card-icon icon-cyan">
+                                    <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg></span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="monitor-metric-value" id="monitor-disk-value">Not available</div>
+                        <div id="monitor-disk-bar"></div>
+                        <div class="monitor-metric-sub" id="monitor-disk-sub"></div>
+                        <div class="monitor-io-grid hidden" id="monitor-disk-io">
+                            <div class="monitor-io-cell">
+                                <span class="monitor-io-label">Read</span>
+                                <span class="monitor-io-value" id="monitor-disk-read">Not available</span>
+                            </div>
+                            <div class="monitor-io-cell">
+                                <span class="monitor-io-label">Write</span>
+                                <span class="monitor-io-value" id="monitor-disk-write">Not available</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card monitor-inference-card" id="monitor-inference-card" data-monitor-key="inference" data-monitor-label="Inference">
+                        <div class="card-header">
+                            <div>
+                                <div class="card-kicker" id="monitor-inference-kicker">Llama server</div>
+                                <div class="card-title">Inference</div>
+                            </div>
+                            <div class="monitor-card-tools">
+                                <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="inference" aria-label="Hide inference monitor">Hide</button>
+                                <span class="badge badge-dim" id="monitor-inference-state-badge">Unavailable</span>
+                            </div>
+                        </div>
+
+                        <div id="monitor-inference-body" class="hidden">
+                            <div class="monitor-inference-summary">
+                                <div class="monitor-inference-stat">
+                                    <span class="monitor-metric-label">Prompt</span>
+                                    <span class="monitor-metric-reading" id="monitor-inference-prompt">--</span>
+                                </div>
+                                <div class="monitor-inference-stat">
+                                    <span class="monitor-metric-label">Generated</span>
+                                    <span class="monitor-metric-reading" id="monitor-inference-generated">--</span>
+                                </div>
+                                <div class="monitor-inference-stat">
+                                    <span class="monitor-metric-label">Session total</span>
+                                    <span class="monitor-metric-reading" id="monitor-inference-total">--</span>
+                                </div>
+                            </div>
+
+                            <div class="monitor-metric-row">
+                                <span class="monitor-metric-label" id="monitor-inference-context-label">Context &middot; most-filled slot</span>
+                                <span class="monitor-metric-reading" id="monitor-inference-context-reading">Not available</span>
+                            </div>
+                            <div id="monitor-inference-context-bar"></div>
+
+                            <div class="monitor-inference-details">
+                                <div class="monitor-io-cell"><span class="monitor-io-label">Prompt speed</span><span class="monitor-io-value" id="monitor-inference-prompt-speed">--</span></div>
+                                <div class="monitor-io-cell"><span class="monitor-io-label">Generation</span><span class="monitor-io-value" id="monitor-inference-gen-speed">--</span></div>
+                                <div class="monitor-io-cell"><span class="monitor-io-label">Requests</span><span class="monitor-io-value" id="monitor-inference-requests">--</span></div>
+                                <div class="monitor-io-cell"><span class="monitor-io-label">Slots</span><span class="monitor-io-value" id="monitor-inference-slots">--</span></div>
+                            </div>
+                            <div class="form-row" style="margin: var(--space-3) 0 0;">
+                                <button class="btn btn-sm" id="btn-reset-inference" type="button">Reset session counters</button>
+                            </div>
+                        </div>
+
+                        <div id="monitor-inference-empty">
+                            <div class="empty-state empty-state-sm">
+                                <div class="empty-state-title">Inference metrics unavailable</div>
+                                <p>Start or connect to a llama-server to view token, request, and context activity.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- GPUs: one card per device, plus degraded-state cards -->
+            <div class="monitor-section" id="monitor-gpu-section">
+                <div class="monitor-gpu-grid hidden" id="monitor-gpu-grid"></div>
+                <div class="stacked-cards" id="monitor-gpu-states"></div>
+            </div>
+
+            <!-- Only the relevant failed provider gets a setup card. -->
+            <div class="monitor-section hidden" id="monitor-gpu-setup">
+                <div class="status-box info">Setup states are provider-specific. Commands come from a fixed backend allowlist and are shown for you to run &mdash; Llama GUI never executes package managers or elevates privileges.</div>
+                <div class="stacked-cards monitor-setup-cards" id="monitor-setup-cards"></div>
             </div>
         </div>
 
@@ -1415,9 +1596,9 @@
     <span class="stats-sep"></span>
     <span class="stats-item"><span class="stats-value" id="stats-gen-speed">--</span> tok/s gen</span>
     <span class="stats-sep"></span>
-    <span class="stats-item">Context <span class="stats-value" id="stats-context">--</span></span>
+    <span class="stats-item">Session tokens <span class="stats-value" id="stats-context">--</span></span>
     <span class="stats-sep"></span>
-    <span class="stats-item">KV <span class="stats-value" id="stats-kv-usage">--%</span></span>
+    <span class="stats-item">Context (most-filled slot) <span class="stats-value" id="stats-kv-usage">--%</span></span>
 </div>
 
 <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
@@ -1467,6 +1648,7 @@
 <script src="/js/quick-launch-ui.js?v=revamp-2"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
+<script src="/js/monitor-ui.js?v=monitor-1"></script>
 <script src="/js/app.js?v=revamp-4"></script>
 </body>
 </html>
