@@ -1162,9 +1162,10 @@
     // structure and listeners match the new payload.
     function reconcileCards(container, entries, handlers) {
         if (!container) return;
-        const { keyOf, signatureOf, create, update } = handlers;
+        const { keyOf, signatureOf, create, update, owns = () => true } = handlers;
         const existing = new Map();
         for (const child of Array.from(container.children)) {
+            if (!owns(child)) continue;
             const key = child && child.dataset ? child.dataset.monitorKey : null;
             if (key && !existing.has(key)) existing.set(key, child);
         }
@@ -1195,9 +1196,10 @@
         // Reorder only where it differs. Re-appending a card removes and
         // re-inserts it, which drops focus and collapses a selection even
         // though the node itself survives.
-        let inOrder = container.children.length === desired.length;
+        const current = Array.from(container.children).filter(owns);
+        let inOrder = current.length === desired.length;
         for (let i = 0; inOrder && i < desired.length; i += 1) {
-            if (container.children[i] !== desired[i]) inOrder = false;
+            if (current[i] !== desired[i]) inOrder = false;
         }
         if (!inOrder) {
             for (const card of desired) container.appendChild(card);
@@ -1205,21 +1207,21 @@
     }
 
     function renderGpuArea(sample) {
-        const gpuGrid = byId("monitor-gpu-grid");
+        const cardGrid = byId("monitor-card-grid");
         const stateWrap = byId("monitor-gpu-states");
         const setupSection = byId("monitor-gpu-setup");
         const setupCards = byId("monitor-setup-cards");
-        if (!gpuGrid || !stateWrap || !setupSection || !setupCards) return;
+        if (!cardGrid || !stateWrap || !setupSection || !setupCards) return;
 
         const gpus = Array.isArray(sample && sample.gpus) ? sample.gpus : [];
         const setupEntries = Array.isArray(sample && sample.gpu_setup) ? sample.gpu_setup : [];
 
-        reconcileCards(gpuGrid, gpus, {
+        reconcileCards(cardGrid, gpus, {
             keyOf: gpuCardKey,
             create: makeGpuCard,
             update: updateGpuCard,
+            owns: card => String(card && card.dataset && card.dataset.monitorKey || "").startsWith("gpu:"),
         });
-        gpuGrid.classList.toggle("hidden", gpus.length === 0);
 
         // State cards: one per provider whose probe is not working, or the
         // backend's platform-specific generic state. Keep a generic fallback

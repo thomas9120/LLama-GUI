@@ -4430,13 +4430,6 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     gap: var(--space-4);
 }
 
-.monitor-gpu-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(260px, 340px));
-    align-items: stretch;
-    gap: var(--space-4);
-}
-
 .monitor-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .monitor-inference-card { grid-column: span 2; }
@@ -4615,7 +4608,7 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 }
 
 @media (max-width: 900px) {
-    .monitor-metrics-grid, .monitor-gpu-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .monitor-metrics-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 }
 
 @media (max-width: 560px) {

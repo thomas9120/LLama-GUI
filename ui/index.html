@@ -845,7 +845,7 @@
 
             <!-- Compact system cards plus the optional expanded inference card -->
             <div class="monitor-section" id="monitor-system-section">
-                <div class="monitor-metrics-grid monitor-drag-container">
+                <div class="monitor-metrics-grid monitor-drag-container" id="monitor-card-grid">
                     <div class="card" data-monitor-key="system:cpu" data-monitor-label="CPU">
                         <div class="card-header">
                             <div>
@@ -969,9 +969,8 @@
                 </div>
             </div>
 
-            <!-- GPUs: one card per device, plus degraded-state cards -->
+            <!-- Degraded GPU telemetry states; detected GPUs join the metrics grid above. -->
             <div class="monitor-section" id="monitor-gpu-section">
-                <div class="monitor-gpu-grid hidden monitor-drag-container" id="monitor-gpu-grid"></div>
                 <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
             </div>
 

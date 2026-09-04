@@ -349,7 +349,7 @@ function buildStandardDom() {
     mount("monitor-disk-io").classList.add("hidden");
     mount("monitor-disk-read", "span");
     mount("monitor-disk-write", "span");
-    mount("monitor-gpu-grid")._classes.add("monitor-drag-container");
+    mount("monitor-card-grid")._classes.add("monitor-drag-container");
     mount("monitor-gpu-states")._classes.add("monitor-drag-container");
     mount("monitor-gpu-setup").classList.add("hidden");
     mount("monitor-setup-cards")._classes.add("monitor-drag-container");
@@ -1068,7 +1068,7 @@ buildStandardDom();
     });
     monitorUi.recheck();
     await wait(80);
-    const grid = documentStub.getElementById("monitor-gpu-grid");
+    const grid = documentStub.getElementById("monitor-card-grid");
     assert.equal(grid.children.length, 2);
     const keys = grid.children.map(card => card.dataset.monitorKey);
     assert.deepEqual(keys, ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:pci:0000:0b:00.0"]);
@@ -1098,7 +1098,7 @@ buildStandardDom();
     });
     monitorUi.recheck();
     await wait(80);
-    assert.equal(documentStub.getElementById("monitor-gpu-grid").children.length, 1);
+    assert.equal(documentStub.getElementById("monitor-card-grid").children.length, 1);
     const setupSection = documentStub.getElementById("monitor-gpu-setup");
     assert.equal(setupSection.classList.contains("hidden"), false);
     const setupCard = documentStub.getElementById("monitor-setup-cards").children[0];
@@ -1580,7 +1580,7 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     monitorUi.onTabChanged("monitor");
     await wait(80);
 
-    const cards = () => documentStub.getElementById("monitor-gpu-grid").children;
+    const cards = () => documentStub.getElementById("monitor-card-grid").children;
     const visibleCards = () => cards().filter(card => !card.classList.contains("hidden"));
     assert.equal(cards().length, 2);
 
@@ -1669,7 +1669,7 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     monitorUi.onTabChanged("monitor");
     await wait(80);
 
-    const grid = () => documentStub.getElementById("monitor-gpu-grid");
+    const grid = () => documentStub.getElementById("monitor-card-grid");
     const keys = () => grid().children.map(card => card.dataset.monitorKey);
     const cardByKey = (key) => grid().children.find(card => card.dataset.monitorKey === key);
     const setRects = () => {
@@ -1833,6 +1833,53 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
         "reorder still works for the session when storage is blocked");
 }
 
+// A single dynamically reconciled GPU shares the static metrics grid, so it
+// can move relative to CPU/memory/disk/inference and keeps that position when
+// the next telemetry sample arrives.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    context.localStorage = makeStorage();
+    const grid = documentStub.getElementById("monitor-card-grid");
+    const cpuCard = createElement("div");
+    cpuCard.classList.add("card");
+    cpuCard.dataset.monitorKey = "system:cpu";
+    grid.appendChild(cpuCard);
+
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [makeGpu("all-smi:uuid:GPU-ONLY")],
+        }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+
+    const gpuCard = grid.children.find(card => card.dataset.monitorKey.startsWith("gpu:"));
+    assert.ok(gpuCard, "GPU reconciliation preserves the static card and adds the GPU");
+    grid.dispatch("dragstart", {
+        target: gpuCard.querySelector(".monitor-drag-handle"),
+        dataTransfer: { effectAllowed: "", setData() {} },
+    });
+    grid.dispatch("drop", { target: cpuCard, clientY: 10 });
+    assert.deepEqual(
+        grid.children.map(card => card.dataset.monitorKey),
+        ["gpu:all-smi:uuid:GPU-ONLY", "system:cpu"],
+        "a single GPU can move before a static metric card",
+    );
+
+    monitorUi.recheck();
+    await wait(80);
+    assert.deepEqual(
+        grid.children.map(card => card.dataset.monitorKey),
+        ["gpu:all-smi:uuid:GPU-ONLY", "system:cpu"],
+        "GPU polling preserves the mixed-card order",
+    );
+}
+
 // Only the dedicated grip is draggable; it also supports arrow-key
 // reordering. Every other control and text region remains interactive.
 {
@@ -1861,7 +1908,7 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     monitorUi.onTabChanged("monitor");
     await wait(80);
 
-    const grid = documentStub.getElementById("monitor-gpu-grid");
+    const grid = documentStub.getElementById("monitor-card-grid");
     const card = grid.children[0];
     const handle = card.querySelector(".monitor-drag-handle");
     assert.equal(handle.draggable, true, "the dedicated grip is draggable");
@@ -1922,7 +1969,7 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     monitorUi.onTabChanged("monitor");
     await wait(80);
 
-    const grid = documentStub.getElementById("monitor-gpu-grid");
+    const grid = documentStub.getElementById("monitor-card-grid");
     const first = grid.children[0];
     const utilRow = () => grid.children[0]
         .querySelector('.monitor-metric-row[data-metric="utilization"]');
@@ -2119,7 +2166,7 @@ async function copyButtonScenario(copyText) {
     monitorUi.onTabChanged("monitor");
     await wait(80);
     assert.deepEqual(
-        documentStub.getElementById("monitor-gpu-grid").children.map(card => card.dataset.monitorKey),
+        documentStub.getElementById("monitor-card-grid").children.map(card => card.dataset.monitorKey),
         ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB"],
         "the stored order is applied",
     );
@@ -2138,7 +2185,7 @@ async function copyButtonScenario(copyText) {
     monitorUi.onTabChanged("monitor");
     await wait(80);
     assert.deepEqual(
-        documentStub.getElementById("monitor-gpu-grid").children.map(card => card.dataset.monitorKey),
+        documentStub.getElementById("monitor-card-grid").children.map(card => card.dataset.monitorKey),
         ["gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA"],
         "resetForTests clears the leaked card order",
     );
@@ -2163,7 +2210,7 @@ async function copyButtonScenario(copyText) {
     monitorUi.init();
     monitorUi.onTabChanged("monitor");
     await wait(80);
-    const cards = () => documentStub.getElementById("monitor-gpu-grid").children;
+    const cards = () => documentStub.getElementById("monitor-card-grid").children;
     for (const card of Array.from(cards())) card.querySelector(".monitor-hide-btn").dispatch("click");
     const persisted = JSON.parse(storage.map.get("llama_gui_monitor_hidden_cards"));
     assert.equal(persisted.length, 100);

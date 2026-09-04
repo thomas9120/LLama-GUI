@@ -2116,8 +2116,8 @@ async function main() {
         assert.equal(await page.textContent("#monitor-memory-value"), "37.5%");
         assert.equal(await page.textContent("#monitor-disk-read"), "1.2 MB/s");
         assert.match(await page.textContent("#monitor-live-badge"), /Live/);
-        await page.waitForFunction(() => document.querySelectorAll("#monitor-gpu-grid [data-monitor-key]").length === 1);
-        assert.match(await page.textContent("#monitor-gpu-grid"), /Smoke GPU/);
+        await page.waitForFunction(() => document.querySelectorAll("#monitor-card-grid [data-monitor-key^='gpu:']").length === 1);
+        assert.match(await page.textContent("#monitor-card-grid"), /Smoke GPU/);
         assert.ok(await page.locator("#monitor-gpu-setup").evaluate(el => el.classList.contains("hidden")),
             "working probes produce no setup cards");
 
