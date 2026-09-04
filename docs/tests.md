@@ -66,7 +66,8 @@ Fast Node tests:
 
 - `custom_launch_args_unit.cjs`: custom launch arg tokenization, quote handling, duplicate flag warnings, and preset preservation.
 - `launch_args_unit.cjs`: launch argument generation for inert defaults, default/custom/unavailable model roots, traversal rejection, sampler-related flag behavior, server-wide reasoning-effort template kwargs, model-source recognition, and sensitive-value redaction.
-- `output_cursor_unit.cjs`: generation-aware process output cursor consumption and stale-response rejection.
+- `output_cursor_unit.cjs`: generation-aware process output cursor consumption, stale-response rejection, and `invalidate()` semantics that preserve the cursor while rejecting in-flight responses.
+- `monitor_ui_unit.cjs`: hermetic Monitor tests for polling and badge stability, card visibility/reordering and focus preservation, inference baselines and telemetry normalization, and safe rendering of hostile telemetry text.
 - `process_lifecycle_unit.cjs`: guarded launch/stop/switch ordering, readiness progression, generation conflicts, out-of-band replacement reconciliation, refused-stop recovery, stop-during-load, and stale transition handling.
 - `model_switch_ui_unit.cjs`: two-slot persistence, assignment validation, recoverable slot states, cancellation/failure cleanup, active-runtime display precedence, sidebar slider availability/drag thresholds/markup, safe rendering helpers, and storage fallback.
 - `benchmark_args_unit.cjs`: benchmark/perplexity argument adaptation through the shared local-model path builder without mutating source presets, plus visible model-folder load failures in the manual-model selector.
@@ -95,7 +96,7 @@ Fast Node tests:
 
 Browser smoke test:
 
-- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
+- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, Monitor polling/output/card flows and responsive layout, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 
@@ -106,6 +107,7 @@ Use fast Node tests for focused debugging. Use the Playwright smoke test when a 
 Backend tests use Python `unittest` and mostly exercise route/service logic without starting the real app server.
 
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
+- `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract.
 - `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.
 - `test_http_adapters.py`: request/response helpers and CORS origin handling.

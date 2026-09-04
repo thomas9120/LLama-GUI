@@ -177,6 +177,14 @@ function validateFlags(flags, categories) {
             }
         }
 
+        if (flag.fork_only) {
+            // Fork-only flags ship in llama.cpp forks only; they must never be
+            // on by default against an upstream binary.
+            if (flag.type !== "bool" || flag.default !== false) {
+                addError(`Flag ${label} is fork_only and must be a bool defaulting to false.`);
+            }
+        }
+
         validateOptions(flag, addError, addWarning);
         validateDefaultValue(flag, addWarning);
     }
@@ -352,6 +360,26 @@ assert.deepEqual(validateFlags(null, []), {
     assertIncludes(result.errors, 'Flag "example" has invalid category "missing".');
     assertIncludes(result.errors, 'Flag "example" has invalid tool "invalid".');
     assertIncludes(result.errors, 'Flag "example" has unsupported type "unknown".');
+}
+
+{
+    const result = validateFlags(
+        [makeFlag({ fork_only: true })],
+        [{ id: "server" }]
+    );
+    assert.equal(result.errors.length, 0, "a fork_only bool defaulting to false is valid");
+}
+
+{
+    const result = validateFlags(
+        [
+            makeFlag({ fork_only: true, default: true }),
+            makeFlag({ id: "second", flag: "--second", fork_only: true, type: "int" }),
+        ],
+        [{ id: "server" }]
+    );
+    assertIncludes(result.errors, 'Flag "example" is fork_only and must be a bool defaulting to false.');
+    assertIncludes(result.errors, 'Flag "second" is fork_only and must be a bool defaulting to false.');
 }
 
 {

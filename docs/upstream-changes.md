@@ -16,7 +16,7 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Implementation:** [LaurentZuijdwijk/llama.cpp `common/arg.cpp`](https://github.com/LaurentZuijdwijk/llama.cpp/blob/master/common/arg.cpp#L3999-L4005).
 - **Status:** Implemented in that fork but absent from upstream `ggml-org/llama.cpp` as of 2026-08-25. It is a default-off boolean available to `llama-speculative`, `llama-server`, and `llama-cli`, with env `LLAMA_ARG_SPEC_DRAFT_ADAPTIVE`.
 - **Behavior:** Sizes each draft from measured acceptance instead of always drafting the `--spec-draft-n-max` token count. This is separate from the open upstream adaptive-MTP proposal tracked below.
-- **Local handling:** Llama-GUI exposes the checkbox in the temporary **Experimental** Configure category. When this exact feature merges upstream, re-verify its spelling and semantics, then move the control into **Speculative Decoding**.
+- **Local handling:** Llama-GUI exposes the checkbox in the temporary **Experimental** Configure category. The definition carries `fork_only: true`, so `tests/frontend/llama_flags_supported_unit.cjs` skips it when comparing GUI flags against an installed binary's `--help`. When this exact feature merges upstream, re-verify its spelling and semantics, then move the control into **Speculative Decoding** and drop `fork_only`.
 
 ### Adaptive MTP draft depth (`draft-mtp-adaptive`)
 

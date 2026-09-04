@@ -94,6 +94,9 @@ function expectedTools(flag) {
 function collectUnsupportedFlags(flags, advertisedByTool) {
     const unsupported = [];
     for (const flag of flags) {
+        // Fork-only flags (documented in docs/upstream-changes.md) are absent
+        // from upstream builds on purpose; never hold them against a binary.
+        if (flag.fork_only) continue;
         for (const option of [flag.flag, flag.false_flag].filter(Boolean)) {
             for (const tool of expectedTools(flag)) {
                 const advertised = advertisedByTool[tool];
@@ -140,7 +143,12 @@ if (unsupported.length > 0) {
     }
     process.exit(1);
 }
-
+const forkOnlyCount = flags.filter((flag) => flag.fork_only).length;
+if (forkOnlyCount > 0) {
+    console.log(
+        `llama flag compatibility: skipped ${forkOnlyCount} fork-only flag(s) (fork_only: true; see docs/upstream-changes.md).`
+    );
+}
 const checkedTools = Object.entries(executables)
     .filter(([tool]) => advertisedByTool[tool])
     .map(([tool, executable]) => `${tool}=${executable}`)

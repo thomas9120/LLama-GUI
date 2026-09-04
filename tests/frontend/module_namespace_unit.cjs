@@ -78,6 +78,7 @@ const expectedNamespaces = [
     "externalServerUi",
     "samplerPresets",
     "benchmarkUi",
+    "monitorUi",
     "presets",
     "modelSwitchUi",
     "manager",
@@ -97,6 +98,8 @@ assert.equal(typeof context.window.LlamaGui.chatUi.init, "function");
 assert.equal(typeof context.window.LlamaGui.apiTab.updateEndpoints, "function");
 assert.equal(typeof context.window.LlamaGui.remoteTunnelUi.renderStatus, "function");
 assert.equal(typeof context.window.LlamaGui.benchmarkUi.init, "function");
+assert.equal(typeof context.window.LlamaGui.monitorUi.init, "function");
+assert.equal(typeof context.window.LlamaGui.monitorUi.createInferenceStats, "function");
 assert.equal(typeof context.window.LlamaGui.presets.loadPreset, "function");
 assert.equal(typeof context.window.LlamaGui.modelSwitchUi.getAssignments, "function");
 assert.equal(typeof context.window.LlamaGui.processLifecycle.switchRuntime, "function");

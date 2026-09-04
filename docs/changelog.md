@@ -2,10 +2,17 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-04
+
+- Polished the Monitor experience with responsive, reorderable mixed resource/GPU cards; stable polling states and focus; session-average prompt/generation speeds; improved accessibility; and more accurate lifecycle reporting.
+- Expanded GPU telemetry with optional cross-vendor `all-smi` support, broader AMD/NVIDIA detection and parsing, resilient probe decoding/fallbacks, and platform-specific setup guidance linked from unavailable GPU states.
+- Enlarged Configure's command preview for long launch commands and strengthened Monitor frontend/backend tests, polling diagnostics, and deterministic concurrency coverage.
+
 ## 2026-09-03
-- Fixed the live Context statistic to use the fullest llama-server slot's retained token count instead of adding lifetime prompt and generation counters, so context shifts now reduce the displayed value correctly; clarified that the adjacent token counts are cumulative processed/generated totals.
-- Prevented successful but temporarily incomplete preset-library refreshes from silently clearing favorites and usage history; that browser-local metadata is now removed only after a confirmed preset deletion or migrated after a rename.
-- Fixed native file-picker failures on Linux installations without Tk: the API now returns actionable package guidance instead of a generic server error, and the Unix installer warns without failing or installing privileged system packages. Windows' existing Tk picker and macOS' AppleScript picker are unchanged.
+
+- Added the Monitor tab with live process output, hideable/reorderable CPU, memory, disk, inference, and NVIDIA/AMD GPU cards, plus a shared fixed stats bar and target-isolated inference counters.
+- Added the cached, coalesced `GET /api/system-stats` backend and improved telemetry accuracy, recovery, diagnostics, accessibility, setup guidance, output following, and server-ready navigation.
+- Preserved preset favorites and usage history across incomplete refreshes, and added actionable Linux guidance when native file picking is unavailable because Tk is missing.
 
 ## 2026-09-02
 - Added the official llama.cpp ROCm 10.0 binaries as a platform-aware Windows x64/Linux x64 install option, labeled to note that a separate ROCm runtime is required.

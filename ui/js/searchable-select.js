@@ -323,7 +323,7 @@
                 updateButtonLabel();
                 if (isOpen()) renderList(search.value.trim().toLowerCase());
             },
-            // ponytail: event listeners on button/search/document/window are
+            // TODO: event listeners on button/search/document/window are
             // not removed — harmless for static selects. Add cleanup when
             // searchable-select is applied to dynamically-added elements.
             destroy() {

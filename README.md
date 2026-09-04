@@ -42,12 +42,12 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - [First Run](#first-run)
 - [Advanced Access](#advanced-access)
 - [What Each Tab Does](#what-each-tab-does)
+- [GPU Monitoring Setup](docs/gpu-monitoring.md)
 - [Presets and Samplers](#presets-and-samplers)
-- [Maintenance](#maintenance)
+- [Maintenance](docs/maintenance.md)
 - [Data Locations](#data-locations)
-- [Troubleshooting](#troubleshooting)
-- [Security Notes](#security-notes)
-- [Running Tests](#running-tests)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Security Notes](docs/security.md)
 
 ## Requirements
 
@@ -127,6 +127,10 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 | --- | --- |
 | ![Install tab](docs/images/install.png) | ![Presets tab](docs/images/presets.png) |
 
+| Monitor |
+| --- |
+| ![Monitor tab](docs/images/monitor.png) |
+
 ## Getting Models
 
 Place `llama.cpp`-compatible `.gguf` files in `models/` or any subfolder under it (or use **Open Models**). To use an existing library elsewhere, open **Configure → Models Folder → Change…** and select that folder; **Reset to default** returns to `models/`. The active folder's models appear in **Quick Launch** and **Configure**. Vision projector filenames are excluded from the launch-model list; the legacy `models/mmproj/` folder remains excluded too.
@@ -142,7 +146,7 @@ Downloads land under `<active models folder>/<owner_repo>/` (repo id with `/` �
 1. Install a backend in **Install** and confirm the badge shows an installed version (not `Not Installed`).
 2. Add at least one `.gguf` to `models/`, or select an existing library from **Configure → Models Folder**.
 3. In **Quick Launch**: keep `API Server`, choose a model, keep defaults or pick a profile, click **Launch**.
-4. Confirm: header shows `Running`, output has startup logs, stats bar appears (if metrics enabled).
+4. Confirm: header shows `Running`, **Monitor** shows startup logs, stats bar appears (if metrics enabled).
 5. Optional: **Chat** (enable **Web Search** for current-events questions), **API** snippets for `/v1/chat/completions`, or **Configure** for full flags.
 
 If first run fails, use **Install → Repair Install** and relaunch.
@@ -195,6 +199,12 @@ Defaults: tool `llama-server`, `-fit on`, context `64000`. Stats require `--metr
 
 **MCP Settings**: `--ui-mcp-proxy` and `--tools` (high-risk tools are marked and warned).
 
+### Monitor
+
+The live process output terminal (moved out of Configure) follows new output automatically and has a Clear that never replays the backlog, alongside CPU/RAM/disk cards, best-effort disk I/O, one card per detected GPU, and evidence-gated setup guidance when telemetry tools are missing. System and GPU telemetry poll only while the tab is visible; **Recheck** forces a fresh sample. An optional **Inference** card shares one baseline with the fixed stats bar — Reset updates both. Every card except Process Output can be hidden and restored.
+
+GPU telemetry supports `nvidia-smi`, Linux `amd-smi`, and the optional cross-vendor [all-smi](https://github.com/lablup/all-smi) CLI or local API. See the [GPU monitoring setup guide](docs/gpu-monitoring.md) to choose, install, verify, and troubleshoot the right collector for your system.
+
 ### Benchmarking
 
 Throughput (`llama-bench`) and perplexity (`llama-perplexity`) from Current Configure, a Saved Preset, or Manual Model. WikiText-2 helper available. Uses the same process slot as normal launches — stop any running server first. Results last for the page session only.
@@ -207,7 +217,7 @@ OpenAI-compatible endpoint overview and copy-ready snippets (cURL, Python, JavaS
 
 Talks to a running `llama-server` — one launched here, or one registered on the API tab — via `/v1/chat/completions` with streaming Markdown, Focus mode, history/settings panels, system prompt, shared sampler controls, undo/regenerate/clear, code copy buttons, and collapsed reasoning when the server streams it.
 
-**Web Search** (optional): no API key. The local server searches (free `ddgs` by default, or an optional self-hosted [SearXNG](https://docs.searxng.org/) instance via `LLAMA_GUI_SEARXNG_URL`), fetches public pages, injects graded source context, and shows source chips under answers. History is not polluted with raw search text. Leave off for fully local chat. See [Security Notes](#security-notes) for fetch limits.
+**Web Search** (optional): no API key. The local server searches (free `ddgs` by default, or an optional self-hosted [SearXNG](https://docs.searxng.org/) instance via `LLAMA_GUI_SEARXNG_URL`), fetches public pages, injects graded source context, and shows source chips under answers. History is not polluted with raw search text. Leave off for fully local chat. See [Security Notes](docs/security.md) for fetch limits.
 
 #### Using SearXNG
 
@@ -252,15 +262,7 @@ Quick Launch, Configure, and Chat samplers share one state. Loading a full app p
 
 ## Maintenance
 
-**Remove llama.cpp Files** clears runtime files under `llama/` (`bin`, `grammars`) and resets install metadata in `config.json`. It does **not** remove `models/`, `presets/`, or `llama/custom/`.
-
-### Custom pre-compiled binaries
-
-1. Put binaries (and needed `.dll` / `.so` / `.dylib`) in `llama/custom/bin/` (`llama-server`, `llama-cli`, optionally `llama-bench`, `llama-perplexity`, etc.). Fresh installs create this directory automatically; **Activate Custom** also creates it if needed.
-2. In **Install**, choose **Custom (User-Provided)** → **Activate Custom**.
-3. Switch back by selecting the preserved official backend and clicking **Activate Existing**; no download is required.
-
-`llama/custom/` is preserved when removing official llama.cpp files.
+For removing llama.cpp files, custom pre-compiled binaries, and running the test suite, see [`docs/maintenance.md`](docs/maintenance.md).
 
 ## Data Locations
 
@@ -273,63 +275,10 @@ Architecture and file ownership: [`docs/directory.md`](docs/directory.md).
 
 ## Troubleshooting
 
-### Port already in use
-
-App does not start at `http://127.0.0.1:5240`, or server launch fails on a taken port. Close the conflicting app or change its port.
-
-### No model / launch validation disabled
-
-Place `.gguf` files in the active models folder, refresh the model list in Configure, reset an unavailable custom folder, or use `-hf` / HF repo flags for remote loading.
-
-### Backend mismatch (CUDA/Vulkan/SYCL/Metal/ROCm/OpenVINO)
-
-Immediate crash or DLL/backend errors: reinstall a backend that matches your hardware/drivers, try **Install → Repair Install**, or test with `CPU` first.
-
-On Linux, Llama GUI uses `ldd` when available to check `llama-server`, `llama-cli`, and packaged ggml backend plugins before launch, then reports unresolved shared libraries in the Install tab. If a repaired Vulkan or ROCm install still fails, verify the host driver stack directly:
-
-```bash
-ldd llama/bin/llama-server | grep "not found"
-vulkaninfo --summary   # Vulkan
-rocminfo               # ROCm / AMD kernel-driver access
-```
-
-Lemonade ROCm archives include user-space ROCm libraries, but the selected `gfx` target must match the GPU and the host still needs working AMD kernel-driver access. If model loading runs unusually long, the app keeps the process stoppable and adds a persistent warning directing you to the live process output.
-
-### Antivirus / Defender quarantine
-
-Install looks fine but binaries are missing: check quarantine, restore blocked `llama/` files, and only add a project exclusion if you trust the source.
-
-### App update buttons fail
-
-Need `git` on PATH and a git clone (not a zip extract). Retry from Install and read the update status text.
-
-### Chat Web Search fails
-
-Rerun the platform install script so `ddgs` is present; check internet access; try a simpler query (free providers rate-limit). Leave Web Search off for offline chat.
-
-### Still stuck
-
-Copy recent errors from **Output** in Configure. Retry a minimal setup (`CPU`, one local model, defaults). Include logs, backend, and model name when reporting issues.
+For port conflicts, missing models, backend/driver mismatches, antivirus quarantine, update failures, and web-search issues, see [`docs/troubleshooting.md`](docs/troubleshooting.md).
 
 ## Security Notes
 
-- Intended for local use (`127.0.0.1`). The wrapper does not enforce its own authentication layer.
-- Optional llama-server **API Key** in Quick Launch/Configure adds `--api-key`; leave blank for open-access. Built-in Chat and stats proxies use the key when set; previews, output, presets, and exports redact/omit it. The key protects llama-server endpoints only — not the Llama GUI management UI — and may be visible to same-user process inspection (CLI argument).
-- `LLAMA_GUI_HOST=0.0.0.0` is for trusted networks / VPN / authenticated reverse proxies only. Hostname access needs `LLAMA_GUI_ALLOWED_HOSTS`.
-- Cloudflare tunnel is opt-in and does not auto-start. Anyone with the tunnel URL can control the running session until you stop it.
-- The chat and metrics proxies only ever target a `llama-server` this GUI launched or one registered through the API tab; the destination is never taken from the chat request itself. Registration accepts loopback and this machine's own interfaces only — but, like the rest of the control panel, the registration endpoint is available to anyone who can reach the GUI, so a tunnel visitor can re-point the proxy at another port on the host machine.
-- A registered server's API key is held in memory for the session, never written to `config.json` and never included in any API response. Only the address is remembered between sessions, and it is re-registered on startup only when no key was needed and the port still answers as `llama-server` — so a port taken over by some other local service is refused rather than silently proxied to.
-- Be careful with `--ui-mcp-proxy` and high-risk `--tools`.
-- Web Search only fetches `http`/`https`, blocks private/loopback/link-local/multicast/reserved addresses, caps redirects, and limits fetch size and injected context.
+For local-use boundaries, API key handling, tunnel exposure, proxy registration, and web-search fetch limits, see [`docs/security.md`](docs/security.md).
 
-## Running Tests
-
-Backend:
-
-```bash
-python -m unittest discover tests -v
-```
-
-Frontend smoke tests are for contributors and CI only (`npm ci`, Playwright Chromium, `npm run test:frontend`). Normal installs and Pinokio only need `requirements.txt`.
-
-Test inventory and when to run what: [`docs/tests.md`](docs/tests.md).
+Test inventory and how to run the suite: [`docs/maintenance.md`](docs/maintenance.md).

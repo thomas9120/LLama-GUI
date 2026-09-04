@@ -10,6 +10,13 @@
             epoch += 1;
         }
 
+        // Reject in-flight responses without discarding the cursor. Clearing
+        // the terminal uses this so the backlog does not replay; a reset()
+        // to a null cursor would make the next request replay everything.
+        function invalidate() {
+            epoch += 1;
+        }
+
         function getUrl() {
             return cursor === null ? "/api/output" : `/api/output?since=${cursor}`;
         }
@@ -37,7 +44,7 @@
             return { current: true, lines };
         }
 
-        return { reset, getUrl, getRequest, isCurrent, consume };
+        return { reset, invalidate, getUrl, getRequest, isCurrent, consume };
     }
 
     root.outputCursor = { create };
