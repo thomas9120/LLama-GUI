@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Fixed the collapsed Chat settings panel retaining its width at intermediate window sizes; the responsive width now applies only to expanded desktop panels, and mobile settings retain full width.
+
 - Conversations now starts collapsed in Chat to leave more room for messages; Show conversations still opens the history panel.
 
 - Moved routine context counts and compaction actions into a compact composer tools menu. Only brief near-full/overflow warnings remain inline; context details, summary navigation, and Undo are available on demand with keyboard and outside-click dismissal.

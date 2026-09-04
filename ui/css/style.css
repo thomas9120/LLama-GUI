@@ -4332,8 +4332,8 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 /* ════════════════════════════════════════════
    RESPONSIVE
    ════════════════════════════════════════════ */
-@media (max-width: 1320px) {
-    #section-chat .chat-sidebar {
+@media (min-width: 901px) and (max-width: 1320px) {
+    .chat-sidebar:not(.collapsed) {
         width: min(260px, 24vw);
     }
 }

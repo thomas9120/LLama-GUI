@@ -1121,6 +1121,33 @@ async function main() {
         assert.equal(independentSourceSnapshot.context.used, 250);
 
         await selectSection(page, "chat");
+        const chatViewport = page.viewportSize();
+        const settingsWereCollapsed = await page.locator("#chat-sidebar").evaluate(el => el.classList.contains("collapsed"));
+        for (const width of [1440, 1320, 1217, 1024, 901, 900, 760]) {
+            await page.setViewportSize({ width, height: 915 });
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            // Exercise layout through the real handlers without earlier test
+            // notifications intercepting pointer clicks during resize.
+            await page.locator("#btn-collapse-sidebar").evaluate(el => el.click());
+            await page.waitForFunction(() => {
+                const rect = document.querySelector("#chat-sidebar").getBoundingClientRect();
+                return innerWidth > 900 ? rect.width < 1 : rect.height < 1;
+            });
+            if (width > 900) {
+                const gap = await page.evaluate(() => document.querySelector(".chat-layout").getBoundingClientRect().right
+                    - document.querySelector("#btn-open-sidebar").getBoundingClientRect().right);
+                assert.ok(gap <= 10, `collapsed settings must not reserve panel width at ${width}px (gap ${gap})`);
+            }
+            await page.locator("#btn-open-sidebar").evaluate(el => el.click());
+            await page.waitForFunction(() => document.querySelector("#chat-sidebar").getBoundingClientRect().width > 200);
+            if (width <= 900) {
+                await page.waitForFunction(() => Math.abs(document.querySelector("#chat-sidebar").getBoundingClientRect().width
+                    - document.querySelector(".chat-layout").getBoundingClientRect().width) < 1);
+            }
+        }
+        await page.setViewportSize(chatViewport);
+        await page.locator(settingsWereCollapsed ? "#btn-collapse-sidebar" : "#btn-open-sidebar").evaluate(el => el.click());
+
         assert.equal(await page.locator("#chat-input").isDisabled(), true);
         assert.equal(await page.locator("#btn-chat-send").isDisabled(), true);
         assert.match(await page.textContent("#chat-no-server-note"), /Start llama-server/i);
