@@ -419,22 +419,9 @@
     // grid, state cards, setup cards). TODO: upgrade path is a single
     // flattened grid if cross-container moves are ever wanted.
     const ORDER_CONTAINER_SELECTOR = ".monitor-drag-container";
-    // A draggable ancestor disables text selection inside it: Chromium starts
-    // a card drag instead of extending the selection, and cancelling
-    // `dragstart` does not hand the gesture back. Draggability is therefore
-    // decided at mousedown — the tools row (which carries the grip glyph) is
-    // always a handle, text-bearing regions stay selectable, and everything
-    // else on the card drags as before.
-    const ORDER_DRAG_HANDLE_SELECTOR = ".monitor-card-tools";
-    const ORDER_SELECTABLE_SELECTOR = [
-        ".monitor-command",
-        ".monitor-probe-details",
-        ".monitor-metric-label",
-        ".monitor-metric-reading",
-        ".card-title",
-        "code",
-        "p",
-    ].join(", ");
+    // Chromium suppresses clicks and text selection under a draggable
+    // ancestor, so the dedicated grip is the only draggable element.
+    const ORDER_DRAG_HANDLE_SELECTOR = ".monitor-drag-handle";
 
     function isSessionOnlyKey(key) {
         // Index-fallback GPU identities are not stable across boots, so their
@@ -772,11 +759,19 @@
         return button;
     }
 
+    function makeDragHandle(label) {
+        const button = makeEl("button", "btn btn-sm btn-ghost monitor-drag-handle", "⠿");
+        button.type = "button";
+        button.draggable = true;
+        button.title = "Drag to reorder; use arrow keys to move";
+        button.setAttribute("aria-label", `Move ${label} monitor; use arrow keys`);
+        return button;
+    }
+
     function cardShell(key, label, kickerText, titleText, iconClass, iconSvg) {
         const card = makeEl("div", "card");
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = label;
-        card.draggable = true;
 
         const header = makeEl("div", "card-header");
         const heading = makeEl("div");
@@ -784,11 +779,8 @@
         heading.appendChild(makeEl("div", "card-title", titleText));
         header.appendChild(heading);
 
-        // The tools row is the drag handle; the card as a whole is not, so the
-        // "Drag to reorder" hint belongs here rather than on the card (where it
-        // would also claim the card's text regions, which stay selectable).
         const tools = makeEl("div", "monitor-card-tools");
-        tools.title = "Drag to reorder";
+        tools.appendChild(makeDragHandle(label));
         tools.appendChild(makeHideButton(key, label));
         if (iconClass && iconSvg) {
             const iconWrap = makeEl("div", `card-icon ${iconClass}`);
@@ -983,11 +975,10 @@
         const card = makeEl("div", "card");
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = title;
-        card.draggable = true;
 
         const tools = makeEl("div", "monitor-card-tools");
         tools.style.justifyContent = "flex-end";
-        tools.title = "Drag to reorder";
+        tools.appendChild(makeDragHandle(title));
         tools.appendChild(makeHideButton(key, title));
         card.appendChild(tools);
 
@@ -1228,20 +1219,21 @@
         if (typeof deps.getLatestStatus === "function") status = deps.getLatestStatus();
 
         const runtime = lifecycle && lifecycle.activeRuntime;
-        const transitional = lifecycle
-            && (lifecycle.phase === "starting" || lifecycle.phase === "loading" || lifecycle.phase === "stopping");
+        const phase = lifecycle && lifecycle.phase;
+        const phaseLabels = { starting: "Starting", loading: "Loading", stopping: "Stopping" };
+        const transitional = Object.prototype.hasOwnProperty.call(phaseLabels, phase);
         const running = Boolean(runtime) || Boolean(transitional);
         const tool = runtime && runtime.tool ? runtime.tool : "";
         const externalTarget = status && status.external_chat_target;
         const externalConnected = Boolean(externalTarget && externalTarget.connected);
 
         if (toolBadge) {
-            if (running) {
+            if (running && tool) {
                 toolBadge.textContent = tool;
                 toolBadge.classList.remove("hidden");
                 toolBadge.classList.remove("badge-accent");
                 toolBadge.classList.add("badge-neutral");
-            } else if (externalConnected) {
+            } else if (!running && externalConnected) {
                 toolBadge.textContent = "external server";
                 toolBadge.classList.remove("hidden");
                 toolBadge.classList.remove("badge-neutral");
@@ -1252,12 +1244,12 @@
         }
         if (stateBadge) {
             if (running) {
-                stateBadge.textContent = "Running";
-                stateBadge.classList.remove("hidden", "badge-dim");
-                stateBadge.classList.add("badge-green");
+                stateBadge.textContent = phaseLabels[phase] || "Running";
+                stateBadge.classList.remove("hidden", "badge-dim", "badge-green", "badge-yellow");
+                stateBadge.classList.add(transitional ? "badge-yellow" : "badge-green");
             } else {
                 stateBadge.textContent = "No process running";
-                stateBadge.classList.remove("hidden", "badge-green");
+                stateBadge.classList.remove("hidden", "badge-green", "badge-yellow");
                 stateBadge.classList.add("badge-dim");
             }
         }
@@ -1596,7 +1588,7 @@
     function clearDropMarkers() {
         if (typeof document.querySelectorAll !== "function") return;
         for (const card of document.querySelectorAll("[data-monitor-key]")) {
-            card.classList.remove("drop-before", "drop-after");
+            card.classList.remove("drop-before", "drop-after", "drop-horizontal");
         }
     }
 
@@ -1611,7 +1603,29 @@
         applyCardOrderToDom();
     }
 
-    function reorderCard(container, draggedKey, dropCard, clientY) {
+    function dropPlacement(container, dropCard, clientX, clientY) {
+        const rect = typeof dropCard.getBoundingClientRect === "function"
+            ? dropCard.getBoundingClientRect()
+            : null;
+        if (!rect) return { before: false, horizontal: false };
+        const horizontal = Array.from(container.children).some((other) => {
+            if (other === dropCard || (other.classList && other.classList.contains("hidden"))
+                    || typeof other.getBoundingClientRect !== "function") return false;
+            const otherRect = other.getBoundingClientRect();
+            return rect.width > 0 && otherRect.width > 0
+                && Math.max(rect.top, otherRect.top) < Math.min(rect.bottom, otherRect.bottom);
+        });
+        const point = Number(horizontal ? clientX : clientY);
+        const midpoint = horizontal
+            ? rect.left + rect.width / 2
+            : rect.top + rect.height / 2;
+        return {
+            before: Number.isFinite(point) ? point < midpoint : false,
+            horizontal,
+        };
+    }
+
+    function reorderCard(container, draggedKey, dropCard, clientX, clientY) {
         const keys = Array.from(container.children)
             .filter(child => child && child.dataset && child.dataset.monitorKey)
             .map(child => child.dataset.monitorKey);
@@ -1621,12 +1635,7 @@
         if (dropCard) {
             const index = remaining.indexOf(dropCard.dataset.monitorKey);
             if (index === -1) return;
-            const rect = typeof dropCard.getBoundingClientRect === "function"
-                ? dropCard.getBoundingClientRect()
-                : null;
-            const before = rect
-                ? Number(clientY) < rect.top + rect.height / 2
-                : false;
+            const { before } = dropPlacement(container, dropCard, clientX, clientY);
             insertAt = before ? index : index + 1;
         } else {
             // Dropped on empty container space: append at the end.
@@ -1636,19 +1645,37 @@
         updateCardOrder(remaining);
     }
 
-    function onMouseDown(event) {
-        const card = monitorCardFromEvent(event);
-        if (!card) return;
+    function onKeyDown(container, event) {
         const target = event && event.target;
-        const closest = (selector) => (target && typeof target.closest === "function"
-            ? target.closest(selector)
-            : null);
-        // The tools row carries the grip glyph, so it always drags.
-        card.draggable = Boolean(closest(ORDER_DRAG_HANDLE_SELECTOR))
-            || !closest(ORDER_SELECTABLE_SELECTOR);
+        if (!target || typeof target.closest !== "function"
+                || !target.closest(ORDER_DRAG_HANDLE_SELECTOR)) return;
+        const offset = event.key === "ArrowLeft" || event.key === "ArrowUp"
+            ? -1
+            : event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : 0;
+        if (!offset) return;
+        event.preventDefault();
+        const card = monitorCardFromEvent(event);
+        const cards = Array.from(container.children).filter(
+            child => child && child.dataset && child.dataset.monitorKey
+                && !(child.classList && child.classList.contains("hidden"))
+        );
+        const index = cards.indexOf(card);
+        const targetCard = cards[index + offset];
+        if (index === -1 || !targetCard) return;
+        const keys = Array.from(container.children)
+            .filter(child => child && child.dataset && child.dataset.monitorKey)
+            .map(child => child.dataset.monitorKey)
+            .filter(key => key !== card.dataset.monitorKey);
+        const targetIndex = keys.indexOf(targetCard.dataset.monitorKey);
+        keys.splice(offset < 0 ? targetIndex : targetIndex + 1, 0, card.dataset.monitorKey);
+        updateCardOrder(keys);
+        if (typeof target.focus === "function") target.focus();
     }
 
     function onDragStart(container, event) {
+        const target = event && event.target;
+        if (!target || typeof target.closest !== "function"
+                || !target.closest(ORDER_DRAG_HANDLE_SELECTOR)) return;
         const card = monitorCardFromEvent(event);
         if (!card) return;
         dragKey = card.dataset.monitorKey;
@@ -1676,12 +1703,10 @@
         clearDropMarkers();
         if (card && card.dataset.monitorKey !== dragKey) {
             event.preventDefault();
-            const rect = typeof card.getBoundingClientRect === "function"
-                ? card.getBoundingClientRect()
-                : null;
-            const before = rect
-                ? Number(event.clientY) < rect.top + rect.height / 2
-                : true;
+            const { before, horizontal } = dropPlacement(
+                container, card, event.clientX, event.clientY
+            );
+            card.classList.toggle("drop-horizontal", horizontal);
             card.classList.add(before ? "drop-before" : "drop-after");
         } else if (!card) {
             event.preventDefault();
@@ -1697,7 +1722,9 @@
     function onDrop(container, event) {
         if (!dragActive || !dragKey || dragContainer !== container) return;
         event.preventDefault();
-        reorderCard(container, dragKey, monitorCardFromEvent(event), event.clientY);
+        reorderCard(
+            container, dragKey, monitorCardFromEvent(event), event.clientX, event.clientY
+        );
         finishDrag();
     }
 
@@ -1708,7 +1735,7 @@
         dragActive = false;
         if (typeof document.querySelectorAll === "function") {
             for (const card of document.querySelectorAll("[data-monitor-key]")) {
-                card.classList.remove("dragging", "drop-before", "drop-after");
+                card.classList.remove("dragging", "drop-before", "drop-after", "drop-horizontal");
             }
         }
         if (deferredRender !== null) {
@@ -1773,24 +1800,12 @@
             });
         }
 
-        // Static cards exist at init time; dynamically built cards set
-        // draggable when they are constructed (cardShell / makeStateCard).
-        if (typeof document.querySelectorAll === "function") {
-            for (const card of document.querySelectorAll("[data-monitor-key]")) {
-                card.draggable = true;
-                // The hint belongs on the handle, not the card: the card's
-                // text regions stay selectable and are not drag sources.
-                const tools = card.querySelector(".monitor-card-tools");
-                if (tools) tools.title = "Drag to reorder";
-            }
-        }
-
         // Drag-and-drop reordering, delegated per container so per-sample card
         // rebuilds need no re-binding. Cards move within their own container
         // only (see ORDER_CONTAINER_SELECTOR).
         if (typeof document.querySelectorAll === "function") {
             for (const container of document.querySelectorAll(ORDER_CONTAINER_SELECTOR)) {
-                container.addEventListener("mousedown", onMouseDown);
+                container.addEventListener("keydown", (event) => onKeyDown(container, event));
                 container.addEventListener("dragstart", (event) => onDragStart(container, event));
                 container.addEventListener("dragover", (event) => onDragOver(container, event));
                 container.addEventListener("drop", (event) => onDrop(container, event));

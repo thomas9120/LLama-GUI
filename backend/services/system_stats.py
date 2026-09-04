@@ -923,7 +923,7 @@ def _amd_memory_usage(node):
 
 
 def _amd_device_nodes(data):
-    """Device dicts from the default summary, across release shapes."""
+    """Device dicts from AMD SMI metric output, across release shapes."""
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
     if isinstance(data, dict):
@@ -935,16 +935,22 @@ def _amd_device_nodes(data):
         ]
         if nodes:
             return nodes
-        gpu = data.get("gpu")
-        if isinstance(gpu, list):
-            return [item for item in gpu if isinstance(item, dict)]
-        if isinstance(gpu, dict):
-            return [gpu]
+        for key in ("gpu_data", "gpu"):
+            gpu = data.get(key)
+            if isinstance(gpu, list):
+                return [item for item in gpu if isinstance(item, dict)]
+            if isinstance(gpu, dict):
+                return [gpu]
     return []
 
 
 def parse_amd_device(node, fallback_index):
     """Normalize one AMD device; every field is independent."""
+    raw_index = node.get("gpu")
+    has_reported_index = (
+        isinstance(raw_index, int) and not isinstance(raw_index, bool) and raw_index >= 0
+    )
+    index = raw_index if has_reported_index else fallback_index
     name = _amd_find_string(node, _AMD_NAME_KEYS)
     utilization = clamp_percent(_amd_find_number(node, _AMD_UTIL_KEYS))
     temperature = _amd_find_number(node, _AMD_TEMP_KEYS)
@@ -954,7 +960,9 @@ def parse_amd_device(node, fallback_index):
     uuid = _normalize_uuid(_amd_find_string(node, _AMD_UUID_KEYS) or "")
     bdf = _normalize_bdf(_amd_find_string(node, _AMD_BDF_KEYS) or "")
 
-    if uuid is None and bdf is None and name is None and utilization is None:
+    if (uuid is None and bdf is None and name is None and utilization is None
+            and temperature is None and memory_used is None and memory_total is None
+            and not has_reported_index):
         return None
 
     if uuid is not None:
@@ -964,14 +972,14 @@ def parse_amd_device(node, fallback_index):
         gpu_id = f"amd:bdf:{bdf}"
         persistent = True
     else:
-        gpu_id = f"amd:index:{fallback_index}"
+        gpu_id = f"amd:index:{index}"
         persistent = False
 
     return {
         "provider": "amd",
         "id": gpu_id,
         "id_persistent": persistent,
-        "index": fallback_index,
+        "index": index,
         "name": name,
         "utilization_percent": utilization,
         "memory_used_bytes": memory_used,
@@ -981,7 +989,7 @@ def parse_amd_device(node, fallback_index):
 
 
 def parse_amd_smi_json(text):
-    """All GPUs from one bounded ``amd-smi --json`` probe.
+    """All GPUs from one bounded ``amd-smi metric --json`` probe.
 
     The parser is deliberately isolated and permissive: AMD SMI field names and
     nesting have changed between releases, so only actually supplied fields are
@@ -1013,7 +1021,7 @@ def probe_amd(platform_name):
         return "missing", [], _probe_details("not_found")
     try:
         result = subprocess.run(
-            [executable, "--json"],
+            [executable, "metric", "--json"],
             capture_output=True,
             text=True,
             timeout=AMD_PROBE_TIMEOUT_SECONDS,

@@ -510,6 +510,20 @@ class AmdParserTests(unittest.TestCase):
         }
     )
 
+    # Current AMD SMI wraps metric rows in gpu_data and supplies the numeric
+    # GPU index even when stable identity fields are absent.
+    GPU_DATA_RELEASE = json.dumps(
+        {
+            "gpu_data": [
+                {
+                    "gpu": 7,
+                    "usage": {"gfx_activity": {"value": 42, "unit": "%"}},
+                    "temperature": {"edge_temperature": {"value": 47, "unit": "C"}},
+                }
+            ]
+        }
+    )
+
     def test_flat_release(self):
         devices = svc.parse_amd_smi_json(self.FLAT_RELEASE)
         self.assertEqual(len(devices), 2)
@@ -537,6 +551,16 @@ class AmdParserTests(unittest.TestCase):
         self.assertAlmostEqual(device["temperature_c"], 52.5)
         self.assertEqual(device["memory_used_bytes"], 4096 * 1024 ** 2)
         self.assertEqual(device["memory_total_bytes"], 191 * 1024 ** 3)
+
+    def test_gpu_data_release_uses_reported_index(self):
+        devices = svc.parse_amd_smi_json(self.GPU_DATA_RELEASE)
+        self.assertEqual(len(devices), 1)
+        device = devices[0]
+        self.assertEqual(device["id"], "amd:index:7")
+        self.assertFalse(device["id_persistent"])
+        self.assertEqual(device["index"], 7)
+        self.assertAlmostEqual(device["utilization_percent"], 42.0)
+        self.assertAlmostEqual(device["temperature_c"], 47.0)
 
     def test_empty_and_malformed(self):
         self.assertEqual(svc.parse_amd_smi_json("{}"), [])
@@ -622,6 +646,16 @@ class AmdParserTests(unittest.TestCase):
         self.assertEqual(status, "ok")
         self.assertEqual(devices, [])
         self.assertEqual(details["reason"], "no_devices")
+
+    def test_probe_uses_metric_json(self):
+        completed = SimpleNamespace(returncode=0, stdout=self.GPU_DATA_RELEASE, stderr="")
+        with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
+                mock.patch("subprocess.run", return_value=completed) as run:
+            status, devices, details = svc.probe_amd("linux")
+        self.assertEqual(status, "ok")
+        self.assertEqual(len(devices), 1)
+        self.assertIsNone(details)
+        self.assertEqual(run.call_args.args[0], ["/opt/rocm/bin/amd-smi", "metric", "--json"])
 
 
 class ResolverTests(unittest.TestCase):

@@ -99,6 +99,7 @@ function createElement(tagName = "div") {
         value: "",
         checked: false,
         disabled: false,
+        draggable: false,
         open: false,
         scrollTop: 0,
         scrollHeight: 0,
@@ -1601,22 +1602,53 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     assert.deepEqual(keys(), [
         "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB",
     ]);
-    // The hint lives on the handle, not the card: the card's text regions stay
-    // selectable and are deliberately not drag sources.
+    // The hint lives on the dedicated handle, not the card or tools row.
     assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").title, "",
         "the card as a whole claims no drag affordance");
+    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-card-tools").title, "");
     assert.equal(
-        cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-card-tools").title,
-        "Drag to reorder",
-        "the tools row advertises the drag affordance",
+        cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-drag-handle").title,
+        "Drag to reorder; use arrow keys to move",
+        "the grip advertises pointer and keyboard reordering",
     );
+
+    // Cards on the same visual row use the horizontal midpoint.
+    const setHorizontalRects = () => {
+        grid().children.forEach((card, index) => {
+            card._rect = {
+                top: 0, height: 60, bottom: 60,
+                left: index * 120, right: index * 120 + 100, width: 100,
+            };
+        });
+    };
+    const dragstart = (card) => grid().dispatch("dragstart", {
+        target: card.querySelector(".monitor-drag-handle"),
+        dataTransfer: { effectAllowed: "", setData() {}, getData: () => "" },
+    });
+    setHorizontalRects();
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-CCCC"));
+    grid().dispatch("dragover", {
+        target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientX: 210, clientY: 30,
+    });
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-AAAA").classList.contains("drop-after"));
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-AAAA").classList.contains("drop-horizontal"));
+    grid().dispatch("drop", {
+        target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientX: 210, clientY: 30,
+    });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-BBBB",
+    ], "right-half drop lands after a card on the same row");
+    setHorizontalRects();
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-CCCC"));
+    grid().dispatch("drop", {
+        target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientX: 10, clientY: 30,
+    });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB",
+    ], "left-half drop lands before a card on the same row");
 
     // Drag B into A's upper half -> B lands before A.
     setRects();
-    const dragstart = (card) => grid().dispatch("dragstart", {
-        target: card,
-        dataTransfer: { effectAllowed: "", setData() {}, getData: () => "" },
-    });
     dragstart(cardByKey("gpu:nvidia:uuid:GPU-BBBB"));
     assert.ok(cardByKey("gpu:nvidia:uuid:GPU-BBBB").classList.contains("dragging"),
         "dragged card is dimmed");
@@ -1666,7 +1698,9 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
             ],
         }),
     });
-    grid().dispatch("dragstart", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA") });
+    grid().dispatch("dragstart", {
+        target: cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-drag-handle"),
+    });
     monitorUi.recheck();
     await wait(100);
     assert.equal(grid().children.length, 3, "poll render is deferred during a drag");
@@ -1719,10 +1753,8 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
         "reorder still works for the session when storage is blocked");
 }
 
-// Drag gating on mousedown: a draggable ancestor disables text selection, so
-// draggability is decided per press. Text-bearing regions opt out (staying
-// selectable), the tools row is always a handle, and the rest of the card
-// still drags.
+// Only the dedicated grip is draggable; it also supports arrow-key
+// reordering. Every other control and text region remains interactive.
 {
     monitorUi._resetForTests();
     resetDom();
@@ -1751,25 +1783,33 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
 
     const grid = documentStub.getElementById("monitor-gpu-grid");
     const card = grid.children[0];
-    const press = (el) => grid.dispatch("mousedown", { target: el });
-
-    press(card.querySelector(".monitor-metric-reading"));
-    assert.equal(card.draggable, false, "metric text stays selectable");
-    press(card.querySelector(".monitor-metric-label"));
-    assert.equal(card.draggable, false, "metric labels stay selectable");
-    press(card.querySelector(".monitor-card-tools"));
-    assert.equal(card.draggable, true, "tools row grip is always a drag handle");
-    press(card);
-    assert.equal(card.draggable, true, "the rest of the card still drags");
+    const handle = card.querySelector(".monitor-drag-handle");
+    assert.equal(handle.draggable, true, "the dedicated grip is draggable");
+    assert.equal(card.draggable, false, "the card body is not draggable");
+    assert.equal(card.querySelector(".monitor-hide-btn").draggable, false,
+        "Hide remains a normal button");
 
     const setupCard = documentStub.getElementById("monitor-setup-cards").children[0];
-    press(setupCard.querySelector(".monitor-probe-details"));
-    assert.equal(setupCard.draggable, false, "probe diagnostics stay selectable");
+    assert.equal(setupCard.draggable, false, "setup card text stays selectable");
+    assert.equal(setupCard.querySelector("a").draggable, false,
+        "documentation links do not drag the card");
+
+    // The focused grip moves through the visible card order with arrow keys.
+    grid.dispatch("keydown", { target: handle, key: "ArrowRight" });
+    assert.deepEqual(
+        grid.children.map(entry => entry.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA"],
+    );
+    assert.equal(handle.focusCalls, 1, "keyboard reorder restores focus to the grip");
+    grid.dispatch("keydown", { target: handle, key: "ArrowLeft" });
+    assert.deepEqual(
+        grid.children.map(entry => entry.dataset.monitorKey),
+        ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB"],
+    );
 
     // A drag that does start still reorders end to end.
-    press(card);
     grid.dispatch("dragstart", {
-        target: card,
+        target: handle,
         dataTransfer: { effectAllowed: "", setData() {}, getData: () => "" },
     });
     grid.dispatch("drop", { target: grid.children[1], clientY: 90 });
@@ -2093,7 +2133,24 @@ async function copyButtonScenario(copyText) {
 
     assert.equal(documentStub.getElementById("monitor-process-tool").textContent, "llama-server");
     assert.equal(documentStub.getElementById("monitor-process-state").textContent, "Running");
+    assert.equal(documentStub.getElementById("monitor-process-state").classList.contains("badge-green"), true);
     assert.equal(documentStub.getElementById("monitor-no-process-note").classList.contains("hidden"), true);
+
+    // Transitional phases are named accurately and do not expose an empty
+    // tool badge before the runtime identity exists.
+    for (const [phase, label] of [["starting", "Starting"], ["loading", "Loading"], ["stopping", "Stopping"]]) {
+        lifecycle = {
+            activeRuntime: phase === "starting" ? null : { tool: "llama-server", generation: 5 },
+            phase,
+            busy: true,
+        };
+        monitorUi.updateProcessHeader();
+        assert.equal(documentStub.getElementById("monitor-process-state").textContent, label);
+        assert.equal(documentStub.getElementById("monitor-process-state").classList.contains("badge-yellow"), true);
+    }
+    lifecycle = { activeRuntime: null, phase: "starting", busy: true };
+    monitorUi.updateProcessHeader();
+    assert.equal(documentStub.getElementById("monitor-process-tool").classList.contains("hidden"), true);
 
     // External server, no GUI process: stdout note replaces the terminal.
     lifecycle = { activeRuntime: null, phase: "idle", busy: false };
