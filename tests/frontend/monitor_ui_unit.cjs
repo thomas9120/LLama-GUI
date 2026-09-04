@@ -117,8 +117,14 @@ function createElement(tagName = "div") {
             (this._listeners[type] = this._listeners[type] || []).push(handler);
         },
         removeEventListener() {},
-        dispatch(type) {
-            for (const handler of this._listeners[type] || []) handler({ target: this });
+        dispatch(type, event) {
+            // Real-DOM semantics: listeners fire with a target; callers may
+            // supply extra event fields (dataTransfer, clientY, ...).
+            const detail = Object.assign(
+                { target: this, preventDefault: () => {}, stopPropagation: () => {} },
+                event,
+            );
+            for (const handler of this._listeners[type] || []) handler(detail);
         },
         setAttribute(name, value) {
             this._attributes[name] = String(value);
@@ -132,6 +138,10 @@ function createElement(tagName = "div") {
             return Object.prototype.hasOwnProperty.call(this._attributes, name);
         },
         appendChild(child) {
+            // Real-DOM semantics: re-appending an attached node moves it.
+            if (child.parentNode) {
+                child.parentNode.children = child.parentNode.children.filter(c => c !== child);
+            }
             child.parentNode = this;
             this.children.push(child);
             return child;
@@ -171,6 +181,12 @@ function createElement(tagName = "div") {
                 node = node.parentNode;
             }
             return null;
+        },
+        getBoundingClientRect() {
+            // No real layout in the vm; tests set `_rect` per element.
+            return this._rect || {
+                top: 0, height: 100, bottom: 100, left: 0, right: 0, width: 0,
+            };
         },
         querySelector(selector) {
             return queryAll(this, selector)[0] || null;
@@ -308,10 +324,10 @@ function buildStandardDom() {
     mount("monitor-disk-io").classList.add("hidden");
     mount("monitor-disk-read", "span");
     mount("monitor-disk-write", "span");
-    mount("monitor-gpu-grid");
-    mount("monitor-gpu-states");
+    mount("monitor-gpu-grid")._classes.add("monitor-drag-container");
+    mount("monitor-gpu-states")._classes.add("monitor-drag-container");
     mount("monitor-gpu-setup").classList.add("hidden");
-    mount("monitor-setup-cards");
+    mount("monitor-setup-cards")._classes.add("monitor-drag-container");
     mount("monitor-inference-kicker");
     mount("monitor-inference-state-badge", "span");
     mount("monitor-inference-body").classList.add("hidden");
@@ -1424,6 +1440,19 @@ const manyEntries = Array.from({ length: 150 }, (_v, i) => ({ key: `gpu:id-${i}`
 assert.equal(normalized(manyEntries).length, 100);
 assert.equal(monitorUi.isSessionOnlyKey("gpu:nvidia:index:0"), true);
 assert.equal(monitorUi.isSessionOnlyKey("gpu:nvidia:uuid:GPU-AAAA"), false);
+
+assert.deepEqual(Array.from(monitorUi.normalizeOrderEntries("nope")), []);
+assert.deepEqual(Array.from(monitorUi.normalizeOrderEntries({})), []);
+assert.deepEqual(
+    Array.from(monitorUi.normalizeOrderEntries(["a", "dup", "a", "", 7, "b"])),
+    ["a", "dup", "b"],
+    "order normalization dedupes, drops non-strings, keeps order",
+);
+assert.deepEqual(Array.from(monitorUi.normalizeOrderEntries(["k".repeat(300), "ok"])), ["ok"]);
+assert.equal(
+    monitorUi.normalizeOrderEntries(Array.from({ length: 105 }, (_v, i) => `k${i}`)).length,
+    100,
+);
 assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
 
 {
@@ -1507,6 +1536,156 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     visibleCards()[0].querySelector(".monitor-hide-btn").dispatch("click");
     assert.equal(visibleCards().length, 1,
         "hiding still works for the session when storage is blocked");
+}
+
+// Card ordering: persisted order is applied on load; drag before/after math
+// and empty-area drops reorder the DOM and persist; samples arriving mid-drag
+// are deferred; index-fallback GPU keys never persist.
+{
+    monitorUi._resetForTests();
+    resetDom();
+    buildStandardDom();
+    const storage = makeStorage();
+    storage.map.set("llama_gui_monitor_card_order",
+        JSON.stringify(["gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB"]));
+    context.localStorage = storage;
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [
+                makeGpu("nvidia:uuid:GPU-AAAA"),
+                makeGpu("nvidia:uuid:GPU-BBBB", { index: 1 }),
+                makeGpu("nvidia:uuid:GPU-CCCC", { index: 2 }),
+            ],
+        }),
+        getLifecycleSnapshot: () => ({ activeRuntime: null, phase: "idle", busy: false }),
+        getLatestStatus: () => null,
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+
+    const grid = () => documentStub.getElementById("monitor-gpu-grid");
+    const keys = () => grid().children.map(card => card.dataset.monitorKey);
+    const cardByKey = (key) => grid().children.find(card => card.dataset.monitorKey === key);
+    const setRects = () => {
+        grid().children.forEach((card, index) => {
+            card._rect = { top: index * 60, height: 60, bottom: index * 60 + 60, left: 0, right: 0, width: 0 };
+        });
+    };
+
+    // Persisted order wins over the backend's gpu array order.
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-BBBB",
+    ]);
+    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").title, "Drag to reorder",
+        "cards advertise the drag affordance");
+
+    // Drag B into A's upper half -> B lands before A.
+    setRects();
+    const dragstart = (card) => grid().dispatch("dragstart", {
+        target: card,
+        dataTransfer: { effectAllowed: "", setData() {}, getData: () => "" },
+    });
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-BBBB"));
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-BBBB").classList.contains("dragging"),
+        "dragged card is dimmed");
+    grid().dispatch("dragover", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 10 });
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-AAAA").classList.contains("drop-before"));
+    grid().dispatch("drop", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 10 });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA",
+    ], "B lands immediately before A");
+    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-BBBB").classList.contains("dragging"), false,
+        "drag state clears after drop");
+    const persisted = JSON.parse(storage.map.get("llama_gui_monitor_card_order"));
+    assert.deepEqual(persisted.slice(0, 3), [
+        "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA",
+    ]);
+
+    // Drag C into A's lower half -> C lands after A.
+    setRects();
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-CCCC"));
+    grid().dispatch("dragover", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 160 });
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-AAAA").classList.contains("drop-after"));
+    grid().dispatch("drop", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 160 });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-BBBB", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-CCCC",
+    ], "C lands immediately after A");
+
+    // Dropping on empty container space appends at the end; hovering the
+    // empty area marks the last card as the append slot.
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-BBBB"));
+    grid().dispatch("dragover", { target: grid(), clientY: 999 });
+    assert.ok(cardByKey("gpu:nvidia:uuid:GPU-CCCC").classList.contains("drop-after"),
+        "empty-space hover marks the last card as the append slot");
+    grid().dispatch("drop", { target: grid(), clientY: 999 });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-BBBB",
+    ]);
+
+    // A sample landing mid-drag is deferred; rendering resumes after dragend
+    // and the new card takes its place after the known keys.
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [
+                makeGpu("nvidia:uuid:GPU-AAAA"),
+                makeGpu("nvidia:uuid:GPU-BBBB", { index: 1 }),
+                makeGpu("nvidia:uuid:GPU-CCCC", { index: 2 }),
+                makeGpu("nvidia:uuid:GPU-DDDD", { index: 3 }),
+            ],
+        }),
+    });
+    grid().dispatch("dragstart", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA") });
+    monitorUi.recheck();
+    await wait(100);
+    assert.equal(grid().children.length, 3, "poll render is deferred during a drag");
+    grid().dispatch("dragend");
+    assert.equal(grid().children.length, 4, "deferred sample renders after the drag");
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-CCCC", "gpu:nvidia:uuid:GPU-BBBB",
+        "gpu:nvidia:uuid:GPU-DDDD",
+    ], "new unknown card lands after known keys");
+
+    // Hidden cards keep their position through reordering.
+    setRects();
+    cardByKey("gpu:nvidia:uuid:GPU-CCCC").querySelector(".monitor-hide-btn").dispatch("click");
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-DDDD"));
+    grid().dispatch("drop", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 10 });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:uuid:GPU-DDDD", "gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:uuid:GPU-CCCC",
+        "gpu:nvidia:uuid:GPU-BBBB",
+    ], "hidden cards keep their slot while others reorder around them");
+    documentStub.getElementById("btn-monitor-show-all").dispatch("click");
+    assert.equal(cardByKey("gpu:nvidia:uuid:GPU-CCCC").classList.contains("hidden"), false);
+
+    // Index-fallback GPU keys order the session but never persist.
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpus: [
+                makeGpu("nvidia:index:9", { index: 9, name: "Fallback GPU" }),
+                makeGpu("nvidia:uuid:GPU-AAAA"),
+            ],
+        }),
+    });
+    monitorUi.recheck();
+    await wait(100);
+    setRects();
+    dragstart(cardByKey("gpu:nvidia:index:9"));
+    grid().dispatch("drop", { target: cardByKey("gpu:nvidia:uuid:GPU-AAAA"), clientY: 10 });
+    assert.deepEqual(keys(), [
+        "gpu:nvidia:index:9", "gpu:nvidia:uuid:GPU-AAAA",
+    ], "session drag order applies in memory");
+    const persistedAfter = JSON.parse(storage.map.get("llama_gui_monitor_card_order"));
+    assert.equal(persistedAfter.includes("gpu:nvidia:index:9"), false,
+        "index-fallback keys are not persisted");
+    assert.equal(persistedAfter.includes("gpu:nvidia:uuid:GPU-AAAA"), true);
+
+    // Storage failure degrades to session-only ordering, like hidden cards.
+    context.localStorage = makeStorage({ fail: true });
+    dragstart(cardByKey("gpu:nvidia:uuid:GPU-AAAA"));
+    grid().dispatch("drop", { target: cardByKey("gpu:nvidia:index:9"), clientY: 10 });
+    assert.deepEqual(keys(), ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:index:9"],
+        "reorder still works for the session when storage is blocked");
 }
 
 // Persistent hidden-card writes retain the most recent 100 entries and do not

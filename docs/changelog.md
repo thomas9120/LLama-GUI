@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-09-06
+- Monitor cards are now reorderable by drag and drop within their own flow (system/Inference grid, GPU grid, state cards, setup cards). The order persists in localStorage by card key (index-fallback GPU keys stay session-only), is re-applied after every telemetry render, and sample refreshes are deferred during an active drag so the dragged card is never destroyed mid-move. Drag feedback: a grippy "Drag to reorder" affordance and tooltip on each card, a dashed outline on the card being moved, and an accent slot bar plus ring on the card under the pointer (the last card doubles as the append slot when hovering empty space).
 - Failed GPU vendor probes (nvidia-smi/amd-smi) now surface observed diagnostics in Monitor state/setup cards: reason (tool not found / timeout / non-zero exit / unparsable output / no usable devices), tool path, exit code, and the first stderr line (truncated to 200 chars).
 - The server-ready toast now includes a temporary "Open Monitor" link when llama-server becomes ready; the toast action API is generic (label + onClick, textContent-only) while all other notifications are unchanged.
 

@@ -4501,6 +4501,35 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     word-break: break-all;
 }
 
+/* Reorderable cards: the whole card is the drag source. A permanent grip
+   glyph in the tools row marks the card as movable; while dragging, the moved
+   card is dimmed with a dashed outline and the insertion slot is an accent bar
+   at the drop edge (inset shadow: no layout shift) with a soft ring on the
+   card under the pointer. */
+.monitor-drag-container [data-monitor-key] { cursor: grab; }
+.monitor-drag-container [data-monitor-key]:active { cursor: grabbing; }
+.monitor-drag-container .monitor-card-tools::before {
+    content: "⠿";
+    align-self: center;
+    font-size: 13px;
+    line-height: 1;
+    color: var(--fg-faint);
+    opacity: 0.45;
+    transition: opacity var(--ease-fast);
+}
+.monitor-drag-container .card:hover .monitor-card-tools::before { opacity: 1; }
+.card.dragging {
+    opacity: 0.45;
+    outline: 2px dashed var(--accent-border);
+    outline-offset: 3px;
+}
+.card.drop-before {
+    box-shadow: var(--shadow-sm), inset 0 5px 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+.card.drop-after {
+    box-shadow: var(--shadow-sm), inset 0 -5px 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+
 .monitor-io-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

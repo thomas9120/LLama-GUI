@@ -412,6 +412,14 @@
     const HIDDEN_MAX_KEY_LENGTH = 256;
     const HIDDEN_MAX_LABEL_LENGTH = 120;
 
+    const ORDER_STORAGE_KEY = "llama_gui_monitor_card_order";
+    const ORDER_MAX_ENTRIES = 100;
+    const ORDER_MAX_KEY_LENGTH = 256;
+    // Cards reorder within their own container flow only (metrics grid, GPU
+    // grid, state cards, setup cards). ponytail: upgrade path is a single
+    // flattened grid if cross-container moves are ever wanted.
+    const ORDER_CONTAINER_SELECTOR = ".monitor-drag-container";
+
     function isSessionOnlyKey(key) {
         // Index-fallback GPU identities are not stable across boots, so their
         // hides last for the session only.
@@ -434,6 +442,20 @@
         return entries;
     }
 
+    function normalizeOrderEntries(value) {
+        if (!Array.isArray(value)) return [];
+        const seen = new Set();
+        const order = [];
+        for (const key of value) {
+            if (order.length >= ORDER_MAX_ENTRIES) break;
+            if (typeof key !== "string" || !key || key.length > ORDER_MAX_KEY_LENGTH) continue;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            order.push(key);
+        }
+        return order;
+    }
+
     // ════════════════════════════════════════════════════════════════════
     // Module state
     // ════════════════════════════════════════════════════════════════════
@@ -454,6 +476,14 @@
     let everSucceeded = false;
     // key -> { label, sessionOnly }
     let hiddenCards = new Map();
+    // Effective card order (keys may exist across all containers); session-only
+    // index-fallback keys may ride along in memory but are never persisted.
+    let cardOrder = [];
+    let dragKey = null;
+    let dragActive = false;
+    // A sample that landed mid-drag; the GPU rebuild would destroy the dragged
+    // node and cancel the drag, so it is deferred until the drag ends.
+    let deferredRender = null;
 
     function byId(id) {
         return document.getElementById(id);
@@ -587,6 +617,7 @@
         panelVisible = tabId === "monitor";
         if (panelVisible) {
             applyHiddenCardsToDom();
+            applyCardOrderToDom();
             updateProcessHeader();
             scrollTerminalToBottom();
         }
@@ -679,6 +710,8 @@
         const card = makeEl("div", "card");
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = label;
+        card.draggable = true;
+        card.title = "Drag to reorder";
 
         const header = makeEl("div", "card-header");
         const heading = makeEl("div");
@@ -849,6 +882,8 @@
         const card = makeEl("div", "card");
         card.dataset.monitorKey = key;
         card.dataset.monitorLabel = title;
+        card.draggable = true;
+        card.title = "Drag to reorder";
 
         const tools = makeEl("div", "monitor-card-tools");
         tools.style.justifyContent = "flex-end";
@@ -949,10 +984,17 @@
         setupSection.classList.toggle("hidden", actionable.length === 0);
 
         applyHiddenCardsToDom();
+        applyCardOrderToDom();
     }
 
     function renderSample(sample) {
         if (!sample) return;
+        if (dragActive) {
+            // A periodic rebuild would destroy the node being dragged and
+            // cancel the drag; keep it fresh and render after the drag ends.
+            deferredRender = sample;
+            return;
+        }
         renderSystemMetrics(sample.system);
         renderGpuArea(sample);
     }
@@ -1277,6 +1319,166 @@
         applyHiddenCardsToDom();
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    // Card ordering (drag and drop, per container)
+    // ════════════════════════════════════════════════════════════════════
+
+    function loadCardOrder() {
+        cardOrder = [];
+        try {
+            const raw = localStorage.getItem(ORDER_STORAGE_KEY);
+            if (raw) cardOrder = normalizeOrderEntries(JSON.parse(raw));
+        } catch (error) {
+            console.debug("Could not read monitor card order", error);
+        }
+    }
+
+    function persistCardOrder() {
+        try {
+            // Index-fallback GPU keys are session-only, exactly like hides.
+            const retained = normalizeOrderEntries(
+                cardOrder.filter(key => !isSessionOnlyKey(key))
+            );
+            localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(retained));
+        } catch (error) {
+            console.debug("Could not persist monitor card order", error);
+        }
+    }
+
+    function applyCardOrderToDom() {
+        if (typeof document.querySelectorAll !== "function") return;
+        for (const container of document.querySelectorAll(ORDER_CONTAINER_SELECTOR)) {
+            if (!container || !container.children) continue;
+            const cards = Array.from(container.children).filter(
+                child => child && child.dataset && child.dataset.monitorKey
+            );
+            if (cards.length < 2) continue;
+            // Cards absent from the persisted order keep their current DOM
+            // order after every known card.
+            const currentIndex = new Map();
+            cards.forEach((card, index) => currentIndex.set(card.dataset.monitorKey, index));
+            const orderOf = (card) => {
+                const known = cardOrder.indexOf(card.dataset.monitorKey);
+                return known !== -1 ? known : cardOrder.length + currentIndex.get(card.dataset.monitorKey);
+            };
+            const sorted = cards.slice().sort((a, b) => orderOf(a) - orderOf(b));
+            for (const card of sorted) container.appendChild(card);
+        }
+    }
+
+    function monitorCardFromEvent(event) {
+        const target = event && event.target;
+        if (!target || typeof target.closest !== "function") return null;
+        return target.closest("[data-monitor-key]");
+    }
+
+    function clearDropMarkers() {
+        if (typeof document.querySelectorAll !== "function") return;
+        for (const card of document.querySelectorAll("[data-monitor-key]")) {
+            card.classList.remove("drop-before", "drop-after");
+        }
+    }
+
+    // Merge one container's new key order into the global order. Only relative
+    // order within the same container matters, so the container keys simply
+    // move behind the others; unknown keys stay untouched and dead keys stay
+    // inert (they can resurrect a card that reappears).
+    function updateCardOrder(draggedKey, containerKeys) {
+        const other = cardOrder.filter(key => !containerKeys.includes(key));
+        cardOrder = other.concat(containerKeys);
+        persistCardOrder();
+        applyCardOrderToDom();
+    }
+
+    function reorderCard(container, draggedKey, dropCard, clientY) {
+        const keys = Array.from(container.children)
+            .filter(child => child && child.dataset && child.dataset.monitorKey)
+            .map(child => child.dataset.monitorKey);
+        const remaining = keys.filter(key => key !== draggedKey);
+        if (remaining.length === keys.length) return;
+        let insertAt;
+        if (dropCard) {
+            const index = remaining.indexOf(dropCard.dataset.monitorKey);
+            if (index === -1) return;
+            const rect = typeof dropCard.getBoundingClientRect === "function"
+                ? dropCard.getBoundingClientRect()
+                : null;
+            const before = rect
+                ? Number(clientY) < rect.top + rect.height / 2
+                : false;
+            insertAt = before ? index : index + 1;
+        } else {
+            // Dropped on empty container space: append at the end.
+            insertAt = remaining.length;
+        }
+        remaining.splice(insertAt, 0, draggedKey);
+        updateCardOrder(draggedKey, remaining);
+    }
+
+    function onDragStart(container, event) {
+        const card = monitorCardFromEvent(event);
+        if (!card) return;
+        dragKey = card.dataset.monitorKey;
+        dragActive = true;
+        card.classList.add("dragging");
+        if (event.dataTransfer) {
+            event.dataTransfer.effectAllowed = "move";
+            try {
+                event.dataTransfer.setData("text/plain", dragKey);
+            } catch (error) {
+                console.debug("Could not set drag payload", error);
+            }
+        }
+    }
+
+    function onDragOver(container, event) {
+        if (!dragActive || !dragKey) return;
+        const card = monitorCardFromEvent(event);
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        clearDropMarkers();
+        if (card && card.dataset.monitorKey !== dragKey) {
+            event.preventDefault();
+            const rect = typeof card.getBoundingClientRect === "function"
+                ? card.getBoundingClientRect()
+                : null;
+            const before = rect
+                ? Number(event.clientY) < rect.top + rect.height / 2
+                : true;
+            card.classList.add(before ? "drop-before" : "drop-after");
+        } else if (!card) {
+            event.preventDefault();
+            // Empty container space appends at the end: mark the last card.
+            const cards = Array.from(container.children).filter(
+                child => child && child.dataset && child.dataset.monitorKey
+            );
+            const last = cards[cards.length - 1];
+            if (last) last.classList.add("drop-after");
+        }
+    }
+
+    function onDrop(container, event) {
+        if (!dragActive || !dragKey) return;
+        event.preventDefault();
+        reorderCard(container, dragKey, monitorCardFromEvent(event), event.clientY);
+        finishDrag();
+    }
+
+    function finishDrag() {
+        if (!dragActive) return;
+        dragKey = null;
+        dragActive = false;
+        if (typeof document.querySelectorAll === "function") {
+            for (const card of document.querySelectorAll("[data-monitor-key]")) {
+                card.classList.remove("dragging", "drop-before", "drop-after");
+            }
+        }
+        if (deferredRender !== null) {
+            const sample = deferredRender;
+            deferredRender = null;
+            renderSample(sample);
+        }
+    }
+
     // Test-only: drop module polling/preference state between scenarios.
     function resetForTests() {
         cancelScheduledPoll();
@@ -1289,6 +1491,10 @@
         lastPollFailed = false;
         everSucceeded = false;
         hiddenCards = new Map();
+        cardOrder = [];
+        dragKey = null;
+        dragActive = false;
+        deferredRender = null;
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1297,6 +1503,7 @@
 
     function init() {
         loadHiddenCards();
+        loadCardOrder();
 
         const recheckBtn = byId("btn-monitor-recheck");
         if (recheckBtn) recheckBtn.addEventListener("click", recheck);
@@ -1326,9 +1533,31 @@
             });
         }
 
+        // Static cards exist at init time; dynamically built cards set
+        // draggable when they are constructed (cardShell / makeStateCard).
+        if (typeof document.querySelectorAll === "function") {
+            for (const card of document.querySelectorAll("[data-monitor-key]")) {
+                card.draggable = true;
+                card.title = "Drag to reorder";
+            }
+        }
+
+        // Drag-and-drop reordering, delegated per container so per-sample card
+        // rebuilds need no re-binding. Cards move within their own container
+        // only (see ORDER_CONTAINER_SELECTOR).
+        if (typeof document.querySelectorAll === "function") {
+            for (const container of document.querySelectorAll(ORDER_CONTAINER_SELECTOR)) {
+                container.addEventListener("dragstart", (event) => onDragStart(container, event));
+                container.addEventListener("dragover", (event) => onDragOver(container, event));
+                container.addEventListener("drop", (event) => onDrop(container, event));
+                container.addEventListener("dragend", () => finishDrag());
+            }
+        }
+
         updateProcessHeader();
         renderLiveBadge();
         applyHiddenCardsToDom();
+        applyCardOrderToDom();
     }
 
     root.monitorUi = {
@@ -1354,6 +1583,7 @@
         shortGpuId,
         normalizeHiddenEntries,
         isSessionOnlyKey,
+        normalizeOrderEntries,
         _resetForTests: resetForTests,
     };
 })();

@@ -845,7 +845,7 @@
 
             <!-- Compact system cards plus the optional expanded inference card -->
             <div class="monitor-section" id="monitor-system-section">
-                <div class="monitor-metrics-grid">
+                <div class="monitor-metrics-grid monitor-drag-container">
                     <div class="card" data-monitor-key="system:cpu" data-monitor-label="CPU">
                         <div class="card-header">
                             <div>
@@ -967,14 +967,14 @@
 
             <!-- GPUs: one card per device, plus degraded-state cards -->
             <div class="monitor-section" id="monitor-gpu-section">
-                <div class="monitor-gpu-grid hidden" id="monitor-gpu-grid"></div>
-                <div class="stacked-cards" id="monitor-gpu-states"></div>
+                <div class="monitor-gpu-grid hidden monitor-drag-container" id="monitor-gpu-grid"></div>
+                <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
             </div>
 
             <!-- Only the relevant failed provider gets a setup card. -->
             <div class="monitor-section hidden" id="monitor-gpu-setup">
                 <div class="status-box info">Setup states are provider-specific. Commands come from a fixed backend allowlist and are shown for you to run &mdash; Llama GUI never executes package managers or elevates privileges.</div>
-                <div class="stacked-cards monitor-setup-cards" id="monitor-setup-cards"></div>
+                <div class="stacked-cards monitor-setup-cards monitor-drag-container" id="monitor-setup-cards"></div>
             </div>
         </div>
 
