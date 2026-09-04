@@ -232,7 +232,10 @@ async function main() {
                     "data: [DONE]",
                     "",
                 ].join("\n");
-                if (chatResponseMode === "reasoning-only") {
+                if (chatResponseMode === "failed-partial") {
+                    chatStreamBody = 'data: {"choices":[{"delta":{"content":"recoverable partial"}}]}\n\n'
+                        + 'data: {"error":{"message":"Test connection failure"}}\n\n';
+                } else if (chatResponseMode === "reasoning-only") {
                     chatStreamBody = [
                         'data: {"choices":[{"delta":{"reasoning_content":"hidden thought"}}]}',
                         "",
@@ -1277,6 +1280,33 @@ async function main() {
         assert.equal(stoppedStreamUndoState.userBubbles, 1);
         assert.equal(stoppedStreamUndoState.assistantBubbles, 0);
         await page.evaluate(() => window.__restoreChatFetch());
+
+        await page.click("#btn-chat-new");
+        chatResponseMode = "ok";
+        await page.fill("#chat-input", "Recovery test");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        const recoveryRequestCount = chatCompletionBodies.length;
+        chatResponseMode = "failed-partial";
+        await page.fill("#chat-input", "Keep this draft");
+        await page.click("#btn-chat-regenerate");
+        await page.waitForFunction(() => document.querySelector(".chat-response-status")?.textContent.includes("previous answer kept"));
+        assert.equal(await page.locator(".chat-message.assistant .chat-bubble").innerText(), "ok");
+        assert.equal(await page.locator(".chat-message.user").count(), 1);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Keep this draft");
+        await page.getByRole("button", { name: "Next answer", exact: true }).click();
+        assert.equal(await page.locator(".chat-message.assistant .chat-bubble").innerText(), "recoverable partial");
+        assert.match(await page.locator(".chat-response-status").innerText(), /Incomplete/);
+        await page.getByRole("button", { name: "Previous answer", exact: true }).click();
+        chatResponseMode = "ok";
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".chat-response-footer")?.textContent.includes("Answer 3 of 3"));
+        assert.equal(await page.locator(".chat-message.user").count(), 1);
+        assert.equal(chatCompletionBodies.length, recoveryRequestCount + 2);
+        assert.deepEqual(chatCompletionBodies.at(-1).messages, [{ role: "user", content: "Recovery test" }]);
+        const recoveredVersions = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages[1].versions);
+        assert.equal(recoveredVersions[1].content, "recoverable partial");
+        assert.equal(recoveredVersions[1].status, "failed");
 
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 

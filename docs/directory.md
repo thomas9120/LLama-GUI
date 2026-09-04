@@ -619,6 +619,8 @@ When the web search toggle is enabled:
 - Each conversation has an id, title (derived from first user message), messages array, system prompt, and timestamp.
 - Sidebar shows recent conversations with preview text and relative timestamps.
 - Features: new chat, undo last message, regenerate last response, delete individual/all conversations, collapse sidebar.
+- User turns are saved before requests start. Completed, stopped, failed, and output-limited answers retain their status; interrupted content and saved source chips are restored when reopening history.
+- Regeneration sends the existing user turn without its previous answer. The previous answer stays selected until a completed replacement arrives; failed/stopped attempts are retained as answer versions. The latest assistant turn offers previous/next answer navigation and Retry after an unsuccessful or limited attempt. Only the selected answer content/reasoning is sent to the model; version and error metadata remain local.
 
 ### Markdown Rendering
 

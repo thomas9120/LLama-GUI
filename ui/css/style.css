@@ -3764,6 +3764,10 @@ body.chat-focus-mode #section-chat .chat-main {
 
 .chat-web-status { font-size: 11px; color: var(--cyan); opacity: 0.9; }
 
+.chat-response-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); font-size: 11px; color: var(--fg-muted); }
+.chat-response-status { overflow-wrap: anywhere; }
+.chat-response-status:empty, .chat-response-footer:has(> :only-child:empty) { display: none; }
+
 .chat-sources { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .chat-source-chip {

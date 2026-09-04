@@ -58,10 +58,7 @@
         renderChatTypingIndicator,
         removeChatTypingIndicator,
         appendChatStreamToken,
-        finalizeChatStreamMarkdown,
         appendChatReasoningStreamToken,
-        finalizeChatReasoningMarkdown,
-        setChatReasoningContent,
         splitReasoningFromContent,
     } = chatRendering;
 
@@ -198,7 +195,7 @@
     }
 
     function getChatRequestMessages(messages) {
-        return messages.map((msg) => {
+        return messages.filter((msg) => msg.role !== "assistant" || msg.content || msg.reasoning || msg.reasoning_content).map((msg) => {
             const requestMessage = {
                 role: msg.role,
                 content: msg.content,
@@ -279,6 +276,12 @@
         if (sendBtn) {
             sendBtn.disabled = !canSend;
             sendBtn.title = isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
+        }
+        const container = document.getElementById("chat-messages");
+        if (container) {
+            for (const button of container.querySelectorAll(".chat-response-action")) {
+                button.disabled = chatStreaming || (button.dataset.requiresServer === "true" && !isRunning);
+            }
         }
         if (note) {
             note.classList.toggle("hidden", Boolean(isRunning));
@@ -438,9 +441,9 @@
         return params;
     }
 
-    function sendMessage(userText) {
+    function sendMessage(userText, retry = false) {
         if (chatStreaming || !userText.trim()) return Promise.resolve();
-        const pending = runMessage(userText);
+        const pending = runMessage(userText, retry);
         chatStreamPromise = pending;
         const clearPending = () => {
             if (chatStreamPromise === pending) chatStreamPromise = null;
@@ -449,10 +452,7 @@
         return pending;
     }
 
-    function finalizeAssistantResponse(bubble, content, reasoning, sources, errored) {
-        if (!bubble) return;
-
-        setChatWebStatus(bubble, "");
+    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex) {
         let finalContent = content;
         let finalReasoning = reasoning;
         if (!finalReasoning && shouldExtractEmbeddedReasoning()) {
@@ -460,32 +460,101 @@
             if (split.reasoning) {
                 finalContent = split.content;
                 finalReasoning = split.reasoning;
-                bubble.dataset.rawText = finalContent;
-                if (!finalContent) {
-                    bubble.textContent = "";
-                    delete bubble.dataset.streamingTextInitialized;
-                }
-                setChatReasoningContent(bubble, finalReasoning);
             }
         }
-        if (finalReasoning) {
-            finalizeChatReasoningMarkdown(bubble);
+        const result = { content: finalContent, reasoning: finalReasoning, sources, status, error };
+        const previous = replacementIndex >= 0 ? chatMessages[replacementIndex] : null;
+        if (previous) {
+            const versions = Array.isArray(previous.versions) ? previous.versions.slice() : [{
+                content: previous.content, reasoning: previous.reasoning || "",
+                sources: previous.sources || [], status: previous.status || "complete", error: previous.error || "",
+            }];
+            versions.push(result);
+            // An unsuccessful attempt is still recoverable, but never replaces
+            // the answer the user was reading. Only completed output is selected.
+            const selected = status === "complete" || status === "length"
+                ? versions.length - 1 : (previous.versionIndex || 0);
+            chatMessages[replacementIndex] = {
+                role: "assistant", ...versions[selected], versions, versionIndex: selected,
+            };
+        } else {
+            chatMessages.push({ role: "assistant", ...result });
         }
-        if (finalContent) {
-            finalizeChatStreamMarkdown(bubble);
-            bubble.classList.remove("hidden");
-        } else if (finalReasoning) {
-            bubble.classList.add("hidden");
-        }
-        if ((finalContent || finalReasoning) && !errored) {
-            const assistantMessage = { role: "assistant", content: finalContent, sources };
-            if (finalReasoning) assistantMessage.reasoning = finalReasoning;
-            chatMessages.push(assistantMessage);
-            saveCurrentConversation();
-        }
+        saveCurrentConversation();
+        renderConversationMessages(replacementIndex >= 0 ? replacementIndex : chatMessages.length - 1);
     }
 
-    async function runMessage(userText) {
+    function renderConversationMessages(startIndex = 0) {
+        const container = document.getElementById("chat-messages");
+        const previousElements = Array.from(container.querySelectorAll(".chat-message"));
+        const empty = document.getElementById("chat-empty");
+        if (empty) empty.style.display = chatMessages.length ? "none" : "";
+        chatMessages.forEach((msg, index) => {
+            if (index < startIndex) {
+                // Earlier responses keep their rendered markdown and open
+                // reasoning panels. Their actions no longer target the last turn.
+                previousElements[index]?.querySelectorAll(".chat-response-action").forEach(el => el.remove());
+                return;
+            }
+            const bubble = renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
+            const previousElement = previousElements[index];
+            if (previousElement) {
+                container.insertBefore(bubble.closest(".chat-message"), previousElement);
+                previousElement.remove();
+            }
+            if (msg.role !== "assistant") return;
+            renderChatSources(bubble, msg.sources);
+            if (!msg.content) bubble.classList.add("hidden");
+            const footer = document.createElement("div");
+            footer.className = "chat-response-footer";
+            const label = document.createElement("span");
+            label.className = "chat-response-status";
+            label.textContent = msg.status === "failed" ? `Incomplete — ${msg.error || "Request failed"}`
+                : msg.status === "stopped" ? "Stopped — response may be incomplete"
+                : msg.status === "length" ? "Output limit reached" : "";
+            footer.appendChild(label);
+            const latest = index === chatMessages.length - 1;
+            const addAction = (text, action, requiresServer = false) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "btn btn-xs chat-response-action";
+                button.textContent = text;
+                button.dataset.requiresServer = String(requiresServer);
+                button.addEventListener("click", () => {
+                    if (!chatStreaming && chatMessages[index] === msg) return action();
+                });
+                footer.appendChild(button);
+            };
+            if (Array.isArray(msg.versions) && msg.versions.length > 1) {
+                const selected = msg.versionIndex || 0;
+                const versionLabel = document.createElement("span");
+                versionLabel.textContent = `Answer ${selected + 1} of ${msg.versions.length}`;
+                footer.appendChild(versionLabel);
+                const lastAttempt = msg.versions[msg.versions.length - 1];
+                if (selected < msg.versions.length - 1 && ["failed", "stopped"].includes(lastAttempt.status)) {
+                    label.textContent += `${label.textContent ? ". " : ""}Latest attempt ${lastAttempt.status}; previous answer kept.`;
+                }
+                // Choosing a different answer after later turns would rewrite
+                // their context. Branch/edit support is a separate change.
+                const selectVersion = (value) => {
+                    chatMessages[index] = { role: "assistant", ...msg.versions[value], versions: msg.versions, versionIndex: value };
+                    saveCurrentConversation();
+                    renderConversationMessages(index);
+                };
+                if (latest && selected > 0) addAction("Previous answer", () => selectVersion(selected - 1));
+                if (latest && selected < msg.versions.length - 1) addAction("Next answer", () => selectVersion(selected + 1));
+            }
+            const lastAttempt = Array.isArray(msg.versions) ? msg.versions[msg.versions.length - 1] : msg;
+            if (latest && [msg.status, lastAttempt.status].some(value => ["failed", "stopped", "length"].includes(value))) {
+                addAction("Retry", regenerateResponse, true);
+            }
+            bubble.closest(".chat-message-content").appendChild(footer);
+        });
+        previousElements.slice(chatMessages.length).forEach(el => el.remove());
+        updateChatAvailability(isServerRunning());
+    }
+
+    async function runMessage(userText, retry = false) {
         if (chatStreaming || !userText.trim()) return;
         if (!isServerRunning()) {
             updateStatusBadge();
@@ -493,12 +562,19 @@
         }
 
         const systemPrompt = (document.getElementById("chat-system-prompt").value || "").trim();
-        chatMessages.push({ role: "user", content: userText.trim() });
-        renderChatMessage("user", userText.trim());
+        const replacementIndex = retry && chatMessages[chatMessages.length - 1]?.role === "assistant"
+            ? chatMessages.length - 1 : -1;
+        if (!retry) {
+            chatMessages.push({ role: "user", content: userText.trim() });
+            renderChatMessage("user", userText.trim());
+            saveCurrentConversation();
+        }
 
         const chatInput = document.getElementById("chat-input");
-        chatInput.value = "";
-        chatInput.style.height = "auto";
+        if (!retry) {
+            chatInput.value = "";
+            chatInput.style.height = "auto";
+        }
 
         chatStreaming = true;
         showChatSendButton(false);
@@ -508,7 +584,7 @@
         if (systemPrompt) {
             messages.push({ role: "system", content: systemPrompt });
         }
-        messages.push(...getChatRequestMessages(chatMessages));
+        messages.push(...getChatRequestMessages(replacementIndex >= 0 ? chatMessages.slice(0, replacementIndex) : chatMessages));
 
         const body = {
             model: getChatModelName(),
@@ -527,7 +603,9 @@
         let fullContent = "";
         let fullReasoning = "";
         let responseSources = [];
-        let errored = false;
+        let status = "complete";
+        let error = "";
+        let reader = null;
 
         try {
             const resp = await fetch("/api/chat/completions", {
@@ -541,94 +619,95 @@
 
             if (!resp.ok) {
                 const errText = await resp.text().catch(() => resp.statusText);
-                renderChatMessage("assistant", `Error: ${resp.status} - ${errText}`);
-                chatStreaming = false;
-                showChatSendButton(true);
-                return;
+                throw new Error(`HTTP ${resp.status} - ${errText}`);
             }
 
             if (!resp.body) {
-                renderChatMessage("assistant", "Error: Response body is empty.");
-                chatStreaming = false;
-                showChatSendButton(true);
-                return;
+                throw new Error("Response body is empty.");
             }
             bubble = renderChatMessage("assistant", "");
-            const reader = resp.body.getReader();
+            reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
             let streamDone = false;
+            let receivedFinish = false;
 
             while (!streamDone) {
                 const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
+                buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
                 const lines = buffer.split("\n");
                 buffer = lines.pop() || "";
+                if (done && buffer) {
+                    lines.push(buffer);
+                    buffer = "";
+                }
 
                 for (const line of lines) {
                     const trimmed = line.trim();
-                    if (!trimmed || !trimmed.startsWith("data: ")) continue;
-                    const data = trimmed.slice(6);
+                    if (!trimmed || !trimmed.startsWith("data:")) continue;
+                    const data = trimmed.slice(5).trimStart();
                     if (data === "[DONE]") {
                         streamDone = true;
                         setChatWebStatus(bubble, "");
                         break;
                     }
 
+                    let parsed;
                     try {
-                        const parsed = JSON.parse(data);
-                        if (parsed.type === "web_status") {
-                            setChatWebStatus(bubble, parsed.content || "");
-                            continue;
-                        }
-                        if (parsed.type === "web_sources") {
-                            responseSources = parsed.sources || [];
-                            renderChatSources(bubble, responseSources);
-                            continue;
-                        }
-                        if (parsed.error) {
-                            const message = parsed.error.message || "Unknown error";
-                            appendChatStreamToken(bubble, `Error: ${message}`);
-                            errored = true;
-                            streamDone = true;
-                            break;
-                        }
-                        const delta = parsed.choices?.[0]?.delta;
-                        const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
-                        if (reasoningDelta) {
-                            fullReasoning += reasoningDelta;
-                            appendChatReasoningStreamToken(bubble, reasoningDelta);
-                        }
-                        const contentDelta = getChatDeltaText(delta, ["content"]);
-                        if (contentDelta) {
-                            fullContent += contentDelta;
-                            appendChatStreamToken(bubble, contentDelta);
-                        }
+                        parsed = JSON.parse(data);
                     } catch (e) {
                         console.debug("Skipping malformed chat stream chunk", e);
+                        continue;
                     }
+                    if (parsed.type === "web_status") {
+                        setChatWebStatus(bubble, parsed.content || "");
+                        continue;
+                    }
+                    if (parsed.type === "web_sources") {
+                        responseSources = parsed.sources || [];
+                        renderChatSources(bubble, responseSources);
+                        continue;
+                    }
+                    if (parsed.error) {
+                        const message = parsed.error.message || "Unknown error";
+                        throw new Error(message);
+                    }
+                    const delta = parsed.choices?.[0]?.delta;
+                    const finishReason = parsed.choices?.[0]?.finish_reason;
+                    if (finishReason) {
+                        receivedFinish = true;
+                        if (finishReason === "length") status = "length";
+                    }
+                    const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
+                    if (reasoningDelta) {
+                        fullReasoning += reasoningDelta;
+                        appendChatReasoningStreamToken(bubble, reasoningDelta);
+                    }
+                    const contentDelta = getChatDeltaText(delta, ["content"]);
+                    if (contentDelta) {
+                        fullContent += contentDelta;
+                        appendChatStreamToken(bubble, contentDelta);
+                    }
+                }
+                if (done) {
+                    if (!streamDone && !receivedFinish) throw new Error("Connection closed before the response completed.");
+                    break;
                 }
             }
 
-            if (streamDone) {
-                await reader.cancel().catch((e) => console.debug("Failed to cancel completed chat stream reader", e));
-            }
-            finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, errored);
+            if (!fullContent && !fullReasoning) throw new Error("The server returned no answer.");
         } catch (e) {
             removeChatTypingIndicator();
             if (e.name === "AbortError") {
-                if (fullContent || fullReasoning) {
-                    finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, false);
-                } else if (bubble) {
-                    const message = bubble.closest(".chat-message");
-                    if (message) message.remove();
-                }
+                status = "stopped";
             } else {
-                renderChatMessage("assistant", "Error: " + e.message);
+                status = "failed";
+                error = e.message || "Request failed.";
             }
         } finally {
+            if (reader) await reader.cancel().catch((e) => console.debug("Failed to close chat stream reader", e));
+            removeChatTypingIndicator();
+            finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex);
             chatStreaming = false;
             chatAbortController = null;
             showChatSendButton(true);
@@ -686,43 +765,16 @@
         } else {
             saveCurrentConversation();
         }
+        renderConversationMessages(Math.max(0, chatMessages.length - 1));
     }
 
     function regenerateResponse() {
-        if (chatStreaming || chatMessages.length === 0) return;
-        const lastMsg = chatMessages[chatMessages.length - 1];
-        if (lastMsg.role === "assistant") {
-            chatMessages.pop();
-            const container = document.getElementById("chat-messages");
-            const msgs = container.querySelectorAll(".chat-message");
-            if (msgs.length > 0) msgs[msgs.length - 1].remove();
-        }
-
-        const lastUserMsg = chatMessages[chatMessages.length - 1];
-        if (!lastUserMsg || lastUserMsg.role !== "user") {
-            // The pop above already mutated chatMessages and the DOM; persist it the
-            // same way undoMessage() does, or the removed message reappears on reload.
-            if (chatMessages.length === 0) {
-                const empty = document.getElementById("chat-empty");
-                if (empty) empty.style.display = "";
-                if (currentConversationId) {
-                    const conversations = getStoredConversations();
-                    saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
-                    currentConversationId = null;
-                    renderHistoryList();
-                }
-            } else {
-                saveCurrentConversation();
-            }
-            return;
-        }
-
-        chatMessages.pop();
-        const container = document.getElementById("chat-messages");
-        const msgs = container.querySelectorAll(".chat-message");
-        if (msgs.length > 0) msgs[msgs.length - 1].remove();
-
-        sendMessage(lastUserMsg.content);
+        if (chatStreaming || !isServerRunning() || chatMessages.length === 0) return Promise.resolve();
+        const lastIndex = chatMessages.length - 1;
+        const userIndex = chatMessages[lastIndex].role === "assistant" ? lastIndex - 1 : lastIndex;
+        const userMessage = chatMessages[userIndex];
+        if (!userMessage || userMessage.role !== "user") return Promise.resolve();
+        return sendMessage(userMessage.content, true);
     }
 
     function getStoredConversations() {
@@ -813,19 +865,7 @@
         }
         setChatThinkingEffort(convo.thinkingEffort);
 
-        const container = document.getElementById("chat-messages");
-        container.querySelectorAll(".chat-message").forEach(el => el.remove());
-        const empty = document.getElementById("chat-empty");
-
-        if (chatMessages.length === 0) {
-            if (empty) empty.style.display = "";
-        } else {
-            if (empty) empty.style.display = "none";
-            for (const msg of chatMessages) {
-                const bubble = renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
-                if (msg.role === "assistant") renderChatSources(bubble, msg.sources);
-            }
-        }
+        renderConversationMessages();
 
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();

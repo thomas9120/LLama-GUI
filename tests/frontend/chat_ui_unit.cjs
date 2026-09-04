@@ -72,6 +72,7 @@ function createElement(tagName = "div") {
             return child;
         },
         insertBefore(child, before) {
+            if (child.parentNode) child.remove();
             child.parentNode = this;
             const index = this.children.indexOf(before);
             if (index === -1) {
@@ -195,9 +196,12 @@ function makeFetch(mode, hooks = {}) {
             }
             hooks.onRequest(parsedBody);
         }
+        if (mode === "network") return Promise.reject(new Error("Connection lost"));
+        if (mode === "http") return Promise.resolve({ ok: false, status: 503, text: async () => "Unavailable" });
+        if (mode === "empty-body") return Promise.resolve({ ok: true, body: null });
         const encoder = new TextEncoder();
         const chunk = encoder.encode(
-            'data: {"choices":[{"delta":{"content":"' + PARTIAL_TOKEN + '"}}]}\n\n'
+            hooks.chunk === undefined ? 'data: {"choices":[{"delta":{"content":"' + PARTIAL_TOKEN + '"}}]}\n\n' : hooks.chunk
         );
         const doneChunk = encoder.encode("data: [DONE]\n\n");
         let reads = 0;
@@ -205,6 +209,9 @@ function makeFetch(mode, hooks = {}) {
             read() {
                 reads += 1;
                 if (reads === 1) return Promise.resolve({ done: false, value: chunk });
+                if (mode === "fail") return Promise.reject(new Error("Connection lost"));
+                if (mode === "eof") return Promise.resolve({ done: true });
+                if (mode === "error") return Promise.resolve({ done: false, value: encoder.encode('data: {"error":{"message":"<script>failure</script>"}}\n\n') });
                 if (mode === "complete") {
                     if (reads === 2) return Promise.resolve({ done: false, value: doneChunk });
                     return Promise.resolve({ done: true, value: undefined });
@@ -746,11 +753,9 @@ async function runAbortScenario(action) {
         assert.ok(staleHint.classList.contains("hidden"));
     }
 
-    // regenerateResponse: when the pop leaves no user message to regenerate
-    // from, the mutation must still be persisted (mirror of undoMessage).
+    // Regeneration without a matching user turn must leave history intact.
     {
-        // a) trailing assistant popped, remaining last is not a user message:
-        //    storage must drop the popped message instead of desyncing.
+        // a) malformed adjacent assistant turns are preserved, not deleted.
         const fetchImpl = makeFetch("complete");
         let fetchCalls = 0;
         const countingFetch = (...args) => {
@@ -775,19 +780,18 @@ async function runAbortScenario(action) {
         api._testRegenerateResponse();
         assert.deepEqual(
             plain(api._testGetState().chatMessages).map((m) => m.content),
-            ["q", "a1"],
-            "in-memory messages keep the pop"
+            ["q", "a1", "a2"],
+            "invalid regeneration leaves in-memory messages intact"
         );
         assert.deepEqual(
             getStoredConversations()[0].messages.map((m) => m.content),
-            ["q", "a1"],
-            "stored conversation must match the popped in-memory state"
+            ["q", "a1", "a2"],
+            "stored conversation is unchanged"
         );
         assert.equal(fetchCalls, 0, "no regeneration request without a trailing user message");
     }
     {
-        // b) popping empties the conversation: it is deleted from storage and
-        //    the empty state is shown.
+        // b) an orphan response is never deleted by Regenerate.
         const { api, elements, getStoredConversations } = makeContext({
             fetchImpl: makeFetch("complete"),
             seedConversations: [{
@@ -801,10 +805,10 @@ async function runAbortScenario(action) {
         await api._testLoadConversation("convo-b");
         api._testRegenerateResponse();
         const state = api._testGetState();
-        assert.deepEqual(plain(state.chatMessages), []);
-        assert.equal(state.currentConversationId, null);
-        assert.equal(getStoredConversations().length, 0, "emptied conversation must be deleted from storage");
-        assert.equal(elements.get("chat-empty").style.display, "");
+        assert.deepEqual(plain(state.chatMessages), [{ role: "assistant", content: "orphan" }]);
+        assert.equal(state.currentConversationId, "convo-b");
+        assert.equal(getStoredConversations().length, 1, "orphan response stays saved");
+        assert.equal(elements.get("chat-empty").style.display, "none");
     }
     {
         // c) control: a normal regenerate resends the last user message.
@@ -958,6 +962,171 @@ async function runAbortScenario(action) {
         assert.equal(chips[0].textContent, "[1] Reference");
         assert.equal(chips[1].tagName, "SPAN");
         assert.equal(chips[1].href, undefined);
+    }
+
+    // Every failure preserves the user prompt and any partial answer across
+    // reload. Retry sends the original prompt once and preserves the draft.
+    for (const failure of ["network", "http", "empty-body", "fail", "eof", "error"]) {
+        let mode = failure;
+        const requests = [];
+        const { api, elements, getStoredConversations } = makeContext({
+            fetchImpl: (...args) => makeFetch(mode, { onRequest: body => requests.push(body) })(...args),
+        });
+        await api._testSendMessage("keep my prompt");
+        const convo = getStoredConversations()[0];
+        assert.equal(convo.messages.length, 2, failure);
+        const failed = convo.messages[1];
+        assert.equal(failed.status, "failed", failure);
+        assert.equal(failed.content, ["fail", "eof", "error"].includes(failure) ? PARTIAL_TOKEN : "");
+        assert.ok(!failed.content.includes("failure"), "error text must not become model context");
+        await api._testLoadConversation(convo.id);
+        const container = elements.get("chat-messages");
+        const retry = container.querySelectorAll(".chat-response-action").find(el => el.textContent === "Retry");
+        assert.ok(retry, `${failure} offers Retry after reload`);
+        assert.match(container.querySelector(".chat-response-status").textContent, /Incomplete/);
+        elements.get("chat-input").value = "unsent draft";
+        mode = "complete";
+        await retry._listeners.click[0]();
+        assert.equal(elements.get("chat-input").value, "unsent draft", "retry must not clear the next draft");
+        assert.deepEqual(requests[1].messages, [{ role: "user", content: "keep my prompt" }]);
+        const recovered = getStoredConversations()[0].messages;
+        assert.equal(recovered.length, 2);
+        assert.equal(recovered[1].status, "complete");
+        assert.equal(recovered[1].versions[0].status, "failed", "failed attempt remains recoverable");
+    }
+
+    // Regeneration is transactional: original remains visible and saved during
+    // the attempt, and failure or cancellation keeps it selected.
+    for (const failure of ["network", "http", "empty-body", "fail", "eof", "error", "hang"]) {
+        let mode = "complete";
+        let streamPending = false;
+        const requests = [];
+        const { api, elements, getStoredConversations, setStatus } = makeContext({
+            fetchImpl: (...args) => makeFetch(mode, {
+                onRequest: body => requests.push(body),
+                onStreamPending: () => { streamPending = true; },
+            })(...args),
+            seedConversations: [{ id: "original", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "original answer", reasoning: "original reasoning",
+                    sources: [{ index: 1, title: "Original source", url: "https://example.com" }] },
+            ] }],
+        });
+        await api._testLoadConversation("original");
+        setStatus({ running: false });
+        await api._testRegenerateResponse();
+        assert.equal(requests.length, 0, "offline regeneration must be a no-op");
+        setStatus({ running: true, active_process_tool: "llama-server" });
+        mode = failure;
+        const pending = api._testRegenerateResponse();
+        await api._testRegenerateResponse();
+        assert.equal(requests.length, 1, "repeated clicks must not start a second regeneration");
+        assert.equal(getStoredConversations()[0].messages[1].content, "original answer");
+        assert.ok(elements.get("chat-messages").querySelectorAll(".chat-bubble").some(el => el.dataset.rawText === "original answer"));
+        if (failure === "hang") {
+            await flushUntil(() => streamPending, "regeneration to stream");
+            await api.abortActiveStream();
+        }
+        await pending;
+        let result = getStoredConversations()[0].messages[1];
+        assert.equal(result.content, "original answer", failure);
+        assert.equal(result.reasoning, "original reasoning");
+        assert.equal(result.versionIndex, 0);
+        assert.equal(result.versions[1].status, failure === "hang" ? "stopped" : "failed");
+        assert.deepEqual(requests[0].messages, [{ role: "user", content: "question" }]);
+        await api._testLoadConversation("original");
+        mode = "complete";
+        await api._testRegenerateResponse();
+        result = getStoredConversations()[0].messages[1];
+        assert.equal(result.content, PARTIAL_TOKEN);
+        assert.equal(result.versions.length, 3);
+        assert.equal(result.versionIndex, 2);
+        // Navigate back through the failed attempt to the original, including
+        // its reasoning and sources, without issuing another model request.
+        for (let step = 0; step < 2; step++) {
+            const previous = elements.get("chat-messages").querySelectorAll(".chat-response-action")
+                .find(el => el.textContent === "Previous answer");
+            previous._listeners.click[0]();
+        }
+        assert.equal(getStoredConversations()[0].messages[1].content, "original answer");
+        assert.equal(elements.get("chat-messages").querySelector(".chat-source-chip").textContent, "[1] Original source");
+        assert.equal(requests.length, 2);
+        await api._testSendMessage("follow up");
+        assert.deepEqual(requests[2].messages[1], {
+            role: "assistant", content: "original answer", reasoning_content: "original reasoning",
+        }, "only the selected answer is sent; recovery metadata stays local");
+    }
+
+    // A terminal event at EOF is valid even without a final newline or DONE.
+    for (const finishReason of ["stop", "length"]) {
+        const { api, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("eof", { chunk: `data: ${JSON.stringify({ choices: [{
+                delta: { content: "finished" }, finish_reason: finishReason,
+            }] })}` }),
+        });
+        await api._testSendMessage("question");
+        assert.equal(getStoredConversations()[0].messages[1].status, finishReason === "length" ? "length" : "complete");
+    }
+
+    // Finishing another turn must not rebuild earlier answers or move model
+    // transition dividers. Old answer controls cannot rewrite later context.
+    {
+        const { api, elements } = makeContext({ fetchImpl: makeFetch("complete") });
+        await api._testSendMessage("first");
+        await api._testRegenerateResponse();
+        const container = elements.get("chat-messages");
+        const firstAnswer = container.querySelectorAll(".chat-message")[1];
+        assert.ok(firstAnswer.querySelector(".chat-response-action"));
+        api.addModelTransitionDivider("A", "B");
+        const divider = container.querySelector(".chat-model-divider");
+        await api._testSendMessage("second");
+        assert.equal(container.querySelectorAll(".chat-message")[1], firstAnswer, "previous response DOM is preserved");
+        assert.equal(firstAnswer.querySelector(".chat-response-action"), null);
+        assert.ok(container.children.indexOf(divider) > container.children.indexOf(firstAnswer));
+        assert.ok(container.children.indexOf(divider) < container.children.indexOf(container.querySelectorAll(".chat-message")[2]));
+    }
+
+    // Reasoning-only partial output remains saved and visibly incomplete.
+    {
+        const { api, elements, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("fail", { chunk: 'data: {"choices":[{"delta":{"reasoning_content":"partial reasoning"}}]}\n\n' }),
+        });
+        await api._testSendMessage("think");
+        const convo = getStoredConversations()[0];
+        assert.equal(convo.messages[1].reasoning, "partial reasoning");
+        assert.equal(convo.messages[1].status, "failed");
+        await api._testLoadConversation(convo.id);
+        assert.equal(elements.get("chat-messages").querySelector(".chat-reasoning-body").innerHTML.includes("partial reasoning"), true);
+        assert.match(elements.get("chat-messages").querySelector(".chat-response-status").textContent, /Incomplete/);
+    }
+
+    // Conversation changes still await regeneration's abort before loading or
+    // clearing state; an attempt can never be saved into the destination chat.
+    for (const action of ["load", "new", "clear"]) {
+        let streamPending = false;
+        const { api, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("hang", { onStreamPending: () => { streamPending = true; } }),
+            seedConversations: [
+                { id: "original", messages: [{ role: "user", content: "q" }, { role: "assistant", content: "original" }] },
+                { id: "other", messages: [{ role: "user", content: "other q" }] },
+            ],
+        });
+        await api._testLoadConversation("original");
+        const pending = api._testRegenerateResponse();
+        await flushUntil(() => streamPending, "regeneration to hang");
+        if (action === "load") await api._testLoadConversation("other");
+        if (action === "new") await api._testStartNewChat();
+        if (action === "clear") await api._testClearChat();
+        await pending;
+        const stored = getStoredConversations();
+        assert.deepEqual(stored.find(c => c.id === "other").messages, [{ role: "user", content: "other q" }]);
+        const original = stored.find(c => c.id === "original");
+        if (action === "clear") assert.equal(original, undefined);
+        else {
+            assert.equal(original.messages[1].content, "original");
+            assert.equal(original.messages[1].versions[1].content, PARTIAL_TOKEN);
+            assert.equal(original.messages[1].versions[1].status, "stopped");
+        }
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");
