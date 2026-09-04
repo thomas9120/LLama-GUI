@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Conversations now starts collapsed in Chat to leave more room for messages; Show conversations still opens the history panel.
+
 - Moved routine context counts and compaction actions into a compact composer tools menu. Only brief near-full/overflow warnings remain inline; context details, summary navigation, and Undo are available on demand with keyboard and outside-click dismissal.
 
 - Chat improvements, batch 4: added manual compaction beside the context meter, counted summary chunks with reply headroom, and a collapsed View summary / Undo marker. Original transcripts and answer versions remain saved; failed, cancelled, stale, or unhelpful summaries leave the prior context intact.

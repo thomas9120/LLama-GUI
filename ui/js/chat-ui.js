@@ -1402,7 +1402,7 @@
         const btnCollapseHistory = document.getElementById("btn-collapse-history");
         const btnOpenHistory = document.getElementById("btn-open-history");
 
-        setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, false);
+        setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, true);
 
         if (btnCollapseHistory && historyPanel) {
             btnCollapseHistory.addEventListener("click", () => {
