@@ -42,6 +42,10 @@ def measure(body, target, authorization=""):
     if not target:
         return {**result, "message": "Start or connect to a server to measure context."}
     try:
+        # Templates may remove system instructions before checking for chat turns.
+        # Empty and instructions-only previews are not valid generation prompts.
+        if not any(msg.get("role") not in ("system", "developer") for msg in (body.get("messages") or [])):
+            return {**result, "status": "empty", "message": "Type a message to measure context."}
         props_path = "/props"
         if body.get("model"):
             props_path += "?" + urllib.parse.urlencode({"model": body["model"]})

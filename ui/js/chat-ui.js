@@ -509,6 +509,10 @@
             return;
         }
         if (chatStreaming) return;
+        if (!body.messages.some(msg => msg.role !== "system" && msg.role !== "developer")) {
+            renderContextBudget({ status: "empty", message: "Type a message to measure context." });
+            return;
+        }
         renderContextBudget({ message: "Measuring context…" });
         const revision = contextRevision;
         contextTimer = setTimeout(() => {

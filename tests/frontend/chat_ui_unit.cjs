@@ -1146,6 +1146,14 @@ async function runAbortScenario(action) {
                 { role: "assistant", content: "chosen", reasoning: "thought", versions: [{ content: "discarded" }] },
             ] }],
         });
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending.length, 0, "empty chat must not call the template/token counter");
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Type a message/);
+        ctx.elements.get("chat-system-prompt").value = "Rules only";
+        ctx.elements.get("chat-input").value = "  \n ";
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending.length, 0, "system-only chat with whitespace draft must stay idle");
+        assert.equal(ctx.elements.get("chat-context-bar").hidden, true);
         await ctx.api._testLoadConversation("budget");
         ctx.elements.get("chat-input").value = "draft";
         ctx.elements.get("chat-web-search-toggle").checked = true;
@@ -1177,6 +1185,12 @@ async function runAbortScenario(action) {
         await flush();
         assert.match(ctx.elements.get("chat-context-label").textContent, /Start or connect/);
         assert.equal(ctx.elements.get("chat-context-bar").hidden, true);
+        ctx.setStatus({ running: true, active_process_tool: "llama-server" });
+        ctx.elements.get("chat-input").value = "";
+        const requestCount = pending.length;
+        await ctx.api._testClearChat();
+        assert.equal(pending.length, requestCount, "clearing chat must not send an empty preview");
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Type a message/);
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

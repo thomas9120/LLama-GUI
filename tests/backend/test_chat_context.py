@@ -13,13 +13,25 @@ from backend.services import chat_context
 
 class ChatContextTests(unittest.TestCase):
     target = {"host": "127.0.0.1", "port": 8080, "source": "runtime"}
+    chat_body = {"messages": [{"role": "user", "content": "Question"}]}
 
     def measure(self, tokens=100, capacity=4096, limit=-1, body=None):
         with mock.patch.object(chat_context, "_read_json", side_effect=[
             {"default_generation_settings": {"n_ctx": capacity, "params": {"n_predict": limit}}, "total_slots": 4},
             {"input_tokens": tokens},
         ]):
-            return chat_context.measure(body or {}, self.target)
+            return chat_context.measure({**self.chat_body, **(body or {})}, self.target)
+
+    def test_empty_and_instructions_only_previews_never_contact_server(self):
+        for body in ({}, {"messages": None}, {"messages": []},
+                     {"messages": [{"role": "system", "content": "Rules"}]},
+                     {"messages": [{"role": "developer", "content": "Rules"}]}):
+            with self.subTest(body=body), mock.patch.object(chat_context, "_read_json") as read:
+                result = chat_context.measure(body, self.target)
+            read.assert_not_called()
+            self.assertEqual(result["status"], "empty")
+            self.assertIsNone(result["prompt_tokens"])
+            self.assertIn("Type a message", result["message"])
 
     def test_capacity_is_per_slot_and_reserves_requested_or_server_limit(self):
         measured = self.measure(body={"max_tokens": 512})
@@ -60,11 +72,11 @@ class ChatContextTests(unittest.TestCase):
         cases = [None, {}, {"default_generation_settings": {"n_ctx": 0}}]
         for props in cases:
             with self.subTest(props=props), mock.patch.object(chat_context, "_read_json", return_value=props):
-                self.assertEqual(chat_context.measure({}, self.target)["status"], "unavailable")
+                self.assertEqual(chat_context.measure(self.chat_body, self.target)["status"], "unavailable")
         for tokens in (None, True, -1, "100"):
             self.assertEqual(self.measure(tokens=tokens)["status"], "unavailable")
         with mock.patch.object(chat_context, "_read_json", side_effect=TimeoutError("private path")), contextlib.redirect_stderr(io.StringIO()) as log:
-            result = chat_context.measure({}, self.target)
+            result = chat_context.measure(self.chat_body, self.target)
         self.assertIn("private path", log.getvalue())
         self.assertNotIn("private path", result["message"])
 
