@@ -201,7 +201,7 @@ Defaults: tool `llama-server`, `-fit on`, context `64000`. Stats require `--metr
 
 ### Monitor
 
-The live process output terminal (moved out of Configure) with Auto-scroll and a Clear that never replays the backlog, CPU/RAM/disk cards, best-effort disk I/O, one card per detected GPU, and evidence-gated setup guidance when telemetry tools are missing. System and GPU telemetry poll only while the tab is visible; **Recheck** forces a fresh sample. An optional **Inference** card shares one baseline with the fixed stats bar — Reset updates both. Every card except Process Output can be hidden and restored.
+The live process output terminal (moved out of Configure) follows new output automatically and has a Clear that never replays the backlog, alongside CPU/RAM/disk cards, best-effort disk I/O, one card per detected GPU, and evidence-gated setup guidance when telemetry tools are missing. System and GPU telemetry poll only while the tab is visible; **Recheck** forces a fresh sample. An optional **Inference** card shares one baseline with the fixed stats bar — Reset updates both. Every card except Process Output can be hidden and restored.
 
 GPU telemetry supports `nvidia-smi`, Linux `amd-smi`, and the optional cross-vendor [all-smi](https://github.com/lablup/all-smi) CLI or local API. See the [GPU monitoring setup guide](docs/gpu-monitoring.md) to choose, install, verify, and troubleshoot the right collector for your system.
 

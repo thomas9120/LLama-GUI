@@ -4420,6 +4420,8 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 .monitor-updated { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
 
 .monitor-section { margin-top: var(--space-5); }
+.monitor-output-section { margin-top: var(--space-4); }
+.monitor-inference-reset-row { margin: var(--space-3) 0 0; }
 
 /* Wrap cards by their preferred width so incomplete rows can use their spare
    room. Inference starts at two regular-card widths; detected GPU cards use

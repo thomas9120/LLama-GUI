@@ -1105,8 +1105,18 @@ async function pollStats(epoch = statsEpoch) {
         // Fetch /metrics and /slots independently: a disabled or unavailable
         // metrics endpoint must not suppress slot-based context, and vice versa.
         const [metricsResp, slotsResp] = await Promise.all([
-            fetch(`/api/llama/metrics?${params.toString()}`, { headers, signal: controller.signal }).catch(() => null),
-            fetch(`/api/llama/slots?${params.toString()}`, { headers, signal: controller.signal }).catch(() => null),
+            fetch(`/api/llama/metrics?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
+                if (error && error.name !== "AbortError" && epoch === statsEpoch) {
+                    console.debug("Failed to fetch llama-server metric stats", error);
+                }
+                return null;
+            }),
+            fetch(`/api/llama/slots?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
+                if (error && error.name !== "AbortError" && epoch === statsEpoch) {
+                    console.debug("Failed to fetch llama-server slot stats", error);
+                }
+                return null;
+            }),
         ]);
         if (epoch !== statsEpoch) return;
 

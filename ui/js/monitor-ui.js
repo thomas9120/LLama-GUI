@@ -1,7 +1,7 @@
 // Monitor tab UI: system/GPU polling, process-output terminal, shared
 // inference snapshot rendering, and card visibility preferences.
 //
-// Ownership rules (see docs/monitor-tab-docs/monitor-plan.md):
+// Ownership rules:
 // - Process lifecycle, launch/stop, and cursor ownership stay in app.js;
 //   this module only renders output lines and clears the terminal.
 // - Inference telemetry is fetched by app.js's existing stats poller; this
@@ -527,6 +527,7 @@
     let everSucceeded = false;
     // key -> { label, sessionOnly }
     let hiddenCards = new Map();
+    let hiddenRestoreSignature = "";
     // Effective card order (keys may exist across all containers); session-only
     // index-fallback keys may ride along in memory but are never persisted.
     let cardOrder = [];
@@ -979,6 +980,11 @@
         if (hideBtn) {
             hideBtn.setAttribute("aria-label", `Hide ${label} monitor`);
             hideBtn.title = `Hide ${label}`;
+        }
+        const dragHandle = card.querySelector(".monitor-drag-handle");
+        if (dragHandle) {
+            dragHandle.setAttribute("aria-label", `Move ${label} monitor; use arrow keys`);
+            dragHandle.title = `Drag ${label} to reorder; use arrow keys to move`;
         }
 
         const util = gpu && gpu.utilization_percent;
@@ -1440,13 +1446,17 @@
             contextReading.classList.toggle("monitor-metric-reading", Boolean(context));
         }
         if (contextBarHolder) {
-            const bar = makeProgressBar("Most-filled slot context usage", context ? context.percent : null);
-            const fill = bar.querySelector(".progress-fill");
-            if (fill && context) {
-                if (snapshot.contextLevel === "critical") fill.classList.add("progress-fill-critical");
-                else if (snapshot.contextLevel === "warning") fill.classList.add("progress-fill-warning");
+            let bar = contextBarHolder.querySelector(".progress-bar");
+            if (!bar) {
+                bar = makeProgressBar("Most-filled slot context usage", null);
+                contextBarHolder.replaceChildren(bar);
             }
-            contextBarHolder.replaceChildren(bar);
+            updateProgressBar(bar, context ? context.percent : null, "Most-filled slot context usage");
+            const fill = bar.querySelector(".progress-fill");
+            if (fill) {
+                fill.classList.toggle("progress-fill-critical", Boolean(context) && snapshot.contextLevel === "critical");
+                fill.classList.toggle("progress-fill-warning", Boolean(context) && snapshot.contextLevel === "warning");
+            }
         }
 
         const speed = snapshot.speed || {};
@@ -1531,6 +1541,9 @@
         if (relevant.length === 0) controls.open = false;
         count.textContent = relevant.length === 1 ? "1 card hidden" : `${relevant.length} cards hidden`;
 
+        const signature = relevant.map(card => `${card.dataset.monitorKey}\u0000${card.dataset.monitorLabel || ""}`).join("\u0001");
+        if (signature === hiddenRestoreSignature) return;
+        hiddenRestoreSignature = signature;
         items.replaceChildren();
         for (const card of relevant) {
             const key = card.dataset.monitorKey;
@@ -1815,6 +1828,7 @@
         lastPollFailed = false;
         everSucceeded = false;
         hiddenCards = new Map();
+        hiddenRestoreSignature = "";
         cardOrder = [];
         dragKey = null;
         dragContainer = null;

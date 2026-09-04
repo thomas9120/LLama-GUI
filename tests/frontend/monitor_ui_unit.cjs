@@ -36,6 +36,9 @@ function makeClassList(el) {
 
 function matchesOne(el, selector) {
     if (!el || !el.dataset) return false;
+    if (/\s/.test(String(selector))) {
+        throw new Error(`Test DOM does not support descendant selectors: ${selector}`);
+    }
     // Minimal compound-selector matcher: a tag, any number of `.class` parts
     // and `[attr]` / `[attr="value"]` parts, in any order — e.g.
     // `.monitor-metric-row[data-metric="utilization"]`. Silently failing to
@@ -1074,11 +1077,18 @@ buildStandardDom();
     assert.deepEqual(keys, ["gpu:nvidia:uuid:GPU-AAAA", "gpu:nvidia:pci:0000:0b:00.0"]);
     const second = grid.children[1];
     assert.equal(second.querySelector(".card-title").textContent, hostileName);
-    assert.ok(
-        second.textContent.includes("Not available"),
-        "unsupported fields render as Not available",
+    for (const metric of ["utilization", "vram", "temperature"]) {
+        assert.equal(
+            second.querySelector(`.monitor-metric-row[data-metric="${metric}"]`)
+                .querySelector(".monitor-metric-reading").textContent,
+            "Not available",
+            `${metric} renders as unavailable instead of inventing zero`,
+        );
+    }
+    assert.equal(
+        second.querySelector(".monitor-drag-handle").getAttribute("aria-label"),
+        `Move GPU 1 · ${hostileName} monitor; use arrow keys`,
     );
-    assert.ok(!second.textContent.includes("0%"), "no invented zeros");
     // No element was created from the hostile name.
     assert.equal(second.querySelectorAll("img").length, 0);
 }
@@ -1269,6 +1279,8 @@ buildStandardDom();
     });
     monitorUi.renderInferenceSnapshot(snapshot);
     const body = documentStub.getElementById("monitor-inference-body");
+    const contextBar = documentStub.getElementById("monitor-inference-context-bar")
+        .querySelector(".progress-bar");
     assert.equal(body.classList.contains("hidden"), false);
     assert.equal(documentStub.getElementById("monitor-inference-prompt").textContent, "1,000 tokens");
     assert.equal(documentStub.getElementById("monitor-inference-total").textContent, "1,500 tokens");
@@ -1293,6 +1305,8 @@ buildStandardDom();
     });
     monitorUi.renderInferenceSnapshot(critical);
     const barHolder = documentStub.getElementById("monitor-inference-context-bar");
+    assert.equal(barHolder.querySelector(".progress-bar"), contextBar,
+        "context progress bar is updated in place");
     assert.ok(barHolder.querySelector(".progress-fill-critical"));
     assert.equal(
         documentStub.getElementById("monitor-inference-prompt").textContent, "--",
@@ -1688,7 +1702,7 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
     assert.equal(cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-card-tools").title, "");
     assert.equal(
         cardByKey("gpu:nvidia:uuid:GPU-AAAA").querySelector(".monitor-drag-handle").title,
-        "Drag to reorder; use arrow keys to move",
+        "Drag GPU 0 · NVIDIA GeForce RTX 4090 to reorder; use arrow keys to move",
         "the grip advertises pointer and keyboard reordering",
     );
 
@@ -1991,10 +2005,18 @@ assert.equal(monitorUi.isSessionOnlyKey("system:cpu"), false);
 
     // A hidden card stays hidden across a refresh of the same node.
     grid.children[1].querySelector(".monitor-hide-btn").dispatch("click");
+    const restoreButton = documentStub.getElementById("monitor-restore-items")
+        .children[0].querySelectorAll("button")[0];
+    restoreButton.focus();
     monitorUi.recheck();
     await wait(80);
     assert.equal(grid.children[1].classList.contains("hidden"), true,
         "hiding survives an in-place refresh");
+    assert.equal(
+        documentStub.getElementById("monitor-restore-items").children[0].querySelectorAll("button")[0],
+        restoreButton,
+        "unchanged restore controls retain their DOM identity and focus across polls",
+    );
 
     // A GPU that disappears is removed; one that appears is added.
     monitorUi.configure({

@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Preserved Monitor restore-button focus and inference-meter animation across telemetry polls, completed dynamic GPU accessibility labels, announced live-state changes to screen readers, logged independent inference fetch failures, and tightened cross-vendor GPU/platform normalization.
+- Hardened GPU vendor probes against undecodable process output by enforcing UTF-8 replacement decoding and handling `UnicodeDecodeError`, preventing telemetry poll failures (HTTP 500) from corrupt probe output.
 - Added optional cross-vendor all-smi GPU telemetry to Monitor. Llama GUI auto-detects an `all-smi` executable, accepts a portable binary through `LLAMA_GUI_ALL_SMI_PATH`, or reads an explicitly configured loopback API through `LLAMA_GUI_ALL_SMI_URL`; failed or empty all-smi snapshots fall back to the existing vendor probes without producing duplicate GPU cards.
 - Added a direct GPU monitoring setup-guide link to Monitor's unavailable telemetry cards so users can choose and troubleshoot NVIDIA SMI, AMD SMI, or all-smi from the empty state.
 - Moved detected GPU cards into Monitor's shared metrics area so a single GPU can be reordered alongside CPU, memory, disk, and inference, then changed that area to a responsive wrapping layout that gives incomplete rows more room without adding filler cards.
@@ -16,7 +18,6 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-03
 
-Below is work on the monitor tab implementation:
 - Monitor cards are now reorderable by drag and drop within their own flow (system/Inference grid, GPU grid, state cards, setup cards). The order persists in localStorage by card key (index-fallback GPU keys stay session-only), is re-applied after every telemetry render, and sample refreshes are deferred during an active drag so the dragged card is never destroyed mid-move. Drag feedback: a grippy "Drag to reorder" affordance and tooltip on each card, a dashed outline on the card being moved, and an accent slot bar plus ring on the card under the pointer (the last card doubles as the append slot when hovering empty space).
 - Failed GPU vendor probes (nvidia-smi/amd-smi) now surface observed diagnostics in Monitor state/setup cards: reason (tool not found / timeout / non-zero exit / unparsable output / no usable devices), tool path, exit code, and the first stderr line (truncated to 200 chars).
 - The server-ready toast now includes a temporary "Open Monitor" link when llama-server becomes ready; the toast action API is generic (label + onClick, textContent-only) while all other notifications are unchanged.

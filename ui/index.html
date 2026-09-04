@@ -796,7 +796,7 @@
                     <div class="page-title-sub">Live process output, inference activity, system resources, and GPU telemetry for this machine.</div>
                 </div>
                 <div class="monitor-header-actions">
-                    <span class="badge badge-dim" id="monitor-live-badge" title="The next poll is scheduled after the previous response completes">Unavailable</span>
+                    <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="The next poll is scheduled after the previous response completes">Unavailable</span>
                     <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
                     <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
@@ -806,7 +806,7 @@
             </div>
 
             <!-- Process output (moved here from Configure, IDs preserved) -->
-            <div class="card monitor-section" id="output-section" style="margin-top: var(--space-4);">
+            <div class="card monitor-section monitor-output-section" id="output-section">
                 <div class="output-header">
                     <h3>Process Output</h3>
                     <div class="monitor-output-tools">
@@ -954,7 +954,7 @@
                                 <div class="monitor-io-cell"><span class="monitor-io-label">Requests</span><span class="monitor-io-value" id="monitor-inference-requests">--</span></div>
                                 <div class="monitor-io-cell"><span class="monitor-io-label">Slots</span><span class="monitor-io-value" id="monitor-inference-slots">--</span></div>
                             </div>
-                            <div class="form-row" style="margin: var(--space-3) 0 0;">
+                            <div class="form-row monitor-inference-reset-row">
                                 <button class="btn btn-sm" id="btn-reset-inference" type="button">Reset session counters</button>
                             </div>
                         </div>

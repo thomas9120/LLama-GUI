@@ -1,6 +1,6 @@
 """Read-only system and GPU telemetry for the Monitor tab.
 
-Design rules (see ``docs/monitor-tab-docs/monitor-plan.md``):
+Design rules:
 
 * Read-only. Never installs anything, never elevates, never runs a package
   manager. GPU probes are bounded calls against tools already on the machine
@@ -682,7 +682,7 @@ def _all_smi_provider(node):
     text = " ".join(
         str(node.get(key) or "") for key in ("vendor", "name", "uuid")
     ).lower()
-    if any(marker in text for marker in ("nvidia", "geforce", "quadro", "tesla")):
+    if any(marker in text for marker in ("nvidia", "geforce", "quadro", "tesla", "ven_10de")):
         return "nvidia"
     if any(marker in text for marker in ("amd", "radeon", "ati", "ven_1002")):
         return "amd"
@@ -779,6 +779,8 @@ def probe_all_smi():
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=ALL_SMI_PROBE_TIMEOUT_SECONDS,
                 shell=False,
                 creationflags=get_no_window_creationflags(),
@@ -934,6 +936,8 @@ def probe_nvidia(platform_name):
             argv,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=NVIDIA_PROBE_TIMEOUT_SECONDS,
             shell=False,
             creationflags=get_no_window_creationflags(),
@@ -945,6 +949,11 @@ def probe_nvidia(platform_name):
         _log_probe_failure("nvidia-smi", exc)
         return "error", [], _probe_details(
             "launch_failed", executable=executable, stderr_text=str(exc)
+        )
+    except UnicodeDecodeError as exc:
+        _log_probe_failure("nvidia-smi", exc)
+        return "error", [], _probe_details(
+            "parse_error", executable=executable, stderr_text=str(exc)
         )
     if result.returncode != 0:
         _log_probe_failure(
@@ -1240,6 +1249,8 @@ def probe_amd(platform_name):
             [executable, "metric", "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=AMD_PROBE_TIMEOUT_SECONDS,
             shell=False,
             creationflags=get_no_window_creationflags(),
@@ -1251,6 +1262,11 @@ def probe_amd(platform_name):
         _log_probe_failure("amd-smi", exc)
         return "error", [], _probe_details(
             "launch_failed", executable=executable, stderr_text=str(exc)
+        )
+    except UnicodeDecodeError as exc:
+        _log_probe_failure("amd-smi", exc)
+        return "error", [], _probe_details(
+            "parse_error", executable=executable, stderr_text=str(exc)
         )
     if result.returncode != 0:
         _log_probe_failure("amd-smi", RuntimeError(f"exit code {result.returncode}"))
@@ -1682,6 +1698,8 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
     """
     services = ctx.services
     platform_name = getattr(services, "current_platform", "") or sys.platform
+    if platform_name == "unknown":
+        platform_name = sys.platform
     counters = collect_system_counters(ctx, platform_name)
 
     interval_seconds = None

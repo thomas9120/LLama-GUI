@@ -2110,6 +2110,7 @@ async function main() {
         assert.equal(await page.locator("#section-monitor #input-row").count(), 1);
         assert.equal(await page.locator("#monitor-auto-scroll").count(), 0,
             "the unreliable auto-scroll toggle must not be present");
+        assert.equal(await page.getAttribute("#monitor-live-badge", "aria-live"), "polite");
 
         // System/GPU cards render from the mocked endpoint while visible.
         await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4%");

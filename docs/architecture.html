@@ -460,7 +460,7 @@ footer {
     <div class="card">
         <h4 style="margin-top:0">No bundler</h4>
         <p class="sub" style="margin:0">
-            The frontend is 25 ordered <code>&lt;script&gt;</code> tags that each attach a namespace to
+            The frontend is 26 ordered <code>&lt;script&gt;</code> tags that each attach a namespace to
             <code>window.LlamaGui</code>. There is no build step: edit a file, reload the page. Node and Playwright are
             test-only dev dependencies.
         </p>
@@ -588,7 +588,7 @@ footer {
         <div class="band-label">Presentation <span class="pill">ui/</span></div>
         <div class="row">
             <div class="node cyan"><div class="t">index.html</div><div class="d">All 8 tab panels as static markup, 1.7k lines</div></div>
-            <div class="node cyan"><div class="t">tab UI modules</div><div class="d">quick-launch · config-flags · chat · benchmark · presets · api-tab</div></div>
+            <div class="node cyan"><div class="t">tab UI modules</div><div class="d">quick-launch · config-flags · chat · benchmark · monitor · presets · api-tab</div></div>
             <div class="node cyan"><div class="t">widgets</div><div class="d">searchable-select · theme-ui · chat-rendering · model-switch</div></div>
             <div class="node cyan"><div class="t">css</div><div class="d">style.css (no colors) + tokens.css (all colors)</div></div>
         </div>
@@ -830,12 +830,13 @@ ctx.services   <span class="c"># injected BackendServices — platform + IO call
             <div class="chip cyan"><b>remote-tunnel-ui.js</b><i>Cloudflare tunnel controls</i></div>
             <div class="chip cyan"><b>external-server-ui.js</b><i>connect to a running server</i></div>
         </div></div>
-        <div class="rung"><div class="lvl">22–24</div><div class="items">
+        <div class="rung"><div class="lvl">22–25</div><div class="items">
             <div class="chip cyan"><b>quick-launch-ui.js</b><i>Quick Launch tab</i></div>
             <div class="chip cyan"><b>chat-ui.js</b><i>Chat tab, streaming, history</i></div>
             <div class="chip cyan"><b>benchmark-ui.js</b><i>Benchmarking tab</i></div>
+            <div class="chip cyan"><b>monitor-ui.js</b><i>Monitor tab, telemetry, card state</i></div>
         </div></div>
-        <div class="rung"><div class="lvl">25</div><div class="items">
+        <div class="rung"><div class="lvl">26</div><div class="items">
             <div class="chip accent"><b>app.js</b><i>orchestration — tabs, polling, toasts, module wiring, injection</i></div>
         </div></div>
     </div>
@@ -1293,7 +1294,7 @@ flagCore.setFlagValue("temperature", 0.5);
 
 <div class="two">
     <div class="card">
-        <h4 style="margin-top:0">Backend — 9 files, stdlib <code>unittest</code></h4>
+        <h4 style="margin-top:0">Backend — 10 files, stdlib <code>unittest</code></h4>
         <pre style="margin:8px 0 0">python -m unittest discover tests -v</pre>
         <ul class="tight" style="font-size:13px;margin-top:10px">
             <li><code>test_backend_foundation.py</code> — context, state, config</li>
@@ -1302,13 +1303,14 @@ flagCore.setFlagValue("temperature", 0.5);
             <li><code>test_extracted_routes.py</code> — route behavior</li>
             <li><code>test_services.py</code> — install, process, download, git</li>
             <li><code>test_server_baseline.py</code> — end-to-end server behavior</li>
+            <li><code>test_system_stats.py</code> — system and GPU telemetry</li>
             <li><code>test_docs_sync.py</code> — architecture docs vs the live route registry</li>
             <li><code>test_model_dir.py</code> — model-root validation</li>
             <li><code>test_release_version.py</code> — release version comparison</li>
         </ul>
     </div>
     <div class="card">
-        <h4 style="margin-top:0">Frontend — 24 <code>.cjs</code> files</h4>
+        <h4 style="margin-top:0">Frontend — 25 <code>.cjs</code> files</h4>
         <pre style="margin:8px 0 0">npm test              <span class="c"># everything</span>
 npm run test:syntax   <span class="c"># node --check all JS</span>
 npm run test:flag-definitions

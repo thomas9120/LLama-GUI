@@ -1,6 +1,6 @@
 """Focused tests for the Monitor tab's /api/system-stats backend.
 
-Covers the plan's Phase 1 acceptance list: delta math and its edge cases, the
+Covers delta math and its edge cases, the
 Linux parser fixtures, collector failure degradation, the NVIDIA/AMD probe
 parsers and failure modes, provider-qualified identity, evidence-gated setup
 states, cache/coalescing behavior, and the thin route contract.
@@ -401,6 +401,12 @@ class AllSmiTests(unittest.TestCase):
         payload["gpus"].insert(1, {"name": "", "uuid": ""})
         self.assertEqual(len(svc.parse_all_smi_json(json.dumps(payload))), 2)
 
+    def test_provider_recognizes_nvidia_pnp_id_without_a_name(self):
+        device = svc.parse_all_smi_device(
+            {"uuid": r"PCI\VEN_10DE&DEV_2684", "name": ""}, 0
+        )
+        self.assertEqual(device["provider"], "nvidia")
+
     def test_url_normalization_accepts_only_loopback_snapshot_endpoint(self):
         self.assertEqual(
             svc.normalize_all_smi_url("http://127.0.0.1:9090"),
@@ -548,6 +554,15 @@ class NvidiaParserTests(unittest.TestCase):
         self.assertEqual(details["reason"], "launch_failed")
         self.assertNotIn("exit_code", details)
 
+    def test_probe_unicode_decode_error_is_reported_as_error(self):
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "boom")):
+            status, devices, details = svc.probe_nvidia("linux")
+        self.assertEqual(status, "error")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "parse_error")
+        self.assertEqual(details["executable"], "/usr/bin/nvidia-smi")
+        self.assertIn("boom", details["stderr"])
 
     def test_probe_missing_executable(self):
         with mock.patch.object(svc, "resolve_nvidia_smi", return_value=None):
@@ -748,6 +763,16 @@ class AmdParserTests(unittest.TestCase):
         self.assertEqual(devices, [])
         self.assertEqual(details["reason"], "launch_failed")
         self.assertNotIn("exit_code", details)
+
+    def test_probe_unicode_decode_error_is_reported_as_error(self):
+        with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
+                mock.patch("subprocess.run", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "boom")):
+            status, devices, details = svc.probe_amd("linux")
+        self.assertEqual(status, "error")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "parse_error")
+        self.assertEqual(details["executable"], "/opt/rocm/bin/amd-smi")
+        self.assertIn("boom", details["stderr"])
 
     def test_probe_launch_failure_logs_real_error_to_stderr(self):
         # Clients get sanitized `details`; the real error must still reach the
@@ -994,6 +1019,20 @@ class SetupStateTests(unittest.TestCase):
 
 
 class CollectSampleTests(unittest.TestCase):
+    def test_unknown_configured_platform_uses_runtime_platform(self):
+        ctx = make_context(backend="vulkan", platform="unknown")
+        with mock.patch.object(
+                svc, "collect_system_counters", return_value=make_counters()
+            ) as collect, mock.patch.object(
+                svc, "probe_all_smi", return_value=("missing", [], None)
+            ), mock.patch.object(
+                svc, "probe_nvidia", return_value=("missing", [], None)
+            ), mock.patch.object(
+                svc, "probe_amd", return_value=("missing", [], None)
+            ), mock.patch.object(svc, "is_wsl_environment", return_value=False):
+            svc.collect_sample(ctx, None)
+        collect.assert_called_once_with(ctx, svc.sys.platform)
+
     def test_all_smi_devices_are_authoritative_without_vendor_duplicates(self):
         ctx = make_context(backend="hip", platform="win32")
         ctx.state.system_stats_probe_cache.clear()
@@ -1249,7 +1288,27 @@ class CachingTests(unittest.TestCase):
         ctx = make_context(backend="vulkan")
         release = threading.Event()
         started = threading.Event()
+        waiter_started = threading.Event()
         calls = {"probe": 0}
+
+        class ObservedLock:
+            def __init__(self, lock):
+                self.lock = lock
+                self.entries = 0
+
+            def __enter__(self):
+                self.entries += 1
+                if self.entries == 2:
+                    waiter_started.set()
+                self.lock.acquire()
+                return self
+
+            def __exit__(self, *_args):
+                self.lock.release()
+
+        ctx.state.system_stats_collection_lock = ObservedLock(
+            ctx.state.system_stats_collection_lock
+        )
 
         def blocking_probe(*args, **kwargs):
             calls["probe"] += 1
@@ -1283,7 +1342,7 @@ class CachingTests(unittest.TestCase):
                 )
             )
             thread_b.start()
-            time.sleep(0.05)
+            self.assertTrue(waiter_started.wait(timeout=5))
             release.set()
             thread_a.join(timeout=10)
             thread_b.join(timeout=10)
@@ -1399,6 +1458,17 @@ class RouteTests(unittest.TestCase):
             system_stats_route.get_system_stats(self._request(), response, ctx)
         self.assertEqual(response.status, 500)
         self.assertNotIn("/secret/path", response.payload["error"])
+
+    def test_probe_decode_error_still_returns_200(self):
+        ctx = make_context(backend="cuda-12.4")
+        response = DummyResponse()
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", side_effect=UnicodeDecodeError("utf-8", b"", 0, 1, "boom")):
+            system_stats_route.get_system_stats(self._request(), response, ctx)
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.payload["gpus"], [])
+        self.assertTrue(any(e["provider"] == "nvidia" and e.get("details", {}).get("reason") == "parse_error"
+                            for e in response.payload["gpu_setup"]))
 
 
 class RegistryTests(unittest.TestCase):
