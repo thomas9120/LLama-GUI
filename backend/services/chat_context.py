@@ -67,7 +67,7 @@ def measure(body, target, authorization=""):
 
         # Strip GUI-only routing/search fields, keeping every actual request option.
         count_body = {key: value for key, value in body.items() if key not in (
-            "web_search", "web_search_max_results", "api_url", "host", "port")}
+            "web_search", "web_search_max_results", "api_url", "host", "port", "gui_require_context")}
         counted = _read_json(target, authorization, "/v1/chat/completions/input_tokens", count_body)
         if counted is not None:
             tokens = _integer(counted.get("input_tokens"))

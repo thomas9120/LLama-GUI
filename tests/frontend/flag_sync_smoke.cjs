@@ -228,6 +228,15 @@ async function main() {
             if (pathName === "/api/chat/context") {
                 const body = JSON.parse(route.request().postData() || "{}");
                 contextBodies.push(body);
+                if (contextResponseMode === "compaction") {
+                    const tokens = Math.ceil(JSON.stringify(body.messages).length / 4);
+                    const reserve = body.max_tokens || 0;
+                    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+                        status: tokens + reserve > 4096 ? "overflow" : "ok", capacity: 4096,
+                        prompt_tokens: tokens, reply_reserve: reserve, reserve_source: "request", remaining: 4096 - tokens - reserve,
+                    }) });
+                    return;
+                }
                 await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
                     contextResponseMode === "unavailable" ? { status: "unavailable", message: "Context count unavailable; the server will validate the request." }
                     : { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, reserve_source: "request", remaining: 3484, search_pending: Boolean(body.web_search) }
@@ -243,7 +252,9 @@ async function main() {
                     "data: [DONE]",
                     "",
                 ].join("\n");
-                if (chatResponseMode === "overflow") {
+                if (chatCompletionBodies.at(-1).gui_require_context) {
+                    chatStreamBody = 'data: {"choices":[{"delta":{"content":"The user chose a small interface. <script>literal summary</script> Keep the remaining work visible."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+                } else if (chatResponseMode === "overflow") {
                     chatStreamBody = 'data: {"type":"context_budget","status":"overflow","capacity":4096,"prompt_tokens":4000,"reply_reserve":512,"remaining":-416,"reserve_source":"request","includes_search":true,"message":"Context limit exceeded."}\n\n'
                         + 'data: {"error":{"message":"Context limit exceeded. Shorten the prompt or lower Max Tokens."}}\n\ndata: [DONE]\n\n';
                 } else if (chatResponseMode === "failed-partial") {
@@ -1345,6 +1356,38 @@ async function main() {
         await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
         assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
         assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
+
+        // Only one small action is added to the meter; the summary is collapsed
+        // in the transcript until explicitly opened, including on narrow screens.
+        contextResponseMode = "compaction";
+        await page.click("#btn-chat-new");
+        assert.equal(await page.locator("#btn-chat-compact").isVisible(), false);
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("n_predict", 512));
+        for (const message of ["Earlier decisions ".repeat(180), "Keep this recent question", "Keep this newest question"]) {
+            await page.fill("#chat-input", message);
+            await page.click("#btn-chat-send");
+            await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        }
+        await page.fill("#chat-input", "Draft survives compaction");
+        const transcriptBefore = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages);
+        await page.click("#btn-chat-compact");
+        await page.waitForSelector(".chat-compaction-marker");
+        assert.equal(await page.locator(".chat-compaction-marker").getAttribute("open"), null);
+        assert.equal(await page.locator(".chat-message").count(), transcriptBefore.length);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Draft survives compaction");
+        assert.equal(await page.locator("#btn-chat-compact").isVisible(), false, "no redundant compaction action before more turns");
+        await page.locator(".chat-compaction-marker summary").click();
+        assert.match(await page.locator(".chat-compaction-marker pre").innerText(), /<script>literal summary<\/script>/);
+        assert.equal(await page.locator(".chat-compaction-marker script").count(), 0);
+        await page.setViewportSize({ width: 760, height: 800 });
+        const compactLayout = await page.locator(".chat-context").evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+        assert.ok(compactLayout.scroll <= compactLayout.width + 1, "context controls fit a narrow chat");
+        await page.click("#btn-chat-undo-compaction");
+        assert.equal(await page.locator(".chat-compaction-marker").count(), 0);
+        assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages), transcriptBefore);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        contextResponseMode = "ok";
+        await page.click("#btn-chat-new");
 
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 

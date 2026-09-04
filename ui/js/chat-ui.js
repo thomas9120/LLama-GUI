@@ -19,6 +19,11 @@
     let contextController = null;
     let contextKey = null;
     let contextRevision = 0;
+    let chatCompactions = [];
+    let compactionController = null;
+    let compactionPromise = null;
+    let compactionKey = null;
+    const compaction = window.LlamaGui.chatCompaction;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
     const CHAT_SETTINGS_COLLAPSED_STORAGE_KEY = "llama_gui_chat_settings_collapsed";
@@ -268,7 +273,7 @@
             && lifecycle.activeRuntime.tool === "llama-server"
             && (lifecycle.phase === "starting" || lifecycle.phase === "loading")
         );
-        const canSend = Boolean(isRunning) && !chatStreaming;
+        const canSend = Boolean(isRunning) && !chatStreaming && !compactionController;
 
         if (chatInput) {
             chatInput.disabled = !isRunning;
@@ -285,9 +290,10 @@
         const container = document.getElementById("chat-messages");
         if (container) {
             for (const button of container.querySelectorAll(".chat-response-action")) {
-                button.disabled = chatStreaming || (button.dataset.requiresServer === "true" && !isRunning);
+                button.disabled = chatStreaming || Boolean(compactionController) || (button.dataset.requiresServer === "true" && !isRunning);
             }
         }
+        updateCompactionControls();
         if (note) {
             note.classList.toggle("hidden", Boolean(isRunning));
             const message = note.querySelector("span");
@@ -451,7 +457,7 @@
         const messages = [];
         const systemPrompt = (document.getElementById("chat-system-prompt")?.value || "").trim();
         if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
-        messages.push(...getChatRequestMessages(history));
+        messages.push(...getChatRequestMessages(compaction.workingMessages(history, chatCompactions.at(-1))));
         if (draft.trim()) messages.push({ role: "user", content: draft.trim() });
         const body = {
             model: getChatModelName(), messages, stream: true,
@@ -462,6 +468,100 @@
             body.web_search_max_results = getChatWebSearchMaxResults();
         }
         return body;
+    }
+
+    function getCompactionKey() {
+        const status = getLatestStatus ? getLatestStatus() : null;
+        return JSON.stringify([getTemplateCapsKey(), status?.active_runtime, status?.external_chat_target,
+            buildChatBody(chatMessages), document.getElementById("chat-input")?.value || ""]);
+    }
+
+    function updateCompactionControls() {
+        const button = document.getElementById("btn-chat-compact");
+        if (!button) return;
+        const available = compaction.boundary(chatMessages) > (chatCompactions.at(-1)?.end || 0);
+        button.hidden = !available && !compactionController;
+        button.disabled = !compactionController && (chatStreaming || !isServerRunning());
+        button.textContent = compactionController ? "Cancel compaction" : "Compact now";
+        button.title = "Summarize older messages; keep the transcript and last two turns unchanged.";
+        const undo = document.getElementById("btn-chat-undo-compaction");
+        if (undo) undo.disabled = chatStreaming || Boolean(compactionController);
+    }
+
+    function renderCompactionMarker() {
+        const container = document.getElementById("chat-messages");
+        container?.querySelectorAll(".chat-compaction-marker").forEach(el => el.remove());
+        const record = chatCompactions.at(-1);
+        if (!container || !record) return;
+        const marker = document.createElement("details");
+        marker.className = "chat-compaction-marker";
+        const heading = document.createElement("summary");
+        heading.textContent = `Earlier ${record.end} messages compacted · View summary`;
+        marker.appendChild(heading);
+        const note = document.createElement("p");
+        note.textContent = "The original messages remain above. Only this summary and the recent messages are sent to the model. Summaries may omit details; review before continuing.";
+        marker.appendChild(note);
+        const summary = document.createElement("pre");
+        summary.textContent = record.summary;
+        marker.appendChild(summary);
+        const undo = document.createElement("button");
+        undo.id = "btn-chat-undo-compaction";
+        undo.type = "button";
+        undo.className = "btn btn-xs";
+        undo.textContent = "Undo compaction";
+        undo.addEventListener("click", undoCompaction);
+        marker.appendChild(undo);
+        container.insertBefore(marker, container.querySelectorAll(".chat-message")[record.end] || null);
+    }
+
+    function undoCompaction() {
+        if (chatStreaming || compactionController || !chatCompactions.length) return;
+        chatCompactions.pop();
+        saveCurrentConversation();
+        renderCompactionMarker();
+        updateCompactionControls();
+        scheduleContextPreview(true);
+    }
+
+    function compactConversation() {
+        if (chatStreaming || compactionController || !isServerRunning()) return Promise.resolve();
+        const controller = new AbortController();
+        compactionController = controller;
+        compactionKey = getCompactionKey();
+        cancelContextPreview();
+        updateChatAvailability(isServerRunning());
+        const status = document.getElementById("chat-compaction-status");
+        const report = message => { if (status) { status.textContent = message; status.hidden = !message; } };
+        report("Measuring space for a summary…");
+        const pending = (async () => {
+            try {
+                const record = await compaction.compact({
+                    messages: chatMessages.map(msg => ({ role: msg.role, content: msg.content, reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status })),
+                    previous: chatCompactions.at(-1), body: buildChatBody(chatMessages),
+                    draft: document.getElementById("chat-input")?.value || "", signal: controller.signal,
+                    headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }), onProgress: report,
+                });
+                if (controller.signal.aborted || !isServerRunning() || compactionKey !== getCompactionKey()) {
+                    throw Object.assign(new Error("Chat changed"), { name: "AbortError" });
+                }
+                chatCompactions.push(record);
+                saveCurrentConversation();
+                renderCompactionMarker();
+                report("");
+            } catch (error) {
+                console.debug("Chat compaction did not apply", error);
+                report(error.name === "AbortError" ? "Compaction cancelled; previous context kept."
+                    : `${error.message} Previous context kept. You can retry Compact now.`);
+            } finally {
+                compactionController = null;
+                compactionKey = null;
+                updateChatAvailability(isServerRunning());
+                scheduleContextPreview(true);
+            }
+        })();
+        compactionPromise = pending;
+        pending.then(() => { if (compactionPromise === pending) compactionPromise = null; });
+        return pending;
     }
 
     function renderContextBudget(budget) {
@@ -504,6 +604,10 @@
         if (!force && key === contextKey) return;
         contextKey = key;
         cancelContextPreview();
+        if (compactionController) {
+            if (!isServerRunning() || compactionKey !== getCompactionKey()) compactionController.abort();
+            return;
+        }
         if (!isServerRunning()) {
             renderContextBudget({ message: "Start or connect to a server to measure context." });
             return;
@@ -543,7 +647,7 @@
     }
 
     function sendMessage(userText, retry = false) {
-        if (chatStreaming || !userText.trim()) return Promise.resolve();
+        if (chatStreaming || compactionController || !userText.trim()) return Promise.resolve();
         const pending = runMessage(userText, retry);
         chatStreamPromise = pending;
         const clearPending = () => {
@@ -622,7 +726,7 @@
                 button.textContent = text;
                 button.dataset.requiresServer = String(requiresServer);
                 button.addEventListener("click", () => {
-                    if (!chatStreaming && chatMessages[index] === msg) return action();
+                    if (!chatStreaming && !compactionController && chatMessages[index] === msg) return action();
                 });
                 footer.appendChild(button);
             };
@@ -652,12 +756,13 @@
             bubble.closest(".chat-message-content").appendChild(footer);
         });
         previousElements.slice(chatMessages.length).forEach(el => el.remove());
+        renderCompactionMarker();
         updateChatAvailability(isServerRunning());
         scheduleContextPreview();
     }
 
     async function runMessage(userText, retry = false) {
-        if (chatStreaming || !userText.trim()) return;
+        if (chatStreaming || compactionController || !userText.trim()) return;
         if (!isServerRunning()) {
             updateStatusBadge();
             return;
@@ -817,6 +922,9 @@
     }
 
     async function abortActiveStream() {
+        const compactPending = compactionPromise;
+        if (compactionController) compactionController.abort();
+        if (compactPending) await compactPending;
         const pending = chatStreamPromise;
         stopStream();
         if (pending) {
@@ -840,8 +948,9 @@
     }
 
     function undoMessage() {
-        if (chatStreaming || chatMessages.length === 0) return;
+        if (chatStreaming || compactionController || chatMessages.length === 0) return;
         chatMessages.pop();
+        while (chatCompactions.length && !compaction.valid(chatCompactions.at(-1), chatMessages)) chatCompactions.pop();
         const container = document.getElementById("chat-messages");
         const msgs = container.querySelectorAll(".chat-message");
         if (msgs.length > 0) msgs[msgs.length - 1].remove();
@@ -862,7 +971,7 @@
     }
 
     function regenerateResponse() {
-        if (chatStreaming || !isServerRunning() || chatMessages.length === 0) return Promise.resolve();
+        if (chatStreaming || compactionController || !isServerRunning() || chatMessages.length === 0) return Promise.resolve();
         const lastIndex = chatMessages.length - 1;
         const userIndex = chatMessages[lastIndex].role === "assistant" ? lastIndex - 1 : lastIndex;
         const userMessage = chatMessages[userIndex];
@@ -901,6 +1010,7 @@
 
         if (existing) {
             existing.messages = chatMessages.slice();
+            existing.compactions = chatCompactions.slice();
             existing.systemPrompt = sysPrompt ? sysPrompt.value : "";
             existing.thinkingEffort = getChatThinkingEffort();
             existing.timestamp = Date.now();
@@ -915,6 +1025,7 @@
                       }),
                 title: generateConversationTitle(chatMessages),
                 messages: chatMessages.slice(),
+                compactions: chatCompactions.slice(),
                 systemPrompt: sysPrompt ? sysPrompt.value : "",
                 thinkingEffort: getChatThinkingEffort(),
                 timestamp: Date.now()
@@ -938,7 +1049,7 @@
         // Must await: abort() rejects the pending read on a later microtask, so a
         // bare stopStream() lets the AbortError handler run after the reassignments
         // below and finalize the old reply into the conversation we just loaded.
-        if (chatStreaming) await abortActiveStream();
+        if (chatStreaming || compactionController) await abortActiveStream();
 
         // Read storage only after the abort has settled: finalizing the aborted
         // reply writes to storage, so a snapshot taken earlier would be stale and
@@ -948,7 +1059,11 @@
         if (!convo) return;
 
         currentConversationId = convo.id;
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
         chatMessages = convo.messages.slice();
+        chatCompactions = (Array.isArray(convo.compactions) ? convo.compactions : [])
+            .filter(record => compaction.valid(record, chatMessages));
 
         const sysPrompt = document.getElementById("chat-system-prompt");
         const sysCharCount = document.getElementById("chat-sys-char-count");
@@ -985,10 +1100,15 @@
     async function startNewChat() {
         // Stop before saving: an in-flight stream would otherwise keep appending
         // tokens into the fresh chat and leave the composer disabled.
-        if (chatStreaming) await abortActiveStream();
+        if (chatStreaming || compactionController) await abortActiveStream();
         saveCurrentConversation();
         currentConversationId = null;
         chatMessages = [];
+        chatCompactions = [];
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
+        renderCompactionMarker();
+        updateCompactionControls();
         const container = document.getElementById("chat-messages");
         container.querySelectorAll(".chat-message").forEach(el => el.remove());
         const empty = document.getElementById("chat-empty");
@@ -1072,7 +1192,7 @@
     }
 
     async function clearChat() {
-        if (chatStreaming) await abortActiveStream();
+        if (chatStreaming || compactionController) await abortActiveStream();
         if (currentConversationId) {
             const conversations = getStoredConversations();
             saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
@@ -1080,6 +1200,11 @@
             renderHistoryList();
         }
         chatMessages = [];
+        chatCompactions = [];
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
+        renderCompactionMarker();
+        updateCompactionControls();
         const container = document.getElementById("chat-messages");
         container.querySelectorAll(".chat-message").forEach(el => el.remove());
         const empty = document.getElementById("chat-empty");
@@ -1159,6 +1284,10 @@
 
         sendBtn.addEventListener("click", () => sendMessage(chatInput.value));
         stopBtn.addEventListener("click", stopStream);
+        document.getElementById("btn-chat-compact")?.addEventListener("click", () => {
+            if (compactionController) compactionController.abort();
+            else void compactConversation();
+        });
         undoBtn.addEventListener("click", undoMessage);
         regenBtn.addEventListener("click", regenerateResponse);
         if (focusBtn) {
@@ -1285,10 +1414,14 @@
             _testClearChat: clearChat,
             _testStartNewChat: startNewChat,
             _testRegenerateResponse: regenerateResponse,
+            _testCompactConversation: compactConversation,
+            _testUndoCompaction: undoCompaction,
+            _testUndoMessage: undoMessage,
             _testGetState: () => ({
                 chatMessages: chatMessages.slice(),
                 currentConversationId,
                 chatStreaming,
+                chatCompactions: chatCompactions.slice(),
             }),
         });
     }

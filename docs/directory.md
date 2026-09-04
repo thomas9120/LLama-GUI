@@ -160,10 +160,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 16. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
 17. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
 18. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-19. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-20. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-21. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-22. `app.js` — main orchestration (wires everything together)
+19. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
+20. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+21. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+22. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+23. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -195,6 +196,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/remote-tunnel-ui.js` | `window.LlamaGui.remoteTunnelUi` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling; receives shared utilities and endpoint helpers from `app.js` |
 | `ui/js/external-server-ui.js` | `window.LlamaGui.externalServerUi` | API tab controls for registering a llama-server started outside this GUI: connect/disconnect actions, target rendering, and the status refresh that unlocks Chat; receives `fetchJson` and status helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
+| `ui/js/chat-compaction.js` | `window.LlamaGui.chatCompaction` | Manual summary generation with counted chunks, selected context, and preserved recent turns |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
@@ -909,9 +911,21 @@ The composer previews the selected conversation, current system instructions and
 
 An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
 
-The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce a visible unavailable state and leave final validation to llama-server. No transcript is truncated or compacted by this batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce a visible unavailable state and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
 
 Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
+
+---
+
+## Manual chat compaction
+
+`Compact now` appears beside the context meter when older messages exist beyond the last two user turns. It becomes Cancel during summarization. A collapsed marker at the summary boundary offers View summary and Undo compaction; it adds no permanent settings panel.
+
+`chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
+
+The existing `/api/chat/completions` route strips `gui_require_context` and refuses summary generation when counting is unavailable. Ordinary chat retains its existing unavailable-count fallback. Web results are still checked at send time.
+
+Stored conversations retain their complete `messages` array (including reasoning, sources, and answer versions) and a separate `compactions` stack of `{end, summary, savedTokens}` records. Requests use the newest summary as a synthetic user/assistant pair followed by messages from `end` onward, keeping the current system prompt separate. Undo pops a summary record without deleting later turns; undoing messages across its boundary also invalidates it. Failed/cancelled summaries never change working context. Conversation switches await cancellation, and changed drafts/settings/runtime invalidate pending results. Reopening a conversation restores its summary and marker.
 
 ---
 

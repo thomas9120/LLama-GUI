@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Chat improvements, batch 4: added manual compaction beside the context meter, counted summary chunks with reply headroom, and a collapsed View summary / Undo marker. Original transcripts and answer versions remain saved; failed, cancelled, stale, or unhelpful summaries leave the prior context intact.
+
 - Fixed empty and system-instructions-only context previews triggering llama-server's Jinja “No messages provided” errors; counting now waits for a chat message and the backend also skips these invalid previews.
 - Chat improvements, batch 3: added a context meter with running-server token counts and reply reserve, refreshes for drafts/settings/model changes, and a final backend budget check including web results. Oversized requests receive actionable recovery feedback; unsupported counting remains visibly unavailable without blocking chat.
 - Chat improvements, batch 2: regeneration retains the original answer until a replacement completes, failed/stopped attempts remain saved with answer navigation and Retry, interrupted streams are marked incomplete, and retries reuse the existing user turn without clearing the draft.

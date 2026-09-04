@@ -130,3 +130,22 @@ class ChatContextTests(unittest.TestCase):
         self.assertIn('"includes_search": true', frames)
         self.assertIn("Context limit exceeded", frames)
         self.assertTrue(response.handler.close_connection)
+
+    def test_compaction_requires_counting_and_strips_gui_field(self):
+        for status in ("unavailable", "empty", "ok"):
+            with self.subTest(status=status):
+                response = SimpleNamespace(sse_headers=mock.Mock(), handler=SimpleNamespace(wfile=io.BytesIO(), close_connection=False))
+                upstream = mock.MagicMock(status=200)
+                upstream.__enter__.return_value = upstream
+                upstream.readline.return_value = b"data: [DONE]\n\n"
+                with mock.patch.object(chat.external_server, "resolve_llama_target", return_value=self.target), \
+                     mock.patch.object(chat.external_server, "resolve_llama_authorization", return_value=""), \
+                     mock.patch.object(chat_context, "measure", return_value={"status": status}) as measure, \
+                     mock.patch.object(chat, "open_pinned_local_request", return_value=upstream) as inference:
+                    chat.completions(Request("POST", "/api/chat/completions", "", {}, body={**self.chat_body, "gui_require_context": True}), response, AppContext())
+                self.assertNotIn("gui_require_context", measure.call_args.args[0])
+                if status == "ok":
+                    self.assertNotIn(b"gui_require_context", inference.call_args.kwargs["data"])
+                else:
+                    inference.assert_not_called()
+                    self.assertIn(b"Compaction needs a valid context count", response.handler.wfile.getvalue())

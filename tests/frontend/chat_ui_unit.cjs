@@ -338,6 +338,7 @@ function makeContext({
     vm.createContext(context);
     vm.runInContext(renderingSource, context, { filename: "ui/js/chat-rendering.js" });
     vm.runInContext(appDataSource, context, { filename: "ui/js/app-data.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
 
     const api = context.window.LlamaGui.chatUi;
@@ -1191,6 +1192,84 @@ async function runAbortScenario(action) {
         await ctx.api._testClearChat();
         assert.equal(pending.length, requestCount, "clearing chat must not send an empty preview");
         assert.match(ctx.elements.get("chat-context-label").textContent, /Type a message/);
+    }
+
+    // Compaction commits separately from the transcript and follows the same
+    // cancellation ordering as generation when switching conversations.
+    {
+        const messages = Array.from({ length: 6 }, (_, index) => ({
+            role: index % 2 ? "assistant" : "user",
+            content: index < 2 ? "Older detail ".repeat(200) : `Recent ${index}`,
+            ...(index === 1 ? { sources: [{ url: "https://example.com" }], versions: [{ content: "Original answer" }], versionIndex: 0 } : {}),
+        }));
+        const seed = [{ id: "compact", messages, systemPrompt: "Keep these instructions" }, { id: "other-convo", messages: [{ role: "user", content: "Other chat" }] }];
+        const bodies = [];
+        let hang = false;
+        let changeRuntime = false;
+        const pendingStream = deferred();
+        const fetchImpl = (url, options) => {
+            if (String(url).endsWith("/context")) {
+                const body = JSON.parse(options.body);
+                const prompt = Math.ceil(JSON.stringify(body.messages).length / 4);
+                const remaining = 4096 - prompt - (body.max_tokens || 0);
+                return Promise.resolve({ ok: true, json: async () => ({ status: remaining < 0 ? "overflow" : "ok", prompt_tokens: prompt, capacity: 4096, remaining }) });
+            }
+            const body = JSON.parse(options.body || "{}");
+            return makeFetch(hang && body.gui_require_context ? "hang" : "complete", {
+                chunk: 'data: {"choices":[{"delta":{"content":"Saved decisions and open questions."},"finish_reason":"stop"}]}\n\n',
+                onRequest: request => {
+                    bodies.push(request);
+                    if (changeRuntime && request.gui_require_context) {
+                        changeRuntime = false;
+                        ctx.setStatus({ running: true, active_process_tool: "llama-server", runtime_generation: 2,
+                            active_runtime: { tool: "llama-server", model: "replacement" } });
+                    }
+                }, onStreamPending: () => pendingStream.resolve(),
+            })(url, options);
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: seed,
+            extraElementIds: ["btn-chat-compact", "chat-compaction-status"] });
+        await ctx.api._testLoadConversation("compact");
+        ctx.elements.get("chat-input").value = "Preserve my draft";
+        await ctx.api._testCompactConversation();
+        assert.deepEqual(JSON.parse(JSON.stringify(ctx.api._testGetState().chatMessages)), messages);
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 1);
+        assert.equal(ctx.elements.get("chat-input").value, "Preserve my draft");
+        assert.equal(ctx.elements.get("chat-messages").querySelectorAll(".chat-compaction-marker").length, 1);
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "compact").compactions.length, 1);
+        await ctx.api._testLoadConversation("other-convo");
+        assert.equal(ctx.elements.get("chat-messages").querySelectorAll(".chat-compaction-marker").length, 0);
+        await ctx.api._testLoadConversation("compact");
+        await ctx.api._testSendMessage("Continue");
+        assert.equal(bodies.at(-1).messages[0].content, "Keep these instructions");
+        assert.equal(bodies.at(-1).messages[2].content, "Saved decisions and open questions.");
+        assert.ok(!JSON.stringify(bodies.at(-1)).includes("Older detail"));
+        ctx.api._testUndoCompaction();
+        await ctx.api._testRegenerateResponse();
+        assert.ok(JSON.stringify(bodies.at(-1)).includes("Older detail"));
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0);
+
+        changeRuntime = true;
+        await ctx.api._testCompactConversation();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0, "a model switch invalidates an otherwise complete summary");
+        assert.match(ctx.elements.get("chat-compaction-status").textContent, /cancelled/);
+
+        hang = true;
+        const pending = ctx.api._testCompactConversation();
+        await pendingStream.promise;
+        assert.equal(ctx.elements.get("btn-chat-compact").textContent, "Cancel compaction");
+        await ctx.api._testLoadConversation("other-convo");
+        await pending;
+        assert.equal(ctx.api._testGetState().currentConversationId, "other-convo");
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0);
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "compact").compactions.length, 0);
+        assert.equal(ctx.elements.get("chat-compaction-status").hidden, true);
+        hang = false;
+        await ctx.api._testLoadConversation("compact");
+        await ctx.api._testCompactConversation();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 1);
+        for (let i = 0; i < 4; i++) ctx.api._testUndoMessage();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0, "undo across the summary boundary restores raw context");
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");
