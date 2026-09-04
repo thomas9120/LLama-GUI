@@ -73,8 +73,8 @@ def make_counters(
 def no_gpus_patch():
     """Patch both vendor probes to report no hardware, without subprocesses."""
     return (
-        mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])),
-        mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+        mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)),
+        mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
     )
 
 
@@ -82,8 +82,8 @@ class DeltaMathTests(unittest.TestCase):
     def _sample(self, previous, counters):
         ctx = make_context(backend="vulkan")
         with mock.patch.object(svc, "collect_system_counters", return_value=counters), \
-                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])), \
-                mock.patch.object(svc, "probe_amd", return_value=("missing", [])), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)), \
                 mock.patch.object(svc, "is_wsl_environment", return_value=False):
             data, new_previous = svc.collect_sample(ctx, previous)
         return data, new_previous
@@ -299,8 +299,8 @@ class CollectorFailureTests(unittest.TestCase):
             }
 
         with mock.patch.object(svc, "collect_system_counters", side_effect=collect), \
-                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])), \
-                mock.patch.object(svc, "probe_amd", return_value=("missing", [])):
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)):
             data, _ = svc.collect_sample(ctx, None)
         self.assertFalse(data["system"]["cpu"]["available"])
         self.assertTrue(data["system"]["memory"]["available"])
@@ -332,8 +332,8 @@ class CollectorFailureTests(unittest.TestCase):
         self.assertIsNone(counters["disk_usage"])
 
         with mock.patch.object(svc, "collect_system_counters", return_value=counters), \
-                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])), \
-                mock.patch.object(svc, "probe_amd", return_value=("unsupported_platform", [])), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("unsupported_platform", [], None)), \
                 mock.patch.object(svc, "is_wsl_environment", return_value=False):
             data, _ = svc.collect_sample(ctx, None)
         self.assertFalse(data["system"]["cpu"]["available"])
@@ -397,23 +397,65 @@ class NvidiaParserTests(unittest.TestCase):
                 mock.patch(
                     "subprocess.run", side_effect=__import__("subprocess").TimeoutExpired("nvidia-smi", 2)
                 ):
-            status, devices = svc.probe_nvidia("linux")
+            status, devices, details = svc.probe_nvidia("linux")
         self.assertEqual(status, "error")
         self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "timeout")
+        self.assertEqual(details["executable"], "/usr/bin/nvidia-smi")
+        self.assertNotIn("exit_code", details)
 
     def test_probe_missing_executable(self):
         with mock.patch.object(svc, "resolve_nvidia_smi", return_value=None):
-            status, devices = svc.probe_nvidia("linux")
+            status, devices, details = svc.probe_nvidia("linux")
         self.assertEqual(status, "missing")
         self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "not_found")
+        self.assertEqual(details, {"reason": "not_found"})
 
     def test_probe_nonzero_exit_is_error(self):
         completed = SimpleNamespace(returncode=9, stdout="", stderr="driver problem")
         with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
                 mock.patch("subprocess.run", return_value=completed):
-            status, devices = svc.probe_nvidia("linux")
+            status, devices, details = svc.probe_nvidia("linux")
         self.assertEqual(status, "error")
         self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "exit_code")
+        self.assertEqual(details["exit_code"], 9)
+        self.assertEqual(details["stderr"], "driver problem")
+
+    def test_probe_ok_without_devices_reports_no_devices(self):
+        completed = SimpleNamespace(returncode=0, stdout="", stderr="")
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", return_value=completed):
+            status, devices, details = svc.probe_nvidia("linux")
+        self.assertEqual(status, "ok")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "no_devices")
+        self.assertEqual(details["executable"], "/usr/bin/nvidia-smi")
+
+    def test_probe_ok_with_devices_has_no_details(self):
+        completed = SimpleNamespace(
+            returncode=0,
+            stdout="GPU-AAAA, 00000000:01:00.0, 0, RTX, 1, 1, 2, 40\n",
+            stderr="",
+        )
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", return_value=completed):
+            status, devices, details = svc.probe_nvidia("linux")
+        self.assertEqual(status, "ok")
+        self.assertEqual(len(devices), 1)
+        self.assertIsNone(details)
+
+    def test_probe_details_truncate_stderr_to_first_line(self):
+        # >200 chars on the first line -> cut; second line is dropped.
+        completed = SimpleNamespace(
+            returncode=3, stdout="", stderr="x" * 300 + "\nsecond line"
+        )
+        with mock.patch.object(svc, "resolve_nvidia_smi", return_value="/usr/bin/nvidia-smi"), \
+                mock.patch("subprocess.run", return_value=completed):
+            _, _, details = svc.probe_nvidia("linux")
+        self.assertEqual(details["stderr"], "x" * 200)
+        self.assertEqual(details["exit_code"], 3)
 
 
 class AmdParserTests(unittest.TestCase):
@@ -506,31 +548,47 @@ class AmdParserTests(unittest.TestCase):
     def test_probe_platform_gating(self):
         # Native Windows/macOS must never execute an incidental amd-smi.
         with mock.patch("subprocess.run") as run:
-            status, devices = svc.probe_amd("win32")
+            status, devices, details = svc.probe_amd("win32")
             self.assertEqual(status, "unsupported_platform")
-            status, devices = svc.probe_amd("darwin")
+            self.assertIsNone(details)
+            status, devices, details = svc.probe_amd("darwin")
             self.assertEqual(status, "unsupported_platform")
+            self.assertIsNone(details)
             run.assert_not_called()
 
     def test_probe_timeout_and_missing(self):
         with mock.patch.object(svc, "resolve_amd_smi", return_value=None):
-            status, devices = svc.probe_amd("linux")
+            status, devices, details = svc.probe_amd("linux")
         self.assertEqual(status, "missing")
         self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "not_found")
 
         import subprocess as _subprocess
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
                 mock.patch("subprocess.run", side_effect=_subprocess.TimeoutExpired("amd-smi", 5)):
-            status, devices = svc.probe_amd("linux")
+            status, devices, details = svc.probe_amd("linux")
         self.assertEqual(status, "error")
+        self.assertEqual(details["reason"], "timeout")
+        self.assertEqual(details["executable"], "/opt/rocm/bin/amd-smi")
 
     def test_probe_malformed_json_is_error(self):
         completed = SimpleNamespace(returncode=0, stdout="not json", stderr="")
         with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
                 mock.patch("subprocess.run", return_value=completed):
-            status, devices = svc.probe_amd("linux")
+            status, devices, details = svc.probe_amd("linux")
         self.assertEqual(status, "error")
         self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "parse_error")
+        self.assertEqual(details["executable"], "/opt/rocm/bin/amd-smi")
+
+    def test_probe_ok_without_devices_reports_no_devices(self):
+        completed = SimpleNamespace(returncode=0, stdout="{}", stderr="")
+        with mock.patch.object(svc, "resolve_amd_smi", return_value="/opt/rocm/bin/amd-smi"), \
+                mock.patch("subprocess.run", return_value=completed):
+            status, devices, details = svc.probe_amd("linux")
+        self.assertEqual(status, "ok")
+        self.assertEqual(devices, [])
+        self.assertEqual(details["reason"], "no_devices")
 
 
 class ResolverTests(unittest.TestCase):
@@ -618,6 +676,54 @@ class SetupStateTests(unittest.TestCase):
         )
         self.assertEqual(entries[0]["state"], "error")
         self.assertEqual(entries[0]["provider"], "nvidia")
+        self.assertNotIn("details", entries[0])
+
+    def test_setup_entry_carries_probe_details(self):
+        nvidia_details = {
+            "reason": "exit_code",
+            "executable": "/usr/bin/nvidia-smi",
+            "exit_code": 1,
+            "stderr": "unknown option",
+        }
+        # Provider hints gate which details attach: CUDA hints NVIDIA only.
+        entries = svc.build_gpu_setup_entries(
+            "linux", False, "cuda-12.4", "error", 0, "missing", 0,
+            nvidia_details=nvidia_details, amd_details={"reason": "not_found"},
+        )
+        self.assertEqual([entry["provider"] for entry in entries], ["nvidia"])
+        self.assertEqual(entries[0]["details"], nvidia_details)
+
+        amd_details = {"reason": "not_found"}
+        entries = svc.build_gpu_setup_entries(
+            "linux", False, "hip", "missing", 0, "missing", 0,
+            nvidia_details=nvidia_details, amd_details=amd_details,
+        )
+        self.assertEqual([entry["provider"] for entry in entries], ["amd"])
+        self.assertEqual(entries[0]["details"], amd_details)
+
+    def test_ok_without_devices_carries_no_devices_details(self):
+        nvidia_details = {"reason": "no_devices", "executable": "/usr/bin/nvidia-smi"}
+        entries = svc.build_gpu_setup_entries(
+            "linux", False, "cuda-12.4", "ok", 0, "missing", 0,
+            nvidia_details=nvidia_details,
+        )
+        self.assertEqual(entries[0]["state"], "error")
+        self.assertEqual(entries[0]["details"], nvidia_details)
+
+    def test_working_probe_emits_no_details_anywhere(self):
+        entries = svc.build_gpu_setup_entries(
+            "linux", False, "cuda-12.4", "ok", 2, "missing", 0,
+            nvidia_details=None,
+        )
+        self.assertEqual(entries, [])
+
+    def test_unsupported_platform_entry_has_no_details(self):
+        # No probe ran, so there is nothing factual to attach.
+        entries = svc.build_gpu_setup_entries(
+            "win32", False, "hip", "missing", 0, "unsupported_platform", 0
+        )
+        self.assertEqual(entries[0]["state"], "unsupported")
+        self.assertNotIn("details", entries[0])
 
     def test_amd_missing_linux_uses_allowlisted_command(self):
         os_release = 'ID=ubuntu\nID_LIKE=debian\n'
@@ -681,7 +787,7 @@ class CollectSampleTests(unittest.TestCase):
         def slow_probe(*args, **kwargs):
             call_order.append("probe")
             time.sleep(0.02)
-            return "missing", []
+            return "missing", [], None
 
         ctx = make_context(backend="vulkan")
         previous = {
@@ -714,8 +820,8 @@ class CollectSampleTests(unittest.TestCase):
         }
         ctx = make_context(backend="cuda-12.4")
         with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
-                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])), \
-                mock.patch.object(svc, "probe_amd", return_value=("missing", [])), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)), \
                 mock.patch.object(svc, "is_wsl_environment", return_value=False), \
                 mock.patch.object(svc, "read_os_release", return_value="ID=ubuntu\n"):
             data, _ = svc.collect_sample(ctx, None)
@@ -723,12 +829,43 @@ class CollectSampleTests(unittest.TestCase):
         self.assertEqual([entry["provider"] for entry in data["gpu_setup"]], ["nvidia"])
 
         with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
-                mock.patch.object(svc, "probe_nvidia", return_value=("ok", [nvidia_gpu])), \
-                mock.patch.object(svc, "probe_amd", return_value=("missing", [])), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("ok", [nvidia_gpu], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)), \
                 mock.patch.object(svc, "is_wsl_environment", return_value=False):
             data, _ = svc.collect_sample(ctx, None)
         self.assertEqual(len(data["gpus"]), 1)
         self.assertEqual(data["gpu_setup"], [])
+
+    def test_probe_details_flow_into_setup_entries(self):
+        ctx = make_context(backend="cuda-12.4")
+        details = {
+            "reason": "exit_code",
+            "executable": "/usr/bin/nvidia-smi",
+            "exit_code": 7,
+            "stderr": "driver mismatch",
+        }
+        with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("error", [], details)), \
+                mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "is_wsl_environment", return_value=False), \
+                mock.patch.object(svc, "read_os_release", return_value="ID=ubuntu\n"):
+            data, _ = svc.collect_sample(ctx, None)
+        entry = data["gpu_setup"][0]
+        self.assertEqual(entry["provider"], "nvidia")
+        self.assertEqual(entry["details"], details)
+
+    def test_amd_probe_cache_keeps_details(self):
+        # The details ride the cached tuple; a cached re-use must not drop them.
+        ctx = make_context(backend="hip")
+        cached_details = {"reason": "parse_error", "executable": "/opt/rocm/bin/amd-smi"}
+        with mock.patch.object(svc, "collect_system_counters", return_value=make_counters()), \
+                mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)), \
+                mock.patch.object(svc, "probe_amd", return_value=("error", [], cached_details)), \
+                mock.patch.object(svc, "is_wsl_environment", return_value=False):
+            svc.get_system_stats(ctx)
+            ctx.state.system_stats_cache["expires_at"] = time.monotonic() - 1
+            data, _ = svc.collect_sample(ctx, None)
+        self.assertEqual(data["gpu_setup"][0]["details"], cached_details)
 
 
 class CachingTests(unittest.TestCase):
@@ -737,8 +874,8 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
-            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", []))[1]),
-            mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
+            mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
         ]
         for patch in patches:
@@ -757,8 +894,8 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
-            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", []))[1]),
-            mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
+            mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
         ]
         for patch in patches:
@@ -776,8 +913,8 @@ class CachingTests(unittest.TestCase):
         calls = {"calls": 0}
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
-            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", []))[1]),
-            mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_nvidia", side_effect=lambda *a, **k: (calls.__setitem__("calls", calls["calls"] + 1), ("missing", [], None))[1]),
+            mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
         ]
         for patch in patches:
@@ -801,12 +938,12 @@ class CachingTests(unittest.TestCase):
             calls["probe"] += 1
             started.set()
             release.wait(timeout=5)
-            return "missing", []
+            return "missing", [], None
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
             mock.patch.object(svc, "probe_nvidia", side_effect=blocking_probe),
-            mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
         ]
         for patch in patches:
@@ -841,12 +978,12 @@ class CachingTests(unittest.TestCase):
             calls["probe"] += 1
             started.set()
             release.wait(timeout=5)
-            return "missing", []
+            return "missing", [], None
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
             mock.patch.object(svc, "probe_nvidia", side_effect=blocking_probe),
-            mock.patch.object(svc, "probe_amd", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_amd", return_value=("missing", [], None)),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
         ]
         for patch in patches:
@@ -889,11 +1026,11 @@ class CachingTests(unittest.TestCase):
 
         def counting_amd(*args, **kwargs):
             calls["amd"] += 1
-            return "ok", []
+            return "ok", [], None
 
         patches = [
             mock.patch.object(svc, "collect_system_counters", return_value=make_counters()),
-            mock.patch.object(svc, "probe_nvidia", return_value=("missing", [])),
+            mock.patch.object(svc, "probe_nvidia", return_value=("missing", [], None)),
             mock.patch.object(svc, "probe_amd", side_effect=counting_amd),
             mock.patch.object(svc, "is_wsl_environment", return_value=False),
             mock.patch.object(svc, "read_os_release", return_value="ID=ubuntu\n"),

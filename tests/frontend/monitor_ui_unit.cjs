@@ -1026,6 +1026,73 @@ buildStandardDom();
     assert.deepEqual(stateCards.map(card => card.dataset.monitorKey), ["state:amd"]);
 }
 
+// Probe details: a failed probe surfaces reason/tool/exit-code/stderr rows on
+// setup and state cards; hostile detail strings stay text, never HTML.
+{
+    const details = {
+        reason: "exit_code",
+        // Hostile value on purpose: the path must render as text.
+        executable: "<img src=x onerror=alert(1)>/nvidia-smi",
+        exit_code: 9,
+        stderr: "driver problem",
+    };
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpu_setup: [{
+                provider: "nvidia", state: "error", action: "open_docs",
+                command: null, package_manager: null,
+                docs_url: "https://developer.nvidia.com/",
+                message: "nvidia-smi ran but returned no usable GPU data.",
+                details,
+            }],
+        }),
+    });
+    monitorUi.recheck();
+    await wait(80);
+    const setupCard = documentStub.getElementById("monitor-setup-cards").children[0];
+    const detailBox = setupCard.querySelector(".monitor-probe-details");
+    assert.ok(detailBox, "setup card renders probe details");
+    const labels = detailBox.querySelectorAll(".monitor-metric-row")
+        .map(row => row.querySelector(".monitor-metric-label").textContent);
+    assert.deepEqual(labels, ["Reason", "Tool", "Exit code", "Stderr"]);
+    assert.ok(detailBox.textContent.includes("Non-zero exit"));
+    assert.ok(detailBox.textContent.includes("9"));
+    assert.ok(detailBox.textContent.includes("driver problem"));
+    assert.equal(detailBox.querySelectorAll("img").length, 0, "hostile executable stays text");
+    const stateCard = documentStub.getElementById("monitor-gpu-states").children[0];
+    const stateBox = stateCard.querySelector(".monitor-probe-details");
+    assert.ok(stateBox, "state card renders probe details");
+    assert.ok(stateCard.textContent.includes("Non-zero exit"));
+}
+
+// Missing or null details: setup and state cards render exactly as before.
+{
+    monitorUi.configure({
+        fetchJson: async () => makeSample({
+            gpu_setup: [{
+                provider: "nvidia", state: "error", action: "open_docs",
+                command: null, package_manager: null,
+                docs_url: "https://developer.nvidia.com/",
+                message: "nvidia-smi ran but returned no usable GPU data.",
+                details: null,
+            }],
+        }),
+    });
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(
+        documentStub.getElementById("monitor-setup-cards").children[0]
+            .querySelector(".monitor-probe-details"),
+        null,
+        "no detail block when details are absent",
+    );
+    assert.equal(
+        documentStub.getElementById("monitor-gpu-states").children[0]
+            .querySelector(".monitor-probe-details"),
+        null,
+    );
+}
+
 // No provider hint: one generic state card, no vendor setup cards.
 {
     monitorUi.configure({ fetchJson: async () => makeSample() });

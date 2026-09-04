@@ -4493,6 +4493,14 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 .monitor-gpu-meta { display: grid; gap: 6px; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
 .monitor-gpu-meta .monitor-metric-row { margin-bottom: 0; }
 
+/* Probe diagnostics inside state/setup cards: long tool paths and stderr
+   lines hug the card instead of stretching it. */
+.monitor-probe-details .monitor-metric-reading {
+    max-width: 70%;
+    text-align: right;
+    word-break: break-all;
+}
+
 .monitor-io-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;

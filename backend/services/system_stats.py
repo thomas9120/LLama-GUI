@@ -488,6 +488,27 @@ def _log_probe_failure(tool, exc):
     print(f"[system-stats] {tool} probe failed: {type(exc).__name__}: {exc}", file=sys.stderr)
 
 
+def _probe_details(reason, executable=None, exit_code=None, stderr_text=None):
+    """Serializable probe diagnostics for the Monitor UI.
+
+    Only facts the probe actually observed are emitted, under a fixed key set:
+    ``reason`` is one of ``not_found`` / ``timeout`` / ``exit_code`` /
+    ``parse_error`` / ``no_devices``; ``exit_code`` and ``stderr`` are omitted
+    when unknown; stderr is cut to its first line and 200 chars so a noisy
+    vendor tool cannot bloat the payload.
+    """
+    details = {"reason": reason}
+    if executable is not None:
+        details["executable"] = executable
+    if exit_code is not None:
+        details["exit_code"] = int(exit_code)
+    if stderr_text:
+        first_line = str(stderr_text).splitlines()
+        if first_line:
+            details["stderr"] = first_line[0][:200]
+    return details
+
+
 def _read_text_file(path):
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         return handle.read()
@@ -676,10 +697,16 @@ def parse_nvidia_smi_csv(text):
 
 
 def probe_nvidia(platform_name):
-    """Return ``(status, devices)`` with status ``ok`` / ``missing`` / ``error``."""
+    """Return ``(status, devices, details)`` with status ``ok`` / ``missing`` / ``error``.
+
+    ``details`` is ``None`` when the probe produced usable devices; otherwise it
+    carries the reason (``not_found`` / ``timeout`` / ``exit_code`` /
+    ``no_devices``) plus any observed facts (tool path, exit code, first stderr
+    line).
+    """
     executable = resolve_nvidia_smi(platform_name)
     if executable is None:
-        return "missing", []
+        return "missing", [], _probe_details("not_found")
     argv = [
         executable,
         f"--query-gpu={NVIDIA_QUERY_FIELDS}",
@@ -696,16 +723,26 @@ def probe_nvidia(platform_name):
         )
     except subprocess.TimeoutExpired as exc:
         _log_probe_failure("nvidia-smi", exc)
-        return "error", []
+        return "error", [], _probe_details("timeout", executable=executable)
     except OSError as exc:
         _log_probe_failure("nvidia-smi", exc)
-        return "error", []
+        return "error", [], _probe_details(
+            "exit_code", executable=executable, stderr_text=str(exc)
+        )
     if result.returncode != 0:
         _log_probe_failure(
             "nvidia-smi", RuntimeError(f"exit code {result.returncode}")
         )
-        return "error", []
-    return "ok", parse_nvidia_smi_csv(result.stdout)
+        return "error", [], _probe_details(
+            "exit_code",
+            executable=executable,
+            exit_code=result.returncode,
+            stderr_text=result.stderr,
+        )
+    devices = parse_nvidia_smi_csv(result.stdout)
+    return "ok", devices, None if devices else _probe_details(
+        "no_devices", executable=executable
+    )
 
 
 # --------------------------------------------------------------------------
@@ -959,17 +996,20 @@ def parse_amd_smi_json(text):
 
 
 def probe_amd(platform_name):
-    """Return ``(status, devices)``.
+    """Return ``(status, devices, details)``.
 
     Status is ``ok`` / ``missing`` / ``error`` / ``unsupported_platform``.
     Native Windows and macOS never execute an incidental ``amd-smi`` found on
     PATH; WSL may use an already-working one but gets no install guidance.
+    ``details`` is ``None`` when the probe produced usable devices; otherwise
+    it carries the reason plus any observed facts (tool path, exit code, first
+    stderr line).
     """
     if platform_name == "win32" or platform_name == "darwin" or not platform_name.startswith("linux"):
-        return "unsupported_platform", []
+        return "unsupported_platform", [], None
     executable = resolve_amd_smi()
     if executable is None:
-        return "missing", []
+        return "missing", [], _probe_details("not_found")
     try:
         result = subprocess.run(
             [executable, "--json"],
@@ -981,19 +1021,30 @@ def probe_amd(platform_name):
         )
     except subprocess.TimeoutExpired as exc:
         _log_probe_failure("amd-smi", exc)
-        return "error", []
+        return "error", [], _probe_details("timeout", executable=executable)
     except OSError as exc:
         _log_probe_failure("amd-smi", exc)
-        return "error", []
+        return "error", [], _probe_details(
+            "exit_code", executable=executable, stderr_text=str(exc)
+        )
     if result.returncode != 0:
         _log_probe_failure("amd-smi", RuntimeError(f"exit code {result.returncode}"))
-        return "error", []
+        return "error", [], _probe_details(
+            "exit_code",
+            executable=executable,
+            exit_code=result.returncode,
+            stderr_text=result.stderr,
+        )
     try:
         devices = parse_amd_smi_json(result.stdout)
     except (json.JSONDecodeError, ValueError) as exc:
         _log_probe_failure("amd-smi", exc)
-        return "error", []
-    return "ok", devices
+        return "error", [], _probe_details(
+            "parse_error", executable=executable, stderr_text=str(exc)
+        )
+    return "ok", devices, None if devices else _probe_details(
+        "no_devices", executable=executable
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1045,9 +1096,9 @@ def read_os_release():
         return None
 
 
-def _nvidia_setup_entry(nvidia_status):
+def _nvidia_setup_entry(nvidia_status, details=None):
     if nvidia_status == "missing":
-        return {
+        entry = {
             "provider": "nvidia",
             "state": "setup_required",
             "action": "open_docs",
@@ -1060,22 +1111,26 @@ def _nvidia_setup_entry(nvidia_status):
                 "documentation, then recheck."
             ),
         }
-    # Probe failed or exited successfully without a usable device.
-    return {
-        "provider": "nvidia",
-        "state": "error",
-        "action": "open_docs",
-        "command": None,
-        "package_manager": None,
-        "docs_url": NVIDIA_DOCS_URL,
-        "message": (
-            "nvidia-smi ran but returned no usable GPU data. Check the NVIDIA "
-            "driver installation, then recheck."
-        ),
-    }
+    else:
+        # Probe failed or exited successfully without a usable device.
+        entry = {
+            "provider": "nvidia",
+            "state": "error",
+            "action": "open_docs",
+            "command": None,
+            "package_manager": None,
+            "docs_url": NVIDIA_DOCS_URL,
+            "message": (
+                "nvidia-smi ran but returned no usable GPU data. Check the NVIDIA "
+                "driver installation, then recheck."
+            ),
+        }
+    if details is not None:
+        entry["details"] = details
+    return entry
 
 
-def _amd_setup_entry(amd_status, is_wsl, os_release_text):
+def _amd_setup_entry(amd_status, is_wsl, os_release_text, details=None):
     if is_wsl or amd_status == "unsupported_platform":
         return {
             "provider": "amd",
@@ -1109,8 +1164,10 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text):
                 "never runs it."
             ),
         }
+        if details is not None:
+            entry["details"] = details
         return entry
-    return {
+    entry = {
         "provider": "amd",
         "state": "error",
         "action": "open_docs",
@@ -1122,6 +1179,9 @@ def _amd_setup_entry(amd_status, is_wsl, os_release_text):
             "installation, then recheck."
         ),
     }
+    if details is not None:
+        entry["details"] = details
+    return entry
 
 
 def build_gpu_setup_entries(
@@ -1133,13 +1193,16 @@ def build_gpu_setup_entries(
     amd_status,
     amd_device_count,
     os_release_text=None,
+    nvidia_details=None,
+    amd_details=None,
 ):
     """Relevant setup/error/unsupported rows only.
 
     A working probe suppresses only its own provider's row; provider states are
     independent, so mixed success/failure states coexist. Providers without
     backend evidence produce nothing here — the frontend owns the generic
-    no-hint state.
+    no-hint state. Probe diagnostics are attached as ``details`` when the probe
+    observed a failure or found no usable devices.
     """
     nvidia_hint, amd_hint = provider_hints(backend_name)
     entries = []
@@ -1147,9 +1210,9 @@ def build_gpu_setup_entries(
     if nvidia_hint:
         if nvidia_status == "ok" and nvidia_device_count == 0:
             # Exited successfully but yielded no valid devices.
-            entries.append(_nvidia_setup_entry("error"))
+            entries.append(_nvidia_setup_entry("error", details=nvidia_details))
         elif nvidia_status != "ok":
-            entries.append(_nvidia_setup_entry(nvidia_status))
+            entries.append(_nvidia_setup_entry(nvidia_status, details=nvidia_details))
 
     if amd_hint:
         if amd_status == "unsupported_platform":
@@ -1162,9 +1225,13 @@ def build_gpu_setup_entries(
                     _amd_setup_entry("unsupported_platform", is_wsl, os_release_text)
                 )
             else:
-                entries.append(_amd_setup_entry("error", is_wsl, os_release_text))
+                entries.append(
+                    _amd_setup_entry("error", is_wsl, os_release_text, details=amd_details)
+                )
         elif amd_status != "ok":
-            entries.append(_amd_setup_entry(amd_status, is_wsl, os_release_text))
+            entries.append(
+                _amd_setup_entry(amd_status, is_wsl, os_release_text, details=amd_details)
+            )
     return entries
 
 
@@ -1311,16 +1378,16 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
             interval_seconds = counters["monotonic"] - previous_monotonic
     interval_ok = valid_rate_interval(interval_seconds)
 
-    nvidia_status, nvidia_devices = probe_nvidia(platform_name)
+    nvidia_status, nvidia_devices, nvidia_details = probe_nvidia(platform_name)
 
     is_wsl = platform_name.startswith("linux") and is_wsl_environment()
     cached_amd = _cached_amd_probe(ctx.state, allow_probe_cache)
     if cached_amd is not None:
-        amd_status, amd_devices = cached_amd
+        amd_status, amd_devices, amd_details = cached_amd
     else:
-        amd_status, amd_devices = probe_amd(platform_name)
+        amd_status, amd_devices, amd_details = probe_amd(platform_name)
         if amd_status in ("ok", "error"):
-            _store_amd_probe(ctx.state, (amd_status, amd_devices))
+            _store_amd_probe(ctx.state, (amd_status, amd_devices, amd_details))
 
     gpu_setup = build_gpu_setup_entries(
         platform_name,
@@ -1331,6 +1398,8 @@ def collect_sample(ctx, previous, allow_probe_cache=True):
         amd_status,
         len(amd_devices),
         os_release_text=read_os_release() if platform_name.startswith("linux") else None,
+        nvidia_details=nvidia_details,
+        amd_details=amd_details,
     )
 
     data = {

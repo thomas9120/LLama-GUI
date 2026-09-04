@@ -3,6 +3,7 @@
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
 ## 2026-09-06
+- Failed GPU vendor probes (nvidia-smi/amd-smi) now surface observed diagnostics in Monitor state/setup cards: reason (tool not found / timeout / non-zero exit / unparsable output / no usable devices), tool path, exit code, and the first stderr line (truncated to 200 chars).
 - The server-ready toast now includes a temporary "Open Monitor" link when llama-server becomes ready; the toast action API is generic (label + onClick, textContent-only) while all other notifications are unchanged.
 
 ## 2026-09-05

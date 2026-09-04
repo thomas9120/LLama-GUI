@@ -638,6 +638,35 @@
         return row;
     }
 
+    // Fixed probe diagnostics from the backend, shown only when a vendor probe
+    // failed or found nothing. Unknown reason values render verbatim so a
+    // newer backend stays legible instead of vanishing.
+    const PROBE_REASON_LABELS = {
+        not_found: "Tool not found",
+        timeout: "Probe timed out",
+        exit_code: "Non-zero exit",
+        parse_error: "Unparsable output",
+        no_devices: "No usable devices",
+    };
+
+    function appendProbeDetailRows(parent, details) {
+        if (!details || typeof details !== "object") return;
+        const reason = details.reason;
+        if (typeof reason !== "string" || !reason) return;
+        const wrap = makeEl("div", "monitor-probe-details");
+        wrap.appendChild(makeMetricRow("Reason", PROBE_REASON_LABELS[reason] || reason));
+        if (typeof details.executable === "string" && details.executable) {
+            wrap.appendChild(makeMetricRow("Tool", details.executable));
+        }
+        if (typeof details.exit_code === "number") {
+            wrap.appendChild(makeMetricRow("Exit code", String(details.exit_code)));
+        }
+        if (typeof details.stderr === "string" && details.stderr) {
+            wrap.appendChild(makeMetricRow("Stderr", details.stderr));
+        }
+        parent.appendChild(wrap);
+    }
+
     function makeHideButton(key, label) {
         const button = makeEl("button", "btn btn-sm btn-ghost monitor-hide-btn", "Hide");
         button.type = "button";
@@ -833,6 +862,7 @@
                 ? `System metrics keep updating. Use the ${providerLabel(provider)} setup card and Recheck when ready.`
                 : "No supported vendor tool or GPU backend identified NVIDIA or AMD hardware. System metrics keep updating; Recheck after changing the installed backend or driver environment.");
         empty.appendChild(makeEl("p", "", message));
+        appendProbeDetailRows(empty, entry && entry.details);
         card.appendChild(empty);
         return card;
     }
@@ -888,6 +918,7 @@
             actions.appendChild(link);
             card.appendChild(actions);
         }
+        appendProbeDetailRows(card, entry.details);
         return card;
     }
 
