@@ -5,6 +5,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 ## 2026-09-04
 
 - Fixed Monitor AMD telemetry across AMD SMI release shapes by using `metric --json`, accepting the `gpu_data` envelope, and retaining reported GPU indexes when stable IDs are absent. Card reordering now follows horizontal grid geometry, uses a dedicated grip that leaves adjacent controls clickable, supports arrow-key movement, and reports accurate Starting/Loading/Stopping process states without losing the status dot.
+- Kept the Monitor live badge visually stable during routine background polls; the brief Refreshing state now appears only for an explicit GPU monitoring Recheck.
 
 ## 2026-09-03
 

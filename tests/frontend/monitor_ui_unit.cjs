@@ -1346,6 +1346,8 @@ function deferred() {
     const countBeforeSlow = calls.length;
     await wait(120);
     assert.equal(calls.length, countBeforeSlow + 1, "at most one in-flight request");
+    assert.ok(documentStub.getElementById("monitor-live-badge").textContent.includes("Live"),
+        "routine background polls do not flash a transient Refreshing state");
     gate.resolve(makeSample());
     await wait(120);
     assert.ok(calls.length >= countBeforeSlow + 3, "polling resumes after completion");
@@ -1359,6 +1361,8 @@ function deferred() {
     const recheckCall = calls[calls.length - 1];
     assert.equal(recheckCall.url, "/api/system-stats?refresh=1");
     assert.equal(slowCall.aborted, true, "recheck aborts the in-flight poll");
+    assert.ok(documentStub.getElementById("monitor-live-badge").textContent.includes("Refreshing"),
+        "manual Recheck still exposes its in-progress state");
     gate2.resolve(makeSample());
     await wait(20);
 

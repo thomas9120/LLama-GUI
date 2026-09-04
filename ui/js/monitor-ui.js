@@ -575,7 +575,7 @@
         const generation = ++pollGeneration;
         const controller = new AbortController();
         pollController = controller;
-        renderLiveBadge();
+        if (forceRefresh) renderLiveBadge();
         try {
             const fetchJson = requireDep("fetchJson");
             const url = forceRefresh ? "/api/system-stats?refresh=1" : "/api/system-stats";
