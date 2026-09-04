@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Moved routine context counts and compaction actions into a compact composer tools menu. Only brief near-full/overflow warnings remain inline; context details, summary navigation, and Undo are available on demand with keyboard and outside-click dismissal.
+
 - Chat improvements, batch 4: added manual compaction beside the context meter, counted summary chunks with reply headroom, and a collapsed View summary / Undo marker. Original transcripts and answer versions remain saved; failed, cancelled, stale, or unhelpful summaries leave the prior context intact.
 
 - Fixed empty and system-instructions-only context previews triggering llama-server's Jinja “No messages provided” errors; counting now waits for a chat message and the backend also skips these invalid previews.

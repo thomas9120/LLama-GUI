@@ -239,6 +239,7 @@ async function main() {
                 }
                 await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
                     contextResponseMode === "unavailable" ? { status: "unavailable", message: "Context count unavailable; the server will validate the request." }
+                    : contextResponseMode === "warning" ? { status: "warning", capacity: 4096, prompt_tokens: 3600, reply_reserve: 256, reserve_source: "request", remaining: 240 }
                     : { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, reserve_source: "request", remaining: 3484, search_pending: Boolean(body.web_search) }
                 ) });
                 return;
@@ -1337,11 +1338,31 @@ async function main() {
         await page.fill("#chat-input", "Measure my draft");
         await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("4,096"));
         assert.equal(contextBodies.at(-1).messages.at(-1).content, "Measure my draft");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), false, "routine context details stay hidden");
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), false);
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-context-details summary").press("Enter");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), true);
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false);
+        assert.equal(await page.locator("#btn-chat-tools").evaluate(el => el === document.activeElement), true);
+        await page.click("#btn-chat-tools");
+        await page.keyboard.press("Shift+Tab");
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing past the trigger dismisses tools");
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-messages").click({ position: { x: 5, y: 5 } });
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "outside clicks dismiss tools");
+
         assert.equal(await page.locator("#chat-context-bar").getAttribute("aria-valuenow"), "15");
         assert.ok(await page.locator("#chat-context-prompt").evaluate(el => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)"));
         chatResponseMode = "overflow";
         await page.click("#btn-chat-send");
         await page.waitForFunction(() => document.querySelector(".chat-response-status")?.textContent.includes("Context limit exceeded"));
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), true);
+        assert.match(await page.locator("#chat-context-warning").innerText(), /exceeds/);
+        await page.click("#btn-chat-context-details");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), true);
         assert.match(await page.locator("#chat-context-label").innerText(), /Includes web results/);
         assert.equal(await page.locator("#chat-context-bar").getAttribute("data-status"), "overflow");
         assert.equal(await page.locator(".chat-message.user").innerText(), "U\nMeasure my draft");
@@ -1349,16 +1370,25 @@ async function main() {
         await page.fill("#chat-input", "Changed draft");
         await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("unavailable"));
         assert.equal(await page.locator("#chat-context-bar").isVisible(), false);
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), false);
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "leaving the menu returns space to chat");
         assert.equal(await page.locator("#btn-chat-send").isEnabled(), true);
+        contextResponseMode = "warning";
+        await page.fill("#chat-input", "Nearly full draft");
+        await page.waitForFunction(() => !document.querySelector("#chat-context-warning").hidden);
+        assert.match(await page.locator("#chat-context-warning").innerText(), /nearly full/);
+        assert.equal(await page.locator("#chat-context-label").isVisible(), false);
         chatResponseMode = "ok";
         contextResponseMode = "ok";
+        await page.fill("#chat-input", "Changed draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-warning").hidden);
         await page.getByRole("button", { name: "Retry", exact: true }).click();
         await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
         assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
         assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
 
-        // Only one small action is added to the meter; the summary is collapsed
-        // in the transcript until explicitly opened, including on narrow screens.
+        // Context and compaction are reached through the composer tools menu;
+        // both it and the summary stay collapsed until requested.
         contextResponseMode = "compaction";
         await page.click("#btn-chat-new");
         assert.equal(await page.locator("#btn-chat-compact").isVisible(), false);
@@ -1370,19 +1400,25 @@ async function main() {
         }
         await page.fill("#chat-input", "Draft survives compaction");
         const transcriptBefore = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages);
+        await page.click("#btn-chat-tools");
         await page.click("#btn-chat-compact");
         await page.waitForSelector(".chat-compaction-marker");
         assert.equal(await page.locator(".chat-compaction-marker").getAttribute("open"), null);
         assert.equal(await page.locator(".chat-message").count(), transcriptBefore.length);
         assert.equal(await page.locator("#chat-input").inputValue(), "Draft survives compaction");
-        assert.equal(await page.locator("#btn-chat-compact").isVisible(), false, "no redundant compaction action before more turns");
-        await page.locator(".chat-compaction-marker summary").click();
+        assert.equal(await page.locator("#btn-chat-compact").isDisabled(), true, "compaction needs more turns before running again");
+        await page.click("#btn-chat-view-summary");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false);
+        assert.equal(await page.locator(".chat-compaction-marker").getAttribute("open"), "");
         assert.match(await page.locator(".chat-compaction-marker pre").innerText(), /<script>literal summary<\/script>/);
         assert.equal(await page.locator(".chat-compaction-marker script").count(), 0);
         await page.setViewportSize({ width: 760, height: 800 });
-        const compactLayout = await page.locator(".chat-context").evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth }));
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-context-details summary").click();
+        const compactLayout = await page.locator("#chat-tools").evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth, left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right }));
         assert.ok(compactLayout.scroll <= compactLayout.width + 1, "context controls fit a narrow chat");
-        await page.click("#btn-chat-undo-compaction");
+        assert.ok(compactLayout.left >= 0 && compactLayout.right <= 760, "tools stay within the viewport");
+        await page.click("#btn-chat-tools-undo-compaction");
         assert.equal(await page.locator(".chat-compaction-marker").count(), 0);
         assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages), transcriptBefore);
         await page.setViewportSize({ width: 1440, height: 1000 });

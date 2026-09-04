@@ -480,12 +480,19 @@
         const button = document.getElementById("btn-chat-compact");
         if (!button) return;
         const available = compaction.boundary(chatMessages) > (chatCompactions.at(-1)?.end || 0);
-        button.hidden = !available && !compactionController;
-        button.disabled = !compactionController && (chatStreaming || !isServerRunning());
-        button.textContent = compactionController ? "Cancel compaction" : "Compact now";
+        button.disabled = !compactionController && (!available || chatStreaming || !isServerRunning());
+        button.textContent = compactionController ? "Cancel compaction" : "Compact conversation";
         button.title = "Summarize older messages; keep the transcript and last two turns unchanged.";
-        const undo = document.getElementById("btn-chat-undo-compaction");
-        if (undo) undo.disabled = chatStreaming || Boolean(compactionController);
+        for (const id of ["btn-chat-undo-compaction", "btn-chat-tools-undo-compaction"]) {
+            const undo = document.getElementById(id);
+            if (undo) undo.disabled = chatStreaming || Boolean(compactionController);
+        }
+        for (const id of ["btn-chat-view-summary", "btn-chat-tools-undo-compaction"]) {
+            const action = document.getElementById(id);
+            if (action) action.hidden = !chatCompactions.length;
+        }
+        const trigger = document.getElementById("btn-chat-tools");
+        if (trigger) trigger.title = compactionController ? "Compacting conversation — open to cancel" : "Chat tools";
     }
 
     function renderCompactionMarker() {
@@ -551,7 +558,7 @@
             } catch (error) {
                 console.debug("Chat compaction did not apply", error);
                 report(error.name === "AbortError" ? "Compaction cancelled; previous context kept."
-                    : `${error.message} Previous context kept. You can retry Compact now.`);
+                    : `${error.message} Previous context kept. You can retry Compact conversation.`);
             } finally {
                 compactionController = null;
                 compactionKey = null;
@@ -562,6 +569,52 @@
         compactionPromise = pending;
         pending.then(() => { if (compactionPromise === pending) compactionPromise = null; });
         return pending;
+    }
+
+    function setChatToolsOpen(open, showContext = false, restoreFocus = false) {
+        const panel = document.getElementById("chat-tools");
+        const trigger = document.getElementById("btn-chat-tools");
+        if (!panel || !trigger) return;
+        panel.hidden = !open;
+        trigger.setAttribute("aria-expanded", String(open));
+        const details = document.getElementById("chat-context-details");
+        if (details && (!open || showContext)) details.open = open;
+        if (open) panel.querySelector("summary")?.focus();
+        else if (restoreFocus) trigger.focus();
+    }
+
+    function initChatTools() {
+        const panel = document.getElementById("chat-tools");
+        const trigger = document.getElementById("btn-chat-tools");
+        if (!panel || !trigger) return;
+        trigger.addEventListener("click", () => setChatToolsOpen(panel.hidden));
+        document.getElementById("btn-chat-context-details")?.addEventListener("click", () => setChatToolsOpen(true, true));
+        document.getElementById("btn-chat-view-summary")?.addEventListener("click", () => {
+            setChatToolsOpen(false);
+            const marker = document.querySelector(".chat-compaction-marker");
+            if (marker) {
+                marker.open = true;
+                marker.querySelector("summary")?.focus();
+                marker.scrollIntoView({ block: "nearest" });
+            }
+        });
+        document.getElementById("btn-chat-tools-undo-compaction")?.addEventListener("click", () => {
+            undoCompaction();
+            setChatToolsOpen(false, false, true);
+        });
+        document.addEventListener("click", event => {
+            if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target)
+                && !document.getElementById("btn-chat-context-details")?.contains(event.target)) setChatToolsOpen(false);
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !panel.hidden) {
+                event.preventDefault();
+                setChatToolsOpen(false, false, true);
+            }
+        });
+        document.addEventListener("focusin", event => {
+            if (!panel.hidden && !panel.contains(event.target) && event.target !== trigger) setChatToolsOpen(false);
+        });
     }
 
     function renderContextBudget(budget) {
@@ -585,6 +638,13 @@
         if (budget.search_pending) label.textContent += " Web results are added and checked when you send.";
         if (budget.includes_search) label.textContent += " Includes web results.";
         bar.setAttribute("aria-valuetext", label.textContent);
+        const warning = document.getElementById("chat-context-warning");
+        const warningText = document.getElementById("chat-context-warning-text");
+        if (warning && warningText) {
+            warning.hidden = !["warning", "overflow"].includes(budget.status);
+            warningText.textContent = budget.status === "overflow"
+                ? "This request exceeds the context limit." : "Context is nearly full.";
+        }
     }
 
     function cancelContextPreview() {
@@ -1046,6 +1106,7 @@
     }
 
     async function loadConversation(id) {
+        setChatToolsOpen(false);
         // Must await: abort() rejects the pending read on a later microtask, so a
         // bare stopStream() lets the AbortError handler run after the reassignments
         // below and finalize the old reply into the conversation we just loaded.
@@ -1098,6 +1159,7 @@
     }
 
     async function startNewChat() {
+        setChatToolsOpen(false);
         // Stop before saving: an in-flight stream would otherwise keep appending
         // tokens into the fresh chat and leave the composer disabled.
         if (chatStreaming || compactionController) await abortActiveStream();
@@ -1192,6 +1254,7 @@
     }
 
     async function clearChat() {
+        setChatToolsOpen(false);
         if (chatStreaming || compactionController) await abortActiveStream();
         if (currentConversationId) {
             const conversations = getStoredConversations();
@@ -1219,6 +1282,7 @@
     }
 
     function init() {
+        initChatTools();
         const chatInput = document.getElementById("chat-input");
         const sendBtn = document.getElementById("btn-chat-send");
         const stopBtn = document.getElementById("btn-chat-stop");

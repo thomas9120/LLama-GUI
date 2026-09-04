@@ -905,13 +905,13 @@ The Configure tab has a search input that filters visible flags in real-time.
 
 ## Chat context budgeting
 
-The composer previews the selected conversation, current system instructions and draft through `POST /api/chat/context`, debounced by 500 ms. The same body builder supplies completions. Pending previews are discarded on conversation/settings/runtime changes and while sending. This meter is separate from shared slot-occupancy statistics.
+The composer previews the selected conversation, current system instructions and draft through `POST /api/chat/context`, debounced by 500 ms. The same body builder supplies completions. Pending previews are discarded on conversation/settings/runtime changes and while sending. The meter and detailed counts are tucked into Context usage in the composer’s ⋯ tools menu. Only near-full/overflow warnings appear inline, with a Details action. Escape, outside click, and leaving the popup close it; Escape returns focus to the trigger. This meter is separate from shared slot-occupancy statistics.
 
 `backend/services/chat_context.py` reads the running server's `/props` (`default_generation_settings.n_ctx`, already per slot), then uses `/v1/chat/completions/input_tokens`. When that endpoint is absent, text requests fall back to `/apply-template` and `/tokenize` with `add_special` and `parse_special` enabled. The template receives the same reasoning and request options. Media requests require native counting. No Configure context value or character estimate substitutes for server data.
 
 An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
 
-The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce a visible unavailable state and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
 
 Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
 
@@ -919,7 +919,7 @@ Upstream behavior checked against [server-context.cpp](https://github.com/ggml-o
 
 ## Manual chat compaction
 
-`Compact now` appears beside the context meter when older messages exist beyond the last two user turns. It becomes Cancel during summarization. A collapsed marker at the summary boundary offers View summary and Undo compaction; it adds no permanent settings panel.
+`Compact conversation` lives in the composer’s ⋯ tools menu and is enabled when older messages exist beyond the last two user turns. It becomes Cancel during summarization, with progress and recovery details inside the popup. After compaction, the menu offers View summary (opens the transcript marker) and Undo compaction. The collapsed marker also retains its Undo action.
 
 `chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
 
