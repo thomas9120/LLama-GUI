@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Chat improvements, batch 3: added a context meter with running-server token counts and reply reserve, refreshes for drafts/settings/model changes, and a final backend budget check including web results. Oversized requests receive actionable recovery feedback; unsupported counting remains visibly unavailable without blocking chat.
 - Chat improvements, batch 2: regeneration retains the original answer until a replacement completes, failed/stopped attempts remain saved with answer navigation and Retry, interrupted streams are marked incomplete, and retries reuse the existing user turn without clearing the draft.
 - Chat improvements, batch 1: Max Tokens now shows the actual shared request limit or Server default without silently clamping its display, and reopened conversations restore saved web-source links.
 - Polished the Monitor experience with responsive, reorderable mixed resource/GPU cards; stable polling states and focus; session-average prompt/generation speeds; improved accessibility; and more accurate lifecycle reporting.

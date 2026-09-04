@@ -951,6 +951,7 @@ API_ROUTER = (
     .add("POST", "/api/web-search", search_routes.search)
     .add("POST", "/api/benchmark/wikitext2", benchmarks_routes.ensure_wikitext2)
     .add("POST", "/api/chat/completions", chat_routes.completions)
+    .add("POST", "/api/chat/context", chat_routes.context_budget)
     .add("POST", "/api/chat/target", external_server_routes.connect)
     .add("DELETE", "/api/chat/target", external_server_routes.disconnect)
     .add("POST", "/api/remote-tunnel/start", tunnel_routes.start)

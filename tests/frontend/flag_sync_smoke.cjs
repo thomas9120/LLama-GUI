@@ -154,6 +154,8 @@ async function main() {
         };
         let availableModels = [{ name: "smoke-model.gguf", size_mb: 1 }];
         let chatResponseMode = "ok";
+        let contextResponseMode = "ok";
+        const contextBodies = [];
         let statsMetrics = {
             promptTokens: 0,
             promptSpeed: 0,
@@ -223,6 +225,15 @@ async function main() {
         await page.route("**/api/**", async (route) => {
             const url = new URL(route.request().url());
             const pathName = url.pathname;
+            if (pathName === "/api/chat/context") {
+                const body = JSON.parse(route.request().postData() || "{}");
+                contextBodies.push(body);
+                await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+                    contextResponseMode === "unavailable" ? { status: "unavailable", message: "Context count unavailable; the server will validate the request." }
+                    : { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, reserve_source: "request", remaining: 3484, search_pending: Boolean(body.web_search) }
+                ) });
+                return;
+            }
             if (pathName === "/api/chat/completions") {
                 chatCompletionBodies.push(JSON.parse(route.request().postData() || "{}"));
                 chatCompletionHeaders.push(route.request().headers());
@@ -232,7 +243,10 @@ async function main() {
                     "data: [DONE]",
                     "",
                 ].join("\n");
-                if (chatResponseMode === "failed-partial") {
+                if (chatResponseMode === "overflow") {
+                    chatStreamBody = 'data: {"type":"context_budget","status":"overflow","capacity":4096,"prompt_tokens":4000,"reply_reserve":512,"remaining":-416,"reserve_source":"request","includes_search":true,"message":"Context limit exceeded."}\n\n'
+                        + 'data: {"error":{"message":"Context limit exceeded. Shorten the prompt or lower Max Tokens."}}\n\ndata: [DONE]\n\n';
+                } else if (chatResponseMode === "failed-partial") {
                     chatStreamBody = 'data: {"choices":[{"delta":{"content":"recoverable partial"}}]}\n\n'
                         + 'data: {"error":{"message":"Test connection failure"}}\n\n';
                 } else if (chatResponseMode === "reasoning-only") {
@@ -1307,6 +1321,30 @@ async function main() {
         const recoveredVersions = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages[1].versions);
         assert.equal(recoveredVersions[1].content, "recoverable partial");
         assert.equal(recoveredVersions[1].status, "failed");
+
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Measure my draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("4,096"));
+        assert.equal(contextBodies.at(-1).messages.at(-1).content, "Measure my draft");
+        assert.equal(await page.locator("#chat-context-bar").getAttribute("aria-valuenow"), "15");
+        assert.ok(await page.locator("#chat-context-prompt").evaluate(el => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)"));
+        chatResponseMode = "overflow";
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector(".chat-response-status")?.textContent.includes("Context limit exceeded"));
+        assert.match(await page.locator("#chat-context-label").innerText(), /Includes web results/);
+        assert.equal(await page.locator("#chat-context-bar").getAttribute("data-status"), "overflow");
+        assert.equal(await page.locator(".chat-message.user").innerText(), "U\nMeasure my draft");
+        contextResponseMode = "unavailable";
+        await page.fill("#chat-input", "Changed draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("unavailable"));
+        assert.equal(await page.locator("#chat-context-bar").isVisible(), false);
+        assert.equal(await page.locator("#btn-chat-send").isEnabled(), true);
+        chatResponseMode = "ok";
+        contextResponseMode = "ok";
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
 
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 

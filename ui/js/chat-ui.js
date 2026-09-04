@@ -15,6 +15,10 @@
     let chatStreamPromise = null;
     let currentConversationId = null;
     let chatFocusMode = false;
+    let contextTimer = null;
+    let contextController = null;
+    let contextKey = null;
+    let contextRevision = 0;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
     const CHAT_SETTINGS_COLLAPSED_STORAGE_KEY = "llama_gui_chat_settings_collapsed";
@@ -109,6 +113,7 @@
             maxTokensDisplay.textContent = label;
             maxTokensSlider.setAttribute("aria-valuetext", label);
         }
+        scheduleContextPreview();
     }
 
     function getChatModelName() {
@@ -295,6 +300,7 @@
     }
 
     function updateStatusBadge() {
+        scheduleContextPreview();
         const runningBadge = document.getElementById("chat-status-badge");
         const noServerBadge = document.getElementById("chat-no-server-badge");
         if (!runningBadge || !noServerBadge) return;
@@ -441,6 +447,97 @@
         return params;
     }
 
+    function buildChatBody(history, draft = "") {
+        const messages = [];
+        const systemPrompt = (document.getElementById("chat-system-prompt")?.value || "").trim();
+        if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+        messages.push(...getChatRequestMessages(history));
+        if (draft.trim()) messages.push({ role: "user", content: draft.trim() });
+        const body = {
+            model: getChatModelName(), messages, stream: true,
+            ...getChatSamplerParams(), ...getChatThinkingParams(),
+        };
+        if (isChatWebSearchEnabled()) {
+            body.web_search = true;
+            body.web_search_max_results = getChatWebSearchMaxResults();
+        }
+        return body;
+    }
+
+    function renderContextBudget(budget) {
+        const label = document.getElementById("chat-context-label");
+        const bar = document.getElementById("chat-context-bar");
+        const promptFill = document.getElementById("chat-context-prompt");
+        const reserveFill = document.getElementById("chat-context-reserve");
+        if (!label || !bar || !promptFill || !reserveFill) return;
+        const measured = Number.isFinite(budget.prompt_tokens) && budget.capacity > 0;
+        const used = measured ? budget.prompt_tokens : 0;
+        const reserve = measured ? budget.reply_reserve : 0;
+        const percent = measured ? Math.min(100, 100 * (used + reserve) / budget.capacity) : 0;
+        bar.hidden = !measured;
+        bar.setAttribute("aria-valuenow", String(Math.round(percent)));
+        bar.dataset.status = budget.status;
+        promptFill.style.width = `${measured ? Math.min(100, 100 * used / budget.capacity) : 0}%`;
+        reserveFill.style.width = `${measured ? Math.max(0, Math.min(100 - 100 * used / budget.capacity, 100 * reserve / budget.capacity)) : 0}%`;
+        label.textContent = measured
+            ? `${used.toLocaleString()} prompt + ${reserve.toLocaleString()} reply ${budget.reserve_source === "planning" ? "headroom" : "reserved"} / ${budget.capacity.toLocaleString()} tokens. ${Math.max(0, budget.remaining).toLocaleString()} free. ${budget.message || ""}`
+            : budget.message || "Context count unavailable.";
+        if (budget.search_pending) label.textContent += " Web results are added and checked when you send.";
+        if (budget.includes_search) label.textContent += " Includes web results.";
+        bar.setAttribute("aria-valuetext", label.textContent);
+    }
+
+    function cancelContextPreview() {
+        contextRevision += 1;
+        if (contextTimer !== null) clearTimeout(contextTimer);
+        contextTimer = null;
+        if (contextController) contextController.abort();
+        contextController = null;
+    }
+
+    function scheduleContextPreview(force = false) {
+        if (!document.getElementById("chat-context-label") || !flagCore) return;
+        const status = getLatestStatus ? getLatestStatus() : null;
+        const body = buildChatBody(chatMessages, document.getElementById("chat-input")?.value || "");
+        const key = JSON.stringify([getTemplateCapsKey(), status?.active_runtime,
+            status?.external_chat_target, body]);
+        if (!force && key === contextKey) return;
+        contextKey = key;
+        cancelContextPreview();
+        if (!isServerRunning()) {
+            renderContextBudget({ message: "Start or connect to a server to measure context." });
+            return;
+        }
+        if (chatStreaming) return;
+        renderContextBudget({ message: "Measuring context…" });
+        const revision = contextRevision;
+        contextTimer = setTimeout(() => {
+            contextTimer = null;
+            void refreshContextPreview(body, revision);
+        }, 500);
+    }
+
+    async function refreshContextPreview(body, revision) {
+        const controller = new AbortController();
+        contextController = controller;
+        try {
+            const response = await fetch("/api/chat/context", {
+                method: "POST", headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(body), signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const budget = await response.json();
+            if (revision === contextRevision && !chatStreaming) renderContextBudget(budget);
+        } catch (error) {
+            if (error.name !== "AbortError" && revision === contextRevision) {
+                console.debug("Could not measure chat context", error);
+                renderContextBudget({ message: "Context count unavailable; the server will validate the request." });
+            }
+        } finally {
+            if (contextController === controller) contextController = null;
+        }
+    }
+
     function sendMessage(userText, retry = false) {
         if (chatStreaming || !userText.trim()) return Promise.resolve();
         const pending = runMessage(userText, retry);
@@ -552,6 +649,7 @@
         });
         previousElements.slice(chatMessages.length).forEach(el => el.remove());
         updateChatAvailability(isServerRunning());
+        scheduleContextPreview();
     }
 
     async function runMessage(userText, retry = false) {
@@ -561,7 +659,7 @@
             return;
         }
 
-        const systemPrompt = (document.getElementById("chat-system-prompt").value || "").trim();
+        cancelContextPreview();
         const replacementIndex = retry && chatMessages[chatMessages.length - 1]?.role === "assistant"
             ? chatMessages.length - 1 : -1;
         if (!retry) {
@@ -580,23 +678,8 @@
         showChatSendButton(false);
         renderChatTypingIndicator();
 
-        const messages = [];
-        if (systemPrompt) {
-            messages.push({ role: "system", content: systemPrompt });
-        }
-        messages.push(...getChatRequestMessages(replacementIndex >= 0 ? chatMessages.slice(0, replacementIndex) : chatMessages));
-
-        const body = {
-            model: getChatModelName(),
-            messages,
-            stream: true,
-            ...getChatSamplerParams(),
-            ...getChatThinkingParams(),
-        };
-        if (isChatWebSearchEnabled()) {
-            body.web_search = true;
-            body.web_search_max_results = getChatWebSearchMaxResults();
-        }
+        const body = buildChatBody(replacementIndex >= 0 ? chatMessages.slice(0, replacementIndex) : chatMessages);
+        renderContextBudget({ message: body.web_search ? "Waiting for web results before measuring context…" : "Checking context before generating…" });
 
         chatAbortController = new AbortController();
         let bubble = null;
@@ -659,6 +742,10 @@
                         console.debug("Skipping malformed chat stream chunk", e);
                         continue;
                     }
+                    if (parsed.type === "context_budget") {
+                        renderContextBudget(parsed);
+                        continue;
+                    }
                     if (parsed.type === "web_status") {
                         setChatWebStatus(bubble, parsed.content || "");
                         continue;
@@ -711,6 +798,8 @@
             chatStreaming = false;
             chatAbortController = null;
             showChatSendButton(true);
+            updateChatAvailability(isServerRunning());
+            if (status !== "failed") scheduleContextPreview(true);
             const chatInput = document.getElementById("chat-input");
             if (chatInput) chatInput.focus();
         }
@@ -905,6 +994,7 @@
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
         setChatThinkingEffort("auto");
+        scheduleContextPreview(true);
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
@@ -995,6 +1085,7 @@
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
         setChatThinkingEffort("auto");
+        scheduleContextPreview(true);
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
 
@@ -1021,6 +1112,7 @@
             webSearchToggle.checked = getStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
             webSearchToggle.addEventListener("change", () => {
                 setStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+                scheduleContextPreview();
             });
         }
 
@@ -1044,10 +1136,12 @@
             thinkingEffort.addEventListener("change", () => {
                 setChatThinkingEffort(thinkingEffort.value);
                 saveCurrentConversation();
+                scheduleContextPreview();
             });
         }
 
         chatInput.addEventListener("input", () => {
+            scheduleContextPreview();
             chatInput.style.height = "auto";
             chatInput.style.height = Math.min(chatInput.scrollHeight, 220) + "px";
         });
@@ -1072,6 +1166,7 @@
         }
 
         sysPrompt.addEventListener("input", () => {
+            scheduleContextPreview();
             sysCharCount.textContent = sysPrompt.value.length + " chars";
         });
         sysCharCount.textContent = "0 chars";

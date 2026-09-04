@@ -328,6 +328,7 @@ function makeContext({
             ? { ...console, debug: () => {}, warn: () => {} }
             : console,
         Date,
+        clearTimeout: () => {},
         setTimeout: (handler) => {
             handler();
             return 1;
@@ -1127,6 +1128,55 @@ async function runAbortScenario(action) {
             assert.equal(original.messages[1].versions[1].content, PARTIAL_TOKEN);
             assert.equal(original.messages[1].versions[1].status, "stopped");
         }
+    }
+
+    // Preview counts the same selected history, reasoning, system prompt and
+    // draft as a real request. Stale responses cannot replace a newer model's meter.
+    {
+        const pending = [];
+        const ctx = makeContext({
+            fetchImpl: (url, options) => {
+                const done = deferred();
+                pending.push({ done, body: JSON.parse(options.body), signal: options.signal });
+                return done.promise;
+            },
+            extraElementIds: ["chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-web-search-toggle"],
+            seedConversations: [{ id: "budget", systemPrompt: "Rules", messages: [
+                { role: "user", content: "q" },
+                { role: "assistant", content: "chosen", reasoning: "thought", versions: [{ content: "discarded" }] },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("budget");
+        ctx.elements.get("chat-input").value = "draft";
+        ctx.elements.get("chat-web-search-toggle").checked = true;
+        ctx.setFlagValues({ n_predict: 512, ctx_size: 999999 });
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending[0].signal.aborted, true);
+        assert.deepEqual(pending.at(-1).body.messages, [
+            { role: "system", content: "Rules" }, { role: "user", content: "q" },
+            { role: "assistant", content: "chosen", reasoning_content: "thought" },
+            { role: "user", content: "draft" },
+        ]);
+        assert.equal(pending.at(-1).body.max_tokens, 512);
+        assert.equal(pending.at(-1).body.web_search, true);
+        const budget = { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, remaining: 3484, reserve_source: "request", search_pending: true };
+        pending.at(-1).done.resolve({ ok: true, json: async () => budget });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /4,096/);
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Web results/);
+        pending[0].done.resolve({ ok: true, json: async () => ({ ...budget, capacity: 123 }) });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /4,096/);
+        ctx.setStatus({ running: true, active_process_tool: "llama-server", runtime_generation: 2,
+            active_runtime: { tool: "llama-server", model: "replacement" } });
+        ctx.api.updateStatusBadge();
+        assert.equal(pending.at(-1).body.model, "replacement");
+        ctx.setStatus({ running: false });
+        ctx.api.updateStatusBadge();
+        pending.at(-1).done.resolve({ ok: true, json: async () => budget });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Start or connect/);
+        assert.equal(ctx.elements.get("chat-context-bar").hidden, true);
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

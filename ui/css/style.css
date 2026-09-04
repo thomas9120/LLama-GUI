@@ -3851,6 +3851,13 @@ body.chat-focus-mode #section-chat .chat-main {
     line-height: 1.4;
 }
 
+.chat-context { margin-bottom: var(--space-2); font-size: 11px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.chat-context-bar { display: flex; height: 5px; margin-bottom: var(--space-2); background: var(--bg-elevated); border-radius: var(--radius-sm); overflow: hidden; }
+.chat-context-bar[hidden] { display: none; }
+#chat-context-prompt { background: var(--accent); }
+#chat-context-reserve { background: var(--fg-faint); }
+.chat-context-bar[data-status="warning"] #chat-context-prompt { background: var(--yellow-solid); }
+.chat-context-bar[data-status="overflow"] #chat-context-prompt { background: var(--red); }
 .chat-input-row { display: flex; gap: var(--space-2); align-items: flex-end; }
 
 textarea.chat-input {

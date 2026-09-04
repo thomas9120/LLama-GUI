@@ -96,6 +96,8 @@ Fast Node tests:
 
 Browser smoke test:
 
+Chat context coverage also checks preview payload parity (selected answer/reasoning, system prompt, draft, sampler settings), stale-result rejection after runtime changes, the visible meter, post-search overflow feedback and recoverable Retry, and unavailable counting that leaves Send enabled.
+
 - `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, Monitor polling/output/card flows and responsive layout, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
@@ -107,6 +109,7 @@ Use fast Node tests for focused debugging. Use the Playwright smoke test when a 
 Backend tests use Python `unittest` and mostly exercise route/service logic without starting the real app server.
 
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
+- `test_chat_context.py`: per-slot context capacity, fixed/server/unlimited output reserves, overflow boundaries, template/tokenizer fallback, preserved reasoning/options, unsupported media and unavailable counts, pinned target/auth, and final post-search overflow prevention.
 - `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract.
 - `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.

@@ -1033,6 +1033,12 @@
                         </div>
                     </div>
                     <div class="chat-input-area">
+                        <div class="chat-context">
+                            <div id="chat-context-bar" class="chat-context-bar" role="progressbar" aria-label="Chat context including reply reserve" aria-valuemin="0" aria-valuemax="100" hidden>
+                                <span id="chat-context-prompt"></span><span id="chat-context-reserve"></span>
+                            </div>
+                            <div id="chat-context-label" role="status" aria-live="polite">Start or connect to a server to measure context.</div>
+                        </div>
                         <div class="chat-no-server-note" id="chat-no-server-note" role="status">
                             <span>Start llama-server, or connect to a running one on the API tab, before sending chat messages.</span>
                             <button class="btn btn-xs" id="btn-chat-open-quick-launch" type="button">Open Quick Launch</button>

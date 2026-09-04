@@ -79,11 +79,11 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 47 exact routes plus one prefix route, 48 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 48 exact routes plus one prefix route, 49 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
-| `chat.py` | `POST /api/chat/completions` — SSE proxy with web search |
+| `chat.py` | `POST /api/chat/completions` — SSE proxy with web search and final context check; `POST /api/chat/context` — context preview before web-search injection |
 | `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
@@ -116,6 +116,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `git_update.py` | Git fetch/pull/status, safe dirty path classification |
 | `lifecycle.py` | Server shutdown, restart, cleanup |
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
+| `chat_context.py` | Running-server context capacity, native input-token counting with text template/tokenizer fallback, output reserve and overflow checks |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics, slots, and props HTTP fetching |
 | `system_stats.py` | Monitor telemetry: stdlib/ctypes CPU/RAM/disk collectors, optional local all-smi API/CLI adapter with nvidia-smi/amd-smi fallbacks, coalesced sample cache |
@@ -897,6 +898,20 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Escape key or clear button resets the search and restores the pre-search submenu state. Categories opened by the search stay open.
 - "Expand All" opens all categories and submenus. "Collapse All" closes them.
 - Individual categories remember their open/closed state via `openCategories` Set; submenus via `openSubmenus`, keyed `"<categoryId>::<submenuName>"`.
+
+---
+
+## Chat context budgeting
+
+The composer previews the selected conversation, current system instructions and draft through `POST /api/chat/context`, debounced by 500 ms. The same body builder supplies completions. Pending previews are discarded on conversation/settings/runtime changes and while sending. This meter is separate from shared slot-occupancy statistics.
+
+`backend/services/chat_context.py` reads the running server's `/props` (`default_generation_settings.n_ctx`, already per slot), then uses `/v1/chat/completions/input_tokens`. When that endpoint is absent, text requests fall back to `/apply-template` and `/tokenize` with `add_special` and `parse_special` enabled. The template receives the same reasoning and request options. Media requests require native counting. No Configure context value or character estimate substitutes for server data.
+
+An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
+
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce a visible unavailable state and leave final validation to llama-server. No transcript is truncated or compacted by this batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+
+Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
 
 ---
 
