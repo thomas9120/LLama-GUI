@@ -2118,6 +2118,33 @@ async function main() {
         assert.match(await page.textContent("#monitor-live-badge"), /Live/);
         await page.waitForFunction(() => document.querySelectorAll("#monitor-card-grid [data-monitor-key^='gpu:']").length === 1);
         assert.match(await page.textContent("#monitor-card-grid"), /Smoke GPU/);
+        const wideMonitorLayout = await page.locator("#monitor-card-grid").evaluate((grid) => {
+            const gpu = grid.querySelector('[data-monitor-key^="gpu:"]');
+            const style = getComputedStyle(grid);
+            return {
+                display: style.display,
+                wrap: style.flexWrap,
+                gpuWidth: gpu.getBoundingClientRect().width,
+            };
+        });
+        assert.equal(wideMonitorLayout.display, "flex");
+        assert.equal(wideMonitorLayout.wrap, "wrap");
+        assert.ok(wideMonitorLayout.gpuWidth >= 320,
+            "a trailing GPU card should grow beyond the old cramped track width");
+
+        await page.setViewportSize({ width: 760, height: 720 });
+        const narrowMonitorLayout = await page.locator("#monitor-card-grid").evaluate((grid) => ({
+            clientWidth: grid.clientWidth,
+            scrollWidth: grid.scrollWidth,
+            cardWidths: Array.from(grid.children)
+                .filter(card => !card.classList.contains("hidden"))
+                .map(card => card.getBoundingClientRect().width),
+        }));
+        assert.ok(narrowMonitorLayout.scrollWidth <= narrowMonitorLayout.clientWidth + 1,
+            "wrapped monitor cards must not overflow at a narrow viewport");
+        assert.ok(narrowMonitorLayout.cardWidths.every(width => width >= 220),
+            "narrow monitor cards retain their readable minimum width");
+        await page.setViewportSize({ width: 1280, height: 720 });
         assert.ok(await page.locator("#monitor-gpu-setup").evaluate(el => el.classList.contains("hidden")),
             "working probes produce no setup cards");
 

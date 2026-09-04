@@ -4421,18 +4421,27 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 
 .monitor-section { margin-top: var(--space-5); }
 
-/* Finite track widths keep short metric cards compact. auto-fit removes the
-   track when a card is hidden, so the remaining cards close ranks. */
+/* Wrap cards by their preferred width so incomplete rows can use their spare
+   room. Inference starts at two regular-card widths; detected GPU cards use
+   the same readable range as the system cards. */
 .monitor-metrics-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 280px));
+    display: flex;
+    flex-wrap: wrap;
     align-items: stretch;
     gap: var(--space-4);
 }
 
-.monitor-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.monitor-metrics-grid > .card {
+    flex: 1 1 260px;
+    max-width: 340px;
+}
 
-.monitor-inference-card { grid-column: span 2; }
+.monitor-metrics-grid > .monitor-inference-card {
+    flex: 2 1 536px;
+    max-width: 696px;
+}
+
+.monitor-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 .monitor-inference-summary {
     display: grid;
@@ -4608,11 +4617,17 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 }
 
 @media (max-width: 900px) {
-    .monitor-metrics-grid { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+    .monitor-metrics-grid > .card {
+        flex-basis: 220px;
+        max-width: none;
+    }
+
+    .monitor-metrics-grid > .monitor-inference-card { flex-basis: 456px; }
 }
 
 @media (max-width: 560px) {
-    .monitor-inference-card { grid-column: span 1; }
+    .monitor-metrics-grid > .card,
+    .monitor-metrics-grid > .monitor-inference-card { flex-basis: 100%; }
     .monitor-inference-summary { grid-template-columns: 1fr; }
     .monitor-inference-details { grid-template-columns: 1fr 1fr; }
 }
