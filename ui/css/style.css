@@ -4510,6 +4510,8 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     word-break: break-all;
 }
 
+.monitor-setup-guide { margin-top: var(--space-2); }
+
 /* Reorderable cards use one explicit grip, keeping links, buttons, and text
    out of the browser's draggable ancestor behavior. */
 .monitor-drag-handle {

@@ -42,6 +42,7 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - [First Run](#first-run)
 - [Advanced Access](#advanced-access)
 - [What Each Tab Does](#what-each-tab-does)
+- [GPU Monitoring Setup](docs/gpu-monitoring.md)
 - [Presets and Samplers](#presets-and-samplers)
 - [Maintenance](docs/maintenance.md)
 - [Data Locations](#data-locations)
@@ -202,21 +203,7 @@ Defaults: tool `llama-server`, `-fit on`, context `64000`. Stats require `--metr
 
 The live process output terminal (moved out of Configure) with Auto-scroll and a Clear that never replays the backlog, CPU/RAM/disk cards, best-effort disk I/O, one card per detected GPU, and evidence-gated setup guidance when telemetry tools are missing. System and GPU telemetry poll only while the tab is visible; **Recheck** forces a fresh sample. An optional **Inference** card shares one baseline with the fixed stats bar — Reset updates both. Every card except Process Output can be hidden and restored.
 
-GPU telemetry prefers the optional cross-vendor [all-smi](https://github.com/lablup/all-smi) tool when `all-smi` is on `PATH`, then falls back to `nvidia-smi` and Linux `amd-smi`. A portable all-smi binary can be selected explicitly before starting Llama GUI:
-
-```powershell
-$env:LLAMA_GUI_ALL_SMI_PATH = "C:\Tools\all-smi\all-smi.exe"
-python server.py
-```
-
-For an already-running local all-smi API (`all-smi api --port 9090`), use its loopback origin instead. Only an unauthenticated `http://localhost`, `127.0.0.0/8`, or `::1` endpoint is accepted; redirects and system proxy settings are ignored.
-
-```powershell
-$env:LLAMA_GUI_ALL_SMI_URL = "http://127.0.0.1:9090"
-python server.py
-```
-
-The explicit API URL takes priority over the executable. If all-smi is unavailable, fails, or returns no GPUs, the built-in vendor probes still run; a successful all-smi snapshot is authoritative so the same GPU is not shown twice.
+GPU telemetry supports `nvidia-smi`, Linux `amd-smi`, and the optional cross-vendor [all-smi](https://github.com/lablup/all-smi) CLI or local API. See the [GPU monitoring setup guide](docs/gpu-monitoring.md) to choose, install, verify, and troubleshoot the right collector for your system.
 
 ### Benchmarking
 

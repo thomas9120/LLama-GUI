@@ -844,6 +844,7 @@
 
     const GPU_ICON_SVG = '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>';
     const PROVIDER_LABELS = { nvidia: "NVIDIA", amd: "AMD" };
+    const GPU_MONITORING_GUIDE_URL = "https://github.com/thomas9120/LLama-GUI/blob/main/docs/gpu-monitoring.md";
 
     function providerLabel(provider) {
         return PROVIDER_LABELS[String(provider || "").toLowerCase()] || String(provider || "GPU");
@@ -1038,6 +1039,11 @@
                 : "No supported vendor tool or GPU backend identified NVIDIA or AMD hardware. System metrics keep updating; Recheck after changing the installed backend or driver environment.");
         empty.appendChild(makeEl("p", "", message));
         appendProbeDetailRows(empty, entry && entry.details);
+        const guide = makeEl("a", "btn btn-sm monitor-setup-guide", "GPU monitoring setup guide");
+        guide.href = GPU_MONITORING_GUIDE_URL;
+        guide.target = "_blank";
+        guide.rel = "noopener noreferrer";
+        empty.appendChild(guide);
         card.appendChild(empty);
         return card;
     }

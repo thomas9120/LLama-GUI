@@ -1187,6 +1187,14 @@ buildStandardDom();
     const stateCards = documentStub.getElementById("monitor-gpu-states").children;
     assert.deepEqual(stateCards.map(card => card.dataset.monitorKey), ["state:generic"]);
     assert.ok(stateCards[0].textContent.includes("No supported GPU telemetry detected"));
+    const guide = stateCards[0].querySelector("a");
+    assert.equal(guide.textContent, "GPU monitoring setup guide");
+    assert.equal(
+        guide.href,
+        "https://github.com/thomas9120/LLama-GUI/blob/main/docs/gpu-monitoring.md",
+    );
+    assert.equal(guide.target, "_blank");
+    assert.equal(guide.rel, "noopener noreferrer");
     assert.equal(
         documentStub.getElementById("monitor-gpu-setup").classList.contains("hidden"),
         true,
