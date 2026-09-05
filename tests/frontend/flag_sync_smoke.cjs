@@ -149,6 +149,162 @@ async function verifyConfigurePresentation(page) {
     await page.setViewportSize(viewport);
 }
 
+async function verifyConfigureComparison(page) {
+    await selectSection(page, "configure");
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const original = await page.inputValue("#flag-ctx_size");
+    const row = page.locator('.flag-row[data-flag-id="ctx_size"]');
+    assert.equal(await page.textContent("#config-runtime-state"), "Process active · action failed", "a failed stop does not describe the process as stopped");
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+    assert.equal(await row.locator(".flag-baseline-value").textContent(), original);
+    await page.fill("#flag-ctx_size", String(Number(original) + 1));
+    assert.equal(await page.textContent("#config-change-count"), "1 setting changed since launch");
+    assert.match(await page.locator('.accordion[data-category-id="context"] .count').first().textContent(), /1 changed/);
+    await page.check("#config-changes-only");
+    assert.equal(await page.locator('.flag-row:not(.hidden)').count(), 1);
+    await page.fill("#flag-ctx_size", original);
+    assert.equal(await row.isVisible(), true, "typing through the launch value must not hide the focused input");
+    await page.locator("#config-search").focus();
+    await row.waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#config-comparison-empty").isVisible(), true);
+    await page.uncheck("#config-changes-only");
+    await page.fill("#flag-ctx_size", String(Number(original) + 2));
+    await row.locator(".flag-revert").click();
+    assert.equal(await page.inputValue("#flag-ctx_size"), original);
+    assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().ctx_size), Number(original));
+    assert.match(await page.textContent("#command-preview-text"), new RegExp(`-c ${original}(?: |$)`));
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({ ctx_size: 32768, port: 9091 }));
+    await page.locator("#config-change-review > summary").click();
+    assert.equal(await page.locator("#config-change-list tr").count(), 2, "review includes changes outside the search");
+    assert.match(await page.textContent("#config-comparison-exclusions"), /API keys and Custom Launch Args are excluded/);
+    assert.ok(!await page.locator(".config-runtime").textContent().then(text => text.includes("first-secret")));
+    const viewport = page.viewportSize();
+    for (const width of [820, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(await row.evaluate(el => {
+            const bounds = el.getBoundingClientRect();
+            return Array.from(el.querySelectorAll("input, .flag-baseline, .flag-revert")).some(child => {
+                const rect = child.getBoundingClientRect();
+                return rect.width && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1);
+            });
+        }), false, `comparison controls fit a ${width}px viewport`);
+    }
+    await page.setViewportSize(viewport);
+    await page.click("#config-revert-changes");
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+    assert.equal(await page.inputValue("#flag-ctx_size"), original);
+    const selectedModel = await page.evaluate(() => window.LlamaGui.flagCore.getSelectedModel());
+    await page.evaluate(() => {
+        window.LlamaGui.flagCore.setSelectedModelValue("different.gguf");
+        window.LlamaGui.flagCore.updateCommandPreview();
+    });
+    assert.match(await page.textContent("#config-comparison-exclusions"), /selected model also differs/);
+    await page.evaluate(model => {
+        window.LlamaGui.flagCore.setSelectedModelValue(model);
+        window.LlamaGui.flagCore.updateCommandPreview();
+    }, selectedModel);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
+    assert.equal(await page.locator("#config-changes-only").isDisabled(), true);
+    assert.match(await page.textContent("#config-comparison-note"), /Select llama-server/);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-server"));
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+}
+
+async function verifyConfigureRestart(page) {
+    await selectSection(page, "configure");
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.evaluate(async () => {
+        const core = window.LlamaGui.flagCore;
+        core.setCurrentTool("llama-server");
+        core.applyFlagValues(getDefaultValues());
+        await refreshModels();
+    });
+    await page.selectOption("#model-select", "smoke-model.gguf");
+    const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
+    let runtime = { generation: 301, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 8080, launch_settings: baseline };
+    let preflightError = "";
+    let refuseStop = false;
+    let preflightGate = null;
+    const events = [];
+    const launches = [];
+    const routes = {
+        "**/api/status": async route => route.fulfill({ json: { ...baseStatus, running: Boolean(runtime), active_process_tool: runtime?.tool, active_runtime: runtime } }),
+        "**/api/llama/health?*": async route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
+        "**/api/output?*": async route => route.fulfill({ json: { lines: [], running: Boolean(runtime), runtime_generation: runtime?.generation, next_cursor: 0 } }),
+        "**/api/launch/preflight": async route => {
+            events.push("preflight");
+            assert.equal(route.request().postDataJSON().fingerprint_data.tool, "llama-server");
+            if (preflightGate) await preflightGate;
+            await route.fulfill({ json: preflightError ? { error: preflightError } : { ok: true } });
+        },
+        "**/api/stop": async route => {
+            events.push("stop");
+            assert.equal(route.request().postDataJSON().expected_generation, runtime.generation);
+            if (!refuseStop) runtime = null;
+            await route.fulfill({ json: { stopped: !refuseStop } });
+        },
+        "**/api/launch": async route => {
+            events.push("launch");
+            assert.equal(runtime, null, "restart must confirm stop before launching");
+            const request = route.request().postDataJSON();
+            launches.push(request);
+            runtime = { generation: 302, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 8080, launch_settings: request.launch_settings };
+            await route.fulfill({ json: { pid: 302, output_cursor: 0, active_runtime: runtime } });
+        },
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await page.evaluate(activeRuntime => processLifecycle.restore({ running: true, active_runtime: activeRuntime }, {
+        startOutput: () => {}, startStats: () => {}, postReady: () => {},
+    }), runtime);
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const button = page.locator("#config-restart");
+    assert.equal(await button.isEnabled(), true);
+    await page.fill("#flag-ctx_size", "16000");
+    await page.fill("#custom-launch-args", '--threads "unfinished');
+    await button.click();
+    await page.waitForSelector("#config-restart-error:not(.hidden)");
+    assert.deepEqual(events, [], "invalid custom arguments must not reach stop or preflight");
+    await page.fill("#custom-launch-args", "");
+    preflightError = "Local model file does not exist.";
+    await button.click();
+    await page.waitForSelector("#config-restart-error:not(.hidden)");
+    assert.match(await page.textContent("#config-restart-error"), /Local model/);
+    assert.deepEqual(events, ["preflight"]);
+    preflightError = "";
+    refuseStop = true;
+    await button.click();
+    await page.waitForFunction(() => document.getElementById("config-restart-error").textContent.includes("refused to stop"));
+    assert.equal(launches.length, 0, "a refused stop must not launch a second process");
+    assert.equal(await button.isEnabled(), true);
+    refuseStop = false;
+    events.length = 0;
+    let releasePreflight;
+    preflightGate = new Promise(resolve => { releasePreflight = resolve; });
+    await button.click();
+    await page.waitForFunction(() => document.getElementById("config-restart").disabled);
+    await page.evaluate(() => document.getElementById("config-restart").click());
+    await page.fill("#flag-ctx_size", "32000");
+    releasePreflight();
+    await page.waitForFunction(() => processLifecycle.getSnapshot().activeRuntime?.generation === 302 && !processLifecycle.getSnapshot().busy);
+    assert.deepEqual(events, ["preflight", "stop", "launch"], "double activation must still produce only one restart");
+    assert.equal(launches[0].launch_settings.flags.ctx_size, 16000, "the preflighted snapshot is the one launched");
+    assert.ok(launches[0].args.flat().includes("16000"));
+    assert.equal(await page.inputValue("#flag-ctx_size"), "32000", "edits made during restart remain pending");
+    assert.equal(await page.locator('.flag-row[data-flag-id="ctx_size"] .flag-baseline-value').textContent(), "16000");
+    assert.equal(await button.textContent(), "Restart with changes");
+    assert.equal(await page.locator("#config-restart-error").isVisible(), false);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
+    assert.equal(await button.isVisible(), false, "restart is available only for the local server tool");
+    await page.evaluate(async () => {
+        stopOutputPolling(); stopStatsPolling();
+        await processLifecycle.restore({ running: false, active_runtime: null });
+    });
+    assert.equal(await button.isVisible(), false, "no restart button is offered without a local runtime");
+    for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+}
+
 // Range inputs cannot be page.fill()ed; set the value and fire input instead.
 async function setRangeValue(page, selector, value) {
     await page.evaluate(([sel, val]) => {
@@ -1125,16 +1281,19 @@ async function main() {
         // its runtime through startStatsPolling so inference polling resumes.
         statusRunning = true;
         activeProcessTool = "llama-server";
-        statusActiveRuntime = { tool: "llama-server", generation: 42 };
+        statusActiveRuntime = {
+            tool: "llama-server", generation: 42, model: "models/smoke-model.gguf", backend: "cpu", version: "b9999",
+            launch_settings: await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings()),
+        };
         stopShouldFail = true;
-        await page.evaluate(async () => {
+        await page.evaluate(async (activeRuntime) => {
             await processLifecycle.restore({
                 running: true,
                 active_process_tool: "llama-server",
-                active_runtime: { tool: "llama-server", generation: 42 },
+                active_runtime: activeRuntime,
             }, { startOutput: () => {}, postReady: () => {} });
             await stopLlama();
-        });
+        }, statusActiveRuntime);
         assert.equal(await page.evaluate(() => inferenceStats.getTargetKey()), "gui:42");
         assert.equal(
             await page.locator("#stats-bar").evaluate((el) => el.classList.contains("hidden")),
@@ -1142,12 +1301,14 @@ async function main() {
             "failed Stop recovery must keep the fixed stats bar active",
         );
         await page.evaluate(() => stopOutputPolling());
+        await verifyConfigureComparison(page);
         stopShouldFail = false;
         statusRunning = false;
         activeProcessTool = "";
         statusActiveRuntime = null;
         await page.evaluate(() => stopStatsPolling());
         await page.evaluate(() => refreshRuntimeStatusPanels());
+        assert.equal(await page.locator("#config-changes-only").isDisabled(), true, "stopping clears the comparison baseline");
 
         // A rejected metrics body must not discard a successful slots response.
         const independentSourceSnapshot = await page.evaluate(async () => {
@@ -2480,6 +2641,7 @@ async function main() {
         assert.equal(systemStatsRequests.length, systemCountWhileVisible,
             "system stats must not poll while the Monitor tab is hidden");
 
+        await verifyConfigureRestart(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);

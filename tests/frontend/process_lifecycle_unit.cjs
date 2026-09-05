@@ -74,7 +74,8 @@ async function waitForPhase(lifecycle, phase) {
 
 async function testReadinessProgression() {
     const { lifecycle } = loadLifecycle();
-    const activeRuntime = runtime(1);
+    const settings = { model: "model-1.gguf", flags: { ctx_size: 8192 }, has_custom_args: false };
+    const activeRuntime = runtime(1, { launch_settings: settings });
     const health = [
         { state: "starting", ready: false, running: true, generation: 1 },
         { state: "loading", ready: false, running: true, generation: 1 },
@@ -101,7 +102,7 @@ async function testReadinessProgression() {
         postReady: async value => hooks.push(["ready", value.generation]),
     });
 
-    const response = await lifecycle.launch({ tool: "llama-server", args: ["-m", "models/model-1.gguf"] });
+    const response = await lifecycle.launch({ tool: "llama-server", args: ["-m", "models/model-1.gguf"], launch_settings: settings });
 
     assert.equal(response.ok, true);
     assert.equal(lifecycle.getSnapshot().phase, "ready");
@@ -110,6 +111,10 @@ async function testReadinessProgression() {
     assert.ok(phases.includes("loading"));
     assert.deepEqual(hooks, [["output", 4, 1], ["stats", 1], ["ready", 1]]);
     assert.equal(calls.filter(([url]) => url.startsWith("/api/llama/health")).length, 3);
+    assert.deepEqual(JSON.parse(calls.find(([url]) => url === "/api/launch")[1].body).launch_settings, settings);
+    const copied = lifecycle.getSnapshot();
+    copied.activeRuntime.launch_settings.flags.ctx_size = 999;
+    assert.equal(lifecycle.getSnapshot().activeRuntime.launch_settings.flags.ctx_size, 8192);
 }
 
 async function testSlowLoadWarnsOnceAndContinuesToReady() {
@@ -199,6 +204,36 @@ async function testInvalidPreflightDoesNotStop() {
     assert.equal(applyCount, 0);
     assert.deepEqual(failures, ["Model file is missing"]);
     assert.equal(lifecycle.getSnapshot().busy, false);
+}
+
+async function testRestartRejectsChangedGeneration() {
+    for (const current of [runtime(32), null]) {
+        const { lifecycle } = loadLifecycle();
+        const original = runtime(31);
+        let status = runningStatus(original);
+        const calls = [];
+        lifecycle.configure({
+            refreshStatus: async () => status,
+            fetchJson: async url => {
+                calls.push(url);
+                if (url.startsWith("/api/llama/health")) return { state: "ready", ready: true, generation: 31 };
+                throw new Error("No process mutation expected");
+            },
+        });
+        await lifecycle.restore(status);
+        calls.length = 0;
+        status = current ? runningStatus(current) : idleStatus(31);
+        const result = await lifecycle.switchRuntime({
+            operation: "restart",
+            expectedGeneration: 31,
+            resolveTarget: async () => ({ tool: "llama-server", args: ["-m", "models/model.gguf"] }),
+            applyTarget: () => { throw new Error("Must not apply a stale restart"); },
+        });
+        assert.equal(result.conflict, true);
+        assert.match(result.error, /changed before restart/);
+        assert.deepEqual(calls, [], "a replaced or exited process prevents stop and launch");
+        assert.equal(lifecycle.getSnapshot().busy, false);
+    }
 }
 
 async function testStopRefusalPreventsApplyAndLaunch() {
@@ -713,6 +748,7 @@ async function main() {
         ["slow-load warning", testSlowLoadWarnsOnceAndContinuesToReady],
         ["authoritative restore", testRestoreUsesAuthoritativeRuntimeAndHealth],
         ["invalid preflight", testInvalidPreflightDoesNotStop],
+        ["restart generation guard", testRestartRejectsChangedGeneration],
         ["stop refusal", testStopRefusalPreventsApplyAndLaunch],
         ["switch stop exception notification", testSwitchStopExceptionNotifiesOnce],
         ["switch ordering", testSwitchOrdersPreflightStopApplyAndLaunch],

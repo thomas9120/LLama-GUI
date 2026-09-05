@@ -856,7 +856,34 @@ function launchResult() {
     );
 }
 
-console.log("launch args unit tests passed");
+{
+    const core = context.window.LlamaGui.flagCore;
+    core.replaceFlagValues({ ctx_size: 64000, api_key: "snapshot-secret", custom_args: "--api-key custom-secret", devices: ["0", "1"] });
+    const captured = core.captureLaunchSettings();
+    assert.equal(captured.has_custom_args, true);
+    assert.ok(!JSON.stringify(captured).includes("secret"), "launch snapshots exclude sensitive controls and custom args");
+    assert.ok(Object.hasOwn(captured.flags, "threads"), "unset inputs are explicit, not filled from future defaults");
+    assert.equal(captured.flags.threads, null);
+    const runtime = { tool: "llama-server", launch_settings: captured };
+    assert.equal(core.compareLaunchSettings(runtime).changes.length, 0);
+    core.setFlagValue("ctx_size", "64000");
+    assert.equal(core.compareLaunchSettings(runtime).changes.length, 0, "numeric strings and numbers compare equally");
+    core.setMultipleFlagValues({ ctx_size: 8192, api_key: "another-secret", custom_args: "--threads 3" });
+    assert.deepEqual(Array.from(core.compareLaunchSettings(runtime).changes, entry => entry.flag.id), ["ctx_size"]);
+    assert.equal(captured.flags.ctx_size, 64000, "editing pending values cannot mutate a launch snapshot");
+    assert.equal(core.compareLaunchSettings({ tool: "llama-cli", launch_settings: captured }).available, false);
+    assert.equal(core.compareLaunchSettings({ tool: "llama-server" }).available, false);
+    assert.equal(core.compareLaunchSettings(null).available, false);
+    const partial = { tool: "llama-server", launch_settings: { flags: { ctx_size: 64000 } } };
+    assert.equal(core.compareLaunchSettings(partial).entries.length, 1, "unknown baseline fields stay unknown");
+    core.setFlagValue("grammar", "a".repeat(17000));
+    assert.ok(!Object.hasOwn(core.captureLaunchSettings().flags, "grammar"), "large values are omitted from optional metadata, not rejected at launch");
+    assert.ok(core.getLaunchArgs().args.flat().includes("a".repeat(17000)), "comparison limits do not alter launch arguments");
+    core.setModelDirInfo({ models_dir: "other", models_arg_root: "other", models_dir_available: true, models_dir_is_default: false });
+    assert.equal(core.compareLaunchSettings(runtime).modelRootChanged, true, "a different root changes the model source even when the relative filename matches");
+    core.setModelDirInfo({ models_dir: "models", models_arg_root: "models", models_dir_available: true, models_dir_is_default: true });
+    core.replaceFlagValues(core.buildEffectiveFlagValues({}));
+}
 
 {
     // Regression: --load-mode "Legacy controls" ("") must survive the Configure
@@ -874,6 +901,12 @@ console.log("launch args unit tests passed");
             dataset: {},
             listeners: {},
             appendChild(child) { el.children.push(child); return child; },
+            append(...children) { children.forEach(child => el.appendChild(child)); },
+            setAttribute(name, value) { el[name] = String(value); },
+            querySelector(selector) {
+                if (selector.startsWith("#")) return byId.get(selector.slice(1)) || null;
+                return el.children.find(child => child.className === selector.slice(1)) || null;
+            },
             addEventListener(type, fn) { (el.listeners[type] = el.listeners[type] || []).push(fn); },
             fire(type) { for (const fn of el.listeners[type] || []) fn(); },
             classList: { add() {}, remove() {}, toggle() {}, contains: () => false },

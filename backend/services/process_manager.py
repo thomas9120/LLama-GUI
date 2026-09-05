@@ -1,5 +1,6 @@
 """llama.cpp process management helpers."""
 
+import copy
 import hashlib
 import json
 import math
@@ -247,7 +248,7 @@ def get_process_status_snapshot(ctx: AppContext) -> dict[str, Any]:
     with ctx.state.process_lock:
         _reap_finished_process(ctx)
         active_runtime = (
-            dict(ctx.state.active_runtime) if ctx.state.active_runtime is not None else None
+            copy.deepcopy(ctx.state.active_runtime) if ctx.state.active_runtime is not None else None
         )
         return {
             "running": ctx.state.process is not None,
@@ -896,6 +897,53 @@ def _safe_runtime_model_identity(flat_args: list[str]) -> Optional[str]:
     return _safe_runtime_text(model_value, 1024)
 
 
+def normalize_launch_settings(value: Any) -> Optional[dict[str, Any]]:
+    """Bound and scrub optional GUI input metadata; it never controls the process."""
+    if value is None:
+        return None
+    if (not isinstance(value, dict)
+            or not {"model", "flags", "has_custom_args"} <= set(value)
+            or set(value) - {"model", "flags", "has_custom_args", "model_root"}):
+        raise ValueError("launch_settings must contain model, flags, and has_custom_args")
+    if not isinstance(value["has_custom_args"], bool):
+        raise ValueError("launch_settings.has_custom_args is invalid")
+    model = value["model"]
+    model_root = value.get("model_root")
+    if model_root is not None and (not isinstance(model_root, str) or len(model_root) > 4096):
+        raise ValueError("launch_settings.model_root is invalid")
+    flags = value["flags"]
+    if not isinstance(model, str) or len(model) > 4096:
+        raise ValueError("launch_settings.model is invalid")
+    if not isinstance(flags, dict) or len(flags) > 512:
+        raise ValueError("launch_settings.flags is invalid")
+
+    def valid_scalar(item):
+        return item is None or isinstance(item, bool) or (
+            isinstance(item, str) and len(item) <= 16384
+        ) or (isinstance(item, (int, float)) and -1e308 <= item <= 1e308)
+
+    clean = {}
+    for key, item in flags.items():
+        if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", key):
+            raise ValueError("launch_settings contains an invalid flag id")
+        if key in {"api_key", "custom_args", "ctx_size_draft"}:
+            continue
+        if isinstance(item, list):
+            if len(item) > 256 or not all(valid_scalar(part) for part in item):
+                raise ValueError("launch_settings contains an invalid flag value")
+            clean[key] = list(item)
+        elif valid_scalar(item):
+            clean[key] = item
+        else:
+            raise ValueError("launch_settings contains an invalid flag value")
+    if len(json.dumps(clean, ensure_ascii=False)) > 131072:
+        raise ValueError("launch_settings is too large")
+    result = {"model": model, "flags": clean, "has_custom_args": value["has_custom_args"]}
+    if "model_root" in value:
+        result["model_root"] = model_root
+    return result
+
+
 def _build_active_runtime(
     ctx: AppContext,
     tool: str,
@@ -1214,9 +1262,11 @@ def launch_process(
     tool: str,
     args_list: Optional[Iterable[Any]],
     launch_context: Any = None,
+    launch_settings: Any = None,
 ) -> dict[str, Any]:
     try:
         normalized_launch_context = normalize_launch_context(launch_context)
+        normalized_launch_settings = normalize_launch_settings(launch_settings)
     except ValueError as exc:
         return {"error": str(exc)}
 
@@ -1328,6 +1378,10 @@ def launch_process(
                 normalized_launch_context,
                 api_target,
             )
+            active_runtime["launch_settings"] = normalized_launch_settings
+            installed_config = _load_config_safe(ctx)
+            active_runtime["version"] = installed_config.get("tag")
+            active_runtime["backend"] = installed_config.get("backend")
             if api_target is not None:
                 with ctx.state.llama_api_target_lock:
                     ctx.state.llama_api_target.update(**api_target)
@@ -1340,7 +1394,7 @@ def launch_process(
                 "pid": ctx.state.process.pid,
                 "command": " ".join(redact_sensitive_args(args)),
                 "output_cursor": output_cursor,
-                "active_runtime": dict(active_runtime),
+                "active_runtime": copy.deepcopy(active_runtime),
             }
         except Exception as e:
             if process is not None:

@@ -4,6 +4,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Added **Restart with changes** to Configure for local llama-server processes. It validates the pending launch before stopping, reloads the selected model through the shared lifecycle, shows progress and inline errors, and prevents duplicate restarts or stopping a replacement process. Edits made during restart stay pending.
+
+- Added Configure's launch-settings comparison: active process/model/build summary, **At launch** values, changed-since-launch filtering, category change counts, review, and per-setting/bulk reverts through shared flag state. Successful GUI launches retain a bounded, scrubbed input snapshot for browser reloads; missing baselines stay unavailable, and API keys/custom arguments are excluded from comparisons.
+
 - Polished Configure with readable setting names beside CLI flags, aligned input columns, quieter row styling, explicit GUI defaults, and consolidated optional help. Category and submenu disclosures now expose their expanded state to assistive technology; category headers support native keyboard activation, and controls fit narrow layouts.
 
 - Fixed install dropdowns overflowing into the adjacent card at narrower window sizes by constraining them to the available card width.

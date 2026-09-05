@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: First Configure presentation pass implemented; later slices remain planned.
+Status: Configure presentation, launch-settings comparison, and restart with changes implemented; Quick Launch and the shared shell remain planned.
 
 ## Purpose and audience
 
@@ -80,7 +80,7 @@ Production behavior needs separate meanings for:
 - Values that differ from a loaded saved preset.
 - Values that differ from the running configuration.
 
-The mockup's **Modified only** filter uses the running configuration as its baseline. The final label and baseline policy remain to be decided; these meanings must not be silently combined.
+The mockup's **Modified only** filter uses its example running configuration as the baseline. Production uses **Changed since launch**, comparing current GUI inputs with the snapshot submitted for the active local process. The comparison column is labeled **At launch**: these are configured inputs, not effective runtime values resolved by Auto Fit, model defaults, or custom overrides. Default and saved-preset comparisons remain separate future work.
 
 Default markers must also identify whether they refer to GUI defaults, model defaults, or a verified runtime value. Unknown runtime values should remain unknown rather than being filled in from pending settings.
 
@@ -186,11 +186,29 @@ Configure and the running-versus-pending distinction improve everyday work for t
 - Native category buttons with expanded/collapsed state, associated setting labels, and accessible submenu disclosures.
 - Browser coverage for label focus, keyboard disclosure controls, aligned inputs, narrow-layout containment, and existing shared-state synchronization.
 
-Modified-only filtering, reset actions, modified category counts, and running-versus-pending comparisons remain for the next slice. Current category counts report settings available under the search filter.
+### Implemented: Configure launch comparison, 2026-09-05
+
+- Configure shows active lifecycle state, model/tool, endpoint, and launch-time backend/build when available.
+- Successful manual and Model Switcher launches retain their GUI input snapshot on the backend, tied to the process generation. It survives browser reloads and is removed with the process.
+- **At launch** values appear beside editable controls. Changed rows and category counts use that baseline; **Changed since launch** combines with the existing search.
+- **Review changes** includes changed settings outside the current search. Per-setting **Use launch value** and bulk **Revert compared settings** update shared state without launching, stopping, or modifying the selected model.
+- Unset recorded inputs remain unset. Unrecorded fields display **Unknown**; stopped processes, external servers, older launches without snapshots, and a different selected tool have no inferred baseline.
+- API keys and Custom Launch Args are excluded from snapshots/comparisons. A boolean records whether custom arguments were present so the UI can explain possible overrides without storing their text twice. Sampler edits also affect subsequent built-in Chat requests.
+- Model selection and models-folder differences are identified separately from the setting count. GUI input differences may include currently inactive controls; they do not claim a measured change in effective runtime behavior.
+- Verification covers snapshot isolation, invalid metadata, redaction, lifecycle replacement/exit, shared-state reverts, filtered editing focus, and desktop/narrow layouts.
+
+The runtime summary currently lives in Configure. Extending it across the shell and refining model/preset comparisons remain future work. Quick Launch layout is the next planned slice.
+
+### Implemented: Restart with changes, 2026-09-05
+
+- **Restart with changes** in Configure reloads the local llama-server using the selected model and all pending launch settings, including fields excluded from comparison. The nearby description makes the interruption of active requests explicit.
+- Argument parsing and backend preflight happen before stopping. The shared lifecycle confirms the original process has stopped, launches the captured configuration, and waits for readiness. Inline errors and progress labels keep the action visible.
+- The action is disabled during transitions and cancels if another process replaces the original during validation. Changes made while restart is in progress remain pending for the next launch.
+- The button remains available when compared settings match, since Custom Launch Args and API keys are intentionally absent from the change count. External servers and other tools do not offer this action.
 
 ## Open decisions
 
-- Which baseline should each modified indicator, filter, and reset use?
+- How should separate default and saved-preset comparisons be exposed alongside the implemented launch baseline?
 - Which saved presets should Quick Launch surface, and where should starter profiles live?
 - How should preset selection and unsaved edits be presented?
 - How much explanatory text should be visible by default? Is a density preference useful?

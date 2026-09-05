@@ -665,6 +665,70 @@
         });
     }
 
+    // Capture the inputs used to build a request, never the edits made while
+    // the request is in flight. These are GUI inputs, not resolved runtime values.
+    function captureLaunchSettings(state = { tool: currentTool, model: selectedModel, flags: flagValues }) {
+        const values = state.flags || {};
+        const flags = {};
+        let remaining = 120000;
+        if (String(state.model || "").length > 4096 || (modelDirInfo && modelDirInfo.models_arg_root.length > 4096)) return undefined;
+        for (const flag of getFlags()) {
+            if (flag.sensitive || (flag.tool !== "both" && flag.tool !== state.tool.replace("llama-", ""))) continue;
+            const value = values[flag.id] === undefined ? null : cloneFlagValue(values[flag.id]);
+            const size = JSON.stringify(value).length + flag.id.length + 5;
+            // Optional comparison metadata must never prevent a launch with a
+            // large grammar or stop-string list. Omitted fields stay Unknown.
+            if (size > 16000 || size > remaining || (Array.isArray(value) && value.length > 256)) continue;
+            flags[flag.id] = value;
+            remaining -= size;
+        }
+        return {
+            model: String(state.model || ""),
+            model_root: modelDirInfo ? modelDirInfo.models_arg_root : null,
+            flags,
+            has_custom_args: Boolean(String(values.custom_args || "").trim()),
+        };
+    }
+
+    function normalizeComparisonValue(flag, value) {
+        if (flag.type === "bool") return value === true;
+        if (flag.type === "multi_enum") return [...normalizeMultiEnumValue(value)].sort();
+        if (flag.type === "text_list") {
+            return (Array.isArray(value) ? value : String(value || "").split(/\r?\n/))
+                .map(item => String(item).trim()).filter(Boolean);
+        }
+        if (flag.type === "enum" && value === "" && (flag.options || []).some(option => option.value === "")) return "";
+        if (value === undefined || value === null || value === "") return null;
+        if (flag.type === "int" || flag.type === "float") {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? numeric : String(value);
+        }
+        return String(value);
+    }
+
+    function compareLaunchSettings(runtime) {
+        const baseline = runtime && runtime.tool === currentTool && runtime.launch_settings;
+        const known = baseline && baseline.flags && typeof baseline.flags === "object" && !Array.isArray(baseline.flags);
+        const entries = [];
+        if (known) {
+            for (const flag of getFlags()) {
+                if (flag.sensitive || (flag.tool !== "both" && flag.tool !== currentTool.replace("llama-", ""))) continue;
+                if (!Object.prototype.hasOwnProperty.call(baseline.flags, flag.id)) continue;
+                const before = normalizeComparisonValue(flag, baseline.flags[flag.id]);
+                const after = normalizeComparisonValue(flag, flagValues[flag.id]);
+                entries.push({ flag, before, after, changed: JSON.stringify(before) !== JSON.stringify(after) });
+            }
+        }
+        return {
+            available: Boolean(known && entries.length),
+            entries,
+            changes: entries.filter(entry => entry.changed),
+            modelChanged: Boolean(known && typeof baseline.model === "string" && baseline.model !== selectedModel),
+            modelRootChanged: Boolean(known && typeof baseline.model_root === "string"
+                && modelDirInfo && baseline.model_root !== modelDirInfo.models_arg_root),
+        };
+    }
+
     function updateCommandPreview() {
         const result = getLaunchArgs();
         const launchTokens = [];
@@ -717,6 +781,8 @@
         hasLaunchModelArg,
         buildLaunchArgs,
         getLaunchArgs,
+        captureLaunchSettings,
+        compareLaunchSettings,
         setBinaryTag,
         supportsNativeReasoningEffort,
         updateCommandPreview,

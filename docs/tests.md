@@ -97,7 +97,11 @@ Fast Node tests:
 
 Browser smoke test:
 
-Configure presentation coverage checks accessible setting labels and label-to-input focus, keyboard category/submenu and help disclosures, visible compatibility summaries, aligned numeric columns, and control containment at narrow widths.
+Configure presentation coverage checks accessible setting labels and label-to-input focus, keyboard category/submenu and help disclosures, visible compatibility summaries, aligned numeric columns, and control containment at narrow widths. Launch comparison coverage checks immutable launch values, category counts and filtering, preservation of a focused row while typing through its baseline, per-setting/bulk revert synchronization, review across search filters, tool mismatch and stopped baselines, and comparison controls at 820px and 390px.
+
+`launch_args_unit.cjs` also covers scrubbed launch-input capture, explicit unset fields, normalized comparison values, and unavailable/partial baselines. `process_lifecycle_unit.cjs` checks forwarding and isolation of nested launch snapshots. Backend launch tests verify metadata validation, secret removal, deep-copy isolation, and snapshot removal after process exit.
+
+Configure restart coverage in `flag_sync_smoke.cjs` checks parser/preflight failures before stop, refused-stop handling, duplicate-click prevention, launch-before-readiness ordering, preservation of edits made during validation, and local-server-only visibility. `process_lifecycle_unit.cjs` verifies restart cancellation when the original process has exited or been replaced during preflight.
 
 Chat context coverage also checks preview payload parity (selected answer/reasoning, system prompt, draft, sampler settings), stale-result rejection after runtime changes, the visible meter, context tools-menu visibility, keyboard dismissal and focus, warning Details, compact/summary/undo DOM wiring and narrow layout, post-search overflow feedback and recoverable Retry, and unavailable counting that leaves Send enabled.
 

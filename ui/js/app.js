@@ -221,6 +221,7 @@ async function resolveModelSwitchTarget(slotId) {
     const presetData = presetsApi.normalizePresetData(entry.data);
     const prepared = presetsApi.preparePresetLaunchState(presetData, { preserveApiKey: true });
     const launch = flagCore.buildLaunchArgs(prepared);
+    const launchSettings = flagCore.captureLaunchSettings(prepared);
     if (launch.error) throw new Error(launch.error);
     if (!flagCore.hasLaunchModelArg(launch.args)) throw new Error(`Preset "${presetName}" has no model source.`);
 
@@ -240,6 +241,7 @@ async function resolveModelSwitchTarget(slotId) {
     return {
         tool: "llama-server",
         args: launch.args,
+        launch_settings: launchSettings,
         launch_context: {
             source: "model-switcher",
             slot: slotId,
@@ -344,6 +346,11 @@ configFlagsUi.configure({
     getSelectedChatTemplateDropdownValue,
     copyText,
     showToast,
+    getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    getLatestStatus: () => latestStatus,
+    processLifecycle,
+    buildLaunchRequest: buildManualLaunchRequest,
+    resumeRuntimePolling,
 });
 
 flagCore.configure({
@@ -362,6 +369,7 @@ flagCore.configure({
         preview.textContent = result && result.error ? `Cannot launch: ${result.error}` : command;
         preview.classList.toggle("command-preview-error", Boolean(result && result.error));
         setCustomLaunchArgsMessages(result || {});
+        configFlagsUi.refreshComparison();
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
@@ -761,6 +769,7 @@ function getToolBinaryName(tool) {
 }
 
 function handleLifecycleSnapshot(state) {
+    configFlagsUi.refreshComparison();
     const launchBtn = document.getElementById("btn-launch");
     const stopBtn = document.getElementById("btn-stop");
     if (!launchBtn || !stopBtn) return;
@@ -878,7 +887,7 @@ function buildManualLaunchRequest() {
     if (!flagCore.hasLaunchModelArg(args)) {
         throw new Error("Select a model or provide a remote model source before launching.");
     }
-    return { tool, args };
+    return { tool, args, launch_settings: flagCore.captureLaunchSettings() };
 }
 
 async function launchLlama() {
@@ -1246,6 +1255,7 @@ async function reconcileAuthoritativeStatus(status) {
     // Every accepted status, including the first page-load status, is the
     // authoritative source for the resolved inference target.
     reconcileInferenceTarget(status);
+    configFlagsUi.refreshComparison();
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }

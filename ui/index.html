@@ -737,7 +737,36 @@
                 </div>
             </div>
 
+            <section class="config-runtime" aria-label="Configuration comparison">
+                <div class="config-runtime-heading">
+                    <div class="config-runtime-identity">
+                        <strong id="config-runtime-state">Stopped</strong>
+                        <span id="config-runtime-model">No local process running</span>
+                        <span id="config-runtime-build"></span>
+                    </div>
+                    <div class="config-comparison-actions">
+                        <span id="config-change-count" role="status"></span>
+                        <label class="checkbox-group"><input type="checkbox" id="config-changes-only" disabled> Changed since launch</label>
+                        <button id="config-restart" type="button" class="btn btn-primary btn-sm hidden" aria-describedby="config-restart-help">Restart with changes</button>
+                    </div>
+                </div>
+                <p id="config-comparison-note">Launch a model to compare edits with its launch settings.</p>
+                <p id="config-comparison-exclusions" class="hidden"></p>
+                <p id="config-restart-help" class="hidden">Restart reloads the selected model with all pending settings, including API keys and Custom Launch Args, and interrupts active requests.</p>
+                <p id="config-restart-error" class="config-restart-error hidden" role="alert"></p>
+                <details id="config-change-review" class="hidden">
+                    <summary>Review changes</summary>
+                    <div class="config-change-table-wrap">
+                        <table class="config-change-table">
+                            <thead><tr><th scope="col">Setting</th><th scope="col">At launch</th><th scope="col">Next launch</th></tr></thead>
+                            <tbody id="config-change-list"></tbody>
+                        </table>
+                    </div>
+                    <button id="config-revert-changes" type="button" class="btn btn-sm">Revert compared settings</button>
+                </details>
+            </section>
             <div id="flags-container"></div>
+            <p id="config-comparison-empty" class="flags-empty hidden">No settings match this search and change filter.</p>
 
             <div class="custom-launch-args-panel">
                 <div class="custom-args-header">
