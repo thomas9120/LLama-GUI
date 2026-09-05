@@ -120,6 +120,7 @@ Backend tests use Python `unittest` and mostly exercise route/service logic with
 - `test_extracted_routes.py`: extracted route handlers and larger service flows, including preset secret scrubbing, launch preflight, active-runtime status, health/readiness, process launch/auth parsing, authoritative metrics/slots/chat targets, external chat-target registration and restore, HF download, tunnel, app update, and lifecycle routes.
 - `test_docs_sync.py`: documentation drift. Reads the live `API_ROUTER` and asserts the Route Modules table in `docs/directory.md` and the API surface table in `docs/architecture.html` list exactly the registered endpoints, in both directions, plus the stated endpoint count. Adding a route without documenting it fails here.
 - `test_release_version.py`: deterministic CalVer calculation for the first release of a month, later Micro increments, and ignored noncanonical tags.
+- `test_unix_shortcuts.py`: Linux XDG locations, disabled desktops, command escaping, macOS bundle metadata and desktop links, repeat installation, conflicting app preservation, nonfatal errors, and matching icon artwork. The desktop symlink test runs on Unix; Finder/menu launch behavior needs a native desktop check.
 
 Run backend tests after changes under `backend/`, route behavior changes, service helper changes, process management changes, install/update changes, or security-sensitive validation changes.
 

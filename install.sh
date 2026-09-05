@@ -51,6 +51,11 @@ echo "Installing Python dependencies from requirements.txt..."
 
 mkdir -p llama/custom/bin llama/custom/grammars
 
+echo "Creating application and desktop launchers..."
+if ! "$VENV_PYTHON" "$SCRIPT_DIR/scripts/create_unix_shortcuts.py"; then
+    echo "[WARNING] You can still start Llama GUI with the launch scripts below."
+fi
+
 echo
 echo "Install complete."
 echo "Start the app with ./mac_linux_start.sh or ./mac_linux_silent_start.sh"
