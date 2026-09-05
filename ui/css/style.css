@@ -776,6 +776,7 @@ body.chat-focus-mode .main-content {
 .stacked-cards { display: grid; gap: var(--space-4); }
 .install-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .install-cards > .span-full { grid-column: 1 / -1; }
+.install-cards select { min-width: 0; max-width: 100%; }
 
 /* shared empty-state block: centered muted text, optional title line */
 .empty-state {
