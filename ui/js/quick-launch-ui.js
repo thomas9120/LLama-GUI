@@ -509,7 +509,7 @@
         if (!launchInProgress) document.getElementById("btn-quick-launch-label").textContent = flagCore.getCurrentTool() === "llama-server" ? "Launch server" : "Launch terminal";
         document.getElementById("btn-quick-stop-label").textContent = state.activeRuntime?.tool === "llama-cli" ? "Stop terminal" : state.activeRuntime?.tool && state.activeRuntime.tool !== "llama-server" ? "Stop process" : "Stop server";
         const summary = document.getElementById("quick-launch-readiness");
-        summary.textContent = state.busy ? "Process action in progress…" : state.activeRuntime ? "Settings for your next launch" : readiness.ok ? "Ready to launch" : "Launch needs attention";
+        summary.textContent = state.busy ? "Process action in progress…" : state.activeRuntime ? "Settings for your next launch" : readiness.ok ? "Ready to launch" : "Launch not ready";
         refreshRuntime();
         if (sidebarLaunchBtn) {
             sidebarLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
