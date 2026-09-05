@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Fixed Linux Monitor polling failing with a tuple attribute error after the first disk I/O sample (#340).
+
 - Rebuilt Quick Launch around a compact model/memory/sampling panel, favorites/recent preset shortcuts, a runtime strip, and an explicit launch bar. Added direct temperature, Top P, and port editing; mirrored model-folder controls; and collapsed server/template, sampler-management, and starter-profile sections. Preset shortcuts show matching or modified settings, and the layout preserves Model Switcher and downloads across desktop and narrow screens.
 
 - Added **Restart with changes** to Configure for local llama-server processes. It validates the pending launch before stopping, reloads the selected model through the shared lifecycle, shows progress and inline errors, and prevents duplicate restarts or stopping a replacement process. Edits made during restart stay pending.
