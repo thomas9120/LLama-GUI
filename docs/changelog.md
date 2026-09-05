@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Fixed Chat briefly using stale running status after Stop, which could re-enable its controls and request properties from the stopped llama-server.
+
 - Fixed Linux Monitor polling failing with a tuple attribute error after the first disk I/O sample (#340).
 
 - Fixed install dropdowns overflowing into the adjacent card at narrower window sizes by constraining them to the available card width.
