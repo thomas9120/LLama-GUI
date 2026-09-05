@@ -650,6 +650,13 @@ body.chat-focus-mode .main-content {
     background: currentColor;
 }
 
+#monitor-nav-live {
+    margin-left: auto;
+    padding: 1px 6px;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+
 #monitor-process-state.badge-green::before,
 #monitor-process-state.badge-yellow::before {
     content: "";

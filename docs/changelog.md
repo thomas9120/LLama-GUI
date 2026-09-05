@@ -4,6 +4,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Loading a preset now keeps the current tab open instead of automatically switching to Configure.
+
+- Added a steady green Live badge to the Monitor navigation button when llama-server is ready or an external server is connected; it hides when stopped or transitioning.
+
 - Fixed the collapsed Chat settings panel retaining its width at intermediate window sizes; the responsive width now applies only to expanded desktop panels, and mobile settings retain full width.
 
 - Conversations now starts collapsed in Chat to leave more room for messages; Show conversations still opens the history panel.

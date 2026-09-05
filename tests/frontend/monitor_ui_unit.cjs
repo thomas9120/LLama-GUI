@@ -338,6 +338,7 @@ function buildStandardDom() {
     mount("input-row");
     mount("monitor-process-tool", "span");
     mount("monitor-process-state", "span");
+    mount("monitor-nav-live", "span");
     mount("monitor-no-process-note", "p");
     mount("monitor-external-note");
     mount("monitor-hidden-controls", "details").appendChild(createElement("summary"));
@@ -2283,6 +2284,10 @@ async function copyButtonScenario(copyText) {
     assert.equal(documentStub.getElementById("monitor-process-tool").textContent, "llama-server");
     assert.equal(documentStub.getElementById("monitor-process-state").textContent, "Running");
     assert.equal(documentStub.getElementById("monitor-process-state").classList.contains("badge-green"), true);
+    const navLive = documentStub.getElementById("monitor-nav-live");
+    assert.equal(navLive.classList.contains("hidden"), false);
+    monitorUi.onTabChanged("configure");
+    assert.equal(navLive.classList.contains("hidden"), false);
     assert.equal(documentStub.getElementById("monitor-no-process-note").classList.contains("hidden"), true);
 
     // Transitional phases are named accurately and do not expose an empty
@@ -2296,6 +2301,7 @@ async function copyButtonScenario(copyText) {
         monitorUi.updateProcessHeader();
         assert.equal(documentStub.getElementById("monitor-process-state").textContent, label);
         assert.equal(documentStub.getElementById("monitor-process-state").classList.contains("badge-yellow"), true);
+        assert.equal(navLive.classList.contains("hidden"), true);
     }
     lifecycle = { activeRuntime: null, phase: "starting", busy: true };
     monitorUi.updateProcessHeader();
@@ -2308,6 +2314,14 @@ async function copyButtonScenario(copyText) {
     assert.equal(documentStub.getElementById("monitor-process-tool").textContent, "external server");
     assert.equal(documentStub.getElementById("monitor-external-note").classList.contains("hidden"), false);
     assert.equal(documentStub.getElementById("output-terminal").classList.contains("hidden"), true);
+
+    assert.equal(navLive.classList.contains("hidden"), false);
+    status = null;
+    monitorUi.updateProcessHeader();
+    assert.equal(navLive.classList.contains("hidden"), true);
+    lifecycle = { activeRuntime: { tool: "llama-cli", generation: 6 }, phase: "ready", busy: false };
+    monitorUi.updateProcessHeader();
+    assert.equal(navLive.classList.contains("hidden"), true);
 
     // Reset button delegates to the shared baseline.
     documentStub.getElementById("btn-reset-inference").dispatch("click");
