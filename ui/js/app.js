@@ -89,6 +89,9 @@ hfDownloadUi.configure({
 });
 quickLaunchUi.configure({
     flagCore,
+    presets: presetsApi,
+    getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    getLatestStatus: () => latestStatus,
     configFlagsUi,
     hfDownloadUi,
     debounce,
@@ -659,6 +662,7 @@ function switchTab(tabId) {
     if (tabId === "benchmarking") benchmarkUi.onShow();
     if (tabId === "quick-launch") {
         refreshQuickLaunchUI();
+        quickLaunchUi.refreshSavedPresets();
         refreshRuntimeStatusPanels();
         modelSwitchUi.refresh({ reloadPresets: true })
             .catch(error => console.debug("Failed to reload Model Switcher presets", error));
@@ -1256,6 +1260,7 @@ async function reconcileAuthoritativeStatus(status) {
     // authoritative source for the resolved inference target.
     reconcileInferenceTarget(status);
     configFlagsUi.refreshComparison();
+    quickLaunchUi.refreshRuntime();
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }

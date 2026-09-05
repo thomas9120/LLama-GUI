@@ -882,23 +882,25 @@ function showAppUpdateStatus(type, message) {
 }
 
 function renderModelDirInfo(info) {
-    const pathEl = document.getElementById("models-folder-path");
-    const changeBtn = document.getElementById("btn-change-models-folder");
-    const resetBtn = document.getElementById("btn-reset-models-folder");
-    const errorEl = document.getElementById("models-folder-error");
-    if (pathEl) pathEl.textContent = info && info.models_dir ? info.models_dir : "Loading...";
-    if (changeBtn) changeBtn.disabled = modelDirChangeInProgress;
-    if (resetBtn) {
-        resetBtn.hidden = !info || info.models_dir_is_default === true;
-        resetBtn.disabled = modelDirChangeInProgress;
-    }
-    if (errorEl) {
-        const unavailableError = info && info.models_dir_available === false
-            ? String(info.models_dir_error || "Models folder is unavailable.")
-            : "";
-        const message = modelDirOperationError || unavailableError;
-        errorEl.textContent = message;
-        errorEl.className = message ? "status-box error" : "status-box hidden";
+    for (const prefix of ["", "quick-"]) {
+        const pathEl = document.getElementById(prefix + "models-folder-path");
+        const changeBtn = document.getElementById("btn-" + prefix + "change-models-folder");
+        const resetBtn = document.getElementById("btn-" + prefix + "reset-models-folder");
+        const errorEl = document.getElementById(prefix + "models-folder-error");
+        if (pathEl) pathEl.textContent = info && info.models_dir ? info.models_dir : "Loading...";
+        if (changeBtn) changeBtn.disabled = modelDirChangeInProgress;
+        if (resetBtn) {
+            resetBtn.hidden = !info || info.models_dir_is_default === true;
+            resetBtn.disabled = modelDirChangeInProgress;
+        }
+        if (errorEl) {
+            const unavailableError = info && info.models_dir_available === false
+                ? String(info.models_dir_error || "Models folder is unavailable.")
+                : "";
+            const message = modelDirOperationError || unavailableError;
+            errorEl.textContent = message;
+            errorEl.className = message ? "status-box error" : "status-box hidden";
+        }
     }
 }
 
@@ -979,10 +981,12 @@ async function chooseModelsDir() {
 }
 
 function initModelDirControls() {
-    const changeBtn = document.getElementById("btn-change-models-folder");
-    const resetBtn = document.getElementById("btn-reset-models-folder");
-    if (changeBtn) changeBtn.addEventListener("click", chooseModelsDir);
-    if (resetBtn) resetBtn.addEventListener("click", () => persistModelsDir(null));
+    for (const prefix of ["", "quick-"]) {
+        const changeBtn = document.getElementById("btn-" + prefix + "change-models-folder");
+        const resetBtn = document.getElementById("btn-" + prefix + "reset-models-folder");
+        if (changeBtn) changeBtn.addEventListener("click", chooseModelsDir);
+        if (resetBtn) resetBtn.addEventListener("click", () => persistModelsDir(null));
+    }
     renderModelDirInfo(latestStatus);
 }
 

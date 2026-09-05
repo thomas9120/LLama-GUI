@@ -150,8 +150,9 @@ assert.match(
     "switches must preserve prior output until the replacement process is accepted"
 );
 assert.ok(
-    indexHtml.indexOf('id="model-switch-card"') < indexHtml.indexOf('class="quick-grid"'),
-    "model switcher card should appear before the existing Quick Launch grid"
+    indexHtml.indexOf('id="model-switch-card"') > indexHtml.indexOf('class="quick-config"')
+        && indexHtml.indexOf('id="model-switch-card"') < indexHtml.indexOf('class="quick-launch-bar"'),
+    "model switcher should remain available between the configuration panel and launch bar"
 );
 
 const entries = [

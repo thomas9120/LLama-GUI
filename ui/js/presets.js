@@ -2,6 +2,7 @@ const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key"]);
 const SENSITIVE_CUSTOM_ARG_PATTERN = /(^|[^A-Za-z0-9_-])--api-key(?=$|[=\s])/;
 const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key in Custom Launch Args. Use the API Key field instead.";
 let presetDependencies = {};
+let lastLoadedPresetName = "";
 
 function configurePresetModule(options = {}) {
     presetDependencies = Object.assign({}, presetDependencies, options);
@@ -228,6 +229,21 @@ function applyPresetData(data, options = {}) {
     applyPresetModel(prepared.model);
     flagCore.applyFlagValues(prepared.flags);
     return prepared;
+}
+
+function matchesCurrentPreset(data) {
+    const core = getPresetFlagCore();
+    const prepared = preparePresetLaunchState(data, { preserveApiKey: false });
+    if (prepared.tool !== core.getCurrentTool() || prepared.model !== core.getSelectedModel()) return false;
+    const current = core.getFlagValues();
+    if (hasSensitiveCustomArgs(current)) return false;
+    const flags = core.normalizeSpeculativeFlagValues(stripSensitivePresetFlags(current));
+    const keys = new Set([...Object.keys(prepared.flags), ...Object.keys(flags)]);
+    // Presets do not contain API keys. Compare savable inputs, including custom
+    // arguments, without retaining a second copy of the editable configuration.
+    const valueKey = value => Array.isArray(value) ? JSON.stringify(value.map(String)) : String(value ?? "");
+    return Array.from(keys).every(key => key === "api_key" || key === "ctx_size_draft"
+        || valueKey(prepared.flags[key]) === valueKey(flags[key]));
 }
 
 // The set of .gguf names currently in the models/ folder, as cached by
@@ -1926,18 +1942,22 @@ async function loadPreset(name) {
             const presetData = preset.data;
             const warnings = getPresetWarnings(presetData);
             applyPresetData(presetData);
+            lastLoadedPresetName = name;
             markPresetUsed(name);
             if (warnings.length > 0) {
                 showPresetStatus(`Loaded "${name}" with warning: ${warnings[0]}`, "warning", 5000);
             } else {
                 showPresetStatus(`Loaded preset "${name}"`, "success");
             }
+            return { ok: true, name, data: presetData, warnings };
         } else {
             showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
+            return { ok: false, error: `Preset "${name}" no longer exists.` };
         }
     } catch (e) {
         showPresetStatus("Failed to load preset", "error", 3200);
         console.warn("Failed to load preset", e);
+        return { ok: false, error: "Could not load this preset. Try again from the preset library." };
     }
 }
 
@@ -2245,6 +2265,10 @@ if (window.LlamaGui) {
     window.LlamaGui.presets = Object.assign(window.LlamaGui.presets || {}, {
         configure: configurePresetModule,
         loadPreset,
+        matchesCurrentPreset,
+        getLastLoadedPresetName: () => lastLoadedPresetName,
+        isPresetFavorite,
+        getPresetLastUsed,
         fetchPresetEntries,
         findPresetByName,
         normalizePresetData,

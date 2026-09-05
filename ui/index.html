@@ -289,30 +289,236 @@
 
         <!-- ═══ QUICK LAUNCH ═══ -->
         <div class="section-panel" id="section-quick-launch">
+            <div class="quick-runtime" aria-label="Current runtime">
+                <div><strong id="quick-runtime-state">Checking runtime…</strong><span id="quick-runtime-model"></span>
+                </div>
+                <span id="quick-runtime-build"></span>
+            </div>
             <div class="page-header">
                 <div>
                     <div class="page-title">Quick Launch</div>
-                    <div class="page-title-sub">Pick a model, use a beginner-friendly setup, and launch with sensible llama.cpp defaults.</div>
+                    <div class="page-title-sub">Your next session, ready to go.</div>
                 </div>
-                <button id="btn-open-configure" class="btn btn-ghost" type="button">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/></svg></span>
-                    Fine-tune in Configure
-                </button>
+                <button id="btn-open-configure" class="btn btn-ghost" type="button">Open Configure ↗</button>
             </div>
-
-            <section class="card model-switch-card" id="model-switch-card" aria-labelledby="model-switch-title">
+            <section class="quick-saved" aria-labelledby="quick-saved-title">
+                <div class="quick-section-heading">
+                    <h2 id="quick-saved-title">Saved presets</h2>
+                    <button id="btn-quick-presets" class="btn btn-sm btn-ghost" type="button">View all →</button>
+                </div>
+                <div id="quick-saved-presets" class="quick-saved-grid">
+                </div>
+                <p id="quick-presets-status" class="help-text" role="status">Loading saved presets…</p>
+            </section>
+            <div class="quick-config">
+                <section class="quick-model-section" aria-label="Model and launch mode">
+                    <div class="quick-model-row">
+                        <div class="form-group">
+                            <label class="form-label" for="quick-model-select">Model</label>
+                            <div class="input-row">
+                                <select id="quick-model-select">
+                                    <option value="">-- Select Model --</option>
+                                </select>
+                                <button id="btn-quick-refresh-models" class="btn btn-sm" type="button" title="Refresh models" aria-label="Refresh models"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                </button>
+                            </div>
+                        </div>
+                        <button id="btn-quick-download" class="btn btn-sm" type="button">Download model</button>
+                    </div>
+                    <div class="models-folder-row quick-folder-row"><span class="form-label form-label-inline">Models folder</span><code id="quick-models-folder-path" class="models-folder-path">Loading…</code>
+                        <button id="btn-quick-change-models-folder" class="btn btn-sm btn-ghost" type="button">Change…</button>
+                        <button id="btn-quick-reset-models-folder" class="btn btn-sm btn-ghost" type="button" hidden>Reset to default</button>
+                    </div>
+                    <div id="quick-models-folder-error" class="status-box hidden" role="status">
+                    </div>
+                    <fieldset class="quick-mode-row">
+                        <legend>Launch mode</legend>
+                        <div class="quick-mode-toggle" id="quick-mode-toggle">
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-server" checked> Web / API server</label>
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-cli"> Terminal</label>
+                        </div><span id="quick-mode-summary" class="help-text"></span>
+                    </fieldset>
+                </section>
+                <div class="quick-tuning">
+                    <section class="quick-tuning-section" aria-labelledby="quick-memory-title">
+                        <h2 id="quick-memory-title">Memory &amp; GPU</h2>
+                        <div class="quick-settings-rows">
+                            <div class="form-group">
+                                <label class="form-label" for="quick-context-preset">Context Length</label>
+                                <div class="input-row">
+                                    <select id="quick-context-preset">
+                                        <option value="8192">8K</option>
+                                        <option value="16000">16K</option>
+                                        <option value="32768">32K</option>
+                                        <option value="64000">64K</option>
+                                        <option value="128000">128K</option>
+                                        <option value="256000">256K</option>
+                                        <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="number" id="quick-context-custom" min="0" step="1" aria-label="Custom context tokens" placeholder="Custom tokens" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-gpu-mode">GPU Offload</label>
+                                <div class="input-row">
+                                    <select id="quick-gpu-mode">
+                                        <option value="auto">Auto</option>
+                                        <option value="0">CPU only</option>
+                                        <option value="all">All GPU layers</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <input type="text" id="quick-gpu-custom" aria-label="Custom GPU layers" placeholder="Manual layers" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-fit-toggle">Auto Fit</label>
+                                <select id="quick-fit-toggle">
+                                    <option value="on">On</option>
+                                    <option value="off">Off</option>
+                                </select>
+                            </div>
+                        </div>
+                        <details class="fit-advanced">
+                            <summary>Advanced fit options</summary>
+                            <div class="quick-fit-grid">
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
+                                    <input type="text" id="quick-fit-target" placeholder="1024" />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
+                                    <div class="input-row">
+                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
+                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        <p id="quick-fit-summary" class="help-text">
+                        </p>
+                    </section>
+                    <section class="quick-tuning-section" aria-labelledby="quick-sampling-title">
+                        <h2 id="quick-sampling-title">Sampling</h2>
+                        <div class="form-group">
+                            <label class="form-label" for="quick-sampler-select">Sampler Preset</label>
+                            <div class="input-row">
+                                <select id="quick-sampler-select">
+                                </select>
+                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
+                            </div>
+                        </div>
+                        <div class="quick-slider-grid">
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-temperature">Temperature</label>
+                                    <span class="sampler-slider-value" id="quick-temperature-value">—</span>
+                                    <input type="number" id="quick-temperature-input" class="quick-sampler-number" aria-label="Temperature value" min="0" step="any" placeholder="Default">
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-temperature" min="0" max="2" step="0.01" />
+                            </div>
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-top-p">Top-P</label>
+                                    <span class="sampler-slider-value" id="quick-top-p-value">—</span>
+                                    <input type="number" id="quick-top-p-input" class="quick-sampler-number" aria-label="Top P value" min="0" max="1" step="any" placeholder="Default">
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-top-p" min="0" max="1" step="0.01" />
+                            </div>
+                        </div>
+                        <details id="quick-sampling-details" class="fit-advanced">
+                            <summary>More sampling settings</summary>
+                            <div class="quick-slider-grid">
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-top-k">Top-K</label>
+                                        <span class="sampler-slider-value" id="quick-top-k-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-top-k" min="0" max="200" step="1" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-min-p">Min-P</label>
+                                        <span class="sampler-slider-value" id="quick-min-p-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-min-p" min="0" max="1" step="0.01" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
+                                        <span class="sampler-slider-value" id="quick-repeat-penalty-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-repeat-penalty" min="0.5" max="2" step="0.01" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
+                                        <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.1" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-sampler-name">Save Current Sampler</label>
+                                <div class="input-row">
+                                    <input type="text" id="quick-sampler-name" placeholder="Preset name..." />
+                                    <button id="btn-quick-sampler-save" class="btn btn-sm" type="button">Save</button>
+                                    <button id="btn-quick-sampler-rename" class="btn btn-sm" type="button">Rename</button>
+                                    <button id="btn-quick-sampler-delete" class="btn btn-sm btn-danger" type="button">Delete</button>
+                                </div>
+                            </div>
+                            <button id="btn-quick-more-sampling" class="btn btn-sm btn-ghost" type="button">All sampling flags in Configure ↗</button>
+                        </details>
+                    </section>
+                </div>
+                <details id="quick-server-settings" class="quick-disclosure">
+                    <summary><span>Server &amp; template settings</span><span id="quick-server-summary" class="quick-disclosure-summary"></span>
+                    </summary>
+                    <div class="quick-server-grid">
+                        <div id="quick-server-fields">
+                            <div class="form-group">
+                                <label class="form-label" for="quick-port">Port <code>--port</code>
+                                </label>
+                                <input type="number" id="quick-port" min="1" max="65535" step="1" placeholder="Server default">
+                            </div>
+                            <div class="quick-auth-section" id="quick-auth-section">
+                                <div class="quick-subsection-label">API Protection (optional)</div>
+                                <label class="form-label" for="quick-api-key">API Key</label>
+                                <div class="api-key-row">
+                                    <div id="quick-api-key-control">
+                                    </div>
+                                    <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
+                                </div>
+                                <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
+                            </div>
+                            <label class="checkbox-group">
+                                <input type="checkbox" id="quick-metrics-toggle" checked> Enable metrics &amp; stats bar</label>
+                        </div>
+                        <div class="quick-template-section">
+                            <div class="quick-subsection-label">Instruction Template</div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-template-pack">Template Pack</label>
+                                <select id="quick-template-pack">
+                                </select>
+                            </div>
+                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <section class="model-switch-card quick-disclosure" id="model-switch-card" aria-labelledby="model-switch-title">
                 <div class="model-switch-header">
-                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="false" aria-controls="model-switch-body">
-                        <span class="model-switch-chevron" aria-hidden="true">▾</span>
+                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="false" aria-controls="model-switch-body"><span class="model-switch-chevron" aria-hidden="true">▾</span>
                         <span>
-                            <span class="card-kicker">Two-slot launcher</span>
                             <span class="model-switch-heading" id="model-switch-title">Model Switcher</span>
                             <span class="model-switch-summary" id="model-switch-summary">Assign two saved server presets for quick switching.</span>
                         </span>
                     </button>
                 </div>
                 <div id="model-switch-body" class="hidden" aria-hidden="true">
-                    <div class="model-switch-notice hidden" id="model-switch-notice" role="status" aria-live="polite"></div>
+                    <div class="model-switch-notice hidden" id="model-switch-notice" role="status" aria-live="polite">
+                    </div>
                     <div class="model-switch-slots">
                         <article class="model-switch-slot" id="model-switch-slot-a" aria-labelledby="model-switch-slot-a-title">
                             <div class="model-switch-slot-top">
@@ -323,15 +529,16 @@
                                 <span class="model-switch-badge" id="model-switch-slot-a-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Model</dt><dd id="model-switch-slot-a-model">—</dd></div>
-                                <div><dt>GGUF</dt><dd id="model-switch-slot-a-gguf">—</dd></div>
+                                <div><dt>Model</dt><dd id="model-switch-slot-a-model">—</dd>
+                                </div>
+                                <div><dt>GGUF</dt><dd id="model-switch-slot-a-gguf">—</dd>
+                                </div>
                             </dl>
                             <div class="slot-assign-row">
                                 <select id="model-switch-select-a" aria-label="Model A preset">
                                     <option value="">Assign preset…</option>
                                 </select>
-                                <button class="btn btn-sm" id="model-switch-refresh-a" type="button" title="Refresh presets" aria-label="Refresh Model A presets">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                <button class="btn btn-sm" id="model-switch-refresh-a" type="button" title="Refresh presets" aria-label="Refresh Model A presets"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 </button>
                                 <button class="btn btn-sm btn-ghost" id="model-switch-clear-a" type="button" title="Clear slot A" aria-label="Clear slot A preset" disabled>✕</button>
                             </div>
@@ -349,15 +556,16 @@
                                 <span class="model-switch-badge" id="model-switch-slot-b-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Model</dt><dd id="model-switch-slot-b-model">—</dd></div>
-                                <div><dt>GGUF</dt><dd id="model-switch-slot-b-gguf">—</dd></div>
+                                <div><dt>Model</dt><dd id="model-switch-slot-b-model">—</dd>
+                                </div>
+                                <div><dt>GGUF</dt><dd id="model-switch-slot-b-gguf">—</dd>
+                                </div>
                             </dl>
                             <div class="slot-assign-row">
                                 <select id="model-switch-select-b" aria-label="Model B preset">
                                     <option value="">Assign preset…</option>
                                 </select>
-                                <button class="btn btn-sm" id="model-switch-refresh-b" type="button" title="Refresh presets" aria-label="Refresh Model B presets">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                <button class="btn btn-sm" id="model-switch-refresh-b" type="button" title="Refresh presets" aria-label="Refresh Model B presets"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 </button>
                                 <button class="btn btn-sm btn-ghost" id="model-switch-clear-b" type="button" title="Clear slot B" aria-label="Clear slot B preset" disabled>✕</button>
                             </div>
@@ -370,332 +578,118 @@
                     <p class="help-text model-switch-footer-note">Only saved full presets configured for llama-server are available. Standby means the model configuration is saved and ready to preflight; it is not kept loaded in RAM or VRAM.</p>
                 </div>
             </section>
-
-            <div class="quick-grid">
-                <div class="quick-setup-grid span-full">
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Model</div>
-                            </div>
-                            <div class="card-icon icon-blue">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-model-select">Model</label>
-                            <div class="input-row">
-                                <select id="quick-model-select">
-                                    <option value="">-- Select Model --</option>
-                                </select>
-                                <button id="btn-quick-refresh-models" class="btn btn-sm" type="button" title="Refresh models" aria-label="Refresh models">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-profile-select">Profile</label>
-                            <select id="quick-profile-select">
-                                <option value="">Choose a profile...</option>
-                            </select>
-                        </div>
-                        <p id="quick-profile-summary" class="help-text">Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.</p>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Launch Mode</div>
-                            </div>
-                            <div class="card-icon icon-green">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="quick-mode-toggle" id="quick-mode-toggle">
-                            <label class="quick-choice">
-                                <span class="quick-choice-title">
-                                    <input type="radio" name="quick-launch-mode" value="llama-server" checked />
-                                    Web / API Server
-                                </span>
-                                <span class="quick-choice-desc">Browser chat and OpenAI-compatible API endpoints.</span>
-                            </label>
-                            <label class="quick-choice">
-                                <span class="quick-choice-title">
-                                    <input type="radio" name="quick-launch-mode" value="llama-cli" />
-                                    Terminal Chat
-                                </span>
-                                <span class="quick-choice-desc">Interactive llama-cli chat in a console window.</span>
-                            </label>
-                        </div>
-                        <p id="quick-mode-summary" class="help-text">API Server exposes the OpenAI-compatible endpoints and built-in web UI.</p>
-
-                        <div class="quick-auth-section" id="quick-auth-section">
-                            <div class="quick-subsection-label">API Protection (optional)</div>
-                            <label class="form-label" for="quick-api-key">API Key</label>
-                            <div class="api-key-row">
-                                <div id="quick-api-key-control"></div>
-                                <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
-                            </div>
-                            <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
-                        </div>
-
-                        <div class="quick-template-section">
-                            <div class="quick-subsection-label">Instruction Template</div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-template-pack">Template Pack</label>
-                                <select id="quick-template-pack"></select>
-                            </div>
-                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
+            <section class="quick-launch-bar" aria-label="Launch">
+                <div class="quick-launch-bar-main">
+                    <div class="quick-launch-info"><strong id="quick-launch-readiness">Choose a model</strong>
+                        <div class="readiness-bar" id="quick-readiness-bar">
+                            <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
+                            <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: optional</span></span>
+                            <span class="readiness-chip info" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
+                            <span class="readiness-chip info" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
+                            <span class="readiness-chip info" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
                         </div>
                     </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Memory &amp; Fit</div>
-                            </div>
-                            <div class="card-icon icon-cyan">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="12" x2="6" y2="12.01"/><line x1="10" y1="12" x2="10" y2="12.01"/><line x1="14" y1="12" x2="14" y2="12.01"/><line x1="18" y1="12" x2="18" y2="12.01"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-context-preset">Context Length</label>
-                            <div class="input-row">
-                                <select id="quick-context-preset">
-                                    <option value="8192">8K</option>
-                                    <option value="16000">16K</option>
-                                    <option value="32768">32K</option>
-                                    <option value="64000">64K (recommended)</option>
-                                    <option value="128000">128K</option>
-                                    <option value="256000">256K</option>
-                                    <option value="custom">Custom…</option>
-                                </select>
-                                <input type="number" id="quick-context-custom" min="0" step="1" placeholder="Custom tokens" />
-                            </div>
-                            <p class="help-text">64K is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="quick-gpu-mode">GPU Offload</label>
-                            <div class="input-row">
-                                <select id="quick-gpu-mode">
-                                    <option value="auto">Auto</option>
-                                    <option value="0">CPU only</option>
-                                    <option value="all">All GPU layers</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                                <input type="text" id="quick-gpu-custom" placeholder="Manual layers" />
-                            </div>
-                            <p class="help-text">Leave this on Auto unless you are tuning a specific machine.</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="quick-fit-toggle">Auto Fit</label>
-                            <select id="quick-fit-toggle">
-                                <option value="on">On</option>
-                                <option value="off">Off</option>
-                            </select>
-                        </div>
-
-                        <details class="fit-advanced">
-                            <summary>Advanced fit options</summary>
-                            <div class="quick-fit-grid">
-                                <div class="form-group">
-                                    <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
-                                    <input type="text" id="quick-fit-target" placeholder="1024" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
-                                    <div class="input-row">
-                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
-                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </details>
-
-                        <p id="quick-fit-summary" class="help-text"></p>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Sampler</div>
-                            </div>
-                            <div class="card-icon icon-magenta">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-sampler-select">Sampler Preset</label>
-                            <div class="input-row">
-                                <select id="quick-sampler-select"></select>
-                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-sampler-name">Save Current Sampler</label>
-                            <div class="input-row">
-                                <input type="text" id="quick-sampler-name" placeholder="Preset name..." />
-                                <button id="btn-quick-sampler-save" class="btn btn-sm" type="button">Save</button>
-                                <button id="btn-quick-sampler-rename" class="btn btn-sm" type="button">Rename</button>
-                                <button id="btn-quick-sampler-delete" class="btn btn-sm btn-danger" type="button">Delete</button>
-                            </div>
-                        </div>
-
-                        <div class="quick-slider-grid">
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-temperature">Temperature</label>
-                                    <span class="sampler-slider-value" id="quick-temperature-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-temperature" min="0" max="2" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-top-k">Top-K</label>
-                                    <span class="sampler-slider-value" id="quick-top-k-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-top-k" min="0" max="200" step="1" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-top-p">Top-P</label>
-                                    <span class="sampler-slider-value" id="quick-top-p-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-top-p" min="0" max="1" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-min-p">Min-P</label>
-                                    <span class="sampler-slider-value" id="quick-min-p-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-min-p" min="0" max="1" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
-                                    <span class="sampler-slider-value" id="quick-repeat-penalty-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-repeat-penalty" min="0.5" max="2" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
-                                    <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.1" />
-                            </div>
-                        </div>
+                    <div class="quick-actions">
+                        <button id="btn-quick-launch" class="btn btn-primary " type="button"><span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+                            <span id="btn-quick-launch-label">Launch server</span>
+                        </button>
+                        <button id="btn-quick-stop" class="btn btn-danger  hidden" type="button"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
+                            <span id="btn-quick-stop-label">Stop server</span>
+                        </button>
                     </div>
                 </div>
-
-                <details class="card hf-download-panel span-full">
-                    <summary class="hf-download-title">
-                        <span class="hf-download-copy">
-                            <span class="hf-download-label">Download from Hugging Face</span>
-                            <span class="hf-download-summary">Find GGUF files from a repo</span>
-                        </span>
-                        <span class="hf-download-toggle" aria-hidden="true">
-                            <span class="hf-toggle-expand">Expand</span>
-                            <span class="hf-toggle-collapse">Collapse</span>
-                        </span>
-                    </summary>
-                    <div class="hf-download-body">
-                        <div id="hf-download-status" class="hf-download-status"></div>
-                        <div class="form-group">
-                            <label class="form-label" for="hf-repo-input">Repo ID</label>
-                            <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
-                        </div>
-                        <div class="hf-download-grid">
-                            <div class="form-group">
-                                <label class="form-label" for="hf-revision-input">Revision</label>
-                                <input type="text" id="hf-revision-input" placeholder="main" />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" for="hf-token-input">Token</label>
-                                <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" spellcheck="false" />
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <button id="btn-hf-find-files" class="btn btn-sm" type="button">Find GGUF Files</button>
-                        </div>
-                        <div id="hf-file-options" class="hidden">
-                            <div class="form-group">
-                                <label class="form-label" for="hf-model-file-select">Model File</label>
-                                <select id="hf-model-file-select"></select>
-                            </div>
-                            <div class="form-group" id="hf-mmproj-group">
-                                <label class="form-label" for="hf-mmproj-file-select">Companion mmproj</label>
-                                <select id="hf-mmproj-file-select"></select>
-                            </div>
-                            <div id="hf-download-progress" class="progress-container hidden">
-                                <div class="progress-bar"><div id="hf-progress-fill" class="progress-fill"></div></div>
-                                <span id="hf-progress-text">Starting...</span>
-                            </div>
-                            <div class="form-row">
-                                <button id="btn-hf-download" class="btn btn-primary" type="button">Download</button>
-                                <button id="btn-hf-cancel" class="btn btn-danger hidden" type="button">Cancel</button>
-                            </div>
-                        </div>
+                <div id="quick-launch-status" class="quick-launch-status" role="status" aria-live="polite">
+                </div>
+                <div class="quick-launch-links"><span class="quick-endpoint-label">Next launch endpoint</span>
+                    <div id="quick-server-address" class="server-address server-address-bare hidden">
+                        <span class="badge badge-accent"><span class="badge-dot"></span> <a id="quick-server-url" href="#" target="_blank" class="badge-link"></a></span>
+                        <span class="server-sep">|</span>
+                        <a id="quick-server-webui" href="#" target="_blank" class="server-link">Web UI</a>
+                        <button id="btn-copy-quick-server-url" class="btn btn-sm btn-ghost" type="button" title="Copy URL" aria-label="Copy Quick Launch server URL"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                        </button>
                     </div>
-                </details>
-
-                <div class="card span-full launch-preview">
-                    <div class="card-header">
-                        <div>
-                            <div class="card-kicker">Launch</div>
-                            <div class="card-title">Launch Preview</div>
-                        </div>
-                        <div class="launch-preview-badges">
-                            <div id="quick-server-address" class="server-address server-address-bare hidden">
-                                <span class="badge badge-accent"><span class="badge-dot"></span> <a id="quick-server-url" href="#" target="_blank" class="badge-link"></a></span>
-                                <span class="server-sep">|</span>
-                                <a id="quick-server-webui" href="#" target="_blank" class="server-link">Web UI</a>
-                                <button id="btn-copy-quick-server-url" class="btn btn-sm btn-ghost" type="button" title="Copy URL" aria-label="Copy Quick Launch server URL">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                                </button>
-                            </div>
-                            <label class="toggle toggle-sm">
-                                <input type="checkbox" id="quick-metrics-toggle" checked />
-                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                                Stats bar
-                            </label>
-                        </div>
-                    </div>
-                    <p class="help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
-                    <div class="readiness-bar" id="quick-readiness-bar">
-                        <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
-                        <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: optional</span></span>
-                        <span class="readiness-chip info" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
-                        <span class="readiness-chip info" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
-                        <span class="readiness-chip info" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
-                    </div>
-                    <details class="cmd-preview-toggle">
-                        <summary>Show launch command</summary>
+                    <details class="cmd-preview-toggle" id="quick-command-details">
+                        <summary>View command</summary>
                         <div class="code-block-wrap">
-                            <div class="code-block" id="quick-command-preview"></div>
-                            <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command">
-                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                            <div class="code-block" id="quick-command-preview">
+                            </div>
+                            <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
                                 Copy
                             </button>
                         </div>
                     </details>
-                    <div id="quick-launch-status" class="quick-launch-status" role="status" aria-live="polite"></div>
-                    <div class="quick-actions-sticky">
-                        <div class="quick-actions">
-                            <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">
-                                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                                <span id="btn-quick-launch-label">Launch</span>
-                            </button>
-                            <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">
-                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
-                                Stop
-                            </button>
+                </div>
+            </section>
+            <details id="quick-starter-profiles" class="quick-disclosure">
+                <summary><span>Starter profiles</span><span class="quick-disclosure-summary">Built-in starting points</span>
+                </summary>
+                <div class="quick-profile-body">
+                    <div class="form-group">
+                        <label class="form-label" for="quick-profile-select">Profile</label>
+                        <select id="quick-profile-select">
+                            <option value="">Choose a profile...</option>
+                        </select>
+                    </div>
+                    <p id="quick-profile-summary" class="help-text">
+                    </p>
+                </div>
+            </details>
+            <details class="hf-download-panel quick-disclosure">
+                <summary class="hf-download-title">
+                    <span class="hf-download-copy">
+                        <span class="hf-download-label">Download from Hugging Face</span>
+                        <span class="hf-download-summary">Find GGUF files from a repo</span>
+                    </span>
+                    <span class="hf-download-toggle" aria-hidden="true">
+                        <span class="hf-toggle-expand">Expand</span>
+                        <span class="hf-toggle-collapse">Collapse</span>
+                    </span>
+                </summary>
+                <div class="hf-download-body">
+                    <div id="hf-download-status" class="hf-download-status">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="hf-repo-input">Repo ID</label>
+                        <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
+                    </div>
+                    <div class="hf-download-grid">
+                        <div class="form-group">
+                            <label class="form-label" for="hf-revision-input">Revision</label>
+                            <input type="text" id="hf-revision-input" placeholder="main" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="hf-token-input">Token</label>
+                            <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <button id="btn-hf-find-files" class="btn btn-sm" type="button">Find GGUF Files</button>
+                    </div>
+                    <div id="hf-file-options" class="hidden">
+                        <div class="form-group">
+                            <label class="form-label" for="hf-model-file-select">Model File</label>
+                            <select id="hf-model-file-select">
+                            </select>
+                        </div>
+                        <div class="form-group" id="hf-mmproj-group">
+                            <label class="form-label" for="hf-mmproj-file-select">Companion mmproj</label>
+                            <select id="hf-mmproj-file-select">
+                            </select>
+                        </div>
+                        <div id="hf-download-progress" class="progress-container hidden">
+                            <div class="progress-bar">
+                                <div id="hf-progress-fill" class="progress-fill">
+                                </div>
+                            </div>
+                            <span id="hf-progress-text">Starting...</span>
+                        </div>
+                        <div class="form-row">
+                            <button id="btn-hf-download" class="btn btn-primary" type="button">Download</button>
+                            <button id="btn-hf-cancel" class="btn btn-danger hidden" type="button">Cancel</button>
                         </div>
                     </div>
                 </div>
-            </div>
+            </details>
         </div>
 
         <!-- ═══ CONFIGURE ═══ -->

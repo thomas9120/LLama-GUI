@@ -230,6 +230,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 - Configure flag rendering lives in `window.LlamaGui.configFlagsUi`, but rendered controls still read from `flagCore` and write through the shared setter path.
 - Configure's **Restart with changes** captures the manual launch request from shared state, validates it through `/api/launch/preflight`, and uses `processLifecycle.switchRuntime()` with the original process generation. It confirms stop before launching and waiting for readiness; validation failures preserve the current process, while edits made during the operation remain pending. This action is available for the local `llama-server` and includes all launch arguments, even fields excluded from comparison.
 - Configure's Custom Launch Args textarea stores its raw value in shared `flagCore.flagValues.custom_args` through `setFlagValue("custom_args", ...)`.
+- Quick Launch groups shared model, memory, and sampling controls in one panel, with direct Temperature/Top P inputs alongside the sliders and port/API/template controls behind a disclosure. Its model-folder controls use the same manager handlers and error/busy state as Configure. The runtime strip reads lifecycle/status data; the launch bar and command describe pending settings.
+- Quick Launch refreshes three full-preset shortcuts on entry, ordered by existing favorites and last-used metadata, then name; archived and partial presets are excluded. `presets.matchesCurrentPreset()` compares current savable inputs with the normalized saved configuration, excluding API keys and inert draft context. `loadPreset()` returns its result and loaded data for inline feedback; shortcut selection never launches a process. All sampler-management controls, starter profiles, downloads, and Model Switcher remain accessible through disclosures.
 - Command preview and launch args are generated from shared state (`flagCore.getLaunchArgs()`), never per-tab copies.
 - Custom launch args are parsed and appended only by `flagCore.getLaunchArgs()`, after UI-managed flags and before the selected model arg.
 - Benchmarking reads Configure state or saved preset JSON without mutating them, builds tool-compatible benchmark args, can prepare the official WikiText-2 raw test file through `/api/benchmark/wikitext2`, and uses `/api/launch`, `/api/stop`, `/api/output`, and `/api/status` through the existing single process slot.
@@ -429,18 +431,18 @@ Each profile applies a tool setting, flag values, fit linking, and sampler prese
 
 Quick Launch renders simplified controls for:
 - Model selection (synced with Configure's model dropdown)
-- Tool mode toggle (Web / API Server = llama-server, Terminal Chat = llama-cli), shown as descriptive cards
-- Context size (K-formatted preset dropdown with 64K recommended + custom input, linked to fit_ctx by default)
+- Compact tool mode toggle (Web / API server = llama-server, Terminal = llama-cli)
+- Context size (K-formatted preset dropdown + custom input, linked to fit_ctx by default)
 - GPU layers (auto/0/all/custom, synced with Configure)
 - Auto Fit toggle; fit target/context inputs live behind an "Advanced fit options" disclosure
 - Chat template (reuses shared `chat_template` options from `ui/js/flags/chat-templates.js`)
 - Sampler preset selection (load/save/delete from shared sampler preset store)
-- Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty) with live value badges
+- Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty), plus direct temperature/Top P numeric inputs; additional samplers and management controls are collapsed initially
 - Metrics toggle
 - Optional session-only API key with masked entry, generation, copy, a "Protected" badge, and shared Configure synchronization
-- Profile selector with summary text
-- Readiness chips (model required; profile/context/GPU/API are informational) above the launch actions
-- Collapsible launch-command preview and a sticky launch/stop action bar with a busy ("Starting…") state
+- Starter profile selector and summary in a disclosure below the launch bar
+- Compact pending model/context/GPU/API summary alongside launch readiness
+- Collapsible launch-command preview and a launch/stop bar in normal document flow with a busy ("Starting…") state
 - The Model Switcher card is collapsed by default; slots are assigned via inline per-slot preset selects (no manage mode) and detail values are ellipsis-truncated filenames
 
 All controls write through `window.LlamaGui.flagCore` setters (`setFlagValue()` / `setMultipleFlagValues()`), keeping Configure and Quick Launch in sync.

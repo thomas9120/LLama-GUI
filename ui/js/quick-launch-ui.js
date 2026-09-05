@@ -29,9 +29,16 @@
     let promptAction = async () => null;
     let showToast = () => {};
     let hasLaunchModelArg = () => false;
+    let presets;
+    let getLifecycleSnapshot = () => ({});
+    let getLatestStatus = () => null;
 
     let quickLaunchFitCtxLinked = true;
     let quickLaunchGpuCustomSelected = false;
+    let launchInProgress = false;
+    let presetLoadInProgress = false;
+    let savedPresets = [];
+    let savedPresetsRequest = 0;
 
     function configure(options = {}) {
         flagCore = options.flagCore || flagCore;
@@ -62,6 +69,104 @@
         promptAction = options.promptAction || promptAction;
         showToast = options.showToast || showToast;
         hasLaunchModelArg = options.hasLaunchModelArg || hasLaunchModelArg;
+        presets = options.presets || presets;
+        getLifecycleSnapshot = options.getLifecycleSnapshot || getLifecycleSnapshot;
+        getLatestStatus = options.getLatestStatus || getLatestStatus;
+    }
+
+    async function refreshSavedPresets() {
+        const request = ++savedPresetsRequest;
+        const status = document.getElementById("quick-presets-status");
+        try {
+            const entries = await presets.fetchPresetEntries();
+            if (request !== savedPresetsRequest) return;
+            savedPresets = entries.filter(entry => !entry.archived && presets.isFullPresetData(entry.data)
+                && ["llama-server", "llama-cli"].includes(entry.data.tool))
+                .map(entry => ({ ...entry, favorite: presets.isPresetFavorite(entry.name), lastUsed: presets.getPresetLastUsed(entry.name) }))
+                .sort((a, b) => Number(b.favorite) - Number(a.favorite) || b.lastUsed - a.lastUsed || a.name.localeCompare(b.name))
+                .slice(0, 3);
+            const host = document.getElementById("quick-saved-presets");
+            host.replaceChildren();
+            for (const entry of savedPresets) {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "quick-saved-preset";
+                button.dataset.presetName = entry.name;
+                const name = document.createElement("strong");
+                name.textContent = (entry.favorite ? "★ " : "") + entry.name;
+                const model = document.createElement("span");
+                model.className = "quick-preset-model";
+                model.textContent = entry.data.model || "No local model selected";
+                model.title = model.textContent;
+                const state = document.createElement("span");
+                state.className = "quick-preset-state";
+                button.append(name, model, state);
+                button.addEventListener("click", async () => {
+                    if (presetLoadInProgress) return;
+                    presetLoadInProgress = true;
+                    refreshPresetStates();
+                    status.textContent = `Loading ${entry.name}…`;
+                    try {
+                        const outcome = await presets.loadPreset(entry.name);
+                        status.textContent = outcome.ok
+                            ? `Loaded ${entry.name}.${outcome.warnings.length ? " " + outcome.warnings[0] : ""}`
+                            : outcome.error;
+                        if (outcome.ok) {
+                            entry.data = outcome.data;
+                            const modelLabel = button.querySelector(".quick-preset-model");
+                            modelLabel.textContent = outcome.data.model || "No local model selected";
+                            modelLabel.title = modelLabel.textContent;
+                            document.getElementById("quick-profile-select").value = "";
+                        }
+                    } catch (error) {
+                        console.warn("Could not apply Quick Launch preset", error);
+                        status.textContent = "Could not apply the preset. Open View all to retry.";
+                    } finally {
+                        presetLoadInProgress = false;
+                        refresh();
+                    }
+                });
+                host.appendChild(button);
+            }
+            status.textContent = savedPresets.length ? "Favorites first, then recently used. Loading a preset replaces pending settings." : "Save a launch preset in Presets to add a shortcut here.";
+            refreshPresetStates();
+        } catch (error) {
+            if (request !== savedPresetsRequest) return;
+            console.warn("Could not load Quick Launch presets", error);
+            status.textContent = "Could not refresh presets. Open View all to retry.";
+        }
+    }
+
+    function refreshPresetStates() {
+        const buttons = document.querySelectorAll(".quick-saved-preset");
+        for (const button of buttons) {
+            const entry = savedPresets.find(preset => preset.name === button.dataset.presetName);
+            const matches = entry && presets.matchesCurrentPreset(entry.data);
+            button.setAttribute("aria-pressed", String(Boolean(matches)));
+            button.disabled = presetLoadInProgress;
+            button.querySelector(".quick-preset-state").textContent = matches ? "Matches settings"
+                : presets.getLastLoadedPresetName() === entry?.name ? "Modified · load again" : "Load preset";
+        }
+    }
+
+    function refreshRuntime() {
+        const state = getLifecycleSnapshot();
+        const status = getLatestStatus();
+        const runtime = state.activeRuntime;
+        const external = !runtime && status?.external_chat_target?.connected;
+        const endpointLabel = document.querySelector(".quick-endpoint-label");
+        if (endpointLabel) endpointLabel.textContent = runtime?.tool === "llama-server" || status?.external_chat_target?.connected ? "Active endpoint" : "Next launch endpoint";
+        const phaseLabels = { idle: "Stopped", starting: "Starting", loading: "Loading model", ready: "Ready", running: "Running", stopping: "Stopping", failed: "Action failed" };
+        const label = document.getElementById("quick-runtime-state");
+        if (!label) return;
+        label.textContent = external ? "External server" : phaseLabels[state.phase] || "Checking runtime…";
+        label.dataset.phase = state.phase || "idle";
+        const model = document.getElementById("quick-runtime-model");
+        model.textContent = runtime ? [runtime.tool, runtime.alias || runtime.model || "Model unavailable", runtime.host && runtime.port ? `${runtime.host}:${runtime.port}` : ""].filter(Boolean).join(" · ") : external ? "Managed outside this app" : "No local process running";
+        model.title = model.textContent;
+        const build = document.getElementById("quick-runtime-build");
+        build.textContent = runtime ? [runtime.backend, runtime.version].filter(Boolean).join(" · ")
+            : status?.installed ? [status.backend, status.version].filter(Boolean).join(" · ") : status ? "llama.cpp not installed" : "";
     }
 
     function populateTemplatePackOptions() {
@@ -342,6 +447,7 @@
     }
 
     function setQuickLaunchBusy(busy, outcome) {
+        launchInProgress = busy;
         const launchBtn = document.getElementById("btn-quick-launch");
         const label = document.getElementById("btn-quick-launch-label");
         if (!launchBtn || !label) return;
@@ -355,11 +461,12 @@
             setQuickLaunchStatus("info", "Launching llama.cpp — loading the model, this can take a moment.");
             return;
         }
-        label.textContent = "Launch";
+        label.textContent = flagCore.getCurrentTool() === "llama-server" ? "Launch server" : "Launch terminal";
         launchBtn.disabled = false;
         updateActionButtons();
         if (outcome && outcome.ok) {
-            setQuickLaunchStatus("info", "Server is up — see the address badge above or open the Chat tab.");
+            const launchedTool = outcome.runtime?.tool || getLifecycleSnapshot().activeRuntime?.tool;
+            setQuickLaunchStatus("info", launchedTool === "llama-server" ? "Server is ready. Open Chat or the Web UI to begin." : "Terminal process started. Open Monitor for output and input.");
         } else if (outcome && !outcome.cancelled && outcome.error) {
             setQuickLaunchStatus("error", outcome.error);
         } else {
@@ -368,6 +475,7 @@
     }
 
     function getQuickLaunchReadiness() {
+        if (getLatestStatus()?.installed === false) return { ok: false, type: "warning", message: "Install llama.cpp in Install and Update before launching." };
         const result = flagCore.getLaunchArgs();
         if (result.error) {
             return { ok: false, type: "error", message: result.error };
@@ -394,8 +502,15 @@
         quickLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
         quickStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
         const readiness = getQuickLaunchReadiness();
-        quickLaunchBtn.disabled = !readiness.ok && !mainLaunchBtn.classList.contains("hidden");
+        const state = getLifecycleSnapshot();
+        quickLaunchBtn.disabled = launchInProgress || Boolean(state.busy) || mainLaunchBtn.disabled || !readiness.ok;
+        quickStopBtn.disabled = mainStopBtn.disabled;
         quickLaunchBtn.title = readiness.ok ? "" : readiness.message;
+        if (!launchInProgress) document.getElementById("btn-quick-launch-label").textContent = flagCore.getCurrentTool() === "llama-server" ? "Launch server" : "Launch terminal";
+        document.getElementById("btn-quick-stop-label").textContent = state.activeRuntime?.tool === "llama-cli" ? "Stop terminal" : state.activeRuntime?.tool && state.activeRuntime.tool !== "llama-server" ? "Stop process" : "Stop server";
+        const summary = document.getElementById("quick-launch-readiness");
+        summary.textContent = state.busy ? "Process action in progress…" : state.activeRuntime ? "Settings for your next launch" : readiness.ok ? "Ready to launch" : "Launch needs attention";
+        refreshRuntime();
         if (sidebarLaunchBtn) {
             sidebarLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
             sidebarLaunchBtn.disabled = quickLaunchBtn.disabled;
@@ -444,8 +559,8 @@
         const modeSummary = document.getElementById("quick-mode-summary");
         if (modeSummary) {
             modeSummary.textContent = tool === "llama-server"
-                ? "Web / API Server is selected. This exposes the web UI and OpenAI-compatible endpoints."
-                : "Terminal Chat is selected. The process runs as an interactive local terminal chat.";
+                ? "llama-server · Web UI and API"
+                : "llama-cli · Interactive chat";
         }
 
         const ctxValue = values.ctx_size ?? getDefaultCtxSize();
@@ -497,8 +612,8 @@
         const fitSummary = document.getElementById("quick-fit-summary");
         if (fitSummary) {
             fitSummary.textContent = String(values.fit ?? "on") === "on"
-                ? `Auto Fit will leave about ${values.fit_target ?? "1024"} MiB free and will not shrink below ${values.fit_ctx ?? ctxValue} context.`
-                : "Auto Fit is off, so llama.cpp will use your manual memory settings as-is.";
+                ? `Auto Fit: ${values.fit_target ?? "1024"} MiB headroom · ${formatContextLabel(values.fit_ctx ?? ctxValue)} minimum context.`
+                : "Auto Fit is off. Manual memory settings apply.";
         }
 
         const templateSelect = document.getElementById("quick-template-pack");
@@ -523,6 +638,9 @@
         applySamplerSliderValue(minP, values.min_p);
         applySamplerSliderValue(repeatPenalty, values.repeat_penalty);
         applySamplerSliderValue(presencePenalty, values.presence_penalty);
+        setInputValueUnlessEditing(document.getElementById("quick-temperature-input"), values.temperature ?? "");
+        setInputValueUnlessEditing(document.getElementById("quick-top-p-input"), values.top_p ?? "");
+        setInputValueUnlessEditing(document.getElementById("quick-port"), values.port ?? "");
 
         const profileSummary = document.getElementById("quick-profile-summary");
         const profileSelect = document.getElementById("quick-profile-select");
@@ -540,12 +658,19 @@
         configFlagsUi.syncSensitiveTextInput(quickApiKeyControl, values.api_key);
         const quickAuthSection = document.getElementById("quick-auth-section");
         if (quickAuthSection) quickAuthSection.classList.toggle("hidden", tool !== "llama-server");
+        document.getElementById("quick-server-fields").classList.toggle("hidden", tool !== "llama-server");
+        document.querySelector(".quick-endpoint-label").classList.toggle("hidden", tool !== "llama-server");
+        const templateLabel = templateSelect?.selectedOptions[0]?.textContent || "Auto template";
+        const protectedApi = hasLaunchFlag(flagCore.getLaunchArgs().args, ["--api-key"]);
+        document.getElementById("quick-server-summary").textContent = tool === "llama-server"
+            ? `Port ${values.port || "default"} · ${protectedApi ? "API key set" : "No API key"} · ${templateLabel}` : templateLabel;
 
         quickCommand.textContent = document.getElementById("command-preview-text").textContent || "";
         quickCommand.classList.toggle("command-preview-error", document.getElementById("command-preview-text").classList.contains("command-preview-error"));
         updateQuickServerAddressPreview();
         updateReadinessChips(values, tool);
         updateActionButtons();
+        refreshPresetStates();
         const readiness = getQuickLaunchReadiness();
         const mainLaunchBtn = document.getElementById("btn-launch");
         if (readiness.ok || (mainLaunchBtn && mainLaunchBtn.classList.contains("hidden"))) {
@@ -612,6 +737,25 @@
         on("btn-open-configure", "click", () => {
             switchTab("configure");
         });
+        on("btn-quick-presets", "click", () => switchTab("presets"));
+        on("btn-quick-download", "click", () => {
+            const panel = document.querySelector(".hf-download-panel");
+            panel.open = true;
+            document.getElementById("hf-repo-input").focus();
+        });
+        on("btn-quick-more-sampling", "click", () => {
+            switchTab("configure");
+            const search = document.getElementById("config-search");
+            search.value = "sampling";
+            search.dispatchEvent(new Event("input", { bubbles: true }));
+            search.focus();
+        });
+        for (const [id, flag] of [["quick-port", "port"], ["quick-temperature-input", "temperature"], ["quick-top-p-input", "top_p"]]) {
+            on(id, "input", e => {
+                const value = e.target.value;
+                flagCore.setFlagValue(flag, value === "" ? undefined : Number(value));
+            });
+        }
 
         on("btn-quick-refresh-models", "click", () => {
             refreshModels();
@@ -821,6 +965,7 @@
         on("btn-quick-stop", "click", stopLlama);
 
         refresh();
+        refreshSavedPresets();
     }
 
     function afterPatch(patch, options = {}) {
@@ -853,6 +998,8 @@
         configure,
         init,
         refresh,
+        refreshSavedPresets,
+        refreshRuntime,
         syncModelOptions,
         updateActionButtons,
         refreshSamplerPresetSelect,

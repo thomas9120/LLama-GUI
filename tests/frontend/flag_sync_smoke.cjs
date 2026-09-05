@@ -211,6 +211,102 @@ async function verifyConfigureComparison(page) {
     assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
 }
 
+async function verifyQuickLaunchPolish(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    let activeRuntime = null;
+    let entries = [
+        { name: "Recent session", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4 } } },
+        { name: "Favorite session", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.8 } } },
+        { name: "A very long saved preset name with <img src=x> text", data: { tool: "llama-cli", model: "folder/" + "long-model-name-".repeat(12) + ".gguf", flags: {} } },
+        { name: "Archived", archived: true, data: { tool: "llama-server", model: "smoke-model.gguf", flags: {} } },
+        { name: "Legacy sampler", data: { temperature: 0.7 } },
+    ];
+    let failPresets = false;
+    const status = () => ({ ...baseStatus, running: Boolean(activeRuntime), active_process_tool: activeRuntime?.tool, active_runtime: activeRuntime, external_chat_target: null });
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: status() }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: activeRuntime?.generation } }),
+        "**/api/presets": route => route.fulfill({ status: failPresets ? 500 : 200, json: failPresets ? { error: "Unavailable" } : entries }),
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await page.evaluate(async () => {
+        stopOutputPolling(); stopStatsPolling();
+        localStorage.setItem("llama_gui_preset_favorites_v1", JSON.stringify({ "Favorite session": true }));
+        localStorage.setItem("llama_gui_preset_last_used_v1", JSON.stringify({ "Recent session": 123 }));
+        await processLifecycle.restore({ running: false, active_runtime: null });
+        flagCore.setCurrentTool("llama-server");
+        flagCore.applyFlagValues(getDefaultValues());
+    });
+    await selectSection(page, "quick-launch");
+    await page.waitForFunction(() => document.querySelector(".quick-saved-preset")?.dataset.presetName === "Favorite session");
+    assert.equal(await page.locator(".quick-saved-preset").count(), 3);
+    assert.equal(await page.locator(".quick-saved-preset img").count(), 0, "preset names are plain text");
+    assert.equal(await page.textContent("#quick-runtime-state"), "Stopped");
+    assert.equal(await page.textContent("#quick-models-folder-path"), await page.textContent("#models-folder-path"));
+    for (const disclosure of await page.locator("#section-quick-launch details").all()) {
+        if (await disclosure.evaluate(el => el.open)) await disclosure.locator(":scope > summary").click();
+    }
+    if (await page.locator("#model-switch-toggle").getAttribute("aria-expanded") === "true") await page.click("#model-switch-toggle");
+    await page.locator(".quick-saved-preset").first().click();
+    await page.waitForFunction(() => document.querySelector(".quick-saved-preset")?.getAttribute("aria-pressed") === "true");
+    assert.equal(await page.inputValue("#quick-model-select"), "smoke-model.gguf");
+    assert.equal(await page.textContent("#btn-quick-launch-label"), "Launch server");
+    await page.fill("#quick-temperature-input", "0.43");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().temperature), 0.43);
+    assert.match(await page.locator(".quick-saved-preset").first().textContent(), /Modified/);
+    await page.fill("#quick-temperature-input", "0.8125");
+    assert.equal(await page.locator("#quick-temperature-input").evaluate(el => el.validity.valid), true);
+    await page.fill("#quick-temperature-input", "");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().temperature), undefined);
+    assert.equal(await page.locator(".quick-saved-preset").first().getAttribute("aria-pressed"), "false", "clearing an explicit setting does not substitute a GUI default in preset comparisons");
+    await page.fill("#quick-temperature-input", "0.8");
+    assert.equal(await page.locator(".quick-saved-preset").first().getAttribute("aria-pressed"), "true", "reverting inputs restores the preset match");
+    await page.fill("#quick-top-p-input", "0.73");
+    assert.equal(await page.inputValue("#chat-slider-top-p"), "0.73");
+    await page.locator("#quick-server-settings > summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.locator("#quick-port").isVisible(), true);
+    await page.fill("#quick-port", "9050");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().port), 9050);
+    assert.match(await page.textContent("#quick-server-summary"), /Port 9050/);
+    assert.ok((await page.textContent("#quick-command-preview")).includes("--port 9050"));
+    await page.locator("#quick-server-settings > summary").click();
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator(".quick-runtime").scrollIntoViewIfNeeded();
+    const launchBottom = await page.locator(".quick-launch-bar").evaluate(el => el.getBoundingClientRect().bottom);
+    assert.ok(launchBottom < 1000, "common launch controls and action fit a desktop viewport");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    for (const selector of ["#btn-quick-launch", "#btn-quick-change-models-folder", "#quick-command-details > summary"]) {
+        const box = await page.locator(selector).boundingBox();
+        assert.ok(box.x >= 0 && box.x + box.width <= 391, `${selector} fits the narrow viewport`);
+    }
+    await page.setViewportSize(viewport);
+    activeRuntime = { generation: 401, tool: "llama-server", model: "running-model.gguf", host: "127.0.0.1", port: 8080, backend: "vulkan", version: "b12345" };
+    await page.evaluate(s => processLifecycle.restore(s, { startOutput: () => {}, startStats: () => {}, postReady: () => {} }), status());
+    assert.match(await page.textContent("#quick-runtime-model"), /running-model.gguf.*8080/);
+    assert.equal(await page.textContent(".quick-endpoint-label"), "Active endpoint");
+    assert.match(await page.textContent("#quick-server-summary"), /9050/, "pending port stays distinct from the running endpoint");
+    await page.check('input[name="quick-launch-mode"][value="llama-cli"]');
+    assert.equal(await page.locator("#quick-server-fields").isVisible(), false);
+    assert.equal(await page.textContent("#btn-quick-launch-label"), "Launch terminal");
+    assert.equal(await page.textContent("#btn-quick-stop-label"), "Stop server", "stop labels the active process");
+    await page.click("#btn-quick-download");
+    assert.equal(await page.locator(".hf-download-panel").evaluate(el => el.open), true);
+    assert.equal(await page.locator("#hf-repo-input").evaluate(el => el === document.activeElement), true);
+    entries = [];
+    await page.evaluate(() => quickLaunchUi.refreshSavedPresets());
+    assert.match(await page.textContent("#quick-presets-status"), /Save a launch preset/);
+    failPresets = true;
+    await page.evaluate(() => quickLaunchUi.refreshSavedPresets());
+    assert.match(await page.textContent("#quick-presets-status"), /Could not refresh presets/);
+    activeRuntime = null;
+    await page.evaluate(() => processLifecycle.restore({ running: false, active_runtime: null }));
+    for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+}
+
 async function verifyConfigureRestart(page) {
     await selectSection(page, "configure");
     const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
@@ -801,8 +897,9 @@ async function main() {
         // visible straight gap before the curve. Pixel samples keep this tied
         // to the rendered result rather than merely restating the CSS rules.
         await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("nebula"));
+        await selectSection(page, "install");
         await page.mouse.move(0, 0);
-        const modelCard = page.locator(".quick-setup-grid > .card").first();
+        const modelCard = page.locator("#section-install .card").first();
         const restingCard = await modelCard.screenshot({ animations: "disabled" });
         await modelCard.hover();
         const hoveredCard = await modelCard.screenshot({ animations: "disabled" });
@@ -824,6 +921,7 @@ async function main() {
         );
         await page.mouse.move(0, 0);
         await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("tokyo"));
+        await selectSection(page, "quick-launch");
 
         assert.equal(await page.locator("#chat-slider-temp").getAttribute("step"), "0.01");
 
@@ -929,6 +1027,7 @@ async function main() {
         );
         assert.ok(!quickProfileOptions.includes("low-memory"));
 
+        await page.locator("#quick-starter-profiles > summary").click();
         await page.selectOption("#quick-profile-select", "long-context");
         await page.dispatchEvent("#quick-profile-select", "change");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 128000);
@@ -1748,6 +1847,7 @@ async function main() {
         await setRangeValue(page, "#quick-repeat-penalty", "1.07");
         await setRangeValue(page, "#quick-presence-penalty", "0.4");
         await page.waitForTimeout(250);
+        await page.locator("#quick-sampling-details > summary").click();
         await page.fill("#quick-sampler-name", "Smoke Sampler");
         await page.click("#btn-quick-sampler-save");
         await page.waitForFunction(() => {
@@ -2642,6 +2742,7 @@ async function main() {
             "system stats must not poll while the Monitor tab is hidden");
 
         await verifyConfigureRestart(page);
+        await verifyQuickLaunchPolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);

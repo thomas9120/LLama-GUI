@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: Configure presentation, launch-settings comparison, and restart with changes implemented; Quick Launch and the shared shell remain planned.
+Status: Configure presentation, launch-settings comparison, restart with changes, and Quick Launch layout implemented; the shared shell remains planned.
 
 ## Purpose and audience
 
@@ -197,7 +197,7 @@ Configure and the running-versus-pending distinction improve everyday work for t
 - Model selection and models-folder differences are identified separately from the setting count. GUI input differences may include currently inactive controls; they do not claim a measured change in effective runtime behavior.
 - Verification covers snapshot isolation, invalid metadata, redaction, lifecycle replacement/exit, shared-state reverts, filtered editing focus, and desktop/narrow layouts.
 
-The runtime summary currently lives in Configure. Extending it across the shell and refining model/preset comparisons remain future work. Quick Launch layout is the next planned slice.
+The comparison summary lives in Configure; Quick Launch now has a compact runtime strip. Extending the runtime summary across the shell remains future work.
 
 ### Implemented: Restart with changes, 2026-09-05
 
@@ -206,11 +206,21 @@ The runtime summary currently lives in Configure. Extending it across the shell 
 - The action is disabled during transitions and cancels if another process replaces the original during validation. Changes made while restart is in progress remain pending for the next launch.
 - The button remains available when compared settings match, since Custom Launch Args and API keys are intentionally absent from the change count. External servers and other tools do not offer this action.
 
-## Open decisions
+### Implemented: Quick Launch layout, 2026-09-05
+
+- One compact panel brings model selection, launch mode, Memory & GPU, and Sampling together. Direct Temperature and Top P fields supplement the existing sliders and share the same flag state as Configure and Chat.
+- Three full-preset shortcuts prioritize favorites, then recent use, then name. Archived and legacy partial presets stay in the library. **View all** opens Presets; loading a shortcut replaces pending settings without starting a process.
+- Shortcuts indicate **Matches settings** or **Modified · load again**, comparing current savable inputs with the saved configuration through the preset module. API keys remain outside this comparison and are preserved on load. A preset can match without having been loaded through a shortcut.
+- The runtime strip uses authoritative lifecycle/model/build/endpoint data. The launch bar describes pending settings; its endpoint link points to the active server when present and otherwise previews the next launch, with an explicit label for each. Launch/stop labels reflect the pending tool and active process respectively.
+- Server, API key, metrics, port, and template controls share a disclosure. Additional sampling controls and sampler save/rename/delete remain under **More sampling settings**. Starter profiles and the downloader sit below the launch bar; the model row has a direct Download model action.
+- Model-folder change/reset controls reuse the existing manager path. Model Switcher remains a compact row with its assignment and switching behavior intact.
+- The launch bar stays in normal document flow so expanded controls and narrow screens are not covered by a floating action area. Common controls and the launch action fit a 1440 × 1000 desktop viewport and stack at narrow widths.
+- Browser coverage checks favorite/recent ordering, empty/error preset lists, safe long names, matching/modified states, shared numeric inputs, keyboard disclosures, runtime/pending separation, download access, and narrow-screen containment. Dark and light themes were reviewed.
+
+## Remaining decisions
 
 - How should separate default and saved-preset comparisons be exposed alongside the implemented launch baseline?
-- Which saved presets should Quick Launch surface, and where should starter profiles live?
-- How should preset selection and unsaved edits be presented?
+- Should Quick Launch preset shortcuts eventually support explicit pinning in addition to favorites/recent use?
 - How much explanatory text should be visible by default? Is a density preference useful?
 - Where should the shared runtime summary and global runtime actions live?
 - Should the launch bar become sticky, and how should it behave on small screens?
