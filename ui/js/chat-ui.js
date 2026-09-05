@@ -15,6 +15,15 @@
     let chatStreamPromise = null;
     let currentConversationId = null;
     let chatFocusMode = false;
+    let contextTimer = null;
+    let contextController = null;
+    let contextKey = null;
+    let contextRevision = 0;
+    let chatCompactions = [];
+    let compactionController = null;
+    let compactionPromise = null;
+    let compactionKey = null;
+    const compaction = window.LlamaGui.chatCompaction;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
     const CHAT_SETTINGS_COLLAPSED_STORAGE_KEY = "llama_gui_chat_settings_collapsed";
@@ -58,10 +67,7 @@
         renderChatTypingIndicator,
         removeChatTypingIndicator,
         appendChatStreamToken,
-        finalizeChatStreamMarkdown,
         appendChatReasoningStreamToken,
-        finalizeChatReasoningMarkdown,
-        setChatReasoningContent,
         splitReasoningFromContent,
     } = chatRendering;
 
@@ -101,17 +107,18 @@
         if (maxTokensSlider && maxTokensDisplay) {
             const ctxSize = parseInt(values.ctx_size, 10);
             const sliderMax = (Number.isFinite(ctxSize) && ctxSize > 0) ? Math.min(ctxSize, 131072) : 32768;
-            maxTokensSlider.max = sliderMax;
             const nPredict = normalizeSamplerNumber(values.n_predict);
-            if (nPredict !== null && nPredict !== -1) {
-                const clamped = Math.trunc(Math.min(nPredict, sliderMax));
-                maxTokensSlider.value = clamped;
-                maxTokensDisplay.textContent = String(clamped);
-            } else {
-                maxTokensSlider.value = 512;
-                maxTokensDisplay.textContent = "512";
-            }
+            const effective = nPredict === null ? -1 : nPredict;
+            // Reflect the shared request value, even outside the usual slider
+            // range. Refreshing Chat must never silently clamp launch state.
+            maxTokensSlider.min = Math.min(-1, effective);
+            maxTokensSlider.max = Math.max(sliderMax, effective);
+            maxTokensSlider.value = effective;
+            const label = effective === -1 ? "Server default" : String(effective);
+            maxTokensDisplay.textContent = label;
+            maxTokensSlider.setAttribute("aria-valuetext", label);
         }
+        scheduleContextPreview();
     }
 
     function getChatModelName() {
@@ -198,7 +205,7 @@
     }
 
     function getChatRequestMessages(messages) {
-        return messages.map((msg) => {
+        return messages.filter((msg) => msg.role !== "assistant" || msg.content || msg.reasoning || msg.reasoning_content).map((msg) => {
             const requestMessage = {
                 role: msg.role,
                 content: msg.content,
@@ -266,7 +273,7 @@
             && lifecycle.activeRuntime.tool === "llama-server"
             && (lifecycle.phase === "starting" || lifecycle.phase === "loading")
         );
-        const canSend = Boolean(isRunning) && !chatStreaming;
+        const canSend = Boolean(isRunning) && !chatStreaming && !compactionController;
 
         if (chatInput) {
             chatInput.disabled = !isRunning;
@@ -280,6 +287,13 @@
             sendBtn.disabled = !canSend;
             sendBtn.title = isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
         }
+        const container = document.getElementById("chat-messages");
+        if (container) {
+            for (const button of container.querySelectorAll(".chat-response-action")) {
+                button.disabled = chatStreaming || Boolean(compactionController) || (button.dataset.requiresServer === "true" && !isRunning);
+            }
+        }
+        updateCompactionControls();
         if (note) {
             note.classList.toggle("hidden", Boolean(isRunning));
             const message = note.querySelector("span");
@@ -292,6 +306,7 @@
     }
 
     function updateStatusBadge() {
+        scheduleContextPreview();
         const runningBadge = document.getElementById("chat-status-badge");
         const noServerBadge = document.getElementById("chat-no-server-badge");
         if (!runningBadge || !noServerBadge) return;
@@ -438,9 +453,262 @@
         return params;
     }
 
-    function sendMessage(userText) {
-        if (chatStreaming || !userText.trim()) return Promise.resolve();
-        const pending = runMessage(userText);
+    function buildChatBody(history, draft = "") {
+        const messages = [];
+        const systemPrompt = (document.getElementById("chat-system-prompt")?.value || "").trim();
+        if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
+        messages.push(...getChatRequestMessages(compaction.workingMessages(history, chatCompactions.at(-1))));
+        if (draft.trim()) messages.push({ role: "user", content: draft.trim() });
+        const body = {
+            model: getChatModelName(), messages, stream: true,
+            ...getChatSamplerParams(), ...getChatThinkingParams(),
+        };
+        if (isChatWebSearchEnabled()) {
+            body.web_search = true;
+            body.web_search_max_results = getChatWebSearchMaxResults();
+        }
+        return body;
+    }
+
+    function getCompactionKey() {
+        const status = getLatestStatus ? getLatestStatus() : null;
+        return JSON.stringify([getTemplateCapsKey(), status?.active_runtime, status?.external_chat_target,
+            buildChatBody(chatMessages), document.getElementById("chat-input")?.value || ""]);
+    }
+
+    function updateCompactionControls() {
+        const button = document.getElementById("btn-chat-compact");
+        if (!button) return;
+        const available = compaction.boundary(chatMessages) > (chatCompactions.at(-1)?.end || 0);
+        button.disabled = !compactionController && (!available || chatStreaming || !isServerRunning());
+        button.textContent = compactionController ? "Cancel compaction" : "Compact conversation";
+        button.title = "Summarize older messages; keep the transcript and last two turns unchanged.";
+        for (const id of ["btn-chat-undo-compaction", "btn-chat-tools-undo-compaction"]) {
+            const undo = document.getElementById(id);
+            if (undo) undo.disabled = chatStreaming || Boolean(compactionController);
+        }
+        for (const id of ["btn-chat-view-summary", "btn-chat-tools-undo-compaction"]) {
+            const action = document.getElementById(id);
+            if (action) action.hidden = !chatCompactions.length;
+        }
+        const trigger = document.getElementById("btn-chat-tools");
+        if (trigger) trigger.title = compactionController ? "Compacting conversation — open to cancel" : "Chat tools";
+    }
+
+    function renderCompactionMarker() {
+        const container = document.getElementById("chat-messages");
+        container?.querySelectorAll(".chat-compaction-marker").forEach(el => el.remove());
+        const record = chatCompactions.at(-1);
+        if (!container || !record) return;
+        const marker = document.createElement("details");
+        marker.className = "chat-compaction-marker";
+        const heading = document.createElement("summary");
+        heading.textContent = `Earlier ${record.end} messages compacted · View summary`;
+        marker.appendChild(heading);
+        const note = document.createElement("p");
+        note.textContent = "The original messages remain above. Only this summary and the recent messages are sent to the model. Summaries may omit details; review before continuing.";
+        marker.appendChild(note);
+        const summary = document.createElement("pre");
+        summary.textContent = record.summary;
+        marker.appendChild(summary);
+        const undo = document.createElement("button");
+        undo.id = "btn-chat-undo-compaction";
+        undo.type = "button";
+        undo.className = "btn btn-xs";
+        undo.textContent = "Undo compaction";
+        undo.addEventListener("click", undoCompaction);
+        marker.appendChild(undo);
+        container.insertBefore(marker, container.querySelectorAll(".chat-message")[record.end] || null);
+    }
+
+    function undoCompaction() {
+        if (chatStreaming || compactionController || !chatCompactions.length) return;
+        chatCompactions.pop();
+        saveCurrentConversation();
+        renderCompactionMarker();
+        updateCompactionControls();
+        scheduleContextPreview(true);
+    }
+
+    function compactConversation() {
+        if (chatStreaming || compactionController || !isServerRunning()) return Promise.resolve();
+        const controller = new AbortController();
+        compactionController = controller;
+        compactionKey = getCompactionKey();
+        cancelContextPreview();
+        updateChatAvailability(isServerRunning());
+        const status = document.getElementById("chat-compaction-status");
+        const report = message => { if (status) { status.textContent = message; status.hidden = !message; } };
+        report("Measuring space for a summary…");
+        const pending = (async () => {
+            try {
+                const record = await compaction.compact({
+                    messages: chatMessages.map(msg => ({ role: msg.role, content: msg.content, reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status })),
+                    previous: chatCompactions.at(-1), body: buildChatBody(chatMessages),
+                    draft: document.getElementById("chat-input")?.value || "", signal: controller.signal,
+                    headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }), onProgress: report,
+                });
+                if (controller.signal.aborted || !isServerRunning() || compactionKey !== getCompactionKey()) {
+                    throw Object.assign(new Error("Chat changed"), { name: "AbortError" });
+                }
+                chatCompactions.push(record);
+                saveCurrentConversation();
+                renderCompactionMarker();
+                report("");
+            } catch (error) {
+                console.debug("Chat compaction did not apply", error);
+                report(error.name === "AbortError" ? "Compaction cancelled; previous context kept."
+                    : `${error.message} Previous context kept. You can retry Compact conversation.`);
+            } finally {
+                compactionController = null;
+                compactionKey = null;
+                updateChatAvailability(isServerRunning());
+                scheduleContextPreview(true);
+            }
+        })();
+        compactionPromise = pending;
+        pending.then(() => { if (compactionPromise === pending) compactionPromise = null; });
+        return pending;
+    }
+
+    function setChatToolsOpen(open, showContext = false, restoreFocus = false) {
+        const panel = document.getElementById("chat-tools");
+        const trigger = document.getElementById("btn-chat-tools");
+        if (!panel || !trigger) return;
+        panel.hidden = !open;
+        trigger.setAttribute("aria-expanded", String(open));
+        const details = document.getElementById("chat-context-details");
+        if (details && (!open || showContext)) details.open = open;
+        if (open) panel.querySelector("summary")?.focus();
+        else if (restoreFocus) trigger.focus();
+    }
+
+    function initChatTools() {
+        const panel = document.getElementById("chat-tools");
+        const trigger = document.getElementById("btn-chat-tools");
+        if (!panel || !trigger) return;
+        trigger.addEventListener("click", () => setChatToolsOpen(panel.hidden));
+        document.getElementById("btn-chat-context-details")?.addEventListener("click", () => setChatToolsOpen(true, true));
+        document.getElementById("btn-chat-view-summary")?.addEventListener("click", () => {
+            setChatToolsOpen(false);
+            const marker = document.querySelector(".chat-compaction-marker");
+            if (marker) {
+                marker.open = true;
+                marker.querySelector("summary")?.focus();
+                marker.scrollIntoView({ block: "nearest" });
+            }
+        });
+        document.getElementById("btn-chat-tools-undo-compaction")?.addEventListener("click", () => {
+            undoCompaction();
+            setChatToolsOpen(false, false, true);
+        });
+        document.addEventListener("click", event => {
+            if (!panel.hidden && !panel.contains(event.target) && !trigger.contains(event.target)
+                && !document.getElementById("btn-chat-context-details")?.contains(event.target)) setChatToolsOpen(false);
+        });
+        document.addEventListener("keydown", event => {
+            if (event.key === "Escape" && !panel.hidden) {
+                event.preventDefault();
+                setChatToolsOpen(false, false, true);
+            }
+        });
+        document.addEventListener("focusin", event => {
+            if (!panel.hidden && !panel.contains(event.target) && event.target !== trigger) setChatToolsOpen(false);
+        });
+    }
+
+    function renderContextBudget(budget) {
+        const label = document.getElementById("chat-context-label");
+        const bar = document.getElementById("chat-context-bar");
+        const promptFill = document.getElementById("chat-context-prompt");
+        const reserveFill = document.getElementById("chat-context-reserve");
+        if (!label || !bar || !promptFill || !reserveFill) return;
+        const measured = Number.isFinite(budget.prompt_tokens) && budget.capacity > 0;
+        const used = measured ? budget.prompt_tokens : 0;
+        const reserve = measured ? budget.reply_reserve : 0;
+        const percent = measured ? Math.min(100, 100 * (used + reserve) / budget.capacity) : 0;
+        bar.hidden = !measured;
+        bar.setAttribute("aria-valuenow", String(Math.round(percent)));
+        bar.dataset.status = budget.status;
+        promptFill.style.width = `${measured ? Math.min(100, 100 * used / budget.capacity) : 0}%`;
+        reserveFill.style.width = `${measured ? Math.max(0, Math.min(100 - 100 * used / budget.capacity, 100 * reserve / budget.capacity)) : 0}%`;
+        label.textContent = measured
+            ? `${used.toLocaleString()} prompt + ${reserve.toLocaleString()} reply ${budget.reserve_source === "planning" ? "headroom" : "reserved"} / ${budget.capacity.toLocaleString()} tokens. ${Math.max(0, budget.remaining).toLocaleString()} free. ${budget.message || ""}`
+            : budget.message || "Context count unavailable.";
+        if (budget.search_pending) label.textContent += " Web results are added and checked when you send.";
+        if (budget.includes_search) label.textContent += " Includes web results.";
+        bar.setAttribute("aria-valuetext", label.textContent);
+        const warning = document.getElementById("chat-context-warning");
+        const warningText = document.getElementById("chat-context-warning-text");
+        if (warning && warningText) {
+            warning.hidden = !["warning", "overflow"].includes(budget.status);
+            warningText.textContent = budget.status === "overflow"
+                ? "This request exceeds the context limit." : "Context is nearly full.";
+        }
+    }
+
+    function cancelContextPreview() {
+        contextRevision += 1;
+        if (contextTimer !== null) clearTimeout(contextTimer);
+        contextTimer = null;
+        if (contextController) contextController.abort();
+        contextController = null;
+    }
+
+    function scheduleContextPreview(force = false) {
+        if (!document.getElementById("chat-context-label") || !flagCore) return;
+        const status = getLatestStatus ? getLatestStatus() : null;
+        const body = buildChatBody(chatMessages, document.getElementById("chat-input")?.value || "");
+        const key = JSON.stringify([getTemplateCapsKey(), status?.active_runtime,
+            status?.external_chat_target, body]);
+        if (!force && key === contextKey) return;
+        contextKey = key;
+        cancelContextPreview();
+        if (compactionController) {
+            if (!isServerRunning() || compactionKey !== getCompactionKey()) compactionController.abort();
+            return;
+        }
+        if (!isServerRunning()) {
+            renderContextBudget({ message: "Start or connect to a server to measure context." });
+            return;
+        }
+        if (chatStreaming) return;
+        if (!body.messages.some(msg => msg.role !== "system" && msg.role !== "developer")) {
+            renderContextBudget({ status: "empty", message: "Type a message to measure context." });
+            return;
+        }
+        renderContextBudget({ message: "Measuring context…" });
+        const revision = contextRevision;
+        contextTimer = setTimeout(() => {
+            contextTimer = null;
+            void refreshContextPreview(body, revision);
+        }, 500);
+    }
+
+    async function refreshContextPreview(body, revision) {
+        const controller = new AbortController();
+        contextController = controller;
+        try {
+            const response = await fetch("/api/chat/context", {
+                method: "POST", headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }),
+                body: JSON.stringify(body), signal: controller.signal,
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const budget = await response.json();
+            if (revision === contextRevision && !chatStreaming) renderContextBudget(budget);
+        } catch (error) {
+            if (error.name !== "AbortError" && revision === contextRevision) {
+                console.debug("Could not measure chat context", error);
+                renderContextBudget({ message: "Context count unavailable; the server will validate the request." });
+            }
+        } finally {
+            if (contextController === controller) contextController = null;
+        }
+    }
+
+    function sendMessage(userText, retry = false) {
+        if (chatStreaming || compactionController || !userText.trim()) return Promise.resolve();
+        const pending = runMessage(userText, retry);
         chatStreamPromise = pending;
         const clearPending = () => {
             if (chatStreamPromise === pending) chatStreamPromise = null;
@@ -449,10 +717,7 @@
         return pending;
     }
 
-    function finalizeAssistantResponse(bubble, content, reasoning, sources, errored) {
-        if (!bubble) return;
-
-        setChatWebStatus(bubble, "");
+    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex) {
         let finalContent = content;
         let finalReasoning = reasoning;
         if (!finalReasoning && shouldExtractEmbeddedReasoning()) {
@@ -460,74 +725,139 @@
             if (split.reasoning) {
                 finalContent = split.content;
                 finalReasoning = split.reasoning;
-                bubble.dataset.rawText = finalContent;
-                if (!finalContent) {
-                    bubble.textContent = "";
-                    delete bubble.dataset.streamingTextInitialized;
-                }
-                setChatReasoningContent(bubble, finalReasoning);
             }
         }
-        if (finalReasoning) {
-            finalizeChatReasoningMarkdown(bubble);
+        const result = { content: finalContent, reasoning: finalReasoning, sources, status, error };
+        const previous = replacementIndex >= 0 ? chatMessages[replacementIndex] : null;
+        if (previous) {
+            const versions = Array.isArray(previous.versions) ? previous.versions.slice() : [{
+                content: previous.content, reasoning: previous.reasoning || "",
+                sources: previous.sources || [], status: previous.status || "complete", error: previous.error || "",
+            }];
+            versions.push(result);
+            // An unsuccessful attempt is still recoverable, but never replaces
+            // the answer the user was reading. Only completed output is selected.
+            const selected = status === "complete" || status === "length"
+                ? versions.length - 1 : (previous.versionIndex || 0);
+            chatMessages[replacementIndex] = {
+                role: "assistant", ...versions[selected], versions, versionIndex: selected,
+            };
+        } else {
+            chatMessages.push({ role: "assistant", ...result });
         }
-        if (finalContent) {
-            finalizeChatStreamMarkdown(bubble);
-            bubble.classList.remove("hidden");
-        } else if (finalReasoning) {
-            bubble.classList.add("hidden");
-        }
-        if ((finalContent || finalReasoning) && !errored) {
-            const assistantMessage = { role: "assistant", content: finalContent, sources };
-            if (finalReasoning) assistantMessage.reasoning = finalReasoning;
-            chatMessages.push(assistantMessage);
-            saveCurrentConversation();
-        }
+        saveCurrentConversation();
+        renderConversationMessages(replacementIndex >= 0 ? replacementIndex : chatMessages.length - 1);
     }
 
-    async function runMessage(userText) {
-        if (chatStreaming || !userText.trim()) return;
+    function renderConversationMessages(startIndex = 0) {
+        const container = document.getElementById("chat-messages");
+        const previousElements = Array.from(container.querySelectorAll(".chat-message"));
+        const empty = document.getElementById("chat-empty");
+        if (empty) empty.style.display = chatMessages.length ? "none" : "";
+        chatMessages.forEach((msg, index) => {
+            if (index < startIndex) {
+                // Earlier responses keep their rendered markdown and open
+                // reasoning panels. Their actions no longer target the last turn.
+                previousElements[index]?.querySelectorAll(".chat-response-action").forEach(el => el.remove());
+                return;
+            }
+            const bubble = renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
+            const previousElement = previousElements[index];
+            if (previousElement) {
+                container.insertBefore(bubble.closest(".chat-message"), previousElement);
+                previousElement.remove();
+            }
+            if (msg.role !== "assistant") return;
+            renderChatSources(bubble, msg.sources);
+            if (!msg.content) bubble.classList.add("hidden");
+            const footer = document.createElement("div");
+            footer.className = "chat-response-footer";
+            const label = document.createElement("span");
+            label.className = "chat-response-status";
+            label.textContent = msg.status === "failed" ? `Incomplete — ${msg.error || "Request failed"}`
+                : msg.status === "stopped" ? "Stopped — response may be incomplete"
+                : msg.status === "length" ? "Output limit reached" : "";
+            footer.appendChild(label);
+            const latest = index === chatMessages.length - 1;
+            const addAction = (text, action, requiresServer = false) => {
+                const button = document.createElement("button");
+                button.type = "button";
+                button.className = "btn btn-xs chat-response-action";
+                button.textContent = text;
+                button.dataset.requiresServer = String(requiresServer);
+                button.addEventListener("click", () => {
+                    if (!chatStreaming && !compactionController && chatMessages[index] === msg) return action();
+                });
+                footer.appendChild(button);
+            };
+            if (Array.isArray(msg.versions) && msg.versions.length > 1) {
+                const selected = msg.versionIndex || 0;
+                const versionLabel = document.createElement("span");
+                versionLabel.textContent = `Answer ${selected + 1} of ${msg.versions.length}`;
+                footer.appendChild(versionLabel);
+                const lastAttempt = msg.versions[msg.versions.length - 1];
+                if (selected < msg.versions.length - 1 && ["failed", "stopped"].includes(lastAttempt.status)) {
+                    label.textContent += `${label.textContent ? ". " : ""}Latest attempt ${lastAttempt.status}; previous answer kept.`;
+                }
+                // Choosing a different answer after later turns would rewrite
+                // their context. Branch/edit support is a separate change.
+                const selectVersion = (value) => {
+                    chatMessages[index] = { role: "assistant", ...msg.versions[value], versions: msg.versions, versionIndex: value };
+                    saveCurrentConversation();
+                    renderConversationMessages(index);
+                };
+                if (latest && selected > 0) addAction("Previous answer", () => selectVersion(selected - 1));
+                if (latest && selected < msg.versions.length - 1) addAction("Next answer", () => selectVersion(selected + 1));
+            }
+            const lastAttempt = Array.isArray(msg.versions) ? msg.versions[msg.versions.length - 1] : msg;
+            if (latest && [msg.status, lastAttempt.status].some(value => ["failed", "stopped", "length"].includes(value))) {
+                addAction("Retry", regenerateResponse, true);
+            }
+            bubble.closest(".chat-message-content").appendChild(footer);
+        });
+        previousElements.slice(chatMessages.length).forEach(el => el.remove());
+        renderCompactionMarker();
+        updateChatAvailability(isServerRunning());
+        scheduleContextPreview();
+    }
+
+    async function runMessage(userText, retry = false) {
+        if (chatStreaming || compactionController || !userText.trim()) return;
         if (!isServerRunning()) {
             updateStatusBadge();
             return;
         }
 
-        const systemPrompt = (document.getElementById("chat-system-prompt").value || "").trim();
-        chatMessages.push({ role: "user", content: userText.trim() });
-        renderChatMessage("user", userText.trim());
+        cancelContextPreview();
+        const replacementIndex = retry && chatMessages[chatMessages.length - 1]?.role === "assistant"
+            ? chatMessages.length - 1 : -1;
+        if (!retry) {
+            chatMessages.push({ role: "user", content: userText.trim() });
+            renderChatMessage("user", userText.trim());
+            saveCurrentConversation();
+        }
 
         const chatInput = document.getElementById("chat-input");
-        chatInput.value = "";
-        chatInput.style.height = "auto";
+        if (!retry) {
+            chatInput.value = "";
+            chatInput.style.height = "auto";
+        }
 
         chatStreaming = true;
         showChatSendButton(false);
         renderChatTypingIndicator();
 
-        const messages = [];
-        if (systemPrompt) {
-            messages.push({ role: "system", content: systemPrompt });
-        }
-        messages.push(...getChatRequestMessages(chatMessages));
-
-        const body = {
-            model: getChatModelName(),
-            messages,
-            stream: true,
-            ...getChatSamplerParams(),
-            ...getChatThinkingParams(),
-        };
-        if (isChatWebSearchEnabled()) {
-            body.web_search = true;
-            body.web_search_max_results = getChatWebSearchMaxResults();
-        }
+        const body = buildChatBody(replacementIndex >= 0 ? chatMessages.slice(0, replacementIndex) : chatMessages);
+        renderContextBudget({ message: body.web_search ? "Waiting for web results before measuring context…" : "Checking context before generating…" });
 
         chatAbortController = new AbortController();
         let bubble = null;
         let fullContent = "";
         let fullReasoning = "";
         let responseSources = [];
-        let errored = false;
+        let status = "complete";
+        let error = "";
+        let reader = null;
 
         try {
             const resp = await fetch("/api/chat/completions", {
@@ -541,97 +871,104 @@
 
             if (!resp.ok) {
                 const errText = await resp.text().catch(() => resp.statusText);
-                renderChatMessage("assistant", `Error: ${resp.status} - ${errText}`);
-                chatStreaming = false;
-                showChatSendButton(true);
-                return;
+                throw new Error(`HTTP ${resp.status} - ${errText}`);
             }
 
             if (!resp.body) {
-                renderChatMessage("assistant", "Error: Response body is empty.");
-                chatStreaming = false;
-                showChatSendButton(true);
-                return;
+                throw new Error("Response body is empty.");
             }
             bubble = renderChatMessage("assistant", "");
-            const reader = resp.body.getReader();
+            reader = resp.body.getReader();
             const decoder = new TextDecoder();
             let buffer = "";
             let streamDone = false;
+            let receivedFinish = false;
 
             while (!streamDone) {
                 const { done, value } = await reader.read();
-                if (done) break;
-
-                buffer += decoder.decode(value, { stream: true });
+                buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
                 const lines = buffer.split("\n");
                 buffer = lines.pop() || "";
+                if (done && buffer) {
+                    lines.push(buffer);
+                    buffer = "";
+                }
 
                 for (const line of lines) {
                     const trimmed = line.trim();
-                    if (!trimmed || !trimmed.startsWith("data: ")) continue;
-                    const data = trimmed.slice(6);
+                    if (!trimmed || !trimmed.startsWith("data:")) continue;
+                    const data = trimmed.slice(5).trimStart();
                     if (data === "[DONE]") {
                         streamDone = true;
                         setChatWebStatus(bubble, "");
                         break;
                     }
 
+                    let parsed;
                     try {
-                        const parsed = JSON.parse(data);
-                        if (parsed.type === "web_status") {
-                            setChatWebStatus(bubble, parsed.content || "");
-                            continue;
-                        }
-                        if (parsed.type === "web_sources") {
-                            responseSources = parsed.sources || [];
-                            renderChatSources(bubble, responseSources);
-                            continue;
-                        }
-                        if (parsed.error) {
-                            const message = parsed.error.message || "Unknown error";
-                            appendChatStreamToken(bubble, `Error: ${message}`);
-                            errored = true;
-                            streamDone = true;
-                            break;
-                        }
-                        const delta = parsed.choices?.[0]?.delta;
-                        const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
-                        if (reasoningDelta) {
-                            fullReasoning += reasoningDelta;
-                            appendChatReasoningStreamToken(bubble, reasoningDelta);
-                        }
-                        const contentDelta = getChatDeltaText(delta, ["content"]);
-                        if (contentDelta) {
-                            fullContent += contentDelta;
-                            appendChatStreamToken(bubble, contentDelta);
-                        }
+                        parsed = JSON.parse(data);
                     } catch (e) {
                         console.debug("Skipping malformed chat stream chunk", e);
+                        continue;
                     }
+                    if (parsed.type === "context_budget") {
+                        renderContextBudget(parsed);
+                        continue;
+                    }
+                    if (parsed.type === "web_status") {
+                        setChatWebStatus(bubble, parsed.content || "");
+                        continue;
+                    }
+                    if (parsed.type === "web_sources") {
+                        responseSources = parsed.sources || [];
+                        renderChatSources(bubble, responseSources);
+                        continue;
+                    }
+                    if (parsed.error) {
+                        const message = parsed.error.message || "Unknown error";
+                        throw new Error(message);
+                    }
+                    const delta = parsed.choices?.[0]?.delta;
+                    const finishReason = parsed.choices?.[0]?.finish_reason;
+                    if (finishReason) {
+                        receivedFinish = true;
+                        if (finishReason === "length") status = "length";
+                    }
+                    const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
+                    if (reasoningDelta) {
+                        fullReasoning += reasoningDelta;
+                        appendChatReasoningStreamToken(bubble, reasoningDelta);
+                    }
+                    const contentDelta = getChatDeltaText(delta, ["content"]);
+                    if (contentDelta) {
+                        fullContent += contentDelta;
+                        appendChatStreamToken(bubble, contentDelta);
+                    }
+                }
+                if (done) {
+                    if (!streamDone && !receivedFinish) throw new Error("Connection closed before the response completed.");
+                    break;
                 }
             }
 
-            if (streamDone) {
-                await reader.cancel().catch((e) => console.debug("Failed to cancel completed chat stream reader", e));
-            }
-            finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, errored);
+            if (!fullContent && !fullReasoning) throw new Error("The server returned no answer.");
         } catch (e) {
             removeChatTypingIndicator();
             if (e.name === "AbortError") {
-                if (fullContent || fullReasoning) {
-                    finalizeAssistantResponse(bubble, fullContent, fullReasoning, responseSources, false);
-                } else if (bubble) {
-                    const message = bubble.closest(".chat-message");
-                    if (message) message.remove();
-                }
+                status = "stopped";
             } else {
-                renderChatMessage("assistant", "Error: " + e.message);
+                status = "failed";
+                error = e.message || "Request failed.";
             }
         } finally {
+            if (reader) await reader.cancel().catch((e) => console.debug("Failed to close chat stream reader", e));
+            removeChatTypingIndicator();
+            finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex);
             chatStreaming = false;
             chatAbortController = null;
             showChatSendButton(true);
+            updateChatAvailability(isServerRunning());
+            if (status !== "failed") scheduleContextPreview(true);
             const chatInput = document.getElementById("chat-input");
             if (chatInput) chatInput.focus();
         }
@@ -645,6 +982,9 @@
     }
 
     async function abortActiveStream() {
+        const compactPending = compactionPromise;
+        if (compactionController) compactionController.abort();
+        if (compactPending) await compactPending;
         const pending = chatStreamPromise;
         stopStream();
         if (pending) {
@@ -668,8 +1008,9 @@
     }
 
     function undoMessage() {
-        if (chatStreaming || chatMessages.length === 0) return;
+        if (chatStreaming || compactionController || chatMessages.length === 0) return;
         chatMessages.pop();
+        while (chatCompactions.length && !compaction.valid(chatCompactions.at(-1), chatMessages)) chatCompactions.pop();
         const container = document.getElementById("chat-messages");
         const msgs = container.querySelectorAll(".chat-message");
         if (msgs.length > 0) msgs[msgs.length - 1].remove();
@@ -686,43 +1027,16 @@
         } else {
             saveCurrentConversation();
         }
+        renderConversationMessages(Math.max(0, chatMessages.length - 1));
     }
 
     function regenerateResponse() {
-        if (chatStreaming || chatMessages.length === 0) return;
-        const lastMsg = chatMessages[chatMessages.length - 1];
-        if (lastMsg.role === "assistant") {
-            chatMessages.pop();
-            const container = document.getElementById("chat-messages");
-            const msgs = container.querySelectorAll(".chat-message");
-            if (msgs.length > 0) msgs[msgs.length - 1].remove();
-        }
-
-        const lastUserMsg = chatMessages[chatMessages.length - 1];
-        if (!lastUserMsg || lastUserMsg.role !== "user") {
-            // The pop above already mutated chatMessages and the DOM; persist it the
-            // same way undoMessage() does, or the removed message reappears on reload.
-            if (chatMessages.length === 0) {
-                const empty = document.getElementById("chat-empty");
-                if (empty) empty.style.display = "";
-                if (currentConversationId) {
-                    const conversations = getStoredConversations();
-                    saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
-                    currentConversationId = null;
-                    renderHistoryList();
-                }
-            } else {
-                saveCurrentConversation();
-            }
-            return;
-        }
-
-        chatMessages.pop();
-        const container = document.getElementById("chat-messages");
-        const msgs = container.querySelectorAll(".chat-message");
-        if (msgs.length > 0) msgs[msgs.length - 1].remove();
-
-        sendMessage(lastUserMsg.content);
+        if (chatStreaming || compactionController || !isServerRunning() || chatMessages.length === 0) return Promise.resolve();
+        const lastIndex = chatMessages.length - 1;
+        const userIndex = chatMessages[lastIndex].role === "assistant" ? lastIndex - 1 : lastIndex;
+        const userMessage = chatMessages[userIndex];
+        if (!userMessage || userMessage.role !== "user") return Promise.resolve();
+        return sendMessage(userMessage.content, true);
     }
 
     function getStoredConversations() {
@@ -756,6 +1070,7 @@
 
         if (existing) {
             existing.messages = chatMessages.slice();
+            existing.compactions = chatCompactions.slice();
             existing.systemPrompt = sysPrompt ? sysPrompt.value : "";
             existing.thinkingEffort = getChatThinkingEffort();
             existing.timestamp = Date.now();
@@ -770,6 +1085,7 @@
                       }),
                 title: generateConversationTitle(chatMessages),
                 messages: chatMessages.slice(),
+                compactions: chatCompactions.slice(),
                 systemPrompt: sysPrompt ? sysPrompt.value : "",
                 thinkingEffort: getChatThinkingEffort(),
                 timestamp: Date.now()
@@ -790,10 +1106,11 @@
     }
 
     async function loadConversation(id) {
+        setChatToolsOpen(false);
         // Must await: abort() rejects the pending read on a later microtask, so a
         // bare stopStream() lets the AbortError handler run after the reassignments
         // below and finalize the old reply into the conversation we just loaded.
-        if (chatStreaming) await abortActiveStream();
+        if (chatStreaming || compactionController) await abortActiveStream();
 
         // Read storage only after the abort has settled: finalizing the aborted
         // reply writes to storage, so a snapshot taken earlier would be stale and
@@ -803,7 +1120,11 @@
         if (!convo) return;
 
         currentConversationId = convo.id;
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
         chatMessages = convo.messages.slice();
+        chatCompactions = (Array.isArray(convo.compactions) ? convo.compactions : [])
+            .filter(record => compaction.valid(record, chatMessages));
 
         const sysPrompt = document.getElementById("chat-system-prompt");
         const sysCharCount = document.getElementById("chat-sys-char-count");
@@ -813,18 +1134,7 @@
         }
         setChatThinkingEffort(convo.thinkingEffort);
 
-        const container = document.getElementById("chat-messages");
-        container.querySelectorAll(".chat-message").forEach(el => el.remove());
-        const empty = document.getElementById("chat-empty");
-
-        if (chatMessages.length === 0) {
-            if (empty) empty.style.display = "";
-        } else {
-            if (empty) empty.style.display = "none";
-            for (const msg of chatMessages) {
-                renderChatMessage(msg.role, msg.content, { reasoning: msg.reasoning });
-            }
-        }
+        renderConversationMessages();
 
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
@@ -849,12 +1159,18 @@
     }
 
     async function startNewChat() {
+        setChatToolsOpen(false);
         // Stop before saving: an in-flight stream would otherwise keep appending
         // tokens into the fresh chat and leave the composer disabled.
-        if (chatStreaming) await abortActiveStream();
+        if (chatStreaming || compactionController) await abortActiveStream();
         saveCurrentConversation();
         currentConversationId = null;
         chatMessages = [];
+        chatCompactions = [];
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
+        renderCompactionMarker();
+        updateCompactionControls();
         const container = document.getElementById("chat-messages");
         container.querySelectorAll(".chat-message").forEach(el => el.remove());
         const empty = document.getElementById("chat-empty");
@@ -864,6 +1180,7 @@
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
         setChatThinkingEffort("auto");
+        scheduleContextPreview(true);
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
@@ -937,7 +1254,8 @@
     }
 
     async function clearChat() {
-        if (chatStreaming) await abortActiveStream();
+        setChatToolsOpen(false);
+        if (chatStreaming || compactionController) await abortActiveStream();
         if (currentConversationId) {
             const conversations = getStoredConversations();
             saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
@@ -945,6 +1263,11 @@
             renderHistoryList();
         }
         chatMessages = [];
+        chatCompactions = [];
+        const compactStatus = document.getElementById("chat-compaction-status");
+        if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
+        renderCompactionMarker();
+        updateCompactionControls();
         const container = document.getElementById("chat-messages");
         container.querySelectorAll(".chat-message").forEach(el => el.remove());
         const empty = document.getElementById("chat-empty");
@@ -954,10 +1277,12 @@
         if (sysPrompt) sysPrompt.value = "";
         if (sysCharCount) sysCharCount.textContent = "0 chars";
         setChatThinkingEffort("auto");
+        scheduleContextPreview(true);
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
 
     function init() {
+        initChatTools();
         const chatInput = document.getElementById("chat-input");
         const sendBtn = document.getElementById("btn-chat-send");
         const stopBtn = document.getElementById("btn-chat-stop");
@@ -980,6 +1305,7 @@
             webSearchToggle.checked = getStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
             webSearchToggle.addEventListener("change", () => {
                 setStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+                scheduleContextPreview();
             });
         }
 
@@ -1003,10 +1329,12 @@
             thinkingEffort.addEventListener("change", () => {
                 setChatThinkingEffort(thinkingEffort.value);
                 saveCurrentConversation();
+                scheduleContextPreview();
             });
         }
 
         chatInput.addEventListener("input", () => {
+            scheduleContextPreview();
             chatInput.style.height = "auto";
             chatInput.style.height = Math.min(chatInput.scrollHeight, 220) + "px";
         });
@@ -1020,6 +1348,10 @@
 
         sendBtn.addEventListener("click", () => sendMessage(chatInput.value));
         stopBtn.addEventListener("click", stopStream);
+        document.getElementById("btn-chat-compact")?.addEventListener("click", () => {
+            if (compactionController) compactionController.abort();
+            else void compactConversation();
+        });
         undoBtn.addEventListener("click", undoMessage);
         regenBtn.addEventListener("click", regenerateResponse);
         if (focusBtn) {
@@ -1031,6 +1363,7 @@
         }
 
         sysPrompt.addEventListener("input", () => {
+            scheduleContextPreview();
             sysCharCount.textContent = sysPrompt.value.length + " chars";
         });
         sysCharCount.textContent = "0 chars";
@@ -1069,7 +1402,7 @@
         const btnCollapseHistory = document.getElementById("btn-collapse-history");
         const btnOpenHistory = document.getElementById("btn-open-history");
 
-        setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, false);
+        setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, true);
 
         if (btnCollapseHistory && historyPanel) {
             btnCollapseHistory.addEventListener("click", () => {
@@ -1112,6 +1445,7 @@
                 display.textContent = raw.toFixed(meta.decimals);
                 const val = meta.flag === "top_k" ? parseInt(slider.value, 10) : parseFloat(slider.value);
                 flagCore.setFlagValue(meta.flag, val);
+                if (meta.flag === "n_predict") refreshSidebarUI();
             });
         }
 
@@ -1144,10 +1478,14 @@
             _testClearChat: clearChat,
             _testStartNewChat: startNewChat,
             _testRegenerateResponse: regenerateResponse,
+            _testCompactConversation: compactConversation,
+            _testUndoCompaction: undoCompaction,
+            _testUndoMessage: undoMessage,
             _testGetState: () => ({
                 chatMessages: chatMessages.slice(),
                 currentConversationId,
                 chatStreaming,
+                chatCompactions: chatCompactions.slice(),
             }),
         });
     }

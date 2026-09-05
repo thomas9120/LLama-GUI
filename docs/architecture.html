@@ -435,7 +435,7 @@ footer {
     <div class="fact"><div class="k">llama-server</div><div class="v">127.0.0.1:8080<small>separate subprocess</small></div></div>
     <div class="fact"><div class="k">Runtime deps</div><div class="v">3 packages<small>certifi, ddgs, huggingface_hub</small></div></div>
     <div class="fact"><div class="k">Source size</div><div class="v">~30k lines<small>Python + JS + CSS</small></div></div>
-    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">47 routes<small>16 route modules</small></div></div>
+    <div class="fact"><div class="k">HTTP endpoints</div><div class="v">49 routes<small>16 route modules</small></div></div>
 </div>
 
 <h2 id="overview">Overview</h2>
@@ -460,7 +460,7 @@ footer {
     <div class="card">
         <h4 style="margin-top:0">No bundler</h4>
         <p class="sub" style="margin:0">
-            The frontend is 26 ordered <code>&lt;script&gt;</code> tags that each attach a namespace to
+            The frontend is 27 ordered <code>&lt;script&gt;</code> tags that each attach a namespace to
             <code>window.LlamaGui</code>. There is no build step: edit a file, reload the page. Node and Playwright are
             test-only dev dependencies.
         </p>
@@ -830,13 +830,14 @@ ctx.services   <span class="c"># injected BackendServices — platform + IO call
             <div class="chip cyan"><b>remote-tunnel-ui.js</b><i>Cloudflare tunnel controls</i></div>
             <div class="chip cyan"><b>external-server-ui.js</b><i>connect to a running server</i></div>
         </div></div>
-        <div class="rung"><div class="lvl">22–25</div><div class="items">
+        <div class="rung"><div class="lvl">22–26</div><div class="items">
             <div class="chip cyan"><b>quick-launch-ui.js</b><i>Quick Launch tab</i></div>
+            <div class="chip"><b>chat-compaction.js</b><i>counted, reversible summaries</i></div>
             <div class="chip cyan"><b>chat-ui.js</b><i>Chat tab, streaming, history</i></div>
             <div class="chip cyan"><b>benchmark-ui.js</b><i>Benchmarking tab</i></div>
             <div class="chip cyan"><b>monitor-ui.js</b><i>Monitor tab, telemetry, card state</i></div>
         </div></div>
-        <div class="rung"><div class="lvl">26</div><div class="items">
+        <div class="rung"><div class="lvl">27</div><div class="items">
             <div class="chip accent"><b>app.js</b><i>orchestration — tabs, polling, toasts, module wiring, injection</i></div>
         </div></div>
     </div>
@@ -1087,7 +1088,7 @@ flagCore.setFlagValue("temperature", 0.5);
 </div>
 
 <h2 id="api">API surface</h2>
-<p class="sub">All 48 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
+<p class="sub">All 49 endpoints, exactly as registered in the <code>Router</code> at the bottom of <code>backend/app.py</code>.</p>
 
 <div class="tablewrap">
 <table>
@@ -1117,6 +1118,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/estimate-memory</td><td>Memory estimate for the current args</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/presets/fingerprint</td><td>Compare a preset against the running runtime</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/chat/completions</td><td>SSE chat proxy with optional web search</td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/chat/context</td><td>Running-server context count and reply reserve preview</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/chat/target</td><td>Register an external llama-server</td></tr>
 <tr><td><span class="verb del">DELETE</span></td><td class="mono">/api/chat/target</td><td>Clear the registered target</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/web-search</td><td>Standalone search query</td></tr>

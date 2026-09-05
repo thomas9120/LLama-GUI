@@ -154,6 +154,8 @@ async function main() {
         };
         let availableModels = [{ name: "smoke-model.gguf", size_mb: 1 }];
         let chatResponseMode = "ok";
+        let contextResponseMode = "ok";
+        const contextBodies = [];
         let statsMetrics = {
             promptTokens: 0,
             promptSpeed: 0,
@@ -223,6 +225,25 @@ async function main() {
         await page.route("**/api/**", async (route) => {
             const url = new URL(route.request().url());
             const pathName = url.pathname;
+            if (pathName === "/api/chat/context") {
+                const body = JSON.parse(route.request().postData() || "{}");
+                contextBodies.push(body);
+                if (contextResponseMode === "compaction") {
+                    const tokens = Math.ceil(JSON.stringify(body.messages).length / 4);
+                    const reserve = body.max_tokens || 0;
+                    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+                        status: tokens + reserve > 4096 ? "overflow" : "ok", capacity: 4096,
+                        prompt_tokens: tokens, reply_reserve: reserve, reserve_source: "request", remaining: 4096 - tokens - reserve,
+                    }) });
+                    return;
+                }
+                await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(
+                    contextResponseMode === "unavailable" ? { status: "unavailable", message: "Context count unavailable; the server will validate the request." }
+                    : contextResponseMode === "warning" ? { status: "warning", capacity: 4096, prompt_tokens: 3600, reply_reserve: 256, reserve_source: "request", remaining: 240 }
+                    : { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, reserve_source: "request", remaining: 3484, search_pending: Boolean(body.web_search) }
+                ) });
+                return;
+            }
             if (pathName === "/api/chat/completions") {
                 chatCompletionBodies.push(JSON.parse(route.request().postData() || "{}"));
                 chatCompletionHeaders.push(route.request().headers());
@@ -232,7 +253,15 @@ async function main() {
                     "data: [DONE]",
                     "",
                 ].join("\n");
-                if (chatResponseMode === "reasoning-only") {
+                if (chatCompletionBodies.at(-1).gui_require_context) {
+                    chatStreamBody = 'data: {"choices":[{"delta":{"content":"The user chose a small interface. <script>literal summary</script> Keep the remaining work visible."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+                } else if (chatResponseMode === "overflow") {
+                    chatStreamBody = 'data: {"type":"context_budget","status":"overflow","capacity":4096,"prompt_tokens":4000,"reply_reserve":512,"remaining":-416,"reserve_source":"request","includes_search":true,"message":"Context limit exceeded."}\n\n'
+                        + 'data: {"error":{"message":"Context limit exceeded. Shorten the prompt or lower Max Tokens."}}\n\ndata: [DONE]\n\n';
+                } else if (chatResponseMode === "failed-partial") {
+                    chatStreamBody = 'data: {"choices":[{"delta":{"content":"recoverable partial"}}]}\n\n'
+                        + 'data: {"error":{"message":"Test connection failure"}}\n\n';
+                } else if (chatResponseMode === "reasoning-only") {
                     chatStreamBody = [
                         'data: {"choices":[{"delta":{"reasoning_content":"hidden thought"}}]}',
                         "",
@@ -1092,6 +1121,33 @@ async function main() {
         assert.equal(independentSourceSnapshot.context.used, 250);
 
         await selectSection(page, "chat");
+        const chatViewport = page.viewportSize();
+        const settingsWereCollapsed = await page.locator("#chat-sidebar").evaluate(el => el.classList.contains("collapsed"));
+        for (const width of [1440, 1320, 1217, 1024, 901, 900, 760]) {
+            await page.setViewportSize({ width, height: 915 });
+            await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+            // Exercise layout through the real handlers without earlier test
+            // notifications intercepting pointer clicks during resize.
+            await page.locator("#btn-collapse-sidebar").evaluate(el => el.click());
+            await page.waitForFunction(() => {
+                const rect = document.querySelector("#chat-sidebar").getBoundingClientRect();
+                return innerWidth > 900 ? rect.width < 1 : rect.height < 1;
+            });
+            if (width > 900) {
+                const gap = await page.evaluate(() => document.querySelector(".chat-layout").getBoundingClientRect().right
+                    - document.querySelector("#btn-open-sidebar").getBoundingClientRect().right);
+                assert.ok(gap <= 10, `collapsed settings must not reserve panel width at ${width}px (gap ${gap})`);
+            }
+            await page.locator("#btn-open-sidebar").evaluate(el => el.click());
+            await page.waitForFunction(() => document.querySelector("#chat-sidebar").getBoundingClientRect().width > 200);
+            if (width <= 900) {
+                await page.waitForFunction(() => Math.abs(document.querySelector("#chat-sidebar").getBoundingClientRect().width
+                    - document.querySelector(".chat-layout").getBoundingClientRect().width) < 1);
+            }
+        }
+        await page.setViewportSize(chatViewport);
+        await page.locator(settingsWereCollapsed ? "#btn-collapse-sidebar" : "#btn-open-sidebar").evaluate(el => el.click());
+
         assert.equal(await page.locator("#chat-input").isDisabled(), true);
         assert.equal(await page.locator("#btn-chat-send").isDisabled(), true);
         assert.match(await page.textContent("#chat-no-server-note"), /Start llama-server/i);
@@ -1107,6 +1163,18 @@ async function main() {
         });
         await page.waitForFunction(() => document.querySelector("#chat-slider-temp")?.value === "0.31");
         assert.equal(await page.textContent("#chat-val-temp"), "0.31");
+        for (const limit of [-1, 0, 17, 2049, 200000]) {
+            await page.evaluate((value) => window.LlamaGui.flagCore.setFlagValue("n_predict", value), limit);
+            assert.equal(await page.locator("#chat-slider-max-tokens").inputValue(), String(limit));
+            assert.equal(await page.textContent("#chat-val-max-tokens"), limit === -1 ? "Server default" : String(limit));
+        }
+        await page.locator("#chat-slider-max-tokens").evaluate((el) => {
+            el.value = "1025";
+            el.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().n_predict), 1025);
+        assert.equal(await page.textContent("#chat-val-max-tokens"), "1025");
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("n_predict", -1));
         await page.fill("#chat-input", Array(40).fill("line").join("\n"));
         await page.dispatchEvent("#chat-input", "input");
         const chatInputHeight = await page.locator("#chat-input").evaluate((el) => parseFloat(el.style.height));
@@ -1265,6 +1333,124 @@ async function main() {
         assert.equal(stoppedStreamUndoState.userBubbles, 1);
         assert.equal(stoppedStreamUndoState.assistantBubbles, 0);
         await page.evaluate(() => window.__restoreChatFetch());
+
+        await page.click("#btn-chat-new");
+        chatResponseMode = "ok";
+        await page.fill("#chat-input", "Recovery test");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        const recoveryRequestCount = chatCompletionBodies.length;
+        chatResponseMode = "failed-partial";
+        await page.fill("#chat-input", "Keep this draft");
+        await page.click("#btn-chat-regenerate");
+        await page.waitForFunction(() => document.querySelector(".chat-response-status")?.textContent.includes("previous answer kept"));
+        assert.equal(await page.locator(".chat-message.assistant .chat-bubble").innerText(), "ok");
+        assert.equal(await page.locator(".chat-message.user").count(), 1);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Keep this draft");
+        await page.getByRole("button", { name: "Next answer", exact: true }).click();
+        assert.equal(await page.locator(".chat-message.assistant .chat-bubble").innerText(), "recoverable partial");
+        assert.match(await page.locator(".chat-response-status").innerText(), /Incomplete/);
+        await page.getByRole("button", { name: "Previous answer", exact: true }).click();
+        chatResponseMode = "ok";
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector(".chat-response-footer")?.textContent.includes("Answer 3 of 3"));
+        assert.equal(await page.locator(".chat-message.user").count(), 1);
+        assert.equal(chatCompletionBodies.length, recoveryRequestCount + 2);
+        assert.deepEqual(chatCompletionBodies.at(-1).messages, [{ role: "user", content: "Recovery test" }]);
+        const recoveredVersions = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages[1].versions);
+        assert.equal(recoveredVersions[1].content, "recoverable partial");
+        assert.equal(recoveredVersions[1].status, "failed");
+
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Measure my draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("4,096"));
+        assert.equal(contextBodies.at(-1).messages.at(-1).content, "Measure my draft");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), false, "routine context details stay hidden");
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), false);
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-context-details summary").press("Enter");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), true);
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false);
+        assert.equal(await page.locator("#btn-chat-tools").evaluate(el => el === document.activeElement), true);
+        await page.click("#btn-chat-tools");
+        await page.keyboard.press("Shift+Tab");
+        await page.keyboard.press("Shift+Tab");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing past the trigger dismisses tools");
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-messages").click({ position: { x: 5, y: 5 } });
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "outside clicks dismiss tools");
+
+        assert.equal(await page.locator("#chat-context-bar").getAttribute("aria-valuenow"), "15");
+        assert.ok(await page.locator("#chat-context-prompt").evaluate(el => getComputedStyle(el).backgroundColor !== "rgba(0, 0, 0, 0)"));
+        chatResponseMode = "overflow";
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector(".chat-response-status")?.textContent.includes("Context limit exceeded"));
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), true);
+        assert.match(await page.locator("#chat-context-warning").innerText(), /exceeds/);
+        await page.click("#btn-chat-context-details");
+        assert.equal(await page.locator("#chat-context-label").isVisible(), true);
+        assert.match(await page.locator("#chat-context-label").innerText(), /Includes web results/);
+        assert.equal(await page.locator("#chat-context-bar").getAttribute("data-status"), "overflow");
+        assert.equal(await page.locator(".chat-message.user").innerText(), "U\nMeasure my draft");
+        contextResponseMode = "unavailable";
+        await page.fill("#chat-input", "Changed draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("unavailable"));
+        assert.equal(await page.locator("#chat-context-bar").isVisible(), false);
+        assert.equal(await page.locator("#chat-context-warning").isVisible(), false);
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "leaving the menu returns space to chat");
+        assert.equal(await page.locator("#btn-chat-send").isEnabled(), true);
+        contextResponseMode = "warning";
+        await page.fill("#chat-input", "Nearly full draft");
+        await page.waitForFunction(() => !document.querySelector("#chat-context-warning").hidden);
+        assert.match(await page.locator("#chat-context-warning").innerText(), /nearly full/);
+        assert.equal(await page.locator("#chat-context-label").isVisible(), false);
+        chatResponseMode = "ok";
+        contextResponseMode = "ok";
+        await page.fill("#chat-input", "Changed draft");
+        await page.waitForFunction(() => document.querySelector("#chat-context-warning").hidden);
+        await page.getByRole("button", { name: "Retry", exact: true }).click();
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
+
+        // Context and compaction are reached through the composer tools menu;
+        // both it and the summary stay collapsed until requested.
+        contextResponseMode = "compaction";
+        await page.click("#btn-chat-new");
+        assert.equal(await page.locator("#btn-chat-compact").isVisible(), false);
+        await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("n_predict", 512));
+        for (const message of ["Earlier decisions ".repeat(180), "Keep this recent question", "Keep this newest question"]) {
+            await page.fill("#chat-input", message);
+            await page.click("#btn-chat-send");
+            await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        }
+        await page.fill("#chat-input", "Draft survives compaction");
+        const transcriptBefore = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages);
+        await page.click("#btn-chat-tools");
+        await page.click("#btn-chat-compact");
+        await page.waitForSelector(".chat-compaction-marker");
+        assert.equal(await page.locator(".chat-compaction-marker").getAttribute("open"), null);
+        assert.equal(await page.locator(".chat-message").count(), transcriptBefore.length);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Draft survives compaction");
+        assert.equal(await page.locator("#btn-chat-compact").isDisabled(), true, "compaction needs more turns before running again");
+        await page.click("#btn-chat-view-summary");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false);
+        assert.equal(await page.locator(".chat-compaction-marker").getAttribute("open"), "");
+        assert.match(await page.locator(".chat-compaction-marker pre").innerText(), /<script>literal summary<\/script>/);
+        assert.equal(await page.locator(".chat-compaction-marker script").count(), 0);
+        await page.setViewportSize({ width: 760, height: 800 });
+        await page.click("#btn-chat-tools");
+        await page.locator("#chat-context-details summary").click();
+        const compactLayout = await page.locator("#chat-tools").evaluate(el => ({ width: el.clientWidth, scroll: el.scrollWidth, left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right }));
+        assert.ok(compactLayout.scroll <= compactLayout.width + 1, "context controls fit a narrow chat");
+        assert.ok(compactLayout.left >= 0 && compactLayout.right <= 760, "tools stay within the viewport");
+        await page.click("#btn-chat-tools-undo-compaction");
+        assert.equal(await page.locator(".chat-compaction-marker").count(), 0);
+        assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0].messages), transcriptBefore);
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        contextResponseMode = "ok";
+        await page.click("#btn-chat-new");
 
         await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("reasoning_format", "auto"));
 

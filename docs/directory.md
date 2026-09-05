@@ -79,11 +79,11 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 47 exact routes plus one prefix route, 48 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 48 exact routes plus one prefix route, 49 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
-| `chat.py` | `POST /api/chat/completions` — SSE proxy with web search |
+| `chat.py` | `POST /api/chat/completions` — SSE proxy with web search and final context check; `POST /api/chat/context` — context preview before web-search injection |
 | `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
@@ -116,6 +116,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `git_update.py` | Git fetch/pull/status, safe dirty path classification |
 | `lifecycle.py` | Server shutdown, restart, cleanup |
 | `chat.py` | Chat proxy helpers (search queries, context building, local addresses) |
+| `chat_context.py` | Running-server context capacity, native input-token counting with text template/tokenizer fallback, output reserve and overflow checks |
 | `external_server.py` | Registration of an externally started llama-server, llama.cpp-aware health probing, remembered-address persistence and unattended restore, and the shared chat/metrics target + authorization resolver |
 | `local_llama_http.py` | Shared local llama-server metrics, slots, and props HTTP fetching |
 | `system_stats.py` | Monitor telemetry: stdlib/ctypes CPU/RAM/disk collectors, optional local all-smi API/CLI adapter with nvidia-smi/amd-smi fallbacks, coalesced sample cache |
@@ -159,10 +160,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 16. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
 17. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
 18. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-19. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-20. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-21. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-22. `app.js` — main orchestration (wires everything together)
+19. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
+20. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+21. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+22. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+23. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -194,6 +196,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/remote-tunnel-ui.js` | `window.LlamaGui.remoteTunnelUi` | API tab Cloudflare tunnel controls, status rendering, URL rendering, copy wiring, start/stop actions, and polling; receives shared utilities and endpoint helpers from `app.js` |
 | `ui/js/external-server-ui.js` | `window.LlamaGui.externalServerUi` | API tab controls for registering a llama-server started outside this GUI: connect/disconnect actions, target rendering, and the status refresh that unlocks Chat; receives `fetchJson` and status helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
+| `ui/js/chat-compaction.js` | `window.LlamaGui.chatCompaction` | Manual summary generation with counted chunks, selected context, and preserved recent turns |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
@@ -619,6 +622,8 @@ When the web search toggle is enabled:
 - Each conversation has an id, title (derived from first user message), messages array, system prompt, and timestamp.
 - Sidebar shows recent conversations with preview text and relative timestamps.
 - Features: new chat, undo last message, regenerate last response, delete individual/all conversations, collapse sidebar.
+- User turns are saved before requests start. Completed, stopped, failed, and output-limited answers retain their status; interrupted content and saved source chips are restored when reopening history.
+- Regeneration sends the existing user turn without its previous answer. The previous answer stays selected until a completed replacement arrives; failed/stopped attempts are retained as answer versions. The latest assistant turn offers previous/next answer navigation and Retry after an unsuccessful or limited attempt. Only the selected answer content/reasoning is sent to the model; version and error metadata remain local.
 
 ### Markdown Rendering
 
@@ -895,6 +900,32 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Escape key or clear button resets the search and restores the pre-search submenu state. Categories opened by the search stay open.
 - "Expand All" opens all categories and submenus. "Collapse All" closes them.
 - Individual categories remember their open/closed state via `openCategories` Set; submenus via `openSubmenus`, keyed `"<categoryId>::<submenuName>"`.
+
+---
+
+## Chat context budgeting
+
+The composer previews the selected conversation, current system instructions and draft through `POST /api/chat/context`, debounced by 500 ms. The same body builder supplies completions. Pending previews are discarded on conversation/settings/runtime changes and while sending. The meter and detailed counts are tucked into Context usage in the composer’s ⋯ tools menu. Only near-full/overflow warnings appear inline, with a Details action. Escape, outside click, and leaving the popup close it; Escape returns focus to the trigger. This meter is separate from shared slot-occupancy statistics.
+
+`backend/services/chat_context.py` reads the running server's `/props` (`default_generation_settings.n_ctx`, already per slot), then uses `/v1/chat/completions/input_tokens`. When that endpoint is absent, text requests fall back to `/apply-template` and `/tokenize` with `add_special` and `parse_special` enabled. The template receives the same reasoning and request options. Media requests require native counting. No Configure context value or character estimate substitutes for server data.
+
+An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
+
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+
+Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
+
+---
+
+## Manual chat compaction
+
+`Compact conversation` lives in the composer’s ⋯ tools menu and is enabled when older messages exist beyond the last two user turns. It becomes Cancel during summarization, with progress and recovery details inside the popup. After compaction, the menu offers View summary (opens the transcript marker) and Undo compaction. The collapsed marker also retains its Undo action.
+
+`chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
+
+The existing `/api/chat/completions` route strips `gui_require_context` and refuses summary generation when counting is unavailable. Ordinary chat retains its existing unavailable-count fallback. Web results are still checked at send time.
+
+Stored conversations retain their complete `messages` array (including reasoning, sources, and answer versions) and a separate `compactions` stack of `{end, summary, savedTokens}` records. Requests use the newest summary as a synthetic user/assistant pair followed by messages from `end` onward, keeping the current system prompt separate. Undo pops a summary record without deleting later turns; undoing messages across its boundary also invalidates it. Failed/cancelled summaries never change working context. Conversation switches await cancellation, and changed drafts/settings/runtime invalidate pending results. Reopening a conversation restores its summary and marker.
 
 ---
 

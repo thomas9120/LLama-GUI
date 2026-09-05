@@ -183,6 +183,11 @@ def activate_llama_runtime(ctx, host="127.0.0.1", port=8080, tool="llama-server"
 
 
 class ExtractedRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.context_probe = mock.patch.object(chat.chat_context, "_read_json", return_value=None)
+        self.context_probe.start()
+        self.addCleanup(self.context_probe.stop)
+
     def test_models_route_lists_only_gguf_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)
@@ -4828,6 +4833,9 @@ class InstallRouteTests(unittest.TestCase):
 
 class ExternalServerRouteTests(unittest.TestCase):
     def setUp(self):
+        self.context_probe = mock.patch.object(chat.chat_context, "_read_json", return_value=None)
+        self.context_probe.start()
+        self.addCleanup(self.context_probe.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.ctx = make_context(self.tmp.name)
         self.ctx.services.set_llama_api_target = mock.Mock(return_value={})

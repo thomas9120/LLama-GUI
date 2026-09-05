@@ -1290,6 +1290,9 @@
         const tool = runtime && runtime.tool ? runtime.tool : "";
         const externalTarget = status && status.external_chat_target;
         const externalConnected = Boolean(externalTarget && externalTarget.connected);
+        const navLive = byId("monitor-nav-live");
+        if (navLive) navLive.classList.toggle("hidden",
+            !((tool === "llama-server" && phase === "ready") || (!running && externalConnected)));
 
         if (toolBadge) {
             if (running && tool) {

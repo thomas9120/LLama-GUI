@@ -7,6 +7,7 @@ import urllib.parse
 from backend import config
 from backend.http import SseWriter, open_pinned_local_request, sanitize_sse_error
 from backend.services import chat as chat_service
+from backend.services import chat_context
 from backend.services import external_server
 from backend.services import web_search
 
@@ -34,6 +35,16 @@ def get_web_search_result_count(body):
     except (TypeError, ValueError):
         max_results = config.WEB_SEARCH_MAX_RESULTS
     return max(1, min(max_results, 10))
+
+
+def context_budget(request, response, ctx):
+    """Preview excludes web material; completions rechecks after search injection."""
+    target = external_server.resolve_llama_target(ctx)
+    authorization = external_server.resolve_llama_authorization(
+        ctx, target, request.headers.get("Authorization", ""))
+    budget = chat_context.measure(request.body or {}, target, authorization)
+    budget["search_pending"] = bool((request.body or {}).get("web_search"))
+    response.json(budget)
 
 
 def completions(request, response, ctx):
@@ -125,6 +136,7 @@ def completions(request, response, ctx):
         proxy_body.pop("host", None)
         proxy_body.pop("port", None)
         proxy_body.pop("web_search_max_results", None)
+        require_context = proxy_body.pop("gui_require_context", False) is True
 
         api_url = chat_service.get_local_chat_api_url(target)
         parsed_api = urllib.parse.urlparse(api_url)
@@ -136,6 +148,14 @@ def completions(request, response, ctx):
         )
         if authorization:
             headers["Authorization"] = authorization
+        budget = chat_context.measure(proxy_body, target, authorization)
+        writer.write({"type": "context_budget", **budget, "includes_search": bool(body.get("web_search"))})
+        if budget["status"] == "overflow":
+            _write_stream_error(writer, budget["message"])
+            return
+        if require_context and budget["status"] not in ("ok", "warning"):
+            _write_stream_error(writer, "Compaction needs a valid context count. Retry when counting is available.")
+            return
         # Pinned connect: the destination host was validated above, and is
         # resolved and pinned again here so it cannot re-resolve off-machine
         # between the two points.

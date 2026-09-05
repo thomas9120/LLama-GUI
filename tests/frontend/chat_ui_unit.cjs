@@ -72,6 +72,7 @@ function createElement(tagName = "div") {
             return child;
         },
         insertBefore(child, before) {
+            if (child.parentNode) child.remove();
             child.parentNode = this;
             const index = this.children.indexOf(before);
             if (index === -1) {
@@ -195,9 +196,12 @@ function makeFetch(mode, hooks = {}) {
             }
             hooks.onRequest(parsedBody);
         }
+        if (mode === "network") return Promise.reject(new Error("Connection lost"));
+        if (mode === "http") return Promise.resolve({ ok: false, status: 503, text: async () => "Unavailable" });
+        if (mode === "empty-body") return Promise.resolve({ ok: true, body: null });
         const encoder = new TextEncoder();
         const chunk = encoder.encode(
-            'data: {"choices":[{"delta":{"content":"' + PARTIAL_TOKEN + '"}}]}\n\n'
+            hooks.chunk === undefined ? 'data: {"choices":[{"delta":{"content":"' + PARTIAL_TOKEN + '"}}]}\n\n' : hooks.chunk
         );
         const doneChunk = encoder.encode("data: [DONE]\n\n");
         let reads = 0;
@@ -205,6 +209,9 @@ function makeFetch(mode, hooks = {}) {
             read() {
                 reads += 1;
                 if (reads === 1) return Promise.resolve({ done: false, value: chunk });
+                if (mode === "fail") return Promise.reject(new Error("Connection lost"));
+                if (mode === "eof") return Promise.resolve({ done: true });
+                if (mode === "error") return Promise.resolve({ done: false, value: encoder.encode('data: {"error":{"message":"<script>failure</script>"}}\n\n') });
                 if (mode === "complete") {
                     if (reads === 2) return Promise.resolve({ done: false, value: doneChunk });
                     return Promise.resolve({ done: true, value: undefined });
@@ -313,6 +320,7 @@ function makeContext({
         AbortController,
         TextDecoder,
         TextEncoder,
+        URL,
         crypto,
         // Blocked storage logs the expected tolerant-path warnings on every
         // access; keep the suite output readable.
@@ -320,6 +328,7 @@ function makeContext({
             ? { ...console, debug: () => {}, warn: () => {} }
             : console,
         Date,
+        clearTimeout: () => {},
         setTimeout: (handler) => {
             handler();
             return 1;
@@ -329,6 +338,7 @@ function makeContext({
     vm.createContext(context);
     vm.runInContext(renderingSource, context, { filename: "ui/js/chat-rendering.js" });
     vm.runInContext(appDataSource, context, { filename: "ui/js/app-data.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
 
     const api = context.window.LlamaGui.chatUi;
@@ -745,11 +755,9 @@ async function runAbortScenario(action) {
         assert.ok(staleHint.classList.contains("hidden"));
     }
 
-    // regenerateResponse: when the pop leaves no user message to regenerate
-    // from, the mutation must still be persisted (mirror of undoMessage).
+    // Regeneration without a matching user turn must leave history intact.
     {
-        // a) trailing assistant popped, remaining last is not a user message:
-        //    storage must drop the popped message instead of desyncing.
+        // a) malformed adjacent assistant turns are preserved, not deleted.
         const fetchImpl = makeFetch("complete");
         let fetchCalls = 0;
         const countingFetch = (...args) => {
@@ -774,19 +782,18 @@ async function runAbortScenario(action) {
         api._testRegenerateResponse();
         assert.deepEqual(
             plain(api._testGetState().chatMessages).map((m) => m.content),
-            ["q", "a1"],
-            "in-memory messages keep the pop"
+            ["q", "a1", "a2"],
+            "invalid regeneration leaves in-memory messages intact"
         );
         assert.deepEqual(
             getStoredConversations()[0].messages.map((m) => m.content),
-            ["q", "a1"],
-            "stored conversation must match the popped in-memory state"
+            ["q", "a1", "a2"],
+            "stored conversation is unchanged"
         );
         assert.equal(fetchCalls, 0, "no regeneration request without a trailing user message");
     }
     {
-        // b) popping empties the conversation: it is deleted from storage and
-        //    the empty state is shown.
+        // b) an orphan response is never deleted by Regenerate.
         const { api, elements, getStoredConversations } = makeContext({
             fetchImpl: makeFetch("complete"),
             seedConversations: [{
@@ -800,10 +807,10 @@ async function runAbortScenario(action) {
         await api._testLoadConversation("convo-b");
         api._testRegenerateResponse();
         const state = api._testGetState();
-        assert.deepEqual(plain(state.chatMessages), []);
-        assert.equal(state.currentConversationId, null);
-        assert.equal(getStoredConversations().length, 0, "emptied conversation must be deleted from storage");
-        assert.equal(elements.get("chat-empty").style.display, "");
+        assert.deepEqual(plain(state.chatMessages), [{ role: "assistant", content: "orphan" }]);
+        assert.equal(state.currentConversationId, "convo-b");
+        assert.equal(getStoredConversations().length, 1, "orphan response stays saved");
+        assert.equal(elements.get("chat-empty").style.display, "none");
     }
     {
         // c) control: a normal regenerate resends the last user message.
@@ -901,18 +908,368 @@ async function runAbortScenario(action) {
         const maxTokensDisplay = elements.get("chat-val-max-tokens");
         setFlagValues({ n_predict: "abc" });
         api.refreshSidebarUI();
-        assert.equal(maxTokensDisplay.textContent, "512", "non-numeric n_predict must fall back to 512");
-        assert.equal(Number(maxTokensSlider.value), 512);
+        assert.equal(maxTokensDisplay.textContent, "Server default", "non-numeric n_predict is omitted from requests");
+        assert.equal(Number(maxTokensSlider.value), -1);
 
         setFlagValues({ n_predict: "-1" });
         api.refreshSidebarUI();
-        assert.equal(maxTokensDisplay.textContent, "512", "string form of the -1 sentinel must fall back to 512");
-        assert.equal(Number(maxTokensSlider.value), 512);
+        assert.equal(maxTokensDisplay.textContent, "Server default", "the -1 sentinel inherits the server limit");
+        assert.equal(Number(maxTokensSlider.value), -1);
 
         setFlagValues({ n_predict: "2048" });
         api.refreshSidebarUI();
         assert.equal(maxTokensDisplay.textContent, "2048", "numeric-string n_predict must render as a number");
         assert.equal(Number(maxTokensSlider.value), 2048);
+    }
+
+    // Display and wire values agree for inherited limits, small values, and
+    // values above the configured context / former slider cap.
+    for (const value of [undefined, "", "abc", -1, "-1", 0, 17, "2049", 200000]) {
+        let payload;
+        const { api, elements } = makeContext({
+            flagValues: { n_predict: value, ctx_size: 1024 },
+            fetchImpl: makeFetch("complete", { onRequest: (body) => { payload = body; } }),
+        });
+        api.refreshSidebarUI();
+        await api._testSendMessage("check limit");
+        const expected = [undefined, "", "abc", -1, "-1"].includes(value) ? undefined : Number(value);
+        assert.equal(payload.max_tokens, expected);
+        const label = expected === undefined ? "Server default" : String(expected);
+        assert.equal(elements.get("chat-val-max-tokens").textContent, label);
+        const slider = elements.get("chat-slider-max-tokens");
+        assert.equal(Number(slider.value), expected === undefined ? -1 : expected);
+        assert.equal(slider.getAttribute("aria-valuetext"), label);
+        assert.ok(Number(slider.max) >= Number(slider.value));
+    }
+
+    // Saved sources are restored through the safe source renderer; legacy
+    // conversations without sources continue to load.
+    {
+        const { api, elements } = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [{ id: "sources", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "answer", sources: [
+                    { index: 1, title: "Reference", url: "https://example.com/reference" },
+                    { index: 2, title: "Unsafe", url: "javascript:alert(1)" },
+                ] },
+                { role: "assistant", content: "legacy answer" },
+            ] }],
+        });
+        await api._testLoadConversation("sources");
+        const chips = elements.get("chat-messages").querySelectorAll(".chat-source-chip");
+        assert.equal(chips.length, 2);
+        assert.equal(chips[0].tagName, "A");
+        assert.equal(chips[0].href, "https://example.com/reference");
+        assert.equal(chips[0].textContent, "[1] Reference");
+        assert.equal(chips[1].tagName, "SPAN");
+        assert.equal(chips[1].href, undefined);
+    }
+
+    // Every failure preserves the user prompt and any partial answer across
+    // reload. Retry sends the original prompt once and preserves the draft.
+    for (const failure of ["network", "http", "empty-body", "fail", "eof", "error"]) {
+        let mode = failure;
+        const requests = [];
+        const { api, elements, getStoredConversations } = makeContext({
+            fetchImpl: (...args) => makeFetch(mode, { onRequest: body => requests.push(body) })(...args),
+        });
+        await api._testSendMessage("keep my prompt");
+        const convo = getStoredConversations()[0];
+        assert.equal(convo.messages.length, 2, failure);
+        const failed = convo.messages[1];
+        assert.equal(failed.status, "failed", failure);
+        assert.equal(failed.content, ["fail", "eof", "error"].includes(failure) ? PARTIAL_TOKEN : "");
+        assert.ok(!failed.content.includes("failure"), "error text must not become model context");
+        await api._testLoadConversation(convo.id);
+        const container = elements.get("chat-messages");
+        const retry = container.querySelectorAll(".chat-response-action").find(el => el.textContent === "Retry");
+        assert.ok(retry, `${failure} offers Retry after reload`);
+        assert.match(container.querySelector(".chat-response-status").textContent, /Incomplete/);
+        elements.get("chat-input").value = "unsent draft";
+        mode = "complete";
+        await retry._listeners.click[0]();
+        assert.equal(elements.get("chat-input").value, "unsent draft", "retry must not clear the next draft");
+        assert.deepEqual(requests[1].messages, [{ role: "user", content: "keep my prompt" }]);
+        const recovered = getStoredConversations()[0].messages;
+        assert.equal(recovered.length, 2);
+        assert.equal(recovered[1].status, "complete");
+        assert.equal(recovered[1].versions[0].status, "failed", "failed attempt remains recoverable");
+    }
+
+    // Regeneration is transactional: original remains visible and saved during
+    // the attempt, and failure or cancellation keeps it selected.
+    for (const failure of ["network", "http", "empty-body", "fail", "eof", "error", "hang"]) {
+        let mode = "complete";
+        let streamPending = false;
+        const requests = [];
+        const { api, elements, getStoredConversations, setStatus } = makeContext({
+            fetchImpl: (...args) => makeFetch(mode, {
+                onRequest: body => requests.push(body),
+                onStreamPending: () => { streamPending = true; },
+            })(...args),
+            seedConversations: [{ id: "original", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "original answer", reasoning: "original reasoning",
+                    sources: [{ index: 1, title: "Original source", url: "https://example.com" }] },
+            ] }],
+        });
+        await api._testLoadConversation("original");
+        setStatus({ running: false });
+        await api._testRegenerateResponse();
+        assert.equal(requests.length, 0, "offline regeneration must be a no-op");
+        setStatus({ running: true, active_process_tool: "llama-server" });
+        mode = failure;
+        const pending = api._testRegenerateResponse();
+        await api._testRegenerateResponse();
+        assert.equal(requests.length, 1, "repeated clicks must not start a second regeneration");
+        assert.equal(getStoredConversations()[0].messages[1].content, "original answer");
+        assert.ok(elements.get("chat-messages").querySelectorAll(".chat-bubble").some(el => el.dataset.rawText === "original answer"));
+        if (failure === "hang") {
+            await flushUntil(() => streamPending, "regeneration to stream");
+            await api.abortActiveStream();
+        }
+        await pending;
+        let result = getStoredConversations()[0].messages[1];
+        assert.equal(result.content, "original answer", failure);
+        assert.equal(result.reasoning, "original reasoning");
+        assert.equal(result.versionIndex, 0);
+        assert.equal(result.versions[1].status, failure === "hang" ? "stopped" : "failed");
+        assert.deepEqual(requests[0].messages, [{ role: "user", content: "question" }]);
+        await api._testLoadConversation("original");
+        mode = "complete";
+        await api._testRegenerateResponse();
+        result = getStoredConversations()[0].messages[1];
+        assert.equal(result.content, PARTIAL_TOKEN);
+        assert.equal(result.versions.length, 3);
+        assert.equal(result.versionIndex, 2);
+        // Navigate back through the failed attempt to the original, including
+        // its reasoning and sources, without issuing another model request.
+        for (let step = 0; step < 2; step++) {
+            const previous = elements.get("chat-messages").querySelectorAll(".chat-response-action")
+                .find(el => el.textContent === "Previous answer");
+            previous._listeners.click[0]();
+        }
+        assert.equal(getStoredConversations()[0].messages[1].content, "original answer");
+        assert.equal(elements.get("chat-messages").querySelector(".chat-source-chip").textContent, "[1] Original source");
+        assert.equal(requests.length, 2);
+        await api._testSendMessage("follow up");
+        assert.deepEqual(requests[2].messages[1], {
+            role: "assistant", content: "original answer", reasoning_content: "original reasoning",
+        }, "only the selected answer is sent; recovery metadata stays local");
+    }
+
+    // A terminal event at EOF is valid even without a final newline or DONE.
+    for (const finishReason of ["stop", "length"]) {
+        const { api, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("eof", { chunk: `data: ${JSON.stringify({ choices: [{
+                delta: { content: "finished" }, finish_reason: finishReason,
+            }] })}` }),
+        });
+        await api._testSendMessage("question");
+        assert.equal(getStoredConversations()[0].messages[1].status, finishReason === "length" ? "length" : "complete");
+    }
+
+    // Finishing another turn must not rebuild earlier answers or move model
+    // transition dividers. Old answer controls cannot rewrite later context.
+    {
+        const { api, elements } = makeContext({ fetchImpl: makeFetch("complete") });
+        await api._testSendMessage("first");
+        await api._testRegenerateResponse();
+        const container = elements.get("chat-messages");
+        const firstAnswer = container.querySelectorAll(".chat-message")[1];
+        assert.ok(firstAnswer.querySelector(".chat-response-action"));
+        api.addModelTransitionDivider("A", "B");
+        const divider = container.querySelector(".chat-model-divider");
+        await api._testSendMessage("second");
+        assert.equal(container.querySelectorAll(".chat-message")[1], firstAnswer, "previous response DOM is preserved");
+        assert.equal(firstAnswer.querySelector(".chat-response-action"), null);
+        assert.ok(container.children.indexOf(divider) > container.children.indexOf(firstAnswer));
+        assert.ok(container.children.indexOf(divider) < container.children.indexOf(container.querySelectorAll(".chat-message")[2]));
+    }
+
+    // Reasoning-only partial output remains saved and visibly incomplete.
+    {
+        const { api, elements, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("fail", { chunk: 'data: {"choices":[{"delta":{"reasoning_content":"partial reasoning"}}]}\n\n' }),
+        });
+        await api._testSendMessage("think");
+        const convo = getStoredConversations()[0];
+        assert.equal(convo.messages[1].reasoning, "partial reasoning");
+        assert.equal(convo.messages[1].status, "failed");
+        await api._testLoadConversation(convo.id);
+        assert.equal(elements.get("chat-messages").querySelector(".chat-reasoning-body").innerHTML.includes("partial reasoning"), true);
+        assert.match(elements.get("chat-messages").querySelector(".chat-response-status").textContent, /Incomplete/);
+    }
+
+    // Conversation changes still await regeneration's abort before loading or
+    // clearing state; an attempt can never be saved into the destination chat.
+    for (const action of ["load", "new", "clear"]) {
+        let streamPending = false;
+        const { api, getStoredConversations } = makeContext({
+            fetchImpl: makeFetch("hang", { onStreamPending: () => { streamPending = true; } }),
+            seedConversations: [
+                { id: "original", messages: [{ role: "user", content: "q" }, { role: "assistant", content: "original" }] },
+                { id: "other", messages: [{ role: "user", content: "other q" }] },
+            ],
+        });
+        await api._testLoadConversation("original");
+        const pending = api._testRegenerateResponse();
+        await flushUntil(() => streamPending, "regeneration to hang");
+        if (action === "load") await api._testLoadConversation("other");
+        if (action === "new") await api._testStartNewChat();
+        if (action === "clear") await api._testClearChat();
+        await pending;
+        const stored = getStoredConversations();
+        assert.deepEqual(stored.find(c => c.id === "other").messages, [{ role: "user", content: "other q" }]);
+        const original = stored.find(c => c.id === "original");
+        if (action === "clear") assert.equal(original, undefined);
+        else {
+            assert.equal(original.messages[1].content, "original");
+            assert.equal(original.messages[1].versions[1].content, PARTIAL_TOKEN);
+            assert.equal(original.messages[1].versions[1].status, "stopped");
+        }
+    }
+
+    // Preview counts the same selected history, reasoning, system prompt and
+    // draft as a real request. Stale responses cannot replace a newer model's meter.
+    {
+        const pending = [];
+        const ctx = makeContext({
+            fetchImpl: (url, options) => {
+                const done = deferred();
+                pending.push({ done, body: JSON.parse(options.body), signal: options.signal });
+                return done.promise;
+            },
+            extraElementIds: ["chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-web-search-toggle"],
+            seedConversations: [{ id: "budget", systemPrompt: "Rules", messages: [
+                { role: "user", content: "q" },
+                { role: "assistant", content: "chosen", reasoning: "thought", versions: [{ content: "discarded" }] },
+            ] }],
+        });
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending.length, 0, "empty chat must not call the template/token counter");
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Type a message/);
+        ctx.elements.get("chat-system-prompt").value = "Rules only";
+        ctx.elements.get("chat-input").value = "  \n ";
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending.length, 0, "system-only chat with whitespace draft must stay idle");
+        assert.equal(ctx.elements.get("chat-context-bar").hidden, true);
+        await ctx.api._testLoadConversation("budget");
+        ctx.elements.get("chat-input").value = "draft";
+        ctx.elements.get("chat-web-search-toggle").checked = true;
+        ctx.setFlagValues({ n_predict: 512, ctx_size: 999999 });
+        ctx.api.refreshSidebarUI();
+        assert.equal(pending[0].signal.aborted, true);
+        assert.deepEqual(pending.at(-1).body.messages, [
+            { role: "system", content: "Rules" }, { role: "user", content: "q" },
+            { role: "assistant", content: "chosen", reasoning_content: "thought" },
+            { role: "user", content: "draft" },
+        ]);
+        assert.equal(pending.at(-1).body.max_tokens, 512);
+        assert.equal(pending.at(-1).body.web_search, true);
+        const budget = { status: "ok", capacity: 4096, prompt_tokens: 100, reply_reserve: 512, remaining: 3484, reserve_source: "request", search_pending: true };
+        pending.at(-1).done.resolve({ ok: true, json: async () => budget });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /4,096/);
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Web results/);
+        pending[0].done.resolve({ ok: true, json: async () => ({ ...budget, capacity: 123 }) });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /4,096/);
+        ctx.setStatus({ running: true, active_process_tool: "llama-server", runtime_generation: 2,
+            active_runtime: { tool: "llama-server", model: "replacement" } });
+        ctx.api.updateStatusBadge();
+        assert.equal(pending.at(-1).body.model, "replacement");
+        ctx.setStatus({ running: false });
+        ctx.api.updateStatusBadge();
+        pending.at(-1).done.resolve({ ok: true, json: async () => budget });
+        await flush();
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Start or connect/);
+        assert.equal(ctx.elements.get("chat-context-bar").hidden, true);
+        ctx.setStatus({ running: true, active_process_tool: "llama-server" });
+        ctx.elements.get("chat-input").value = "";
+        const requestCount = pending.length;
+        await ctx.api._testClearChat();
+        assert.equal(pending.length, requestCount, "clearing chat must not send an empty preview");
+        assert.match(ctx.elements.get("chat-context-label").textContent, /Type a message/);
+    }
+
+    // Compaction commits separately from the transcript and follows the same
+    // cancellation ordering as generation when switching conversations.
+    {
+        const messages = Array.from({ length: 6 }, (_, index) => ({
+            role: index % 2 ? "assistant" : "user",
+            content: index < 2 ? "Older detail ".repeat(200) : `Recent ${index}`,
+            ...(index === 1 ? { sources: [{ url: "https://example.com" }], versions: [{ content: "Original answer" }], versionIndex: 0 } : {}),
+        }));
+        const seed = [{ id: "compact", messages, systemPrompt: "Keep these instructions" }, { id: "other-convo", messages: [{ role: "user", content: "Other chat" }] }];
+        const bodies = [];
+        let hang = false;
+        let changeRuntime = false;
+        const pendingStream = deferred();
+        const fetchImpl = (url, options) => {
+            if (String(url).endsWith("/context")) {
+                const body = JSON.parse(options.body);
+                const prompt = Math.ceil(JSON.stringify(body.messages).length / 4);
+                const remaining = 4096 - prompt - (body.max_tokens || 0);
+                return Promise.resolve({ ok: true, json: async () => ({ status: remaining < 0 ? "overflow" : "ok", prompt_tokens: prompt, capacity: 4096, remaining }) });
+            }
+            const body = JSON.parse(options.body || "{}");
+            return makeFetch(hang && body.gui_require_context ? "hang" : "complete", {
+                chunk: 'data: {"choices":[{"delta":{"content":"Saved decisions and open questions."},"finish_reason":"stop"}]}\n\n',
+                onRequest: request => {
+                    bodies.push(request);
+                    if (changeRuntime && request.gui_require_context) {
+                        changeRuntime = false;
+                        ctx.setStatus({ running: true, active_process_tool: "llama-server", runtime_generation: 2,
+                            active_runtime: { tool: "llama-server", model: "replacement" } });
+                    }
+                }, onStreamPending: () => pendingStream.resolve(),
+            })(url, options);
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: seed,
+            extraElementIds: ["btn-chat-compact", "chat-compaction-status"] });
+        await ctx.api._testLoadConversation("compact");
+        ctx.elements.get("chat-input").value = "Preserve my draft";
+        await ctx.api._testCompactConversation();
+        assert.deepEqual(JSON.parse(JSON.stringify(ctx.api._testGetState().chatMessages)), messages);
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 1);
+        assert.equal(ctx.elements.get("chat-input").value, "Preserve my draft");
+        assert.equal(ctx.elements.get("chat-messages").querySelectorAll(".chat-compaction-marker").length, 1);
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "compact").compactions.length, 1);
+        await ctx.api._testLoadConversation("other-convo");
+        assert.equal(ctx.elements.get("chat-messages").querySelectorAll(".chat-compaction-marker").length, 0);
+        await ctx.api._testLoadConversation("compact");
+        await ctx.api._testSendMessage("Continue");
+        assert.equal(bodies.at(-1).messages[0].content, "Keep these instructions");
+        assert.equal(bodies.at(-1).messages[2].content, "Saved decisions and open questions.");
+        assert.ok(!JSON.stringify(bodies.at(-1)).includes("Older detail"));
+        ctx.api._testUndoCompaction();
+        await ctx.api._testRegenerateResponse();
+        assert.ok(JSON.stringify(bodies.at(-1)).includes("Older detail"));
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0);
+
+        changeRuntime = true;
+        await ctx.api._testCompactConversation();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0, "a model switch invalidates an otherwise complete summary");
+        assert.match(ctx.elements.get("chat-compaction-status").textContent, /cancelled/);
+
+        hang = true;
+        const pending = ctx.api._testCompactConversation();
+        await pendingStream.promise;
+        assert.equal(ctx.elements.get("btn-chat-compact").textContent, "Cancel compaction");
+        await ctx.api._testLoadConversation("other-convo");
+        await pending;
+        assert.equal(ctx.api._testGetState().currentConversationId, "other-convo");
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0);
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "compact").compactions.length, 0);
+        assert.equal(ctx.elements.get("chat-compaction-status").hidden, true);
+        hang = false;
+        await ctx.api._testLoadConversation("compact");
+        await ctx.api._testCompactConversation();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 1);
+        for (let i = 0; i < 4; i++) ctx.api._testUndoMessage();
+        assert.equal(ctx.api._testGetState().chatCompactions.length, 0, "undo across the summary boundary restores raw context");
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

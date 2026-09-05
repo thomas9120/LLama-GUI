@@ -1932,7 +1932,6 @@ async function loadPreset(name) {
             } else {
                 showPresetStatus(`Loaded preset "${name}"`, "success");
             }
-            switchTab("configure");
         } else {
             showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
         }

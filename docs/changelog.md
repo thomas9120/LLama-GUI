@@ -4,6 +4,22 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-04
 
+- Loading a preset now keeps the current tab open instead of automatically switching to Configure.
+
+- Added a steady green Live badge to the Monitor navigation button when llama-server is ready or an external server is connected; it hides when stopped or transitioning.
+
+- Fixed the collapsed Chat settings panel retaining its width at intermediate window sizes; the responsive width now applies only to expanded desktop panels, and mobile settings retain full width.
+
+- Conversations now starts collapsed in Chat to leave more room for messages; Show conversations still opens the history panel.
+
+- Moved routine context counts and compaction actions into a compact composer tools menu. Only brief near-full/overflow warnings remain inline; context details, summary navigation, and Undo are available on demand with keyboard and outside-click dismissal.
+
+- Chat improvements, batch 4: added manual compaction beside the context meter, counted summary chunks with reply headroom, and a collapsed View summary / Undo marker. Original transcripts and answer versions remain saved; failed, cancelled, stale, or unhelpful summaries leave the prior context intact.
+
+- Fixed empty and system-instructions-only context previews triggering llama-server's Jinja “No messages provided” errors; counting now waits for a chat message and the backend also skips these invalid previews.
+- Chat improvements, batch 3: added a context meter with running-server token counts and reply reserve, refreshes for drafts/settings/model changes, and a final backend budget check including web results. Oversized requests receive actionable recovery feedback; unsupported counting remains visibly unavailable without blocking chat.
+- Chat improvements, batch 2: regeneration retains the original answer until a replacement completes, failed/stopped attempts remain saved with answer navigation and Retry, interrupted streams are marked incomplete, and retries reuse the existing user turn without clearing the draft.
+- Chat improvements, batch 1: Max Tokens now shows the actual shared request limit or Server default without silently clamping its display, and reopened conversations restore saved web-source links.
 - Polished the Monitor experience with responsive, reorderable mixed resource/GPU cards; stable polling states and focus; session-average prompt/generation speeds; improved accessibility; and more accurate lifecycle reporting.
 - Expanded GPU telemetry with optional cross-vendor `all-smi` support, broader AMD/NVIDIA detection and parsing, resilient probe decoding/fallbacks, and platform-specific setup guidance linked from unavailable GPU states.
 - Enlarged Configure's command preview for long launch commands and strengthened Monitor frontend/backend tests, polling diagnostics, and deterministic concurrency coverage.
