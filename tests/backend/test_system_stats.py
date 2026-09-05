@@ -290,6 +290,13 @@ class LinuxParserTests(unittest.TestCase):
     def test_select_disk_counters_empty(self):
         self.assertIsNone(svc.select_disk_counters([], (8, 0)))
 
+    def test_collect_linux_disk_counters_unavailable(self):
+        for text in ("", "7 0 loop0 1 0 8 0 0 0 0 0 0 0 0\n"):
+            with self.subTest(text=text), \
+                    mock.patch.object(svc, "_read_text_file", return_value=text), \
+                    mock.patch.object(svc, "resolve_root_device", return_value=None):
+                self.assertIsNone(svc.collect_linux_disk_counters("/app"))
+
 
 class CollectorFailureTests(unittest.TestCase):
     def test_one_collector_failing_keeps_siblings(self):
@@ -1432,6 +1439,42 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(response.status, 200)
         self.assertEqual(response.payload, payload)
         self.assertFalse(get_stats.call_args.kwargs.get("force_refresh", False))
+
+    def test_repeated_linux_samples_use_real_disk_collector(self):
+        ctx = make_context(backend="vulkan", platform="linux")
+        files = {
+            "/proc/stat": LinuxParserTests.PROC_STAT,
+            "/proc/meminfo": "MemTotal: 2048 kB\nMemAvailable: 1024 kB\n",
+            "/proc/diskstats": LinuxParserTests.DISKSTATS,
+            "/etc/os-release": "ID=cachyos\n",
+        }
+        stderr = io.StringIO()
+        with mock.patch.object(svc, "_read_text_file", side_effect=files.__getitem__), \
+                mock.patch.object(svc, "resolve_root_device", return_value=(8, 1)), \
+                mock.patch.object(svc.shutil, "disk_usage", return_value=SimpleNamespace(used=1024, total=2048)), \
+                mock.patch.object(svc, "is_wsl_environment", return_value=False), \
+                mock.patch.object(svc, "probe_all_smi", return_value=("missing", [], None)), \
+                no_gpus_patch()[0], no_gpus_patch()[1], \
+                mock.patch.object(svc.time, "monotonic", return_value=100.0) as clock, \
+                contextlib.redirect_stderr(stderr):
+            first = DummyResponse()
+            system_stats_route.get_system_stats(self._request("refresh=1"), first, ctx)
+            self.assertEqual(first.status, 200)
+            self.assertIsNone(first.payload["system"]["disk"]["read_bytes_per_second"])
+
+            clock.return_value = 102.0
+            files["/proc/diskstats"] = LinuxParserTests.DISKSTATS.replace(
+                "1800 0 400 0 800", "1804 0 400 0 802"
+            )
+            second = DummyResponse()
+            system_stats_route.get_system_stats(self._request("refresh=1"), second, ctx)
+            self.assertEqual(second.status, 200, stderr.getvalue())
+            disk = second.payload["system"]["disk"]
+            self.assertEqual(disk["read_bytes_per_second"], 1024.0)
+            self.assertEqual(disk["write_bytes_per_second"], 512.0)
+            self.assertTrue(second.payload["system"]["cpu"]["available"])
+            self.assertTrue(second.payload["system"]["memory"]["available"])
+            self.assertEqual(stderr.getvalue(), "")
 
     def test_refresh_1_forces_collection(self):
         ctx = make_context()
