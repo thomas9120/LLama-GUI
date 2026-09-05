@@ -994,6 +994,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
 | `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
+| `docs/ui-ux-polish.md` | UI/UX polish direction for experienced llama.cpp users, open decisions, implementation slices, and saved Configure/Quick Launch mockups |
 | `docs/design-docs/router-mode.md` | Router mode design notes |
 | `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
 | `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |

@@ -1,0 +1,94 @@
+<style>
+#llama-configure-concept{--ll-bg:light-dark(#f6f7fb,#0f111a);--ll-panel:light-dark(#ffffff,#161824);--ll-input:light-dark(#f0f2f8,#1c1f2e);--ll-text:light-dark(#222b41,#eaecf8);--ll-muted:light-dark(#526078,#a0a8c3);--ll-line:light-dark(#dce0ea,#30354a);--ll-accent:light-dark(#315bc1,#8bb0ff);--ll-accent-bg:light-dark(#e9efff,#222d46);--ll-green:light-dark(#257041,#8ad5a0);--ll-row-pad:12px;font-family:Inter,system-ui,sans-serif;font-size:13px;line-height:1.5;color:var(--ll-text);background:var(--ll-bg);border:1px solid var(--ll-line);border-radius:10px;overflow:hidden}
+#llama-configure-concept *{box-sizing:border-box}
+#llama-configure-concept [hidden]{display:none!important}
+#llama-configure-concept .ll-runtime{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--ll-line);background:var(--ll-panel)}
+#llama-configure-concept .ll-ready{color:var(--ll-green);font-weight:500}
+#llama-configure-concept .ll-muted{color:var(--ll-muted)}
+#llama-configure-concept .ll-heading{padding:18px 18px 12px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+#llama-configure-concept h3{font-size:17px;line-height:1.4;font-weight:500;margin:0}
+#llama-configure-concept .ll-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:0 18px 12px}
+#llama-configure-concept .ll-check{display:flex;gap:7px;align-items:center;color:var(--ll-muted);cursor:pointer}
+#llama-configure-concept .ll-check input{accent-color:var(--ll-accent);width:15px;height:15px}
+#llama-configure-concept .ll-table{margin:0 18px;border-top:1px solid var(--ll-line)}
+#llama-configure-concept .ll-row{display:grid;grid-template-columns:minmax(0,1fr) 124px 110px;gap:12px;align-items:center;padding:var(--ll-row-pad) 0;border-bottom:1px solid var(--ll-line)}
+#llama-configure-concept .ll-name{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-weight:500}
+#llama-configure-concept code{font-family:'JetBrains Mono',Consolas,monospace;font-size:12px;background:none;color:var(--ll-muted);padding:0;overflow-wrap:anywhere}
+#llama-configure-concept .ll-help{margin-top:4px;color:var(--ll-muted);font-size:12px}
+#llama-configure-concept .ll-number{font:inherit;font-variant-numeric:tabular-nums;color:var(--ll-text);background:var(--ll-input);border:1px solid var(--ll-line);padding:6px 9px;border-radius:5px;width:100%;text-align:right}
+#llama-configure-concept .ll-number[aria-invalid=true]{border-color:var(--ll-accent)}
+#llama-configure-concept .ll-current{font-size:12px;color:var(--ll-muted);text-align:right;font-variant-numeric:tabular-nums}
+#llama-configure-concept .ll-colheads{padding-top:8px;padding-bottom:8px;color:var(--ll-muted);font-size:12px}
+#llama-configure-concept .ll-changed{color:var(--ll-accent);font-size:12px}
+#llama-configure-concept .ll-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 18px;background:var(--ll-panel);margin-top:14px}
+#llama-configure-concept .ll-button{font:inherit;font-weight:500;padding:7px 12px;border:1px solid var(--ll-line);border-radius:5px;background:var(--ll-input);color:var(--ll-text);cursor:pointer}
+#llama-configure-concept .ll-button:hover{border-color:var(--ll-accent)}
+#llama-configure-concept .ll-button:disabled{opacity:.5;cursor:default}
+#llama-configure-concept .ll-primary{color:var(--ll-accent);background:var(--ll-accent-bg);border-color:var(--ll-accent)}
+#llama-configure-concept .ll-review{padding:16px 18px;border-top:1px solid var(--ll-line);background:var(--ll-panel)}
+#llama-configure-concept .ll-diff{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--ll-line)}
+#llama-configure-concept .ll-review-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:12px}
+#llama-configure-concept .ll-empty{padding:20px 0;color:var(--ll-muted)}
+@media(max-width:480px){#llama-configure-concept .ll-row{grid-template-columns:minmax(0,1fr) 98px;gap:6px 10px}#llama-configure-concept .ll-current{grid-column:2}#llama-configure-concept .ll-colheads .ll-current{display:none}#llama-configure-concept .ll-runtime,#llama-configure-concept .ll-heading,#llama-configure-concept .ll-footer{padding-left:12px;padding-right:12px}#llama-configure-concept .ll-table{margin-left:12px;margin-right:12px}#llama-configure-concept .ll-number{font-size:16px}}
+@media(pointer:coarse){#llama-configure-concept .ll-button,#llama-configure-concept .ll-check,#llama-configure-concept .ll-number{min-height:44px}}
+</style>
+<section id="llama-configure-concept" aria-label="Configure concept">
+  <div class="ll-runtime"><span class="ll-ready">● Running</span><span>Qwen3 · Q4_K_M</span><span class="ll-muted">llama-server · localhost:8080</span></div>
+  <div class="ll-heading"><h3>Context &amp; Memory</h3><span class="ll-muted">Editing next launch</span></div>
+  <div class="ll-toolbar"><span class="ll-muted">4 settings</span><label class="ll-check"><input type="checkbox" id="ll-modified">Modified only</label></div>
+  <div class="ll-table">
+    <div class="ll-row ll-colheads"><span>Setting</span><span style="text-align:right">Next launch</span><span class="ll-current">Running</span></div>
+    <div class="ll-row" data-setting="ctx"><div><label class="ll-name" for="ll-ctx">Context size <code>-c</code></label><div class="ll-help" hidden>Context budget in tokens.</div></div><input class="ll-number" id="ll-ctx" type="number" min="1" step="1" value="64000"><div class="ll-current">32000<span class="ll-changed"> · changed</span></div></div>
+    <div class="ll-row" data-setting="batch"><div><label class="ll-name" for="ll-batch">Batch size <code>-b</code></label><div class="ll-help" hidden>Logical maximum batch size.</div></div><input class="ll-number" id="ll-batch" type="number" min="1" step="1" value="2048"><div class="ll-current">2048<span class="ll-changed" hidden> · changed</span></div></div>
+    <div class="ll-row" data-setting="ubatch"><div><label class="ll-name" for="ll-ubatch">Micro-batch <code>-ub</code></label><div class="ll-help" hidden>Physical batch size.</div></div><input class="ll-number" id="ll-ubatch" type="number" min="1" step="1" value="256"><div class="ll-current">512<span class="ll-changed"> · changed</span></div></div>
+    <div class="ll-row" data-setting="keep"><div><label class="ll-name" for="ll-keep">Keep tokens <code>--keep</code></label><div class="ll-help" hidden>Initial tokens retained when shifting context.</div></div><input class="ll-number" id="ll-keep" type="number" min="0" step="1" value="0"><div class="ll-current">0<span class="ll-changed" hidden> · changed</span></div></div>
+    <div class="ll-empty" id="ll-empty" hidden>No pending changes.</div>
+  </div>
+  <div class="ll-footer"><span id="ll-status" aria-live="polite">2 changes · require restart</span><button class="ll-button ll-primary" type="button" id="ll-review-button" aria-expanded="false" aria-controls="ll-review">Review changes</button></div>
+  <div class="ll-review" id="ll-review" hidden><span>Changes for next launch</span><div id="ll-diffs"></div><div class="ll-review-actions"><button class="ll-button" type="button" id="ll-discard">Revert to running values</button><button class="ll-button" type="button" id="ll-close">Close review</button></div></div>
+</section>
+<script>
+(() => {
+  const root = document.getElementById('llama-configure-concept');
+  const settings = [{id:'ctx',label:'Context size',running:32000},{id:'batch',label:'Batch size',running:2048},{id:'ubatch',label:'Micro-batch',running:512},{id:'keep',label:'Keep tokens',running:0}];
+  const modified = root.querySelector('#ll-modified');
+  const review = root.querySelector('#ll-review');
+  const reviewButton = root.querySelector('#ll-review-button');
+  const design = {density:'Compact',help:false};
+  function render() {
+    root.style.setProperty('--ll-row-pad',design.density==='Compact'?'12px':'20px');
+    root.querySelectorAll('.ll-help').forEach(el => {el.hidden=!design.help;});
+    let changed=0, invalid=0;
+    const diffs = root.querySelector('#ll-diffs');
+    diffs.replaceChildren();
+    settings.forEach(setting => {
+      const input = root.querySelector('#ll-'+setting.id);
+      const row = root.querySelector('[data-setting="'+setting.id+'"]');
+      const valid = input.value!=='' && input.checkValidity();
+      const differs = !valid || Number(input.value)!==setting.running;
+      input.setAttribute('aria-invalid',String(!valid));
+      if(!valid) invalid++;
+      row.hidden=modified.checked&&!differs;
+      row.querySelector('.ll-changed').hidden=!differs;
+      if(differs){
+        changed++;
+        const diff=document.createElement('div'); diff.className='ll-diff';
+        const label=document.createElement('span'); label.textContent=setting.label;
+        const value=document.createElement('code'); value.textContent=setting.running+' → '+(valid?input.value:'Enter a valid value');
+        diff.append(label,value); diffs.append(diff);
+      }
+    });
+    root.querySelector('#ll-status').textContent=invalid?'Enter valid values to review':changed?changed+' '+(changed===1?'change':'changes')+' · require restart':'Matches running configuration';
+    reviewButton.disabled=changed===0||invalid>0;
+    root.querySelector('#ll-empty').hidden=!(modified.checked&&changed===0);
+    if(changed===0||invalid>0){review.hidden=true;reviewButton.setAttribute('aria-expanded','false');}
+  }
+  root.querySelectorAll('.ll-number').forEach(input => input.addEventListener('input',render));
+  modified.addEventListener('change',render);
+  reviewButton.addEventListener('click',()=>{review.hidden=!review.hidden;reviewButton.setAttribute('aria-expanded',String(!review.hidden));});
+  root.querySelector('#ll-close').addEventListener('click',()=>{review.hidden=true;reviewButton.setAttribute('aria-expanded','false');reviewButton.focus();});
+  root.querySelector('#ll-discard').addEventListener('click',()=>{settings.forEach(setting=>{root.querySelector('#ll-'+setting.id).value=String(setting.running);});render();modified.focus();});
+  render();
+  if(globalThis.Tweak){const tweak=new Tweak({container:root,onChange:render});tweak.addSelect(design,'density',{label:'Row density',options:['Compact','Comfortable']});tweak.addToggle(design,'help',{label:'Inline help'});}
+})();
+</script>
