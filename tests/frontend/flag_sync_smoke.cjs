@@ -1477,9 +1477,11 @@ async function main() {
         assert.match(await page.textContent("#chat-no-server-note"), /Start llama-server/i);
         statusRunning = true;
         activeProcessTool = "llama-cli";
+        statusActiveRuntime = { tool: "llama-cli", generation: 43 };
         await page.evaluate(() => refreshRuntimeStatusPanels());
         assert.equal(await page.locator("#chat-input").isDisabled(), true);
         activeProcessTool = "llama-server";
+        statusActiveRuntime = { tool: "llama-server", generation: 44 };
         await page.evaluate(() => refreshRuntimeStatusPanels());
         assert.equal(await page.locator("#chat-input").isDisabled(), false);
         await page.evaluate(() => {
@@ -2088,6 +2090,7 @@ async function main() {
         // on its own, with no process running.
         statusRunning = false;
         activeProcessTool = "";
+        statusActiveRuntime = null;
         await page.evaluate(() => refreshRuntimeStatusPanels());
         assert.equal(await page.textContent("#external-server-badge"), "Not connected");
         assert.equal(

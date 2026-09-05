@@ -254,7 +254,9 @@
             return lifecycle.ready === true;
         }
         const latestStatus = getLatestStatus ? getLatestStatus() : null;
-        if (latestStatus && latestStatus.running && latestStatus.active_process_tool === "llama-server") {
+        // Lifecycle clears the runtime before the shared status poll catches up
+        // after Stop. Only fall back when lifecycle state is unavailable.
+        if (!lifecycle && latestStatus && latestStatus.running && latestStatus.active_process_tool === "llama-server") {
             return true;
         }
         // A llama-server registered on the API tab is just as good a chat target
