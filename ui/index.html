@@ -330,6 +330,17 @@
                 </div>
                 <p id="quick-presets-status" class="help-text" role="status">Loading saved presets…</p>
             </section>
+            <section class="preset-context hidden" data-preset-context aria-label="Saved preset comparison">
+                <div class="preset-context-heading">
+                    <div class="preset-context-identity"><span data-preset-origin>Unsaved configuration</span> <button type="button" class="btn btn-link" data-preset-name></button><span data-preset-state></span></div>
+                    <div class="preset-context-actions"><button type="button" class="btn btn-sm" data-preset-update>Update preset</button><button type="button" class="btn btn-sm btn-ghost" data-preset-save-new>Save as new preset</button></div>
+                </div>
+                <details data-preset-review class="preset-review hidden">
+                    <summary data-preset-review-label>Compared with saved preset</summary>
+                    <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+                </details>
+                <p class="help-text" data-preset-context-note></p>
+            </section>
             <div class="quick-config">
                 <section class="quick-model-section" aria-label="Model and launch mode">
                     <div class="quick-model-row">
@@ -742,6 +753,17 @@
             </div>
             <div id="models-folder-error" class="status-box hidden" role="status" aria-live="polite"></div>
 
+            <section class="preset-context hidden" data-preset-context aria-label="Saved preset comparison">
+                <div class="preset-context-heading">
+                    <div class="preset-context-identity"><span data-preset-origin>Unsaved configuration</span> <button type="button" class="btn btn-link" data-preset-name></button><span data-preset-state></span></div>
+                    <div class="preset-context-actions"><button type="button" class="btn btn-sm" data-preset-update>Update preset</button><button type="button" class="btn btn-sm btn-ghost" data-preset-save-new>Save as new preset</button></div>
+                </div>
+                <details data-preset-review class="preset-review hidden">
+                    <summary data-preset-review-label>Compared with saved preset</summary>
+                    <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+                </details>
+                <p class="help-text" data-preset-context-note></p>
+            </section>
             <div class="config-controls">
                 <input type="text" id="config-search" placeholder="Search categories and flags..." />
                 <div class="form-row">
@@ -1624,10 +1646,10 @@
             <div id="preset-status" class="status-box"></div>
 
             <div class="presets-save-bar">
-                <label class="presets-save-label" for="preset-name-input">Save current config</label>
+                <label class="presets-save-label" for="preset-name-input">New preset</label>
                 <input type="text" id="preset-name-input" placeholder="Preset name..." aria-label="Preset name" />
-                <button class="btn btn-primary" id="btn-save-preset">Save</button>
-                <span class="presets-save-hint">Captures the active Configure settings</span>
+                <button class="btn btn-primary" id="btn-save-preset">Save new preset</button>
+                <span class="presets-save-hint">Saves your current edits under a new name</span>
             </div>
             <input type="file" id="preset-import" accept=".json" style="display:none" />
 
@@ -1698,6 +1720,14 @@
     <span class="stats-item">Context (most-filled slot) <span class="stats-value" id="stats-kv-usage">--%</span></span>
 </div>
 
+<dialog id="preset-update-dialog" class="modal-dialog preset-update-dialog" aria-labelledby="preset-update-title" aria-describedby="preset-update-description">
+    <form method="dialog">
+        <h3 id="preset-update-title">Update preset?</h3>
+        <p id="preset-update-description">Replace this preset with the settings captured for this review. The running process will stay as it is. API keys are excluded; sensitive values and Custom Launch Args are hidden below.</p>
+        <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+        <div class="form-row"><button class="btn" value="cancel" autofocus>Cancel</button><button class="btn btn-primary" value="update">Update preset</button></div>
+    </form>
+</dialog>
 <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
     <div class="modal-dialog">
         <h3 id="confirm-modal-title">Confirm Action</h3>

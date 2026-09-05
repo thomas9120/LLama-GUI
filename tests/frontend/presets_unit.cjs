@@ -199,6 +199,41 @@ assert.equal(applied[2][0], "flags");
 assert.equal(applied[2][1].api_key, "session-secret");
 assert.equal(applied[2][1].ctx_size, 4096);
 
+// Saved-preset comparisons use the load path's defaults and model resolution,
+// but deliberately exclude API keys and the retired draft-context flag.
+{
+    let current = { ctx_size: "4096", temperature: "0.8", api_key: "session-secret", ctx_size_draft: 99, devices: ["0", "1"] };
+    context.window.LlamaGui.manager = { getKnownModelNames: () => new Set(["vendor/model.gguf"]) };
+    const core = context.window.LlamaGui.flagCore;
+    Object.assign(core, {
+        getFlagValues: () => current,
+        getCurrentTool: () => "llama-server",
+        getSelectedModel: () => "vendor/model.gguf",
+        buildEffectiveFlagValues: values => ({ ctx_size: 4096, temperature: 0.8, devices: [0, 1], ...values }),
+        normalizeSpeculativeFlagValues: values => ({ ...values }),
+    });
+    const saved = { model: "model.gguf", flags: { api_key: "old-key", ctx_size_draft: 1 } };
+    context.document.getElementById = id => id === "model-select" ? { options: [{ value: "vendor/model.gguf" }] } : null;
+    assert.equal(presetApi.matchesCurrentPreset(saved), true, "legacy model names, defaults and numeric control strings must match");
+    current = { ...current, temperature: 0.3 };
+    assert.equal(presetApi.comparePresetToCurrent(saved).changes.map(change => change.id).join(","), "temperature");
+    const captured = vm.runInContext("buildCurrentPresetData()", context);
+    current.devices.push("2");
+    assert.equal(captured.flags.devices.join(","), "0,1", "a captured save must not follow later array edits");
+    assert.equal(captured.flags.api_key, undefined);
+    current = { ...current, custom_args: "--api-key unsafe" };
+    assert.equal(presetApi.comparePresetToCurrent(saved).blocked, true);
+    assert.equal(presetApi.matchesCurrentPreset(saved), false);
+    context.FLAGS.push({ id: "hf_token" });
+    assert.equal(presetApi.formatSavedPresetValue("hf_token", "private-token"), "Set · value hidden");
+    assert.equal(presetApi.formatSavedPresetValue("custom_args", "--other-token private"), "Set · value hidden");
+    assert.equal(presetApi.formatSavedPresetValue("api_key", "private-token"), "Set · value hidden");
+    assert.equal(presetApi.formatSavedPresetValue("ctx_size", 0), "Auto · from model (0)");
+    assert.equal(presetApi.formatSavedPresetValue("gpu_layers", "auto"), "Auto");
+    context.window.LlamaGui.manager = undefined;
+    context.document.getElementById = () => null;
+}
+
 // favorites tri-state: needs a working storage, unlike the blocked-storage context above
 function createStoredContext(initialStorage = {}) {
     const store = { ...initialStorage };

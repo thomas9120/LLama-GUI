@@ -559,9 +559,17 @@ Because warnings are computed at build time, `refreshModels()` calls `refreshMod
 
 ### Detail Panel
 
-With a preset selected: model, tool, override count, quant, warning count, notable settings chips, and the action row — Load Preset, Duplicate, Rename, Update from Current, Export, Windows Shortcut, Favorite, and Delete.
+With a preset selected: model and warnings, followed by **Load into Configure**, Favorite, and a keyboard-operable **More actions** disclosure containing a named Update action, Duplicate, Rename, Export, Windows Shortcut, Archive/Restore, and Delete. The launch-input summary shows tool, context, GPU offload, and K/V cache settings from shared flag definitions. Missing values are explicitly labeled as GUI defaults; Auto is not presented as a resolved runtime value. All saved settings are available in a separate disclosure, with API keys and the retired draft-context flag excluded, and HF tokens, sensitive flags, and Custom Launch Args masked.
 
 With nothing selected: a library summary — preset count, model groups, favorites, warnings, missing models, most recently used, and a health line. The summary describes the **visible** presets, not everything on disk, so its numbers always agree with the list and the count line. Any absolute claim about library health is suppressed while a filter is active or while the model list is unchecked.
+
+### Editing And Saving
+
+Configure and Quick Launch share a preset context bar. Before loading or saving a preset it offers **Save as new preset** for the unsaved configuration. Afterwards it shows **Based on** the last loaded/saved preset and whether the current edits match it. Selecting a row in the library never changes that source. The source name opens its library detail and clears conflicting filters. This session-only source is independent of the active runtime and Configure's **Changed since launch** comparison.
+
+`comparePresetToCurrent()` uses the same default/speculative-flag normalization and model-name resolution as loading. API keys and `ctx_size_draft` do not participate; sensitive/custom-argument values are masked in rendered differences. `refreshContext()` runs from the shared command-preview broadcast; accepted library fetches reconcile the saved source, including renamed, archived, and missing presets.
+
+New saves use `overwrite: false`. Updating fetches the saved target, captures current savable inputs, and opens a native dialog with saved/current differences. On confirmation it rechecks that the target still exists and matches the reviewed saved data, then posts the captured snapshot. Edits made while the dialog is open remain pending. Duplicate submissions are guarded; failures preserve edits for retry. These operations do not launch, stop, or restart a process.
 
 ### Keyboard Navigation
 

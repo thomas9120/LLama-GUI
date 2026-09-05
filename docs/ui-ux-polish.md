@@ -252,9 +252,16 @@ The comparison summary lives in Configure; Quick Launch has a compact runtime st
 - Empty idle output no longer reserves a large blank terminal. Retained stopped-process output is labeled Last run output. External connections identify their endpoint and explain the absence of process output.
 - External target changes invalidate delayed inference polls before establishing a new baseline, including reconnects to the same address.
 
+### Implemented: Preset editing workflow, 2026-09-05
+
+- Configure and Quick Launch offer **Save as new preset** before a source exists, then show **Based on: [preset]** with **Modified** or **Matches saved preset**. Browsing another library row never changes this editing source, and its comparison remains separate from the active launch baseline.
+- **Update [name]** presents saved-versus-current changes before overwriting and saves the exact reviewed snapshot. New saves reject existing names. Rename/archive/removal and save failures preserve the current edits and keep the source status explicit. The source-name link opens the appropriate library detail even after filtering or archiving.
+- The detail panel emphasizes **Load into Configure** and Favorite, with maintenance actions in **More actions**. Model warnings sit beside the saved model, common launch inputs use a consistent summary, and all saved settings have their own disclosure. Auto/default values describe inputs, not inferred runtime results; sensitive values are masked.
+- Preset saves leave the active runtime alone. The context is session-only, consistent with pending Configure state. Existing JSON presets, favorite/history storage, and backend routes remain compatible.
+
 ## Remaining decisions
 
-- How should separate default and saved-preset comparisons be exposed alongside the implemented launch baseline?
+- Would a separate comparison against GUI defaults add value beyond the existing per-setting defaults and saved-preset/launch comparisons?
 - Should Quick Launch preset shortcuts eventually support explicit pinning in addition to favorites/recent use?
 - How much explanatory text should be visible by default? Is a density preference useful?
 - Should the sidebar runtime disclosure eventually include a pending-change count linked to Configure's comparison?

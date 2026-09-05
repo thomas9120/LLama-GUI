@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Connected saved presets to Configure and Quick Launch with an independent **Based on / Modified** comparison, direct **Save as new preset**, and a named update action that reviews captured changes before saving. New saves reject name collisions; failed updates preserve edits, and renamed, archived, or removed source presets remain understandable. Simplified preset details with **Load into Configure**, secondary actions, consistent launch-input summaries, and an expandable saved-settings view with masked sensitive values.
+
 - Aligned Monitor's standard card widths across incomplete desktop rows so Disk and GPU match CPU and Memory, while retaining Inference's larger sizing.
 
 - Connected Monitor to the active runtime with model/build/endpoint identity, lifecycle state, and direct Configure/change-review links. Distinguished system telemetry from server activity, explained partial inference availability, and grouped optional GPU setup guidance into a disclosure so Monitor remains useful without vendor probes. Empty idle logs collapse; retained logs are labeled **Last run output**. Fixed delayed inference responses crossing an external-server reconnect.

@@ -64,7 +64,7 @@ samplerPresets.configure({
     showToast,
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
-presetsApi.configure({ showToast });
+presetsApi.configure({ showToast, switchTab });
 const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
 remoteTunnelUi.configure({
     fetchJson,
@@ -377,6 +377,7 @@ flagCore.configure({
         preview.classList.toggle("command-preview-error", Boolean(result && result.error));
         setCustomLaunchArgsMessages(result || {});
         configFlagsUi.refreshComparison();
+        presetsApi.refreshContext();
         monitorUi.renderRuntime();
         updateServerAddressPreview();
         updateApiEndpoints();
@@ -548,6 +549,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     externalServerUi.init();
     initPresetImport();
     initPresetLibraryControls();
+    presetsApi.initContextControls();
     initQuickLaunch();
     initChatTab();
     benchmarkUi.init();

@@ -211,6 +211,171 @@ async function verifyConfigureComparison(page) {
     assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
 }
 
+async function verifyPresetPolish(page) {
+    const entries = [
+        { name: "Daily server", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4, hf_token: "hidden-hf-token", custom_args: "--alias daily" } } },
+        { name: "Another preset", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { ctx_size: 0 } } },
+    ];
+    const writes = [];
+    let failSave = false;
+    const handler = async route => {
+        const request = route.request();
+        const pathname = new URL(request.url()).pathname;
+        if (request.method() === "GET") return route.fulfill({ json: entries });
+        const body = request.postDataJSON();
+        if (pathname === "/api/presets/rename") {
+            entries.find(entry => entry.name === body.name).name = body.new_name;
+            return route.fulfill({ json: { renamed: true, name: body.new_name } });
+        }
+        if (pathname === "/api/presets/archive") {
+            for (const entry of entries) if (body.names.includes(entry.name)) entry.archived = body.archived;
+            return route.fulfill({ json: { archived: body.archived, count: body.names.length } });
+        }
+        writes.push(body);
+        const existing = entries.find(entry => entry.name.toLowerCase() === body.name.toLowerCase());
+        if (existing && body.overwrite === false) return route.fulfill({ status: 409, json: { error: "Preset already exists" } });
+        if (failSave) return route.fulfill({ status: 500, json: { error: "Could not save preset" } });
+        if (existing) existing.data = body.data;
+        else entries.push({ name: body.name, data: body.data });
+        return route.fulfill({ json: { saved: true, name: body.name } });
+    };
+    await page.route("**/api/presets**", handler);
+    const runtimeBefore = await page.evaluate(() => JSON.stringify(processLifecycle.getSnapshot().activeRuntime));
+    const config = page.locator("#section-configure [data-preset-context]");
+    const quick = page.locator("#section-quick-launch [data-preset-context]");
+    try {
+        await page.evaluate(() => {
+            presetSearchQuery = "";
+            presetFavoritesMode = "all";
+            presetWarningFilterActive = false;
+            presetArchiveViewActive = false;
+            document.getElementById("preset-search").value = "";
+            savePresetGroupState({});
+            flagCore.setFlagValue("api_key", "session-only-api-key");
+        });
+        await selectSection(page, "presets");
+        await page.locator("#presets-list .preset-group-header").first().waitFor();
+        await page.click("#btn-presets-expand-all");
+        await page.locator('.preset-item[data-preset-name="Daily server"]').click();
+        assert.equal(await page.getByRole("button", { name: "Duplicate", exact: true }).isVisible(), false);
+        assert.match(await page.textContent(".preset-detail-stats"), /GUI default/);
+        await page.locator(".preset-saved-settings > summary").click();
+        assert.doesNotMatch(await page.textContent(".preset-saved-settings"), /hidden-hf-token|--alias daily|ctx_size_draft/);
+        await page.getByRole("button", { name: "Load into Configure", exact: true }).click();
+        await config.waitFor({ state: "visible" });
+        assert.equal(await config.locator("[data-preset-name]").textContent(), "Daily server");
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Matches saved preset");
+        assert.equal(await config.locator("[data-preset-update]").isDisabled(), true);
+
+        await page.evaluate(() => flagCore.setMultipleFlagValues({ temperature: 0.25, hf_token: "changed-hf-token", custom_args: "--alias changed" }));
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        await config.locator("[data-preset-review-label]").click();
+        await config.locator("tbody tr").first().waitFor();
+        assert.doesNotMatch(await config.locator("tbody").textContent(), /hidden-hf-token|changed-hf-token|--alias|session-only-api-key/);
+        assert.match(await config.locator("tbody").textContent(), /Changed · value hidden/);
+        await selectSection(page, "quick-launch");
+        assert.equal(await quick.locator("[data-preset-state]").textContent(), "Modified");
+        await selectSection(page, "presets");
+        await page.locator('.preset-item[data-preset-name="Another preset"]').click();
+        assert.match(await page.textContent(".preset-detail-stats"), /Auto · from model/);
+        assert.equal(await config.locator("[data-preset-name]").textContent(), "Daily server", "browsing must not change the edit source");
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        assert.match(await page.textContent("#preset-update-title"), /Daily server/);
+        assert.doesNotMatch(await page.textContent("#preset-update-dialog tbody"), /changed-hf-token|--alias/);
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.length, 0, "cancelling the review must not write");
+        assert.equal(await config.locator("[data-preset-update]").evaluate(el => el === document.activeElement), true, "cancelling restores keyboard focus");
+
+        // The save uses the reviewed snapshot even if settings change while open.
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.6));
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.at(-1).data.flags.temperature, 0.25);
+        assert.equal(writes.at(-1).data.flags.api_key, undefined);
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.25));
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Matches saved preset");
+
+        await config.locator("[data-preset-save-new]").click();
+        await page.fill("#prompt-modal-input", "Daily server");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.at(-1).overwrite, false);
+        assert.equal(entries.length, 2, "save as new must reject a name collision");
+        assert.match(await page.textContent("#preset-status"), /already exists/);
+        const newName = "New <img src=x> " + "long preset name ".repeat(6);
+        await config.locator("[data-preset-save-new]").click();
+        await page.fill("#prompt-modal-input", newName.trim());
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(await config.locator("[data-preset-name]").textContent(), newName.trim());
+        assert.equal(await config.locator("img").count(), 0);
+        await config.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.activeElement?.classList.contains("preset-detail-title"));
+        assert.equal(await page.textContent(".preset-detail-title"), newName.trim());
+
+        await page.locator(".preset-more-actions > summary").focus();
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator(".preset-more-actions").evaluate(el => el.open), false);
+        await page.locator(".preset-more-actions > summary").click();
+        await page.getByRole("button", { name: "Rename", exact: true }).click();
+        await page.fill("#prompt-modal-input", "Renamed source");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => lastLoadedPresetName === "Renamed source");
+        // Source links must clear filters that would hide the requested preset.
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.querySelector(".preset-detail-title")?.textContent === "Renamed source");
+        await page.locator(".preset-more-actions > summary").click();
+        await page.locator("#preset-detail-panel").getByRole("button", { name: "Archive", exact: true }).click();
+        await page.waitForFunction(() => loadedPresetArchived);
+        await selectSection(page, "quick-launch");
+        await quick.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.querySelector(".preset-detail-title")?.textContent === "Renamed source");
+        assert.match(await page.textContent("#preset-archive-view"), /Viewing archive/);
+
+        // Failure leaves the source and pending edits available for retry.
+        await selectSection(page, "configure");
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.5));
+        failSave = true;
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(await config.locator("[data-preset-update]").isEnabled(), true);
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        failSave = false;
+
+        for (const section of ["configure", "quick-launch", "presets"]) {
+            await selectSection(page, section);
+            for (const width of [390, 900, 1440]) {
+                await page.setViewportSize({ width, height: 1000 });
+                assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${section} fits at ${width}px`);
+            }
+        }
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        const writesBeforeRemoval = writes.length;
+        entries.splice(entries.findIndex(entry => entry.name === "Renamed source"), 1);
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.length, writesBeforeRemoval, "deleting a preset during review must not recreate it");
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "No longer saved");
+        assert.equal(await config.locator("[data-preset-update]").isDisabled(), true);
+        assert.equal(await config.locator("[data-preset-save-new]").isEnabled(), true);
+        assert.equal(await page.evaluate(() => JSON.stringify(processLifecycle.getSnapshot().activeRuntime)), runtimeBefore, "preset edits must not change the active runtime");
+    } finally {
+        await page.unroute("**/api/presets**", handler);
+    }
+}
+
 async function verifyQuickLaunchPolish(page) {
     const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
     let activeRuntime = null;
@@ -275,7 +440,7 @@ async function verifyQuickLaunchPolish(page) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator(".quick-runtime").scrollIntoViewIfNeeded();
     const launchBottom = await page.locator(".quick-launch-bar").evaluate(el => el.getBoundingClientRect().bottom);
-    assert.ok(launchBottom < 1000, "common launch controls and action fit a desktop viewport");
+    assert.ok(launchBottom < 1000, `common launch controls and action fit a desktop viewport (bottom: ${launchBottom})`);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(400);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -3028,6 +3193,7 @@ async function main() {
         await verifyShellPolish(page);
         await verifySecondaryPagePolish(page);
         await verifyMonitorRuntimePolish(page);
+        await verifyPresetPolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
