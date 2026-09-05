@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: Configure presentation, launch-settings comparison, restart with changes, Quick Launch layout, sidebar navigation/runtime controls, shared visual treatments, and the Chat/API/Install secondary-screen pass implemented. Further Presets/Monitor workflow changes and comparison-baseline decisions remain optional follow-ups.
+Status: Configure presentation, launch-settings comparison, restart with changes, Quick Launch layout, sidebar navigation/runtime controls, shared visual treatments, Chat/API/Install refinements, and Monitor's active-runtime pass implemented. Further Presets workflow changes and comparison-baseline decisions remain optional follow-ups.
 
 ## Purpose and audience
 
@@ -242,6 +242,15 @@ The comparison summary lives in Configure; Quick Launch has a compact runtime st
 - **API:** Each endpoint has an aligned name, method, full URL, description, and specifically labeled Copy action. External-server connection and remote access use separate disclosures at the top, with status badges visible while collapsed. The remote-access warning stays beside the tunnel controls. Client examples expand individually (cURL opens initially) and retain their open state when model/auth settings trigger a rerender.
 - **Install & Update:** Required launch tools stay visible; optional tools live under an installed-count summary and show neutral **Not installed** text when absent. Missing required files and repair guidance retain their warning treatment. Status polls preserve optional-tool disclosure focus and open state. **Restart Llama GUI** replaces the implementation-specific restart label while keeping the existing confirmation.
 - **Verification:** Frontend syntax, unit, theme contrast, flag compatibility, and browser checks passed. Browser coverage includes panel reload/resize/focus behavior, disclosure keyboard access, endpoint containment at 390/900/1440px, retained client examples, and required/optional installation states.
+
+### Implemented: Monitor runtime connection, 2026-09-05
+
+- Active model/tool/backend/build/endpoint and lifecycle state use the shared authoritative runtime. Pending edits never replace that identity. Open Configure and Review changes link back to the existing launch comparison; reviewing expands and focuses it without applying settings or restarting. Model/folder changes can link to the comparison even when the compared flag count is zero.
+- System telemetry has its own Live/Stale/Paused label. CPU, memory, disk, and GPU readings describe this machine, including other applications; inference readings come directly from the connected llama-server. Vendor GPU tools are optional for Monitor's other capabilities.
+- GPU setup and probe diagnostics are behind a keyboard-operable disclosure with Recheck. Available GPU cards remain in the metrics grid. Existing card ordering/hiding preferences and backend-specific guidance are preserved.
+- Inference notes explain loading, non-server tools, and independently unavailable metrics/slots without replacing valid readings or claiming missing data is zero. Active requests are labeled Processing, since they may be processing a prompt or generating output.
+- Empty idle output no longer reserves a large blank terminal. Retained stopped-process output is labeled Last run output. External connections identify their endpoint and explain the absence of process output.
+- External target changes invalidate delayed inference polls before establishing a new baseline, including reconnects to the same address.
 
 ## Remaining decisions
 

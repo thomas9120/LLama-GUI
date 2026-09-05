@@ -331,6 +331,8 @@ function buildStandardDom() {
     mount("monitor-live-badge", "span");
     mount("monitor-last-updated", "span");
     mount("btn-monitor-recheck", "button");
+    for (const id of ["monitor-runtime-state", "monitor-runtime-model", "monitor-runtime-build", "monitor-runtime-endpoint", "monitor-runtime-note", "monitor-runtime-error", "monitor-output-title", "monitor-inference-note", "monitor-gpu-summary"]) mount(id);
+    for (const id of ["btn-monitor-configure", "btn-monitor-review", "btn-monitor-quick-launch", "btn-monitor-api"]) mount(id, "button");
     const terminal = mount("output-terminal");
     terminal.scrollHeight = 100;
     terminal.clientHeight = 50;
@@ -2282,7 +2284,7 @@ async function copyButtonScenario(copyText) {
     await wait(80);
 
     assert.equal(documentStub.getElementById("monitor-process-tool").textContent, "llama-server");
-    assert.equal(documentStub.getElementById("monitor-process-state").textContent, "Running");
+    assert.equal(documentStub.getElementById("monitor-process-state").textContent, "Ready");
     assert.equal(documentStub.getElementById("monitor-process-state").classList.contains("badge-green"), true);
     const navLive = documentStub.getElementById("monitor-nav-live");
     assert.equal(navLive.classList.contains("hidden"), false);
@@ -2326,6 +2328,64 @@ async function copyButtonScenario(copyText) {
     // Reset button delegates to the shared baseline.
     documentStub.getElementById("btn-reset-inference").dispatch("click");
     assert.equal(resets, 1);
+    monitorUi.onTabChanged("configure");
+}
+
+// Runtime identity and partial inference remain useful without vendor probes.
+{
+    monitorUi._resetForTests();
+    buildStandardDom();
+    const el = id => documentStub.getElementById(id);
+    let state = { phase: "ready", activeRuntime: { tool: "llama-server", model: "folder/<img>.gguf", backend: "vulkan", version: "b123", host: "127.0.0.1", port: 8090 } };
+    let comparison = { available: true, changes: [{ flag: {} }], modelChanged: false };
+    let status = null;
+    monitorUi.configure({
+        getLifecycleSnapshot: () => state,
+        getLatestStatus: () => status,
+        compareLaunchSettings: () => comparison,
+        fetchJson: async () => makeSample({ gpus: [], gpu_setup: [] }),
+    });
+    monitorUi.init();
+    monitorUi.onTabChanged("monitor");
+    await wait(80);
+    assert.equal(el("monitor-runtime-model").textContent, "<img>.gguf");
+    assert.equal(el("monitor-runtime-model").title, "folder/<img>.gguf");
+    assert.match(el("monitor-runtime-build").textContent, /vulkan.*b123/);
+    assert.equal(el("monitor-runtime-endpoint").textContent, "Endpoint: 127.0.0.1:8090");
+    assert.equal(el("btn-monitor-review").textContent, "Review changes · 1");
+    assert.equal(el("monitor-cpu-value").textContent, "18.4%");
+    assert.equal(el("monitor-gpu-summary").textContent, "GPU telemetry is unavailable");
+    assert.match(el("monitor-live-badge").textContent, /System telemetry.*Live/);
+    comparison = { available: true, changes: [], modelChanged: true };
+    monitorUi.renderRuntime();
+    assert.equal(el("btn-monitor-review").textContent, "Review model change");
+    comparison = { available: false, changes: [] };
+    state = { phase: "failed", activeRuntime: state.activeRuntime, error: "Could not restart <img>" };
+    monitorUi.updateProcessHeader();
+    assert.equal(el("monitor-runtime-state").textContent, "Process active · action failed");
+    assert.equal(el("btn-monitor-review").classList.contains("hidden"), true);
+    assert.equal(el("monitor-runtime-error").textContent, "Could not restart <img>");
+    const engine = monitorUi.createInferenceStats({ onSnapshot: monitorUi.renderInferenceSnapshot });
+    engine.setTarget("gui:10");
+    assert.match(el("monitor-inference-note").textContent, /first inference sample/);
+    engine.applyPollResult({ metricsOk: false, slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100), now: 1000 });
+    assert.match(el("monitor-inference-note").textContent, /--metrics/);
+    assert.doesNotMatch(el("monitor-inference-note").textContent, /context unavailable/);
+    assert.notEqual(el("monitor-inference-context-reading").textContent, "Not available");
+    engine.applyPollResult({ metricsOk: true, metricsValues: metricValues(), slotsOk: false, now: 2000 });
+    assert.match(el("monitor-inference-note").textContent, /context unavailable/);
+    assert.doesNotMatch(el("monitor-inference-note").textContent, /counters unavailable/);
+    state = { phase: "idle", activeRuntime: null };
+    monitorUi.appendOutputLine("last session");
+    monitorUi.updateProcessHeader();
+    assert.equal(el("monitor-output-title").textContent, "Last run output");
+    monitorUi.clearTerminal();
+    assert.equal(el("output-terminal").classList.contains("hidden"), true);
+    status = { external_chat_target: { connected: true, host: "127.0.0.1", port: 9000 } };
+    monitorUi.updateProcessHeader();
+    assert.equal(el("monitor-runtime-state").textContent, "External server");
+    assert.equal(el("btn-monitor-api").classList.contains("hidden"), false);
+    assert.match(el("monitor-runtime-endpoint").textContent, /9000/);
     monitorUi.onTabChanged("configure");
 }
 

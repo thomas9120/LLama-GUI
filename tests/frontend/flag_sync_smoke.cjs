@@ -508,6 +508,124 @@ async function setRangeValue(page, selector, value) {
     }, [selector, value]);
 }
 
+async function verifyMonitorRuntimePolish(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseline = await page.evaluate(() => {
+        flagCore.setCurrentTool("llama-server");
+        flagCore.setMultipleFlagValues({ ctx_size: 8000, port: 8091 });
+        return flagCore.captureLaunchSettings();
+    });
+    let runtime = { tool: "llama-server", generation: 601, model: "models/" + "long-model-".repeat(25) + "<img>.gguf", host: "127.0.0.1", port: 8091, backend: "vulkan", version: "b601", launch_settings: baseline };
+    let target = null;
+    const status = () => ({ ...baseStatus, running: Boolean(runtime), active_runtime: runtime, active_process_tool: runtime?.tool, external_chat_target: target });
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: status() }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
+        "**/api/output?*": route => route.fulfill({ json: { lines: [], running: Boolean(runtime), runtime_generation: runtime?.generation, next_cursor: 0 } }),
+        "**/api/system-stats*": route => route.fulfill({ json: {
+            sampled_at: Date.now() / 1000,
+            system: { cpu: { available: true, percent: 12 }, memory: { available: true, used_bytes: 4e9, total_bytes: 16e9, percent: 25 }, disk: { available: true, percent: 50 } },
+            gpus: [], gpu_setup: [{ provider: "nvidia", state: "setup_required", message: "nvidia-smi was not found." }],
+        } }),
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    try {
+        await page.evaluate(s => processLifecycle.restore(s, { startOutput: () => {}, startStats: () => {}, postReady: () => {} }), status());
+        await selectSection(page, "monitor");
+        await page.waitForFunction(() => document.getElementById("monitor-cpu-value").textContent === "12.0%");
+        assert.equal(await page.textContent("#monitor-runtime-state"), "Ready");
+        assert.equal(await page.getAttribute("#monitor-runtime-model", "title"), runtime.model);
+        assert.equal(await page.locator(".monitor-runtime img").count(), 0);
+        assert.match(await page.textContent("#monitor-runtime-build"), /vulkan.*b601/);
+        await page.evaluate(() => flagCore.setMultipleFlagValues({ ctx_size: 16000, port: 9999 }));
+        assert.equal(await page.textContent("#btn-monitor-review"), "Review changes · 2");
+        assert.match(await page.textContent("#monitor-runtime-endpoint"), /8091/);
+        await page.click("#btn-monitor-review");
+        assert.equal(await page.locator("#section-configure").isVisible(), true);
+        assert.equal(await page.locator("#config-change-review").evaluate(el => el.open), true);
+        assert.equal(await page.locator("#config-change-review > summary").evaluate(el => el === document.activeElement), true);
+        await selectSection(page, "monitor");
+        const gpuHelp = page.locator("#monitor-gpu-help");
+        // The disclosure may have been opened by the earlier Monitor check.
+        if (await gpuHelp.evaluate(el => el.open)) await gpuHelp.locator("summary").click();
+        assert.equal(await page.locator("#monitor-setup-cards").isVisible(), false);
+        assert.equal(await page.locator("#monitor-inference-card").isVisible(), true);
+        assert.match(await page.textContent("#monitor-gpu-summary"), /unavailable/);
+        await gpuHelp.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await page.locator("#btn-monitor-recheck").isVisible(), true);
+        assert.match(await page.textContent("#monitor-setup-cards"), /nvidia-smi/);
+        await page.click("#btn-monitor-recheck");
+        await page.waitForTimeout(100);
+        assert.equal(await gpuHelp.evaluate(el => el.open), true);
+        assert.equal(await page.locator("#btn-monitor-recheck").evaluate(el => el === document.activeElement), true);
+        await page.locator('[data-monitor-key="state:nvidia"] .monitor-hide-btn').click();
+        await gpuHelp.locator("summary").click();
+        await page.locator("#monitor-hidden-controls > summary").click();
+        await page.locator("#monitor-restore-items button").first().click();
+        assert.equal(await gpuHelp.evaluate(el => el.open), true, "restoring a guidance card reveals its disclosure");
+        assert.equal(await page.locator('#monitor-gpu-help').evaluate(el => el.contains(document.activeElement)), true);
+        for (const width of [900, 390]) {
+            await page.setViewportSize({ width, height: 844 });
+            assert.equal(await page.locator("#section-monitor").evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, `Monitor fits at ${width}px`);
+            assert.equal(await page.locator(".monitor-runtime button").evaluateAll(buttons => buttons.every(button => {
+                const r = button.getBoundingClientRect();
+                return !r.width || (r.left >= 0 && r.right <= innerWidth);
+            })), true);
+        }
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        runtime = null;
+        await page.evaluate(async () => {
+            await processLifecycle.restore({ running: false, active_runtime: null });
+            monitorUi.appendOutputLine("retained output");
+        });
+        assert.equal(await page.textContent("#monitor-output-title"), "Last run output");
+        await page.click("#btn-clear-output");
+        assert.equal(await page.locator("#output-terminal").isVisible(), false);
+        assert.equal(await page.locator("#btn-monitor-quick-launch").isVisible(), true);
+        target = { connected: true, host: "127.0.0.1", port: 9008 };
+        await page.evaluate(() => checkStatus());
+        assert.equal(await page.textContent("#monitor-runtime-state"), "External server");
+        assert.match(await page.textContent("#monitor-runtime-endpoint"), /9008/);
+        assert.equal(await page.locator("#btn-monitor-review").isVisible(), false);
+        await page.click("#btn-monitor-api");
+        assert.equal(await page.locator("#section-api").isVisible(), true);
+
+        // Force delayed responses to ignore AbortSignal: epoch validation must
+        // still reject the old connection after reconnecting to the same URL.
+        const staleResult = await page.evaluate(async () => {
+            stopStatsPolling();
+            const originalFetch = window.fetch;
+            const pending = [];
+            window.fetch = (url, options) => String(url).includes("/api/llama/metrics") || String(url).includes("/api/llama/slots")
+                ? new Promise(resolve => pending.push(() => resolve({ ok: true,
+                    text: async () => "llamacpp:prompt_tokens_total 99999\nllamacpp:tokens_predicted_total 99999",
+                    json: async () => [{ id: 0, is_processing: true, n_ctx: 1000, n_prompt_tokens: 999 }],
+                }))) : originalFetch(url, options);
+            try {
+                reconcileInferenceTarget(latestStatus);
+                const oldPoll = pollStats();
+                markExternalTargetChanged();
+                reconcileInferenceTarget(latestStatus);
+                pending.forEach(release => release());
+                await oldPoll;
+                const snapshot = inferenceStats.getSnapshot();
+                return { seq: snapshot.seq, context: snapshot.context, total: snapshot.session.total };
+            } finally {
+                window.fetch = originalFetch;
+                stopStatsPolling();
+            }
+        });
+        assert.deepEqual(staleResult, { seq: 1, context: null, total: null });
+    } finally {
+        runtime = null;
+        target = null;
+        await page.evaluate(async () => { stopOutputPolling(); stopStatsPolling(); await checkStatus(); });
+        for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+    }
+}
+
 async function verifySecondaryPagePolish(page) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => {
@@ -2798,12 +2916,14 @@ async function main() {
                 display: style.display,
                 wrap: style.flexWrap,
                 gpuWidth: gpu.getBoundingClientRect().width,
+                regularWidths: Array.from(grid.querySelectorAll(':scope > .card:not(.monitor-inference-card)'))
+                    .map(card => card.getBoundingClientRect().width),
             };
         });
         assert.equal(wideMonitorLayout.display, "flex");
         assert.equal(wideMonitorLayout.wrap, "wrap");
-        assert.ok(wideMonitorLayout.gpuWidth >= 320,
-            "a trailing GPU card should grow beyond the old cramped track width");
+        assert.ok(wideMonitorLayout.regularWidths.every(width => Math.abs(width - wideMonitorLayout.gpuWidth) < 1),
+            "standard Monitor cards keep equal widths across incomplete rows");
 
         await page.setViewportSize({ width: 760, height: 720 });
         const narrowMonitorLayout = await page.locator("#monitor-card-grid").evaluate((grid) => ({
@@ -2822,6 +2942,7 @@ async function main() {
             "working probes produce no setup cards");
 
         // Recheck bypasses the backend cache via the fixed refresh=1 form.
+        await page.locator("#monitor-gpu-help > summary").click();
         await page.click("#btn-monitor-recheck");
         await wait(200);
         assert.ok(systemStatsRequests.some(url => url.includes("refresh=1")),
@@ -2906,6 +3027,7 @@ async function main() {
         await verifyQuickLaunchPolish(page);
         await verifyShellPolish(page);
         await verifySecondaryPagePolish(page);
+        await verifyMonitorRuntimePolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);

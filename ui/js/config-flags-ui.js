@@ -491,6 +491,22 @@
         return state.activeRuntime || null;
     }
 
+    function openLaunchComparison() {
+        dependencies.switchTab("configure");
+        refreshComparison();
+        const review = document.getElementById("config-change-review");
+        if (!review.classList.contains("hidden")) {
+            review.open = true;
+            review.querySelector("summary").focus();
+            review.scrollIntoView({ block: "nearest" });
+        } else {
+            const summary = document.getElementById("config-runtime-state");
+            summary.tabIndex = -1;
+            summary.focus();
+            summary.scrollIntoView({ block: "nearest" });
+        }
+    }
+
     function formatComparisonValue(flag, value) {
         const option = value !== null && value !== undefined && (flag.options || []).find(option => String(option.value) === String(value));
         if (option) return option.label;
@@ -1274,6 +1290,7 @@
     }
 
     window.LlamaGui.configFlagsUi = {
+        openLaunchComparison,
         refreshComparison,
         configure,
         initConfigControls,

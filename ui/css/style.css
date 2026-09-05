@@ -827,6 +827,7 @@ body.chat-focus-mode .main-content {
 .api-snippet-title:focus-visible,
 .chat-settings-help > summary:focus-visible,
 .installed-tools > summary:focus-visible,
+.monitor-gpu-help > summary:focus-visible,
 .preset-chip:focus-visible,
 .mobile-toggle:focus-visible,
 .toast-action:focus-visible {
@@ -4501,13 +4502,31 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 
 .monitor-updated { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
 
+.monitor-runtime { padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); }
+.monitor-runtime-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.monitor-runtime-identity { display: flex; flex: 1 1 280px; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); min-width: 0; }
+#monitor-runtime-model { overflow-wrap: anywhere; color: var(--fg-bright); }
+.monitor-runtime-details { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: var(--space-2); font-family: var(--mono); font-size: 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.monitor-runtime-details > span { min-width: 0; }
+.monitor-runtime .help-text { margin: var(--space-2) 0 0; }
+#monitor-runtime-error { color: var(--red); }
+.monitor-scope-note { margin: 0 0 var(--space-3); }
+.monitor-gpu-help { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
+.monitor-gpu-help > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none; }
+.monitor-gpu-help > summary::-webkit-details-marker { display: none; }
+.monitor-gpu-help > summary::before { content: "▸"; color: var(--fg-muted); }
+.monitor-gpu-help[open] > summary::before { content: "▾"; }
+.monitor-gpu-help > summary > span { font-size: 12px; color: var(--fg-muted); }
+.monitor-gpu-help-body { padding: var(--space-4); border-top: 1px solid var(--border); }
+.monitor-gpu-help-body .monitor-runtime-heading .help-text { flex: 1 1 300px; margin: 0; }
+#monitor-inference-note { margin: var(--space-3) 0 0; }
+
 .monitor-section { margin-top: var(--space-5); }
 .monitor-output-section { margin-top: var(--space-4); }
 .monitor-inference-reset-row { margin: var(--space-3) 0 0; }
 
-/* Wrap cards by their preferred width so incomplete rows can use their spare
-   room. Inference starts at two regular-card widths; detected GPU cards use
-   the same readable range as the system cards. */
+/* Keep regular cards aligned across incomplete desktop rows. Inference
+   retains its larger preferred width and independent growth limit. */
 .monitor-metrics-grid {
     display: flex;
     flex-wrap: wrap;
@@ -4517,7 +4536,7 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 
 .monitor-metrics-grid > .card {
     flex: 1 1 260px;
-    max-width: 340px;
+    max-width: clamp(260px, calc((100% - 3 * var(--space-4)) / 4), 340px);
 }
 
 .monitor-metrics-grid > .monitor-inference-card {

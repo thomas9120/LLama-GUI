@@ -837,22 +837,36 @@
             <div class="page-header monitor-page-header">
                 <div>
                     <h1 class="page-title">Monitor</h1>
-                    <div class="page-title-sub">Live process output, inference activity, system resources, and GPU telemetry for this machine.</div>
+                    <div class="page-title-sub">Follow the active runtime, inference activity, and this machine’s resources.</div>
                 </div>
                 <div class="page-actions monitor-header-actions">
-                    <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="The next poll is scheduled after the previous response completes">Unavailable</span>
+                    <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="System telemetry refreshes independently of the llama-server lifecycle">System telemetry · Unavailable</span>
                     <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
-                    <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
-                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
-                        Recheck GPU monitoring
-                    </button>
                 </div>
             </div>
+
+            <section class="monitor-runtime" aria-label="Active runtime">
+                <div class="monitor-runtime-heading">
+                    <div class="monitor-runtime-identity">
+                        <span class="badge badge-neutral" id="monitor-runtime-state" aria-live="polite">Checking…</span>
+                        <strong id="monitor-runtime-model">No local process running</strong>
+                    </div>
+                    <div class="page-actions">
+                        <button class="btn btn-sm hidden" id="btn-monitor-quick-launch" type="button">Open Quick Launch</button>
+                        <button class="btn btn-sm hidden" id="btn-monitor-api" type="button">Open API</button>
+                        <button class="btn btn-sm" id="btn-monitor-configure" type="button">Open Configure</button>
+                        <button class="btn btn-sm hidden" id="btn-monitor-review" type="button">Review changes</button>
+                    </div>
+                </div>
+                <div class="monitor-runtime-details"><span id="monitor-runtime-build"></span><span id="monitor-runtime-endpoint"></span></div>
+                <p class="help-text hidden" id="monitor-runtime-note"></p>
+                <p class="help-text hidden" id="monitor-runtime-error" role="status"></p>
+            </section>
 
             <!-- Process output (moved here from Configure, IDs preserved) -->
             <div class="card monitor-section monitor-output-section" id="output-section">
                 <div class="output-header">
-                    <h3>Process Output</h3>
+                    <h3 id="monitor-output-title">Process Output</h3>
                     <div class="monitor-output-tools">
                         <span class="badge badge-neutral hidden" id="monitor-process-tool"></span>
                         <span class="badge badge-green hidden" id="monitor-process-state">Running</span>
@@ -865,7 +879,7 @@
                     No process running &mdash; the most recent output backlog is retained until the next launch.
                 </p>
                 <div class="status-box info hidden" id="monitor-external-note">
-                    Connected to an external llama-server. System and GPU stats stay live, but process output is unavailable &mdash; Llama GUI does not own that process&rsquo;s stdout.
+                    Connected to an external llama-server. Inference readings come from that server; hardware readings describe this machine. Process output is unavailable because Llama GUI did not start that process.
                 </div>
 
                 <div id="output-terminal" class="terminal" aria-label="Process output log"></div>
@@ -889,6 +903,7 @@
 
             <!-- Compact system cards plus the optional expanded inference card -->
             <div class="monitor-section" id="monitor-system-section">
+                <p class="help-text monitor-scope-note">CPU, memory, disk, and GPU readings cover this machine, including other applications. Inference readings come directly from llama-server and do not require vendor GPU monitoring tools.</p>
                 <div class="monitor-metrics-grid monitor-drag-container" id="monitor-card-grid">
                     <div class="card" data-monitor-key="system:cpu" data-monitor-label="CPU">
                         <div class="card-header">
@@ -1005,24 +1020,33 @@
 
                         <div id="monitor-inference-empty">
                             <div class="empty-state empty-state-sm">
-                                <div class="empty-state-title">Inference metrics unavailable</div>
-                                <p>Start or connect to a llama-server to view token, request, and context activity.</p>
+                                <div class="empty-state-title">No inference readings</div>
                             </div>
                         </div>
+                        <p class="help-text" id="monitor-inference-note">Start or connect to a llama-server to view token, request, and context activity. GPU monitoring tools are not required.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Degraded GPU telemetry states; detected GPUs join the metrics grid above. -->
-            <div class="monitor-section" id="monitor-gpu-section">
-                <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
-            </div>
+            <details class="monitor-gpu-help monitor-section" id="monitor-gpu-help">
+                <summary><strong id="monitor-gpu-summary">Checking GPU telemetry…</strong><span>Monitoring details &amp; optional setup</span></summary>
+                <div class="monitor-gpu-help-body">
+                    <div class="monitor-runtime-heading">
+                        <p class="help-text">GPU probes add utilization, VRAM, and temperature readings where supported. Process output, server inference, and available system readings work independently.</p>
+                        <button class="btn btn-sm" id="btn-monitor-recheck" type="button">Recheck GPU monitoring</button>
+                    </div>
+                    <!-- Detected GPUs join the metrics grid above; guidance stays secondary. -->
+                    <div class="monitor-section" id="monitor-gpu-section">
+                        <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
+                    </div>
 
-            <!-- Only the relevant failed provider gets a setup card. -->
-            <div class="monitor-section hidden" id="monitor-gpu-setup">
-                <div class="status-box info">Setup states are provider-specific. Commands come from a fixed backend allowlist and are shown for you to run &mdash; Llama GUI never executes package managers or elevates privileges.</div>
-                <div class="stacked-cards monitor-setup-cards monitor-drag-container" id="monitor-setup-cards"></div>
-            </div>
+                    <!-- Only the relevant failed provider gets a setup card. -->
+                    <div class="monitor-section hidden" id="monitor-gpu-setup">
+                        <p class="help-text">Follow the guidance for your detected hardware. Copying a command does not run it.</p>
+                        <div class="stacked-cards monitor-setup-cards monitor-drag-container" id="monitor-setup-cards"></div>
+                    </div>
+                </div>
+            </details>
         </div>
 
         <!-- ═══ CHAT ═══ -->

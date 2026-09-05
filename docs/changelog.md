@@ -4,6 +4,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Aligned Monitor's standard card widths across incomplete desktop rows so Disk and GPU match CPU and Memory, while retaining Inference's larger sizing.
+
+- Connected Monitor to the active runtime with model/build/endpoint identity, lifecycle state, and direct Configure/change-review links. Distinguished system telemetry from server activity, explained partial inference availability, and grouped optional GPU setup guidance into a disclosure so Monitor remains useful without vendor probes. Empty idle logs collapse; retained logs are labeled **Last run output**. Fixed delayed inference responses crossing an external-server reconnect.
+
 - Polished Chat, API, and Install & Update: Chat remembers history/settings panel choices, uses labeled header controls, and groups sampler help into a disclosure. API endpoints use compact rows with accessible copy actions, expandable client examples, and separate connection/tunnel disclosures. Installed tools distinguish required files from optional utilities, preserve disclosure focus during polling, and label the app restart action **Restart Llama GUI**.
 
 - Standardized page headings, wrapping action bars, section spacing, and form-control heights across the app. Simplified cards, Chat panels, and API/Install surfaces; removed decorative card hover movement, colored icon tiles, and primary-button glows while preserving theme colors, focus indicators, and operational warnings.

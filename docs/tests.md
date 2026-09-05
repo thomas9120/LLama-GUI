@@ -99,6 +99,8 @@ Fast Node tests:
 
 Browser smoke test:
 
+Monitor runtime coverage checks authoritative identity despite pending edits, safe long model names, focused Configure change review, external-server navigation, retained versus empty logs, and layout containment at 900/390px. A missing-vendor-probe fixture verifies useful system readings and an optional, keyboard-operable GPU setup disclosure whose focus/open state survive polling. A delayed-response fixture ignores AbortSignal to verify that epoch invalidation still rejects metrics/slots after reconnecting to the same external endpoint. `monitor_ui_unit.cjs` also covers partial inference guidance, model-only changes, failed actions with a still-active process, and vendor-independent readings.
+
 Configure presentation coverage checks accessible setting labels and label-to-input focus, keyboard category/submenu and help disclosures, visible compatibility summaries, aligned numeric columns, and control containment at narrow widths. Launch comparison coverage checks immutable launch values, category counts and filtering, preservation of a focused row while typing through its baseline, per-setting/bulk revert synchronization, review across search filters, tool mismatch and stopped baselines, and comparison controls at 820px and 390px.
 
 `launch_args_unit.cjs` also covers scrubbed launch-input capture, explicit unset fields, normalized comparison values, and unavailable/partial baselines. `process_lifecycle_unit.cjs` checks forwarding and isolation of nested launch snapshots. Backend launch tests verify metadata validation, secret removal, deep-copy isolation, and snapshot removal after process exit.

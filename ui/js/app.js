@@ -136,8 +136,12 @@ monitorUi.configure({
     showToast,
     invalidateCursor: () => processOutputCursor.invalidate(),
     resetStatsBaseline: () => snapshotStatsBaseline(),
+    getInferenceSnapshot: () => inferenceStats.getSnapshot(),
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     getLatestStatus: () => latestStatus,
+    compareLaunchSettings: runtime => flagCore.compareLaunchSettings(runtime),
+    switchTab,
+    reviewLaunchChanges: () => configFlagsUi.openLaunchComparison(),
 });
 processLifecycle.configure({
     fetchJson,
@@ -373,6 +377,7 @@ flagCore.configure({
         preview.classList.toggle("command-preview-error", Boolean(result && result.error));
         setCustomLaunchArgsMessages(result || {});
         configFlagsUi.refreshComparison();
+        monitorUi.renderRuntime();
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
@@ -1224,6 +1229,9 @@ function reconcileInferenceTarget(status) {
         // connect/restore, or an out-of-band replacement) never had its
         // counters start at zero in this session: the first valid counter
         // sample becomes the baseline.
+        // Invalidate delayed responses from the previous external connection,
+        // including a reconnect to the same host with a new revision.
+        stopStatsPolling();
         inferenceStats.setTarget(key, { zeroBaseline: false });
     }
     if (!inferencePollingActive()) beginInferencePolling();
@@ -1253,6 +1261,7 @@ async function reconcileAuthoritativeStatus(status) {
     configFlagsUi.refreshComparison();
     quickLaunchUi.refreshRuntime();
     window.LlamaGui.shellUi.renderRuntime();
+    monitorUi.updateProcessHeader();
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }
