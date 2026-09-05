@@ -541,11 +541,13 @@ def collect_linux_memory():
 
 
 def collect_linux_disk_counters(root_path):
-    """``(source_identity, read_bytes, write_bytes)`` for this machine."""
+    """Disk source and byte counters in the shared sample format, or ``None``."""
     entries = parse_proc_diskstats(_read_text_file("/proc/diskstats"))
-    if not entries:
+    selected = select_disk_counters(entries, resolve_root_device(root_path))
+    if selected is None:
         return None
-    return select_disk_counters(entries, resolve_root_device(root_path))
+    source, bytes_read, bytes_written = selected
+    return {"source": source, "bytes_read": bytes_read, "bytes_written": bytes_written}
 
 
 def collect_system_counters(ctx, platform_name):
