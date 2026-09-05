@@ -358,7 +358,7 @@ function makeContext({
         },
         confirmAction: async () => true,
         getLatestStatus: () => mutable.status,
-        getLifecycleSnapshot: () => null,
+        getLifecycleSnapshot: () => mutable.lifecycle || null,
         snapshotStatsBaseline: () => {},
         getApiAuthorizationHeaders: (headers) => headers,
         switchTab: () => {},
@@ -371,6 +371,7 @@ function makeContext({
         getStoredConversations,
         setFlagValues: (values) => { mutable.flagValues = values; },
         setStatus: (value) => { mutable.status = value; },
+        setLifecycle: (value) => { mutable.lifecycle = value; },
     };
 }
 
@@ -753,6 +754,44 @@ async function runAbortScenario(action) {
         await oldRefresh;
         assert.equal(staleHint.textContent, "", "an older generation must not overwrite the current hint");
         assert.ok(staleHint.classList.contains("hidden"));
+    }
+
+    // Stop clears the lifecycle runtime before the shared status poll catches up.
+    // That stale running status must not restart props requests or unlock Chat.
+    {
+        let propsRequests = 0;
+        const { api, elements, setStatus, setLifecycle } = makeContext({
+            fetchImpl: makeFetch("complete", {
+                onPropsRequest: () => {
+                    propsRequests += 1;
+                    return Promise.resolve({ ok: true, json: async () => ({}) });
+                },
+            }),
+            extraElementIds: ["chat-status-badge", "chat-no-server-badge"],
+        });
+        let lifecycle = {
+            phase: "running", ready: true,
+            activeRuntime: { tool: "llama-server", generation: 1 },
+        };
+        setLifecycle(lifecycle);
+        await api.refreshTemplateCaps();
+        assert.equal(propsRequests, 1);
+
+        lifecycle = { ...lifecycle, phase: "stopping", ready: false };
+        setLifecycle(lifecycle);
+        api.updateStatusBadge();
+        lifecycle = { phase: "idle", ready: false, activeRuntime: null };
+        setLifecycle(lifecycle);
+        api.updateStatusBadge();
+        await api.refreshTemplateCaps();
+        assert.equal(propsRequests, 1, "stale running status must not probe the stopped server");
+        assert.equal(elements.get("chat-input").disabled, true, "Chat stays disabled after Stop");
+
+        setStatus({ running: false, external_chat_target: { connected: true } });
+        api.updateStatusBadge();
+        await api.refreshTemplateCaps();
+        assert.equal(propsRequests, 2, "an external server remains usable with an idle lifecycle");
+        assert.equal(elements.get("chat-input").disabled, false);
     }
 
     // Regeneration without a matching user turn must leave history intact.
