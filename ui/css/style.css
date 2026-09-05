@@ -1827,8 +1827,8 @@ input[type="range"].sampler-range::-moz-range-thumb {
 .config-runtime p { margin: var(--space-2) 0 0; color: var(--fg-muted); line-height: 1.5; }
 .config-runtime .config-restart-error { color: var(--red); }
 #config-change-count { color: var(--accent-text); }
-#config-change-review { margin-top: var(--space-3); }
-#config-change-review > summary { cursor: pointer; color: var(--accent-text); width: fit-content; }
+#config-change-review, #config-comparison-about { margin-top: var(--space-3); }
+#config-change-review > summary, #config-comparison-about > summary { cursor: pointer; color: var(--accent-text); width: fit-content; }
 .config-change-table-wrap { overflow-x: auto; margin: var(--space-2) 0; }
 .config-change-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .config-change-table th, .config-change-table td { padding: var(--space-2); text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; vertical-align: top; }

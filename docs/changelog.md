@@ -4,6 +4,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Simplified Configure's launch and restart guidance and moved comparison details into an expandable "About this comparison" note.
+
+- Removed the redundant "CPU busy" label from Monitor's CPU card, retaining the sample interval.
+
 - Replaced Monitor's disk-capacity card with prominent read/write throughput and activity, idle, collecting, or unavailable states. Added native Windows PDH and macOS I/O Registry disk counters alongside the existing Linux collector, without vendor probes or new dependencies. Kept the standard card size and saved visibility/order preferences.
 
 - Connected saved presets to Configure and Quick Launch with an independent **Based on / Modified** comparison, direct **Save as new preset**, and a named update action that reviews captured changes before saving. New saves reject name collisions; failed updates preserve edits, and renamed, archived, or removed source presets remain understandable. Simplified preset details with **Load into Configure**, secondary actions, consistent launch-input summaries, and an expandable saved-settings view with masked sensitive values.

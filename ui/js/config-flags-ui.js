@@ -554,7 +554,7 @@
         if (!comparison.available) changesOnly = false;
         filter.checked = changesOnly;
         document.getElementById("config-comparison-note").textContent = comparison.available
-            ? "Editable values are for the next launch. At launch shows recorded GUI inputs, not resolved values from Auto Fit or the model. Only recorded settings are compared."
+            ? "Changes apply on your next launch or restart. Sampling changes also apply to new messages in Chat."
             : runtime && runtime.tool !== getCurrentTool()
                 ? `Select ${runtime.tool} to compare with this process.`
                 : runtime || external
@@ -563,15 +563,15 @@
         const exclusions = document.getElementById("config-comparison-exclusions");
         const notes = [];
         if (comparison.available) {
-            notes.push("API keys and Custom Launch Args are excluded. Sampler edits also apply to subsequent built-in Chat requests.");
+            notes.push("“At launch” shows the settings you chose when starting the server. Automatic values, API keys, and custom launch arguments aren’t compared. Reverting settings keeps your current model selection.");
             if (runtime.launch_settings.has_custom_args || String(getFlagValues().custom_args || "").trim()) {
-                notes.push("Custom arguments can override the GUI values shown here.");
+                notes.push("Custom launch arguments can override the settings shown here.");
             }
-            if (comparison.modelChanged) notes.push("The selected model also differs from launch; reverting settings keeps your model selection.");
-            if (comparison.modelRootChanged) notes.push("The models folder differs from launch; reverting settings keeps your current folder.");
+            if (comparison.modelChanged) notes.push("You’ve selected a different model.");
+            if (comparison.modelRootChanged) notes.push("You’ve changed the models folder. Reverting settings keeps your current folder.");
         }
         exclusions.textContent = notes.join(" ");
-        exclusions.classList.toggle("hidden", !notes.length);
+        document.getElementById("config-comparison-about").classList.toggle("hidden", !notes.length);
 
         let visibleRows = 0;
         for (const row of document.querySelectorAll(".flag-row")) {

@@ -177,7 +177,10 @@ async function verifyConfigureComparison(page) {
     await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({ ctx_size: 32768, port: 9091 }));
     await page.locator("#config-change-review > summary").click();
     assert.equal(await page.locator("#config-change-list tr").count(), 2, "review includes changes outside the search");
-    assert.match(await page.textContent("#config-comparison-exclusions"), /API keys and Custom Launch Args are excluded/);
+    assert.equal(await page.locator("#config-comparison-exclusions").isVisible(), false);
+    await page.locator("#config-comparison-about > summary").click();
+    assert.equal(await page.locator("#config-comparison-exclusions").isVisible(), true);
+    assert.match(await page.textContent("#config-comparison-exclusions"), /Automatic values, API keys, and custom launch arguments aren’t compared/);
     assert.ok(!await page.locator(".config-runtime").textContent().then(text => text.includes("first-secret")));
     const viewport = page.viewportSize();
     for (const width of [820, 390]) {
@@ -199,7 +202,7 @@ async function verifyConfigureComparison(page) {
         window.LlamaGui.flagCore.setSelectedModelValue("different.gguf");
         window.LlamaGui.flagCore.updateCommandPreview();
     });
-    assert.match(await page.textContent("#config-comparison-exclusions"), /selected model also differs/);
+    assert.match(await page.textContent("#config-comparison-exclusions"), /selected a different model/);
     await page.evaluate(model => {
         window.LlamaGui.flagCore.setSelectedModelValue(model);
         window.LlamaGui.flagCore.updateCommandPreview();

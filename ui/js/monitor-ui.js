@@ -890,13 +890,14 @@
         const disk = data.disk || {};
 
         const interval = Number(lastSample && lastSample.interval_seconds);
-        const intervalText = Number.isFinite(interval) && interval > 0
-            ? ` \u00b7 ${interval.toFixed(1)} s sample`
+        const sampleText = Number.isFinite(interval) && interval > 0
+            ? `${interval.toFixed(1)} s sample`
             : "";
+        const intervalText = sampleText ? ` \u00b7 ${sampleText}` : "";
 
         setMetricCard("cpu", cpu.available === true, cpu.percent,
             cpu.available === true && cpu.percent !== null && cpu.percent !== undefined
-                ? `CPU busy${intervalText}`
+                ? sampleText
                 : cpu.available === true ? `Waiting for first sample${intervalText}` : "");
 
         const memUsed = Number(memory.used_bytes);
