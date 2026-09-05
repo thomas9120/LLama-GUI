@@ -372,6 +372,7 @@ body.chat-focus-mode .sidebar {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+.sidebar-maintenance .badge-green { color: var(--green); }
 .sidebar-quit { font-size: 11px; justify-content: center; padding: 6px; background: transparent; border-color: transparent; color: var(--fg-muted); }
 
 .sidebar-meta-row {
