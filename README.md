@@ -76,7 +76,7 @@ Windows PowerShell:
 irm https://raw.githubusercontent.com/thomas9120/LLama-GUI/main/online_installers/install-online.ps1 | iex
 ```
 
-The online installer clones into `~/LLama-GUI` (macOS/Linux) or `%USERPROFILE%\LLama-GUI` (Windows), installs dependencies, and starts the app. Set `LLAMA_GUI_INSTALL_DIR` for a custom path, or `LLAMA_GUI_NO_START=1` to install without starting. On Windows it also creates a **Llama GUI** desktop shortcut.
+The online installer clones into `~/LLama-GUI` (macOS/Linux) or `%USERPROFILE%\LLama-GUI` (Windows), installs dependencies, and starts the app. Set `LLAMA_GUI_INSTALL_DIR` for a custom path, or `LLAMA_GUI_NO_START=1` to install without starting. Both online and manual installers create **Llama GUI** launchers: a Windows desktop shortcut, a Linux applications-menu entry and desktop shortcut where enabled, or a macOS app in `~/Applications` with a desktop link.
 
 ### Manual install
 
@@ -97,7 +97,9 @@ chmod +x install.sh mac_linux_start.sh mac_linux_silent_start.sh
 
 Start the app:
 - Windows: desktop shortcut, `windows_start.bat`, or `windows_startsilent.bat`
-- macOS/Linux: `./mac_linux_start.sh` or `./mac_linux_silent_start.sh`
+- macOS: **Llama GUI** in `~/Applications` or its desktop shortcut
+- Linux: **Llama GUI** in the applications menu or its desktop shortcut (some desktops require right-click > **Allow Launching**)
+- macOS/Linux terminal: `./mac_linux_start.sh` or `./mac_linux_silent_start.sh`
 
 Open `http://127.0.0.1:5240`. In **Install**, choose a version + backend and click **Install**. Add models (see [Getting Models](#getting-models)), launch from **Quick Launch**, then use **Chat** or **Configure** as needed.
 
@@ -106,6 +108,14 @@ To recreate the Windows desktop shortcut without reinstalling:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\create_windows_shortcuts.ps1 -ShortcutsOnly
 ```
+
+To recreate Linux/macOS launchers without reinstalling, run from the checkout:
+
+```bash
+.venv/bin/python scripts/create_unix_shortcuts.py
+```
+
+Linux respects `XDG_DATA_HOME` and uses `xdg-user-dir DESKTOP` when available; otherwise it uses an existing `~/Desktop`. Disabled or missing desktops are skipped. These launchers start the server in the background and open your browser. Keep the checkout in place, or rerun the helper from its new location after moving it. If shortcut creation fails, installation still completes and the terminal launch scripts remain available.
 
 To build CUDA `llama.cpp` yourself on Linux, see `Linux_compile_toolkit/`.
 

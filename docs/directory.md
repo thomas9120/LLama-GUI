@@ -40,9 +40,9 @@
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
 | `tools/` | Auto-downloaded `cloudflared` binary |
-| `scripts/` | `create_windows_shortcuts.ps1` |
+| `scripts/` | Windows shortcut helper (`create_windows_shortcuts.ps1`) and Linux/macOS launcher helper (`create_unix_shortcuts.py`, called by `install.sh`) |
 | `.launcher/` | Pinokio launcher integration (`launch-llama-gui.ps1`) |
-| `assets/` | App icon (`Llama-GUI.ico`) |
+| `assets/` | App icon in Windows `.ico`, Linux `.png`, and macOS `.icns` formats (PNG/ICNS reuse the ICO's embedded 256px artwork) |
 | `requirements.txt` | `certifi`, `ddgs`, `huggingface_hub` |
 | `package.json` | Playwright devDependency + test scripts |
 

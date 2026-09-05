@@ -2,7 +2,13 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-05
+
+- Fixed install dropdowns overflowing into the adjacent card at narrower window sizes by constraining them to the available card width.
+
 ## 2026-09-04
+
+- Linux and macOS installs now create native launchers with the app icon: a Linux applications-menu entry plus a desktop shortcut where enabled, and a macOS app in `~/Applications` plus a desktop link. Shortcut failures do not interrupt installation; the helper can be rerun without reinstalling.
 
 - Loading a preset now keeps the current tab open instead of automatically switching to Configure.
 
