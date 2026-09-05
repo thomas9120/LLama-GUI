@@ -638,26 +638,16 @@ async function loadStartupPresetFromUrl() {
 }
 
 function initTabs() {
-    document.querySelectorAll(".nav-item").forEach(navItem => {
-        navItem.addEventListener("click", () => switchTab(navItem.dataset.section));
-    });
-    const mobileToggle = document.getElementById("mobile-toggle");
-    if (mobileToggle) {
-        mobileToggle.addEventListener("click", () => {
-            document.getElementById("sidebar").classList.toggle("open");
-        });
-    }
+    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: () => latestStatus });
 }
 
 function switchTab(tabId) {
     if (chatUi && typeof chatUi.onTabChanged === "function") chatUi.onTabChanged(tabId);
-    document.querySelectorAll(".nav-item").forEach(t => t.classList.toggle("active", t.dataset.section === tabId));
     document.querySelectorAll(".section-panel").forEach(panel => {
         panel.style.display = panel.id === "section-" + tabId ? "" : "none";
     });
     monitorUi.onTabChanged(tabId);
-    const sidebar = document.getElementById("sidebar");
-    if (sidebar) sidebar.classList.remove("open");
+    window.LlamaGui.shellUi.onTabChanged(tabId);
     if (tabId === "presets") loadPresets();
     if (tabId === "benchmarking") benchmarkUi.onShow();
     if (tabId === "quick-launch") {
@@ -773,6 +763,7 @@ function getToolBinaryName(tool) {
 }
 
 function handleLifecycleSnapshot(state) {
+    window.LlamaGui.shellUi.renderRuntime();
     configFlagsUi.refreshComparison();
     const launchBtn = document.getElementById("btn-launch");
     const stopBtn = document.getElementById("btn-stop");
@@ -1261,6 +1252,7 @@ async function reconcileAuthoritativeStatus(status) {
     reconcileInferenceTarget(status);
     configFlagsUi.refreshComparison();
     quickLaunchUi.refreshRuntime();
+    window.LlamaGui.shellUi.renderRuntime();
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }

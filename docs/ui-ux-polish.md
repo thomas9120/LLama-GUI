@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: Configure presentation, launch-settings comparison, restart with changes, and Quick Launch layout implemented; the shared shell remains planned.
+Status: Configure presentation, launch-settings comparison, restart with changes, Quick Launch layout, sidebar navigation/runtime controls, and shared visual treatments implemented; secondary-screen workflow refinements remain planned.
 
 ## Purpose and audience
 
@@ -197,7 +197,7 @@ Configure and the running-versus-pending distinction improve everyday work for t
 - Model selection and models-folder differences are identified separately from the setting count. GUI input differences may include currently inactive controls; they do not claim a measured change in effective runtime behavior.
 - Verification covers snapshot isolation, invalid metadata, redaction, lifecycle replacement/exit, shared-state reverts, filtered editing focus, and desktop/narrow layouts.
 
-The comparison summary lives in Configure; Quick Launch now has a compact runtime strip. Extending the runtime summary across the shell remains future work.
+The comparison summary lives in Configure; Quick Launch has a compact runtime strip, and the sidebar now carries a shared runtime disclosure across pages.
 
 ### Implemented: Restart with changes, 2026-09-05
 
@@ -217,14 +217,31 @@ The comparison summary lives in Configure; Quick Launch now has a compact runtim
 - The launch bar stays in normal document flow so expanded controls and narrow screens are not covered by a floating action area. Common controls and the launch action fit a 1440 × 1000 desktop viewport and stack at narrow widths.
 - Browser coverage checks favorite/recent ordering, empty/error preset lists, safe long names, matching/modified states, shared numeric inputs, keyboard disclosures, runtime/pending separation, download access, and narrow-screen containment. Dark and light themes were reviewed.
 
+### Implemented: Sidebar navigation and runtime controls, 2026-09-05
+
+- Quick Launch stays first and remains the default page. **Tune** groups Configure, Monitor, and Benchmarking; **Interact** groups Chat and API; **Library** contains Presets.
+- Install & Update opens its existing page from the lower maintenance area. The installed build sits beside maintenance; theme selection and **Quit Llama GUI** remain accessible below it.
+- A compact runtime disclosure shows authoritative lifecycle state and the active model across pages. Expand it for the active tool/build and endpoint, plus Open Monitor or Open API for an external server. Pending model and port edits never substitute for the active identity.
+- Launch/stop controls share existing readiness and process actions, with explicit labels and visible reasons for unavailable launches. Stop is disabled during stopping. Quit retains the existing confirmation and is separated from process actions.
+- Prospective memory figures are labeled **Next launch**. Model Switcher remains available with its existing drag and keyboard protections, with quieter styling.
+- Short windows can scroll the sidebar. Mobile navigation has Close, Escape and backdrop dismissal, keyboard focus containment, current-page semantics, and no tab stops in the hidden sidebar.
+- Shared visual treatments are implemented below; broader Chat/API/Install/Presets/Monitor workflow refinements remain for later passes.
+
+### Implemented: Visual consistency, 2026-09-05
+
+- Shared page headings and wrapping action bars across the app, including Chat. Each page uses a semantic level-one heading, with consistent title sizing and spacing.
+- Shared standard and compact control heights align inputs, searchable selectors, and neighboring buttons. Form groups and help text use consistent spacing without doubling margins inside rows.
+- Quiet, stationary cards with consistent corner radii and neutral heading icons. Removed decorative hover strips, card lift, and primary-button glows; selection, keyboard focus, and operational status retain emphasis.
+- Simplified nested Installed and API surfaces, matched Chat panels to the shared card treatment, and allowed API endpoint columns to fit narrow screens. Dedicated endpoint-row and Chat workflow redesigns remain separate future work.
+- Preserved existing theme palettes and contrast floors. Verified the full frontend suite and checked page/control containment at a 390-pixel layout.
+
 ## Remaining decisions
 
 - How should separate default and saved-preset comparisons be exposed alongside the implemented launch baseline?
 - Should Quick Launch preset shortcuts eventually support explicit pinning in addition to favorites/recent use?
 - How much explanatory text should be visible by default? Is a density preference useful?
-- Where should the shared runtime summary and global runtime actions live?
+- Should the sidebar runtime disclosure eventually include a pending-change count linked to Configure's comparison?
 - Should the launch bar become sticky, and how should it behave on small screens?
-- Should navigation changes ship with a page redesign or in a separate pass?
 - Should the default landing tab change? Quick Launch and Configure remain separate in the current concepts.
 
 These can be resolved as their implementation slices become concrete; they do not all need to be decided upfront.

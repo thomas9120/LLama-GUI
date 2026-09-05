@@ -4,6 +4,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Standardized page headings, wrapping action bars, section spacing, and form-control heights across the app. Simplified cards, Chat panels, and API/Install surfaces; removed decorative card hover movement, colored icon tiles, and primary-button glows while preserving theme colors, focus indicators, and operational warnings.
+
+- Put Quick Launch first in the sidebar, grouped Tune/Interact/Library pages, and moved Install & Update into a lower maintenance area. Added a shared runtime disclosure with active model/build/endpoint details, explicit launch/stop labels, and next-launch memory labeling. Separated **Quit Llama GUI** from Stop server, and improved mobile navigation focus, dismissal, and short-window scrolling.
+
 - Changed Quick Launch's unready status label to "Launch not ready".
 
 - Fixed Chat briefly using stale running status after Stop, which could re-enable its controls and request properties from the stopped llama-server.

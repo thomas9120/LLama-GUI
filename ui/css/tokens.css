@@ -17,6 +17,9 @@
     --space-5: 20px;
     --space-6: 24px;
 
+    --control-height: 34px;
+    --control-height-sm: 28px;
+
     --ease-fast: 0.12s ease;
     --ease-med: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 

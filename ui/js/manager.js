@@ -394,8 +394,6 @@ function markSelectFailedToLoad(id) {
 function updateStatusUI(status) {
     if (!status) return;
     const badge = document.getElementById("version-badge");
-    const sidebarStatus = document.getElementById("sidebar-status");
-    const sidebarStatusText = document.getElementById("sidebar-status-text");
     const info = document.getElementById("installed-info");
     const backendSelect = document.getElementById("backend-select");
     const releaseSelect = document.getElementById("release-select");
@@ -446,13 +444,6 @@ function updateStatusUI(status) {
     } else {
         badge.textContent = "Not Installed";
         badge.className = "badge";
-    }
-
-    if (status.running) {
-        if (sidebarStatus) sidebarStatus.style.display = "";
-        if (sidebarStatusText) sidebarStatusText.textContent = (status.active_process_tool || "llama.cpp") + " running";
-    } else {
-        if (sidebarStatus) sidebarStatus.style.display = "none";
     }
 
     info.textContent = "";
@@ -622,9 +613,9 @@ async function stopPythonServer() {
         ? " Any running llama.cpp process will be stopped first."
         : "";
     const ok = await confirmAction(
-        "Stop Python Server",
-        `Stop this Llama GUI Python server? The page will disconnect until you start server.py again.${runningHint}`,
-        "Stop Server"
+        "Quit Llama GUI",
+        `Quit Llama GUI? The page will disconnect until you start Llama GUI again.${runningHint}`,
+        "Quit Llama GUI"
     );
     if (!ok) return;
 
@@ -632,16 +623,16 @@ async function stopPythonServer() {
     const sidebarButton = document.getElementById("btn-sidebar-stop-app");
     if (button) button.disabled = true;
     if (sidebarButton) sidebarButton.disabled = true;
-    showStatus("info", "Stopping Python server...");
+    showStatus("info", "Quitting Llama GUI...");
 
     try {
         await fetchJson("/api/shutdown", { method: "POST" });
-        showStatus("success", "Python server is shutting down. This page will stop responding.");
+        showStatus("success", "Llama GUI is shutting down. This page will stop responding.");
         window.setTimeout(() => {
             window.location.reload();
         }, 1500);
     } catch (e) {
-        showStatus("error", "Failed to stop Python server: " + e.message);
+        showStatus("error", "Failed to quit Llama GUI: " + e.message);
         if (button) button.disabled = false;
         if (sidebarButton) sidebarButton.disabled = false;
     }

@@ -515,9 +515,16 @@
             sidebarLaunchBtn.classList.toggle("hidden", mainLaunchBtn.classList.contains("hidden"));
             sidebarLaunchBtn.disabled = quickLaunchBtn.disabled;
             sidebarLaunchBtn.title = quickLaunchBtn.title;
+            document.getElementById("btn-sidebar-launch-label").textContent = document.getElementById("btn-quick-launch-label").textContent;
+            const reason = document.getElementById("sidebar-launch-reason");
+            reason.hidden = readiness.ok || sidebarLaunchBtn.classList.contains("hidden");
+            reason.textContent = reason.hidden ? "" : readiness.message;
+            sidebarLaunchBtn.setAttribute("aria-describedby", "sidebar-launch-reason");
         }
         if (sidebarStopBtn) {
             sidebarStopBtn.classList.toggle("hidden", mainStopBtn.classList.contains("hidden"));
+            sidebarStopBtn.disabled = quickStopBtn.disabled;
+            document.getElementById("btn-sidebar-stop-label").textContent = state.phase === "stopping" ? "Stopping…" : document.getElementById("btn-quick-stop-label").textContent;
         }
     }
 

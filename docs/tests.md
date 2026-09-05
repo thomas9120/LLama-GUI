@@ -45,6 +45,8 @@ npm run test:frontend
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
+The smoke test also covers grouped sidebar navigation, current-page semantics, active-versus-pending runtime identity, external server details, duplicate Stop protection during transitions, mobile focus and dismissal, and maintenance access in short windows.
+
 ```powershell
 .venv\Scripts\python.exe -m unittest discover tests -v
 ```
@@ -107,7 +109,7 @@ Quick Launch layout coverage checks favorite/recent shortcut ordering and filter
 
 Chat context coverage also checks preview payload parity (selected answer/reasoning, system prompt, draft, sampler settings), stale-result rejection after runtime changes, the visible meter, context tools-menu visibility, keyboard dismissal and focus, warning Details, compact/summary/undo DOM wiring and narrow layout, post-search overflow feedback and recoverable Retry, and unavailable counting that leaves Send enabled.
 
-- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, Monitor polling/output/card flows and responsive layout, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.
+- `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, Monitor polling/output/card flows and responsive layout, and the Presets browser's roving keyboard focus.
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 

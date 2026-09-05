@@ -48,9 +48,10 @@
 
 <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
-<button class="mobile-toggle" id="mobile-toggle" type="button" aria-label="Open navigation" title="Open navigation">
+<button class="mobile-toggle" id="mobile-toggle" type="button" aria-label="Open navigation" title="Open navigation" aria-controls="sidebar" aria-expanded="false">
     <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></span>
 </button>
+<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
 <div class="app-shell">
 
@@ -63,18 +64,16 @@
                 <div class="sidebar-title">Llama GUI</div>
                 <div class="sidebar-subtitle">llama.cpp Launcher</div>
             </div>
+            <button class="btn btn-sm sidebar-close" id="sidebar-close" type="button" aria-label="Close navigation" title="Close navigation">×</button>
         </div>
 
-        <nav class="sidebar-nav">
-            <div class="nav-section-label">Setup</div>
-            <button class="nav-item" data-section="install">
-                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                Install and Update
-            </button>
-            <button class="nav-item active" data-section="quick-launch">
+        <nav class="sidebar-nav" aria-label="Workspace">
+            <button class="nav-item active" data-section="quick-launch" aria-current="page">
                 <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
                 Quick Launch
             </button>
+            <div class="nav-group" role="group" aria-labelledby="nav-tune">
+            <div class="nav-section-label" id="nav-tune">Tune</div>
             <button class="nav-item" data-section="configure">
                 <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
                 Configure
@@ -84,8 +83,14 @@
                 Monitor
                 <span id="monitor-nav-live" class="badge badge-green hidden" title="llama-server is running"><span class="badge-dot" aria-hidden="true"></span>Live</span>
             </button>
+            <button class="nav-item" data-section="benchmarking">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Benchmarking
+            </button>
+            </div>
 
-            <div class="nav-section-label">Interact</div>
+            <div class="nav-group" role="group" aria-labelledby="nav-interact">
+            <div class="nav-section-label" id="nav-interact">Interact</div>
             <button class="nav-item" data-section="chat">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
                 Chat
@@ -94,37 +99,46 @@
                 <span class="icon"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
                 API
             </button>
+            </div>
 
-            <div class="nav-section-label">Manage</div>
-            <button class="nav-item" data-section="benchmarking">
-                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
-                Benchmarking
-            </button>
+            <div class="nav-group" role="group" aria-labelledby="nav-library">
+            <div class="nav-section-label" id="nav-library">Library</div>
             <button class="nav-item" data-section="presets">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
                 Presets
             </button>
+            </div>
 
         </nav>
 
         <div class="sidebar-footer">
             <div class="sidebar-runtime-controls" aria-label="Runtime controls">
+                <details class="sidebar-runtime" id="sidebar-runtime">
+                    <summary>
+                        <span class="sidebar-runtime-heading">Runtime</span>
+                        <span id="sidebar-runtime-state" data-phase="idle" role="status">Checking…</span>
+                        <span id="sidebar-runtime-model">No local process running</span>
+                    </summary>
+                    <div class="sidebar-runtime-detail">
+                        <span id="sidebar-runtime-build"></span>
+                        <span id="sidebar-runtime-endpoint"></span>
+                        <button class="btn btn-sm" id="btn-sidebar-runtime-details" type="button">Open Monitor</button>
+                    </div>
+                </details>
                 <div class="sidebar-runtime-actions">
                     <button id="btn-sidebar-launch" class="btn btn-primary sidebar-runtime-btn" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                        Launch
+                        <span id="btn-sidebar-launch-label">Launch server</span>
                     </button>
                     <button id="btn-sidebar-stop" class="btn btn-danger sidebar-runtime-btn hidden" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span>
-                        Stop
-                    </button>
-                    <button id="btn-sidebar-stop-app" class="btn btn-danger sidebar-runtime-power" type="button" aria-label="Stop Python Server" title="Stop Python Server">
-                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                        <span id="btn-sidebar-stop-label">Stop server</span>
                     </button>
                 </div>
+                <div class="sidebar-launch-reason" id="sidebar-launch-reason" hidden></div>
                 <details class="sidebar-memory-estimate" id="sidebar-memory-estimate">
-                    <summary class="sidebar-memory-summary">
-                        <span class="sidebar-memory-title">Memory</span>
+                    <summary class="sidebar-memory-summary" title="Estimated memory for your next launch, based on pending settings">
+                        <span class="sidebar-memory-title">Next launch</span>
                         <span class="sidebar-memory-reading">
                             <span class="sidebar-memory-label">GPU</span>
                             <strong id="memory-estimate-accelerator">--</strong>
@@ -162,6 +176,13 @@
                 </div>
                 <div class="sidebar-model-switcher-status" id="sidebar-model-switcher-status" aria-live="polite">Launch a slot in Quick Launch first</div>
             </section>
+            <nav class="sidebar-maintenance" aria-label="Maintenance">
+                <button class="nav-item" data-section="install">
+                    <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                    Install &amp; Update
+                </button>
+                <span id="version-badge" class="badge badge-neutral" title="Installed llama.cpp build">Not Installed</span>
+            </nav>
             <!-- The list is built by theme-ui.js from its THEMES registry, so
                  adding a theme needs no markup change here. -->
             <div class="sidebar-meta-row">
@@ -173,11 +194,10 @@
                     </button>
                     <ul class="theme-menu-list" id="theme-menu-list" role="menu" aria-label="Theme" hidden></ul>
                 </div>
-                <span id="version-badge" class="badge badge-neutral" title="llama.cpp version">Not Installed</span>
-            </div>
-            <div class="sidebar-status" id="sidebar-status" style="display:none;">
-                <span class="status-dot"></span>
-                <span id="sidebar-status-text">Running</span>
+                <button id="btn-sidebar-stop-app" class="btn sidebar-quit" type="button" title="Quit Llama GUI and stop its local process">
+                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                    Quit Llama GUI
+                </button>
             </div>
         </div>
     </aside>
@@ -188,7 +208,7 @@
         <div class="section-panel" id="section-install" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Install llama.cpp</div>
+                    <h1 class="page-title">Install &amp; Update</h1>
                     <div class="page-title-sub">Download releases, choose an install target, and manage your llama.cpp installation.</div>
                 </div>
             </div>
@@ -281,7 +301,7 @@
                     <div class="form-row">
                         <button id="btn-remove-llama" class="btn btn-danger">Remove llama.cpp Files</button>
                         <button id="btn-restart-app" class="btn" type="button">Restart Python Server</button>
-                        <button id="btn-stop-app" class="btn btn-danger" type="button">Stop Python Server</button>
+                        <button id="btn-stop-app" class="btn btn-danger" type="button">Quit Llama GUI</button>
                     </div>
                 </div>
             </div>
@@ -296,7 +316,7 @@
             </div>
             <div class="page-header">
                 <div>
-                    <div class="page-title">Quick Launch</div>
+                    <h1 class="page-title">Quick Launch</h1>
                     <div class="page-title-sub">Your next session, ready to go.</div>
                 </div>
                 <button id="btn-open-configure" class="btn btn-ghost" type="button">Open Configure ↗</button>
@@ -696,10 +716,10 @@
         <div class="section-panel" id="section-configure" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Configure &amp; Launch</div>
+                    <h1 class="page-title">Configure &amp; Launch</h1>
                 </div>
-                <div class="input-row">
-                    <label class="form-label form-label-inline">Tool:</label>
+                <div class="input-row page-actions">
+                    <label class="form-label form-label-inline" for="tool-select">Tool:</label>
                     <select id="tool-select">
                         <option value="llama-cli">llama-cli (Interactive Chat)</option>
                         <option value="llama-server" selected>llama-server (HTTP API)</option>
@@ -816,10 +836,10 @@
         <div class="section-panel" id="section-monitor" style="display:none;">
             <div class="page-header monitor-page-header">
                 <div>
-                    <div class="page-title">Monitor</div>
+                    <h1 class="page-title">Monitor</h1>
                     <div class="page-title-sub">Live process output, inference activity, system resources, and GPU telemetry for this machine.</div>
                 </div>
-                <div class="monitor-header-actions">
+                <div class="page-actions monitor-header-actions">
                     <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="The next poll is scheduled after the previous response completes">Unavailable</span>
                     <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
                     <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
@@ -1007,13 +1027,13 @@
 
         <!-- ═══ CHAT ═══ -->
         <div class="section-panel" id="section-chat" style="display:none;">
-            <div class="chat-header-bar">
+            <div class="page-header chat-header-bar">
                 <div class="chat-header-title">
-                    <h2>Chat</h2>
+                    <h1 class="page-title">Chat</h1>
                     <span class="badge badge-green" id="chat-status-badge" style="display:none;"><span class="badge-dot"></span> Server Running</span>
                     <span class="badge badge-neutral" id="chat-no-server-badge">No Server</span>
                 </div>
-                <div class="chat-header-actions">
+                <div class="page-actions chat-header-actions">
                     <button class="btn btn-sm btn-ghost" id="btn-chat-focus" type="button" aria-pressed="false" title="Focus Chat">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></span>
                         <span id="chat-focus-label">Focus</span>
@@ -1209,7 +1229,7 @@
         <div class="section-panel" id="section-api" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">OpenAI-Compatible API</div>
+                    <h1 class="page-title">OpenAI-Compatible API</h1>
                     <div class="page-title-sub">llama-server can expose OpenAI-style endpoints so other apps and services can connect directly.</div>
                 </div>
             </div>
@@ -1307,10 +1327,10 @@
         <div class="section-panel" id="section-benchmarking" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Benchmarking</div>
+                    <h1 class="page-title">Benchmarking</h1>
                     <div class="page-title-sub">Run llama.cpp throughput and perplexity checks using your current configuration or saved presets.</div>
                 </div>
-                <div class="benchmark-readiness">
+                <div class="page-actions benchmark-readiness">
                     <span id="benchmark-bench-badge" class="badge badge-neutral">llama-bench: Checking</span>
                     <span id="benchmark-ppl-badge" class="badge badge-neutral">llama-perplexity: Checking</span>
                 </div>
@@ -1562,10 +1582,10 @@
         <div class="section-panel" id="section-presets" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Presets</div>
+                    <h1 class="page-title">Presets</h1>
                     <div class="page-title-sub">Save, load, and manage preset configurations.</div>
                 </div>
-                <div class="presets-header-actions">
+                <div class="page-actions presets-header-actions">
                     <button class="btn" id="btn-import-preset">Import JSON</button>
                     <button class="btn" id="btn-export-all-presets">Export All</button>
                 </div>
@@ -1697,6 +1717,7 @@
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
 <script src="/js/monitor-ui.js?v=monitor-1"></script>
+<script src="/js/shell-ui.js?v=shell-1"></script>
 <script src="/js/app.js?v=revamp-4"></script>
 </body>
 </html>
