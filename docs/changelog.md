@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Polished Chat, API, and Install & Update: Chat remembers history/settings panel choices, uses labeled header controls, and groups sampler help into a disclosure. API endpoints use compact rows with accessible copy actions, expandable client examples, and separate connection/tunnel disclosures. Installed tools distinguish required files from optional utilities, preserve disclosure focus during polling, and label the app restart action **Restart Llama GUI**.
+
 - Standardized page headings, wrapping action bars, section spacing, and form-control heights across the app. Simplified cards, Chat panels, and API/Install surfaces; removed decorative card hover movement, colored icon tiles, and primary-button glows while preserving theme colors, focus indicators, and operational warnings.
 
 - Put Quick Launch first in the sidebar, grouped Tune/Interact/Library pages, and moved Install & Update into a lower maintenance area. Added a shared runtime disclosure with active model/build/endpoint details, explicit launch/stop labels, and next-launch memory labeling. Separated **Quit Llama GUI** from Stop server, and improved mobile navigation focus, dismissal, and short-window scrolling.

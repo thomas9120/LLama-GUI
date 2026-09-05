@@ -508,6 +508,116 @@ async function setRangeValue(page, selector, value) {
     }, [selector, value]);
 }
 
+async function verifySecondaryPagePolish(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => {
+        localStorage.removeItem("llama_gui_chat_history_collapsed");
+        localStorage.removeItem("llama_gui_chat_settings_collapsed");
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    const panels = [
+        ["chat-history-panel", "btn-open-history", "btn-collapse-history"],
+        ["chat-sidebar", "btn-open-sidebar", "btn-collapse-sidebar"],
+    ];
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false, "new users start with room for the conversation");
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), true);
+        await page.locator(`#${open}`).click();
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+        assert.equal(await page.locator(`#${close}`).evaluate(el => el === document.activeElement), true);
+    }
+    await page.setViewportSize({ width: 760, height: 900 });
+    for (const [panel] of panels) await page.waitForSelector(`#${panel}`, { state: "hidden" });
+    assert.equal(await page.locator("#btn-open-sidebar").evaluate(el => el === document.activeElement), true,
+        "responsive collapse moves focus out of hidden controls");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const [panel] of panels) await page.waitForSelector(`#${panel}`, { state: "visible" });
+    assert.equal(await page.locator("#btn-collapse-sidebar").evaluate(el => el === document.activeElement), true,
+        "restoring the panel keeps focus on a visible control");
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true, "panel preference survives reload");
+        await page.locator(`#${close}`).click();
+        assert.equal(await page.locator(`#${open}`).evaluate(el => el === document.activeElement), true);
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-open-sidebar").click();
+    const samplerHelp = page.locator(".chat-settings-help");
+    assert.equal(await samplerHelp.locator("dl").isVisible(), false);
+    await samplerHelp.locator("summary").press("Enter");
+    assert.equal(await samplerHelp.locator("dl").isVisible(), true);
+    await page.locator('label[for="chat-slider-temp"]').click();
+    assert.equal(await page.locator("#chat-slider-temp").evaluate(el => el === document.activeElement), true);
+    await page.locator("#btn-collapse-sidebar").click();
+
+    await selectSection(page, "api");
+    assert.equal(await page.locator("#api-endpoints-list > li").count(), 6);
+    assert.equal(await page.locator("#api-endpoints-list button[aria-label]").count(), 6);
+    assert.equal(await page.locator("#btn-connect-external-server").isVisible(), false);
+    assert.equal(await page.locator("#btn-start-remote-tunnel").isVisible(), false);
+    await page.locator("#api-remote-details > summary").press("Enter");
+    assert.equal(await page.locator("#remote-tunnel-warning").isVisible(), true);
+    assert.equal(await page.locator("#btn-start-remote-tunnel").isVisible(), true);
+    await page.locator("#api-external-details > summary").press("Enter");
+    assert.equal(await page.locator("#external-server-host").isVisible(), true);
+    await page.locator("#api-snippet-0 > summary").click();
+    await page.locator("#api-snippet-1 > summary").click();
+    await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("alias", "polish model"));
+    assert.equal(await page.locator("#api-snippet-0").evaluate(el => el.open), false);
+    assert.equal(await page.locator("#api-snippet-1").evaluate(el => el.open), true);
+    for (const width of [1440, 900, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const overflow = await page.locator("#section-api").evaluate(root => [...root.querySelectorAll("input, button, code, summary")]
+            .filter(el => el.getClientRects().length && el.getBoundingClientRect().width && el.getBoundingClientRect().right > innerWidth + 1)
+            .map(el => el.id || el.className));
+        assert.deepEqual(overflow, [], `API controls and code fit ${width}px`);
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await selectSection(page, "install");
+    const installed = await page.evaluate(() => {
+        const status = { ...latestStatus, installed: true, config_stale: false, version: "polish-test",
+            executables: { "llama-cli.exe": true, "llama-server.exe": false, "llama-bench.exe": true, "llama-optional<test>.exe": false } };
+        updateStatusUI(status);
+        const details = document.querySelector("#installed-optional-tools");
+        const summary = details.querySelector("summary");
+        details.open = true;
+        summary.focus();
+        updateStatusUI({ ...status, running: !status.running });
+        const result = {
+            optional: details.querySelector(".exe-optional")?.textContent,
+            required: document.querySelector("#installed-info .exe-missing")?.textContent,
+            summary: summary.textContent,
+            focusKept: document.activeElement === summary,
+            nodeKept: details === document.querySelector("#installed-optional-tools"),
+            unsafeElements: document.querySelectorAll("#installed-info test").length,
+        };
+        updateStatusUI({ ...status, version: "polish-test-2" });
+        result.openKept = document.querySelector("#installed-optional-tools").open;
+        updateStatusUI({ ...status, installed: false, config_stale: true, missing_runtime_files: ["required.dll"] });
+        result.warning = document.querySelector(".installed-info-warning")?.textContent;
+        updateStatusUI(latestStatus);
+        return result;
+    });
+    assert.equal(installed.optional, "Not installed");
+    assert.equal(installed.required, "Missing · required");
+    assert.match(installed.summary, /1 of 2 installed/);
+    assert.equal(installed.nodeKept && installed.focusKept && installed.openKept, true);
+    assert.equal(installed.unsafeElements, 0);
+    assert.match(installed.warning, /required.*runtime libraries are missing/);
+    await selectSection(page, "quick-launch");
+}
+
 async function main() {
     const { chromium } = loadPlaywright();
     const port = await findFreePort(START_PORT);
@@ -1504,7 +1614,7 @@ async function main() {
             });
             if (width > 900) {
                 const gap = await page.evaluate(() => document.querySelector(".chat-layout").getBoundingClientRect().right
-                    - document.querySelector("#btn-open-sidebar").getBoundingClientRect().right);
+                    - document.querySelector(".chat-main").getBoundingClientRect().right);
                 assert.ok(gap <= 10, `collapsed settings must not reserve panel width at ${width}px (gap ${gap})`);
             }
             await page.locator("#btn-open-sidebar").evaluate(el => el.click());
@@ -1559,6 +1669,7 @@ async function main() {
         assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
             "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
         ]);
+        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
         await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
         await page.fill("#chat-web-search-max-results", "7");
@@ -2143,6 +2254,7 @@ async function main() {
             true
         );
 
+        await page.locator("#api-external-details > summary").click();
         await page.fill("#external-server-host", "127.0.0.1");
         await page.fill("#external-server-port", "9001");
         await page.fill("#external-server-key", "external-secret");
@@ -2793,6 +2905,7 @@ async function main() {
         await verifyConfigureRestart(page);
         await verifyQuickLaunchPolish(page);
         await verifyShellPolish(page);
+        await verifySecondaryPagePolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);

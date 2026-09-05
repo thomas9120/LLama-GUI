@@ -898,6 +898,9 @@ async function runAbortScenario(action) {
                 "chat-sidebar",
                 "btn-collapse-sidebar",
                 "btn-open-sidebar",
+                "chat-history-panel",
+                "btn-collapse-history",
+                "btn-open-history",
                 "chat-web-search-toggle",
                 "chat-web-search-max-results",
             ],
@@ -919,6 +922,10 @@ async function runAbortScenario(action) {
         maxResults.value = "7";
         assert.doesNotThrow(() => maxResults._listeners.change.forEach((handler) => handler()));
         assert.doesNotThrow(() => elements.get("btn-collapse-sidebar")._listeners.click.forEach((handler) => handler()));
+        assert.doesNotThrow(() => elements.get("btn-open-history")._listeners.click.forEach((handler) => handler()));
+        assert.equal(elements.get("chat-history-panel").inert, false);
+        assert.doesNotThrow(() => elements.get("btn-collapse-history")._listeners.click.forEach((handler) => handler()));
+        assert.equal(elements.get("chat-history-panel").inert, true);
     }
 
     // Sidebar sliders: empty or non-numeric flag values must fall back to the

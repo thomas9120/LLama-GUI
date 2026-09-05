@@ -300,7 +300,7 @@
                     <p class="help-text">These actions remove files or stop the app itself. They ask for confirmation, but use them deliberately.</p>
                     <div class="form-row">
                         <button id="btn-remove-llama" class="btn btn-danger">Remove llama.cpp Files</button>
-                        <button id="btn-restart-app" class="btn" type="button">Restart Python Server</button>
+                        <button id="btn-restart-app" class="btn" type="button">Restart Llama GUI</button>
                         <button id="btn-stop-app" class="btn btn-danger" type="button">Quit Llama GUI</button>
                     </div>
                 </div>
@@ -1034,6 +1034,14 @@
                     <span class="badge badge-neutral" id="chat-no-server-badge">No Server</span>
                 </div>
                 <div class="page-actions chat-header-actions">
+                    <button class="btn btn-sm btn-ghost btn-history-open" id="btn-open-history" type="button" title="Show conversations" aria-label="Show conversations" aria-controls="chat-history-panel" aria-expanded="false">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                        Conversations
+                    </button>
+                    <button class="btn btn-sm btn-ghost btn-settings-open" id="btn-open-sidebar" type="button" title="Show settings" aria-label="Show settings" aria-controls="chat-sidebar" aria-expanded="false">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                        Settings
+                    </button>
                     <button class="btn btn-sm btn-ghost" id="btn-chat-focus" type="button" aria-pressed="false" title="Focus Chat">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></span>
                         <span id="chat-focus-label">Focus</span>
@@ -1064,9 +1072,6 @@
                         </button>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-sidebar-open btn-history-open" id="btn-open-history" type="button" title="Show conversations" aria-label="Show conversations" aria-controls="chat-history-panel" aria-expanded="false">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-                </button>
                 <div class="chat-main">
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-empty" id="chat-empty">
@@ -1129,9 +1134,6 @@
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-sidebar-open btn-settings-open" id="btn-open-sidebar" type="button" title="Show settings" aria-label="Show settings" aria-controls="chat-sidebar" aria-expanded="false">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-                </button>
                 <div class="chat-sidebar" id="chat-sidebar">
                     <div class="sidebar-header">
                         <h3>Settings</h3>
@@ -1142,7 +1144,7 @@
                     <div class="sidebar-body">
                         <div class="sidebar-section">
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> System Prompt</div>
-                            <textarea class="sidebar-system-prompt" id="chat-system-prompt" placeholder="You are a helpful assistant..."></textarea>
+                            <textarea class="sidebar-system-prompt" id="chat-system-prompt" aria-label="System prompt" placeholder="You are a helpful assistant..."></textarea>
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
                         </div>
                         <div class="sidebar-section">
@@ -1157,7 +1159,7 @@
                                     <option value="high">High</option>
                                     <option value="xhigh">XHigh</option>
                                 </select>
-                                <div class="sidebar-field-desc">Sent per request as top-level reasoning_effort, with a chat-template-kwargs fallback for older builds. Unsupported models ignore it or may reject non-default values.</div>
+                                <div class="sidebar-field-desc">Applies to the next message. Unsupported models may ignore or reject non-default values.</div>
                                 <div id="chat-thinking-effort-cap-hint" class="chat-effort-cap-warning hidden"></div>
                             </div>
                         </div>
@@ -1173,52 +1175,57 @@
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Samplers</div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Temperature</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-temp">Temperature</label>
                                     <span class="sidebar-sampler-value" id="chat-val-temp">0.80</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Higher = more random, lower = more focused</div>
                                 <input type="range" id="chat-slider-temp" min="0" max="2" step="0.01" value="0.80">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Top-P</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-top-p">Top-P</label>
                                     <span class="sidebar-sampler-value" id="chat-val-top-p">0.95</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Nucleus sampling threshold</div>
                                 <input type="range" id="chat-slider-top-p" min="0" max="1" step="0.01" value="0.95">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Top-K</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-top-k">Top-K</label>
                                     <span class="sidebar-sampler-value" id="chat-val-top-k">40</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Limits vocabulary to top K tokens</div>
                                 <input type="range" id="chat-slider-top-k" min="1" max="200" step="1" value="40">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Min-P</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-min-p">Min-P</label>
                                     <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Minimum probability relative to top token</div>
                                 <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Repeat Penalty</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-repeat">Repeat Penalty</label>
                                     <span class="sidebar-sampler-value" id="chat-val-repeat">1.00</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Penalize repeated tokens</div>
                                 <input type="range" id="chat-slider-repeat" min="1" max="2" step="0.01" value="1.00">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Max Tokens</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-max-tokens">Max Tokens</label>
                                     <span class="sidebar-sampler-value" id="chat-val-max-tokens">Server default</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Maximum tokens per response; -1 uses the server default.</div>
                                 <input type="range" id="chat-slider-max-tokens" aria-label="Max Tokens" min="-1" max="32768" step="1" value="-1">
                             </div>
+                            <details class="chat-settings-help">
+                                <summary>Sampler reference</summary>
+                                <dl>
+                                    <dt>Temperature</dt><dd>Higher = more random, lower = more focused</dd>
+                                    <dt>Top-P</dt><dd>Nucleus sampling threshold</dd>
+                                    <dt>Top-K</dt><dd>Limits vocabulary to top K tokens</dd>
+                                    <dt>Min-P</dt><dd>Minimum probability relative to top token</dd>
+                                    <dt>Repeat Penalty</dt><dd>Penalize repeated tokens</dd>
+                                    <dt>Max Tokens</dt><dd>Maximum tokens per response; -1 uses the server default.</dd>
+                                </dl>
+                            </details>
                         </div>
                     </div>
                 </div>
@@ -1234,6 +1241,71 @@
                 </div>
             </div>
 
+            <div class="api-connections">
+                <details class="card api-connection" id="api-external-details">
+                    <summary>
+                        <span class="api-connection-heading"><span class="api-connection-title">Connect to a running server</span><span class="api-connection-hint">Use a llama-server on this machine started outside Llama GUI.</span></span>
+                        <span id="external-server-badge" class="remote-tunnel-badge">Not connected</span>
+                    </summary>
+                    <div class="api-connection-body">
+                        <div id="external-server-summary" class="api-base-row hidden">
+                            <span class="api-base-label">Target</span>
+                            <span id="external-server-target" class="server-link"></span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-host">Host</label>
+                                <input type="text" id="external-server-host" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-port">Port</label>
+                                <input type="number" id="external-server-port" min="1" max="65535" value="8080" placeholder="8080" autocomplete="off" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-key">API Key</label>
+                                <input type="password" id="external-server-key" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                            </div>
+                        </div>
+                        <div id="external-server-note" class="api-status-note"></div>
+                        <div class="form-row">
+                            <button id="btn-connect-external-server" class="btn btn-primary" type="button">Connect</button>
+                            <button id="btn-disconnect-external-server" class="btn btn-danger hidden" type="button">Disconnect</button>
+                        </div>
+                    </div>
+                </details>
+                <details class="card api-connection" id="api-remote-details">
+                    <summary>
+                        <span class="api-connection-heading"><span class="api-connection-title">Remote access</span><span class="api-connection-hint">Share this session through a Cloudflare tunnel.</span></span>
+                        <span id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</span>
+                    </summary>
+                    <div class="api-connection-body">
+                        <div id="remote-tunnel-warning" class="remote-tunnel-warning">
+                            Anyone with the tunnel URL can access and control this Llama-GUI session and use the proxied OpenAI-compatible API until you stop the tunnel.
+                        </div>
+                        <div id="remote-tunnel-url-row" class="api-base-row hidden">
+                            <span class="api-base-label">Remote URL</span>
+                            <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                            <button id="btn-copy-remote-tunnel" class="btn btn-sm btn-ghost" type="button" title="Copy remote URL" aria-label="Copy remote URL">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                        <div id="remote-openai-url-row" class="api-base-row hidden">
+                            <span class="api-base-label">Remote OpenAI Base URL</span>
+                            <a id="remote-openai-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                            <button id="btn-copy-remote-openai" class="btn btn-sm btn-ghost" type="button" title="Copy remote OpenAI base URL" aria-label="Copy remote OpenAI base URL">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                        <div id="remote-tunnel-status" class="api-status-note">Remote tunnel is not running.</div>
+                        <div class="form-row">
+                            <button id="btn-start-remote-tunnel" class="btn btn-primary" type="button">Start Tunnel</button>
+                            <button id="btn-stop-remote-tunnel" class="btn btn-danger hidden" type="button">Stop Tunnel</button>
+                        </div>
+                    </div>
+                </details>
+            </div>
             <div class="card">
                 <div class="api-base-row">
                     <span class="api-base-label">Base URL</span>
@@ -1246,77 +1318,11 @@
 
                 <div id="api-status-note" class="api-status-note"></div>
 
-                <div class="section remote-access-panel">
-                    <div class="remote-access-header">
-                        <div>
-                            <h3>Connect to a Running Server</h3>
-                            <p class="api-intro">Point Chat, metrics, and this proxy at a llama-server you started yourself. Local addresses only.</p>
-                        </div>
-                        <div id="external-server-badge" class="remote-tunnel-badge">Not connected</div>
-                    </div>
-                    <div id="external-server-summary" class="api-base-row hidden">
-                        <span class="api-base-label">Target</span>
-                        <span id="external-server-target" class="server-link"></span>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-host">Host</label>
-                            <input type="text" id="external-server-host" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-port">Port</label>
-                            <input type="number" id="external-server-port" min="1" max="65535" value="8080" placeholder="8080" autocomplete="off" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-key">API Key</label>
-                            <input type="password" id="external-server-key" placeholder="Optional" autocomplete="off" spellcheck="false" />
-                        </div>
-                    </div>
-                    <div id="external-server-note" class="api-status-note"></div>
-                    <div class="form-row">
-                        <button id="btn-connect-external-server" class="btn btn-primary" type="button">Connect</button>
-                        <button id="btn-disconnect-external-server" class="btn btn-danger hidden" type="button">Disconnect</button>
-                    </div>
-                </div>
-
-                <div class="section remote-access-panel">
-                    <div class="remote-access-header">
-                        <div>
-                            <h3>Remote Access</h3>
-                            <p class="api-intro">Start an opt-in Cloudflare tunnel for Llama-GUI and its proxied OpenAI-compatible API.</p>
-                        </div>
-                        <div id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</div>
-                    </div>
-                    <div id="remote-tunnel-warning" class="remote-tunnel-warning">
-                        Anyone with the tunnel URL can access and control this Llama-GUI session and use the proxied OpenAI-compatible API until you stop the tunnel.
-                    </div>
-                    <div id="remote-tunnel-url-row" class="api-base-row hidden">
-                        <span class="api-base-label">Remote URL</span>
-                        <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
-                        <button id="btn-copy-remote-tunnel" class="btn btn-sm btn-ghost" type="button" title="Copy remote URL" aria-label="Copy remote URL">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                            Copy
-                        </button>
-                    </div>
-                    <div id="remote-openai-url-row" class="api-base-row hidden">
-                        <span class="api-base-label">Remote OpenAI Base URL</span>
-                        <a id="remote-openai-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
-                        <button id="btn-copy-remote-openai" class="btn btn-sm btn-ghost" type="button" title="Copy remote OpenAI base URL" aria-label="Copy remote OpenAI base URL">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                            Copy
-                        </button>
-                    </div>
-                    <div id="remote-tunnel-status" class="api-status-note">Remote tunnel is not running.</div>
-                    <div class="form-row">
-                        <button id="btn-start-remote-tunnel" class="btn btn-primary" type="button">Start Tunnel</button>
-                        <button id="btn-stop-remote-tunnel" class="btn btn-danger hidden" type="button">Stop Tunnel</button>
-                    </div>
-                </div>
-
-                <div id="api-endpoints-list" class="api-endpoints"></div>
+                <h2 id="api-endpoints-title">Endpoints</h2>
+                <ul id="api-endpoints-list" class="api-endpoints" aria-labelledby="api-endpoints-title"></ul>
 
                 <div class="section">
-                    <h3>Client Snippets</h3>
+                    <h2>Client snippets</h2>
                     <p class="api-intro">Copy one of these templates and replace the prompt/model values as needed.</p>
                     <div id="api-snippets-list" class="api-snippets"></div>
                 </div>

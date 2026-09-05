@@ -11,6 +11,7 @@ let installPollStartTime = null;
 let installPollFailCount = 0;
 let installPollInFlight = false;
 let latestStatus = null;
+let lastInstalledInfoRenderKey = "";
 let latestAppUpdateStatus = null;
 let pendingInstallBackendId = null;
 let modelDirChangeInProgress = false;
@@ -446,6 +447,15 @@ function updateStatusUI(status) {
         badge.className = "badge";
     }
 
+    // Keep disclosure focus and state during status polls that change only runtime data.
+    const installedInfoRenderKey = JSON.stringify([
+        status.installed, status.config_stale, status.version, status.backend, status.executables,
+        status.runtime_files, status.runtime_files_label, status.missing_runtime_files,
+        status.platform, status.platform_label, status.arch, status.available_backends,
+    ]);
+    if (installedInfoRenderKey === lastInstalledInfoRenderKey) return;
+    lastInstalledInfoRenderKey = installedInfoRenderKey;
+    const optionalToolsOpen = Boolean(document.getElementById("installed-optional-tools")?.open);
     info.textContent = "";
 
     const appendRow = (label, value) => {
@@ -461,24 +471,42 @@ function updateStatusUI(status) {
         appendRow("Version", String(status.version));
         appendRow("Backend", String(status.backend));
 
-        const exeWrap = document.createElement("div");
-        const exeTitle = document.createElement("strong");
-        exeTitle.textContent = "Available tools:";
-        exeWrap.appendChild(exeTitle);
-        const exeHint = document.createElement("span");
-        exeHint.className = "installed-info-hint";
-        exeHint.textContent = " Core launch tools are required; benchmark and utility tools are optional.";
-        exeWrap.appendChild(exeHint);
-        exeWrap.appendChild(document.createElement("br"));
-        for (const [name, exists] of Object.entries(status.executables)) {
-            const isCoreTool = /^llama-(cli|server)(\.|$)/.test(String(name));
-            const line = document.createElement("span");
-            line.className = exists ? "exe-ok" : "exe-missing";
-            line.textContent = `${exists ? "✓" : "✗"} ${name}${isCoreTool ? "" : " (optional)"}`;
-            exeWrap.appendChild(line);
-            exeWrap.appendChild(document.createElement("br"));
+        const tools = Object.entries(status.executables || {});
+        const isCoreTool = name => /^llama-(cli|server)(\.|$)/.test(String(name));
+        const coreTools = document.createElement("div");
+        coreTools.className = "installed-tools";
+        const coreTitle = document.createElement("h4");
+        coreTitle.textContent = "Launch tools";
+        coreTools.appendChild(coreTitle);
+
+        const optionalTools = document.createElement("details");
+        optionalTools.id = "installed-optional-tools";
+        optionalTools.className = "installed-tools";
+        optionalTools.open = optionalToolsOpen;
+        const optionalEntries = tools.filter(([name]) => !isCoreTool(name));
+        const optionalTitle = document.createElement("summary");
+        optionalTitle.textContent = `Optional tools · ${optionalEntries.filter(([, exists]) => exists).length} of ${optionalEntries.length} installed`;
+        optionalTools.appendChild(optionalTitle);
+        const hint = document.createElement("p");
+        hint.className = "installed-info-hint";
+        hint.textContent = "Benchmark and utility tools are only needed for their respective tasks.";
+        optionalTools.appendChild(hint);
+
+        for (const [name, exists] of tools) {
+            const required = isCoreTool(name);
+            const row = document.createElement("div");
+            row.className = "installed-tool-row";
+            const label = document.createElement("code");
+            label.textContent = name;
+            const state = document.createElement("span");
+            state.className = exists ? "exe-ok" : required ? "exe-missing" : "exe-optional";
+            state.textContent = exists ? "Available" : required ? "Missing · required" : "Not installed";
+            row.appendChild(label);
+            row.appendChild(state);
+            (required ? coreTools : optionalTools).appendChild(row);
         }
-        info.appendChild(exeWrap);
+        info.appendChild(coreTools);
+        if (optionalEntries.length) info.appendChild(optionalTools);
 
         if (status.runtime_files && status.runtime_files.length > 0) {
             appendRow(status.runtime_files_label || "Runtime libraries", `${status.runtime_files.length} file(s)`);
@@ -644,8 +672,8 @@ async function restartPythonServer() {
         ? " Any running llama.cpp process will be stopped first."
         : "";
     const ok = await confirmAction(
-        "Restart Python Server",
-        `Restart the Llama GUI Python server? The page will briefly disconnect.${runningHint}`,
+        "Restart Llama GUI",
+        `Restart Llama GUI? The page will briefly disconnect.${runningHint}`,
         "Restart"
     );
     if (!ok) return;
@@ -653,11 +681,11 @@ async function restartPythonServer() {
     await restartPythonServerAndReload({
         button: document.getElementById("btn-restart-app"),
         showStatusFn: showStatus,
-        restartingMessage: "Restarting Python server...",
-        reconnectingMessage: "Python server is restarting. Reconnecting...",
-        successMessage: "Python server restarted successfully.",
+        restartingMessage: "Restarting Llama GUI...",
+        reconnectingMessage: "Llama GUI is restarting. Reconnecting...",
+        successMessage: "Llama GUI restarted successfully.",
         timeoutMessage: "Server did not become ready in time. Try reloading manually.",
-        failurePrefix: "Failed to restart Python server: ",
+        failurePrefix: "Failed to restart Llama GUI: ",
     });
 }
 
@@ -666,14 +694,14 @@ async function restartPythonServerAndReload(options = {}) {
     const targetButton = options.button || button;
     const showStatusFn = options.showStatusFn || showStatus;
     if (targetButton) targetButton.disabled = true;
-    showStatusFn("info", options.restartingMessage || "Restarting Python server...");
+    showStatusFn("info", options.restartingMessage || "Restarting Llama GUI...");
 
     try {
         await fetchJson("/api/restart", { method: "POST" });
-        showStatusFn("info", options.reconnectingMessage || "Python server is restarting. Reconnecting...");
+        showStatusFn("info", options.reconnectingMessage || "Llama GUI is restarting. Reconnecting...");
         const ready = await waitForServerReady(30, 1000);
         if (ready) {
-            showStatusFn("success", options.successMessage || "Python server restarted successfully.");
+            showStatusFn("success", options.successMessage || "Llama GUI restarted successfully.");
         } else {
             showStatusFn("error", options.timeoutMessage || "Server did not become ready in time. Try reloading manually.");
         }
@@ -681,7 +709,7 @@ async function restartPythonServerAndReload(options = {}) {
             reloadAppWithCacheBust();
         }, 500);
     } catch (e) {
-        showStatusFn("error", (options.failurePrefix || "Failed to restart Python server: ") + e.message);
+        showStatusFn("error", (options.failurePrefix || "Failed to restart Llama GUI: ") + e.message);
         if (targetButton) targetButton.disabled = false;
     }
 }

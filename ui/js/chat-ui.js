@@ -27,6 +27,7 @@
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
     const CHAT_SETTINGS_COLLAPSED_STORAGE_KEY = "llama_gui_chat_settings_collapsed";
+    const CHAT_HISTORY_COLLAPSED_STORAGE_KEY = "llama_gui_chat_history_collapsed";
     const CHAT_WEB_SEARCH_STORAGE_KEY = "llama_gui_chat_web_search_enabled";
     const CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY = "llama_gui_chat_web_search_max_results";
     const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
@@ -388,7 +389,9 @@
 
     function setChatPanelCollapsed(panel, openButton, collapseButton, collapsed) {
         if (!panel) return;
+        const restoreFocus = collapsed ? panel.contains?.(document.activeElement) : document.activeElement === openButton;
         panel.classList.toggle("collapsed", collapsed);
+        panel.inert = collapsed;
         panel.setAttribute("aria-hidden", String(collapsed));
         if (openButton) {
             openButton.style.display = collapsed ? "flex" : "none";
@@ -397,15 +400,38 @@
         if (collapseButton) {
             collapseButton.setAttribute("aria-expanded", String(!collapsed));
         }
+        if (restoreFocus) (collapsed ? openButton : collapseButton)?.focus();
     }
 
     function shouldUseConstrainedChatLayout() {
         return Boolean(window.matchMedia && window.matchMedia(CHAT_CONSTRAINED_LAYOUT_QUERY).matches);
     }
 
-    function collapseSettingsForConstrainedLayout(sidebar, openButton, collapseButton) {
-        if (!shouldUseConstrainedChatLayout() || !sidebar || sidebar.classList.contains("collapsed")) return;
-        setChatPanelCollapsed(sidebar, openButton, collapseButton, true);
+    function initChatPanel(panelId, openId, collapseId, storageKey) {
+        const panel = document.getElementById(panelId);
+        const openButton = document.getElementById(openId);
+        const collapseButton = document.getElementById(collapseId);
+        if (!panel || !openButton || !collapseButton) return;
+        // Responsive collapse is temporary; only an explicit choice is saved.
+        let preferredCollapsed = getStoredItem(storageKey) !== "false";
+        const applyLayout = () => setChatPanelCollapsed(panel, openButton, collapseButton,
+            shouldUseConstrainedChatLayout() || preferredCollapsed);
+        applyLayout();
+        openButton.addEventListener("click", () => {
+            preferredCollapsed = false;
+            setChatPanelCollapsed(panel, openButton, collapseButton, false);
+            setStoredItem(storageKey, "false");
+            collapseButton.focus();
+        });
+        collapseButton.addEventListener("click", () => {
+            preferredCollapsed = true;
+            setChatPanelCollapsed(panel, openButton, collapseButton, true);
+            setStoredItem(storageKey, "true");
+            openButton.focus();
+        });
+        const media = window.matchMedia?.(CHAT_CONSTRAINED_LAYOUT_QUERY);
+        if (media?.addEventListener) media.addEventListener("change", applyLayout);
+        else if (media?.addListener) media.addListener(applyLayout);
     }
 
     function updateChatFocusButton() {
@@ -1293,9 +1319,6 @@
         const focusBtn = document.getElementById("btn-chat-focus");
         const sysPrompt = document.getElementById("chat-system-prompt");
         const sysCharCount = document.getElementById("chat-sys-char-count");
-        const sidebar = document.getElementById("chat-sidebar");
-        const btnCollapse = document.getElementById("btn-collapse-sidebar");
-        const btnOpen = document.getElementById("btn-open-sidebar");
         const webSearchToggle = document.getElementById("chat-web-search-toggle");
         const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
         const thinkingEffort = document.getElementById("chat-thinking-effort");
@@ -1370,53 +1393,8 @@
         });
         sysCharCount.textContent = "0 chars";
 
-        const settingsCollapsed = getStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY) === "true";
-        setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, settingsCollapsed);
-        collapseSettingsForConstrainedLayout(sidebar, btnOpen, btnCollapse);
-
-        if (window.matchMedia && sidebar) {
-            const constrainedLayoutMedia = window.matchMedia(CHAT_CONSTRAINED_LAYOUT_QUERY);
-            const onConstrainedLayoutChange = () => {
-                collapseSettingsForConstrainedLayout(sidebar, btnOpen, btnCollapse);
-            };
-            if (constrainedLayoutMedia.addEventListener) {
-                constrainedLayoutMedia.addEventListener("change", onConstrainedLayoutChange);
-            } else if (constrainedLayoutMedia.addListener) {
-                constrainedLayoutMedia.addListener(onConstrainedLayoutChange);
-            }
-        }
-
-        if (btnCollapse && sidebar) {
-            btnCollapse.addEventListener("click", () => {
-                setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, true);
-                setStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "true");
-            });
-        }
-
-        if (btnOpen && sidebar) {
-            btnOpen.addEventListener("click", () => {
-                setChatPanelCollapsed(sidebar, btnOpen, btnCollapse, false);
-                setStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, "false");
-            });
-        }
-
-        const historyPanel = document.getElementById("chat-history-panel");
-        const btnCollapseHistory = document.getElementById("btn-collapse-history");
-        const btnOpenHistory = document.getElementById("btn-open-history");
-
-        setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, true);
-
-        if (btnCollapseHistory && historyPanel) {
-            btnCollapseHistory.addEventListener("click", () => {
-                setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, true);
-            });
-        }
-
-        if (btnOpenHistory && historyPanel) {
-            btnOpenHistory.addEventListener("click", () => {
-                setChatPanelCollapsed(historyPanel, btnOpenHistory, btnCollapseHistory, false);
-            });
-        }
+        initChatPanel("chat-sidebar", "btn-open-sidebar", "btn-collapse-sidebar", CHAT_SETTINGS_COLLAPSED_STORAGE_KEY);
+        initChatPanel("chat-history-panel", "btn-open-history", "btn-collapse-history", CHAT_HISTORY_COLLAPSED_STORAGE_KEY);
 
         const newChatBtn = document.getElementById("btn-chat-new");
         if (newChatBtn) {

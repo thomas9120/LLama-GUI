@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: Configure presentation, launch-settings comparison, restart with changes, Quick Launch layout, sidebar navigation/runtime controls, and shared visual treatments implemented; secondary-screen workflow refinements remain planned.
+Status: Configure presentation, launch-settings comparison, restart with changes, Quick Launch layout, sidebar navigation/runtime controls, shared visual treatments, and the Chat/API/Install secondary-screen pass implemented. Further Presets/Monitor workflow changes and comparison-baseline decisions remain optional follow-ups.
 
 ## Purpose and audience
 
@@ -225,15 +225,23 @@ The comparison summary lives in Configure; Quick Launch has a compact runtime st
 - Launch/stop controls share existing readiness and process actions, with explicit labels and visible reasons for unavailable launches. Stop is disabled during stopping. Quit retains the existing confirmation and is separated from process actions.
 - Prospective memory figures are labeled **Next launch**. Model Switcher remains available with its existing drag and keyboard protections, with quieter styling.
 - Short windows can scroll the sidebar. Mobile navigation has Close, Escape and backdrop dismissal, keyboard focus containment, current-page semantics, and no tab stops in the hidden sidebar.
-- Shared visual treatments are implemented below; broader Chat/API/Install/Presets/Monitor workflow refinements remain for later passes.
+- Shared visual treatments and Chat/API/Install refinements are implemented below; broader Presets/Monitor workflow refinements remain possible follow-ups.
 
 ### Implemented: Visual consistency, 2026-09-05
 
 - Shared page headings and wrapping action bars across the app, including Chat. Each page uses a semantic level-one heading, with consistent title sizing and spacing.
 - Shared standard and compact control heights align inputs, searchable selectors, and neighboring buttons. Form groups and help text use consistent spacing without doubling margins inside rows.
 - Quiet, stationary cards with consistent corner radii and neutral heading icons. Removed decorative hover strips, card lift, and primary-button glows; selection, keyboard focus, and operational status retain emphasis.
-- Simplified nested Installed and API surfaces, matched Chat panels to the shared card treatment, and allowed API endpoint columns to fit narrow screens. Dedicated endpoint-row and Chat workflow redesigns remain separate future work.
+- Simplified nested Installed and API surfaces, matched Chat panels to the shared card treatment, and allowed API endpoint columns to fit narrow screens. The subsequent secondary-screen pass below adds endpoint rows and Chat layout refinements.
 - Preserved existing theme palettes and contrast floors. Verified the full frontend suite and checked page/control containment at a 390-pixel layout.
+
+### Implemented: Secondary screens, 2026-09-05
+
+- **Chat:** Conversations and Settings open from labeled header buttons instead of tall side rails. Both panels default to collapsed when there is no saved choice; existing settings preferences are honored. Explicit panel choices survive reloads. Narrow layouts collapse panels temporarily, and widening restores the saved choice without overwriting it. Hidden panels are inert, and focus follows their visible controls. Focus mode remains temporary and preserves the panel layout underneath it.
+- **Chat settings:** Sampler names label their sliders, values remain visible, and routine explanations share a **Sampler reference** disclosure. Thinking compatibility warnings remain visible; the system prompt has an accessible label. Shared sampler state and request behavior are unchanged.
+- **API:** Each endpoint has an aligned name, method, full URL, description, and specifically labeled Copy action. External-server connection and remote access use separate disclosures at the top, with status badges visible while collapsed. The remote-access warning stays beside the tunnel controls. Client examples expand individually (cURL opens initially) and retain their open state when model/auth settings trigger a rerender.
+- **Install & Update:** Required launch tools stay visible; optional tools live under an installed-count summary and show neutral **Not installed** text when absent. Missing required files and repair guidance retain their warning treatment. Status polls preserve optional-tool disclosure focus and open state. **Restart Llama GUI** replaces the implementation-specific restart label while keeping the existing confirmation.
+- **Verification:** Frontend syntax, unit, theme contrast, flag compatibility, and browser checks passed. Browser coverage includes panel reload/resize/focus behavior, disclosure keyboard access, endpoint containment at 390/900/1440px, retained client examples, and required/optional installation states.
 
 ## Remaining decisions
 
