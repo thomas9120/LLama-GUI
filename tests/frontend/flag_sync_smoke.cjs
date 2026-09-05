@@ -976,6 +976,8 @@ async function main() {
                 disk: {
                     available: true,
                     path_label: "Application disk",
+                    io_available: true,
+                    io_label: "All physical disks",
                     used_bytes: 500000000000,
                     total_bytes: 1000000000000,
                     percent: 50,
@@ -3071,6 +3073,10 @@ async function main() {
         await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4%");
         assert.equal(await page.textContent("#monitor-memory-value"), "37.5%");
         assert.equal(await page.textContent("#monitor-disk-read"), "1.2 MB/s");
+        assert.equal(await page.textContent("#monitor-disk-write"), "410 KB/s");
+        assert.equal(await page.textContent("#monitor-disk-activity"), "Reading and writing");
+        assert.match(await page.textContent("#monitor-disk-sub"), /All physical disks.*Includes other applications/);
+        assert.equal(await page.locator("#monitor-disk-value, #monitor-disk-bar").count(), 0, "capacity no longer appears in the activity card");
         assert.match(await page.textContent("#monitor-live-badge"), /Live/);
         await page.waitForFunction(() => document.querySelectorAll("#monitor-card-grid [data-monitor-key^='gpu:']").length === 1);
         assert.match(await page.textContent("#monitor-card-grid"), /Smoke GPU/);

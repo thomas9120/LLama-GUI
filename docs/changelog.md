@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Replaced Monitor's disk-capacity card with prominent read/write throughput and activity, idle, collecting, or unavailable states. Added native Windows PDH and macOS I/O Registry disk counters alongside the existing Linux collector, without vendor probes or new dependencies. Kept the standard card size and saved visibility/order preferences.
+
 - Connected saved presets to Configure and Quick Launch with an independent **Based on / Modified** comparison, direct **Save as new preset**, and a named update action that reviews captured changes before saving. New saves reject name collisions; failed updates preserve edits, and renamed, archived, or removed source presets remain understandable. Simplified preset details with **Load into Configure**, secondary actions, consistent launch-input summaries, and an expandable saved-settings view with masked sensitive values.
 
 - Aligned Monitor's standard card widths across incomplete desktop rows so Disk and GPU match CPU and Memory, while retaining Inference's larger sizing.

@@ -347,12 +347,14 @@ function buildStandardDom() {
     mount("monitor-hidden-count", "span");
     mount("monitor-restore-items");
     mount("btn-monitor-show-all", "button");
-    for (const prefix of ["cpu", "memory", "disk"]) {
+    for (const prefix of ["cpu", "memory"]) {
         mount(`monitor-${prefix}-value`);
         mount(`monitor-${prefix}-bar`);
         mount(`monitor-${prefix}-sub`);
     }
-    mount("monitor-disk-io").classList.add("hidden");
+    mount("monitor-disk-io");
+    mount("monitor-disk-activity");
+    mount("monitor-disk-sub");
     mount("monitor-disk-read", "span");
     mount("monitor-disk-write", "span");
     mount("monitor-card-grid")._classes.add("monitor-drag-container");
@@ -385,6 +387,8 @@ function makeSample(overrides = {}) {
             disk: {
                 available: true,
                 path_label: "Application disk",
+                io_available: true,
+                io_label: "All physical disks",
                 used_bytes: 500000000000,
                 total_bytes: 1000000000000,
                 percent: 50,
@@ -1011,10 +1015,11 @@ buildStandardDom();
     const memSub = documentStub.getElementById("monitor-memory-sub");
     assert.ok(memSub.textContent.includes("12.0 GB used of 32.0 GB"), memSub.textContent);
     const diskSub = documentStub.getElementById("monitor-disk-sub");
-    assert.ok(diskSub.textContent.includes("Application disk"));
+    assert.ok(diskSub.textContent.includes("All physical disks"));
     const ioGrid = documentStub.getElementById("monitor-disk-io");
     assert.equal(ioGrid.classList.contains("hidden"), false, "disk I/O shown when supported");
     assert.equal(documentStub.getElementById("monitor-disk-read").textContent, "1.2 MB/s");
+    assert.equal(documentStub.getElementById("monitor-disk-activity").textContent, "Reading and writing");
 }
 
 // The first CPU sample is a normal pending state, not collector failure.
@@ -1051,9 +1056,27 @@ buildStandardDom();
     assert.equal(documentStub.getElementById("monitor-memory-value").textContent, "25.0%");
     assert.equal(
         documentStub.getElementById("monitor-disk-io").classList.contains("hidden"),
-        true,
-        "disk I/O grid hidden when the collector cannot supply rates",
+        false,
+        "disk I/O stays visible with truthful unavailable values",
     );
+    assert.equal(documentStub.getElementById("monitor-disk-read").textContent, "Not available");
+    assert.equal(documentStub.getElementById("monitor-disk-activity").textContent, "Disk activity unavailable");
+}
+
+// Zero is idle; warmup, reset, partial and unsupported samples are not fake zeroes.
+for (const [disk, read, activity] of [
+    [{ io_available: true, read_bytes_per_second: null, write_bytes_per_second: null }, "--", "Collecting activity…"],
+    [{ io_available: true, read_bytes_per_second: 0, write_bytes_per_second: 0 }, "0 B/s", "Idle"],
+    [{ read_bytes_per_second: 1024, write_bytes_per_second: null }, "1.0 KB/s", "Reading"],
+    [{ read_bytes_per_second: 0, write_bytes_per_second: 2048 }, "0 B/s", "Writing"],
+    [{ read_bytes_per_second: null, write_bytes_per_second: 0 }, "Not available", "Partial reading"],
+    [{ io_available: false, read_bytes_per_second: -1, write_bytes_per_second: "bad" }, "Not available", "Disk activity unavailable"],
+]) {
+    monitorUi.configure({ fetchJson: async () => makeSample({ system: { disk } }) });
+    monitorUi.recheck();
+    await wait(80);
+    assert.equal(documentStub.getElementById("monitor-disk-read").textContent, read);
+    assert.equal(documentStub.getElementById("monitor-disk-activity").textContent, activity);
 }
 
 // Multiple GPUs render stable provider-qualified cards; missing fields say

@@ -259,6 +259,10 @@ The comparison summary lives in Configure; Quick Launch has a compact runtime st
 - The detail panel emphasizes **Load into Configure** and Favorite, with maintenance actions in **More actions**. Model warnings sit beside the saved model, common launch inputs use a consistent summary, and all saved settings have their own disclosure. Auto/default values describe inputs, not inferred runtime results; sensitive values are masked.
 - Preset saves leave the active runtime alone. The context is session-only, consistent with pending Configure state. Existing JSON presets, favorite/history storage, and backend routes remain compatible.
 
+### Monitor finishing touch: disk activity, 2026-09-05
+
+The standard disk card now emphasizes read/write throughput and current activity instead of capacity. It retains its size, order and visibility key. Windows uses native PDH physical-disk counters; macOS uses built-in I/O Registry counters; Linux keeps the existing filesystem-device collector and whole-disk fallback. Scope is shown below the rates, including that other applications contribute. First samples and gaps display a collecting state, unavailable readings stay explicit, and measured zero reads/writes show Idle. Capacity fields remain in the API for compatibility.
+
 ## Remaining decisions
 
 - Would a separate comparison against GUI defaults add value beyond the existing per-setting defaults and saved-preset/launch comparisons?

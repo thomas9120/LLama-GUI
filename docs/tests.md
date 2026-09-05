@@ -127,7 +127,7 @@ Backend tests use Python `unittest` and mostly exercise route/service logic with
 
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
 - `test_chat_context.py`: per-slot context capacity, fixed/server/unlimited output reserves, overflow boundaries, template/tokenizer fallback, preserved reasoning/options, unsupported media and unavailable counts, pinned target/auth, final post-search overflow prevention, and required-count summary requests with GUI-only metadata stripped.
-- `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract.
+- `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract. Disk I/O coverage includes capacity-independent availability, Windows PDH raw counters and handle cleanup on failures, and macOS registry aggregation, device identity, and timeout isolation. `monitor_ui_unit.cjs` checks read/write activity, idle versus missing data, first-sample warmup and partial readings; the browser suite checks the capacity display has been replaced.
 - `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.
 - `test_http_adapters.py`: request/response helpers and CORS origin handling.

@@ -906,26 +906,22 @@
                 ? `${formatBytes(memUsed)} used of ${formatBytes(memTotal)}`
                 : memory.available === true ? "Waiting for first sample" : "");
 
-        const diskUsed = Number(disk.used_bytes);
-        const diskTotal = Number(disk.total_bytes);
-        const diskLabel = String(disk.path_label || "").trim();
-        setMetricCard("disk", disk.available === true, disk.percent,
-            disk.available === true && Number.isFinite(diskUsed) && Number.isFinite(diskTotal)
-                ? `${formatBytes(diskUsed)} used of ${formatBytes(diskTotal)}${diskLabel ? ` \u00b7 ${diskLabel}` : ""}`
-                : disk.available === true ? "Waiting for first sample" : "");
-
-        const ioGrid = byId("monitor-disk-io");
-        if (ioGrid) {
-            const readRate = disk.read_bytes_per_second;
-            const writeRate = disk.write_bytes_per_second;
-            const supported = readRate !== null && readRate !== undefined
-                || writeRate !== null && writeRate !== undefined;
-            ioGrid.classList.toggle("hidden", !supported);
-            const readEl = byId("monitor-disk-read");
-            const writeEl = byId("monitor-disk-write");
-            if (readEl) readEl.textContent = formatRate(readRate);
-            if (writeEl) writeEl.textContent = formatRate(writeRate);
-        }
+        const readRate = finiteNonNegativeOrNull(disk.read_bytes_per_second);
+        const writeRate = finiteNonNegativeOrNull(disk.write_bytes_per_second);
+        const hasRates = readRate !== null || writeRate !== null;
+        const waiting = !hasRates && disk.io_available === true;
+        setText(byId("monitor-disk-read"), waiting ? "--" : formatRate(readRate));
+        setText(byId("monitor-disk-write"), waiting ? "--" : formatRate(writeRate));
+        const activity = !hasRates ? waiting ? "Collecting activity…" : "Disk activity unavailable"
+            : readRate > 0 && writeRate > 0 ? "Reading and writing"
+                : readRate > 0 ? "Reading" : writeRate > 0 ? "Writing"
+                    : readRate === 0 && writeRate === 0 ? "Idle" : "Partial reading";
+        setText(byId("monitor-disk-activity"), activity);
+        const scope = String(disk.io_label || "").trim();
+        setText(byId("monitor-disk-sub"), hasRates
+            ? `${scope || "Disk I/O"}${intervalText} · Includes other applications`
+            : waiting ? `${scope ? `${scope} · ` : ""}Waiting for two samples`
+                : "The system collector could not provide disk I/O readings.");
     }
 
     // ════════════════════════════════════════════════════════════════════

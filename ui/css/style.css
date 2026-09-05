@@ -4685,16 +4685,15 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
 
 .monitor-io-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: var(--space-2);
-    margin-top: var(--space-3);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--border);
+    margin-top: var(--space-4);
 }
 
-.monitor-io-cell { display: flex; flex-direction: column; gap: 2px; }
+.monitor-io-cell { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
 .monitor-io-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--fg-faint); }
-.monitor-io-value { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--fg-bright); }
+.monitor-io-value { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--fg-bright); overflow-wrap: anywhere; }
+.monitor-disk-activity { margin-top: var(--space-4); font-size: 12px; font-weight: 600; color: var(--fg-muted); }
 
 .monitor-output-tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .monitor-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }

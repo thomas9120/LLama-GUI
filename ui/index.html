@@ -965,24 +965,21 @@
                         <div class="monitor-metric-sub" id="monitor-memory-sub"></div>
                     </div>
 
-                    <div class="card" data-monitor-key="system:disk" data-monitor-label="Application disk">
+                    <div class="card" data-monitor-key="system:disk" data-monitor-label="Disk activity">
                         <div class="card-header">
                             <div>
                                 <div class="card-kicker">System</div>
-                                <div class="card-title">Disk</div>
+                                <div class="card-title">Disk activity</div>
                             </div>
                             <div class="monitor-card-tools">
-                                <button class="btn btn-sm btn-ghost monitor-drag-handle" type="button" draggable="true" title="Drag to reorder; use arrow keys to move" aria-label="Move application disk monitor; use arrow keys">⠿</button>
+                                <button class="btn btn-sm btn-ghost monitor-drag-handle" type="button" draggable="true" title="Drag to reorder; use arrow keys to move" aria-label="Move disk activity monitor; use arrow keys">⠿</button>
                                 <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="system:disk" aria-label="Hide disk monitor">Hide</button>
                                 <div class="card-icon icon-cyan">
                                     <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg></span>
                                 </div>
                             </div>
                         </div>
-                        <div class="monitor-metric-value" id="monitor-disk-value">Not available</div>
-                        <div id="monitor-disk-bar"></div>
-                        <div class="monitor-metric-sub" id="monitor-disk-sub"></div>
-                        <div class="monitor-io-grid hidden" id="monitor-disk-io">
+                        <div class="monitor-io-grid" id="monitor-disk-io">
                             <div class="monitor-io-cell">
                                 <span class="monitor-io-label">Read</span>
                                 <span class="monitor-io-value" id="monitor-disk-read">Not available</span>
@@ -992,6 +989,8 @@
                                 <span class="monitor-io-value" id="monitor-disk-write">Not available</span>
                             </div>
                         </div>
+                        <div class="monitor-disk-activity" id="monitor-disk-activity">Collecting activity…</div>
+                        <div class="monitor-metric-sub" id="monitor-disk-sub"></div>
                     </div>
 
                     <div class="card monitor-inference-card" id="monitor-inference-card" data-monitor-key="inference" data-monitor-label="Inference">

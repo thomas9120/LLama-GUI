@@ -213,7 +213,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 1. **Quick Launch**: First navigation entry and default page. One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
 2. **Configure** (Tune): Full CLI flag configuration for `llama-server`/`llama-cli` with readable names beside CLI switches, aligned controls, search, keyboard-operable categories/submenus, optional detailed help, command preview, and Custom Launch Args.
-3. **Monitor** (Tune): Live process output, CPU/RAM/disk usage, best-effort disk I/O, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
+3. **Monitor** (Tune): Live process output, CPU/RAM usage, disk read/write activity, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
 4. **Benchmarking** (Tune): Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
 5. **Chat** (Interact): Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
 6. **API** (Interact): View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
@@ -503,6 +503,12 @@ The Quick Launch tab includes a full HF model downloader section initialized by 
 Frontend downloader controls, status rendering, progress polling, cancel handling, and completion flow live in `ui/js/hf-download-ui.js`. `app.js` injects `fetchJson`, confirmation/model callbacks, and `flagCore`; the module must not mutate `flagValues` directly.
 
 ---
+
+## Monitor Disk Activity
+
+The `system:disk` card shows read/write throughput instead of capacity, preserving its layout and visibility preference. The `/api/system-stats` disk object retains capacity fields for compatibility and adds `io_available` (counter availability, independent of capacity) and `io_label` (the measured scope). Rates stay null during warmup, long sampling gaps, counter rollback, or a source change; a valid zero is Idle.
+
+Windows collects raw `PhysicalDisk(_Total)` byte counters through [language-neutral PDH APIs](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhaddenglishcounterw). macOS reads the built-in `ioreg` property-list output using the [IOBlockStorageDriver byte statistics](https://github.com/apple-oss-distributions/IOStorageFamily/blob/main/IOBlockStorageDriver.h). Both aggregate physical disks. Linux retains `/proc/diskstats` selection for the application filesystem device, with its existing whole-disk fallback. The card labels the scope; readings include other applications and do not depend on GPU vendor probes.
 
 ## Presets Tab
 

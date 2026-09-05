@@ -30,6 +30,7 @@ import ipaddress
 import json
 import math
 import os
+import plistlib
 import re
 import shutil
 import subprocess
@@ -393,7 +394,69 @@ def collect_windows_memory():
 
 
 # --------------------------------------------------------------------------
-# macOS collectors (Mach host statistics through ctypes)
+class _PDH_RAW_COUNTER(ctypes.Structure):
+    _fields_ = [
+        ("CStatus", ctypes.c_uint32),
+        ("TimeStamp", _FILETIME),
+        ("FirstValue", ctypes.c_int64),
+        ("SecondValue", ctypes.c_int64),
+        ("MultiCount", ctypes.c_uint32),
+    ]
+
+
+def collect_windows_disk_counters():
+    """Cumulative physical-disk bytes via language-neutral Windows PDH counters.
+
+    Read raw values so the shared sampler handles warmup, gaps and rollbacks.
+    Query handles are local to one collection and always closed, including on
+    counter failures. No subprocess, administrator prompt or vendor tool.
+    """
+    pdh = ctypes.WinDLL("pdh")
+    handle = ctypes.c_void_p
+    for name, args in (
+        ("PdhOpenQueryW", [ctypes.c_wchar_p, ctypes.c_size_t, ctypes.POINTER(handle)]),
+        ("PdhAddEnglishCounterW", [handle, ctypes.c_wchar_p, ctypes.c_size_t, ctypes.POINTER(handle)]),
+        ("PdhCollectQueryData", [handle]),
+        ("PdhGetRawCounterValue", [handle, ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(_PDH_RAW_COUNTER)]),
+        ("PdhCloseQuery", [handle]),
+    ):
+        function = getattr(pdh, name)
+        function.argtypes = args
+        function.restype = ctypes.c_uint32
+
+    def check(status):
+        if status != 0:
+            raise OSError(f"Disk performance counter error 0x{status:08x}")
+
+    query = handle()
+    check(pdh.PdhOpenQueryW(None, 0, ctypes.byref(query)))
+    try:
+        handles = []
+        for direction in ("Read", "Write"):
+            counter = handle()
+            check(pdh.PdhAddEnglishCounterW(
+                query, rf"\PhysicalDisk(_Total)\Disk {direction} Bytes/sec", 0, ctypes.byref(counter),
+            ))
+            handles.append(counter)
+        check(pdh.PdhCollectQueryData(query))
+        values = []
+        for counter in handles:
+            raw = _PDH_RAW_COUNTER()
+            check(pdh.PdhGetRawCounterValue(counter, None, ctypes.byref(raw)))
+            # VALID_DATA and NEW_DATA are both usable, even on the first query.
+            if raw.CStatus not in (0, 1):
+                check(raw.CStatus)
+            if raw.FirstValue < 0:
+                raise ValueError("Disk performance counter returned a negative byte count")
+            values.append(raw.FirstValue)
+        return {"source": "disk:pdh:physical-total", "label": "All physical disks",
+                "bytes_read": values[0], "bytes_written": values[1]}
+    finally:
+        pdh.PdhCloseQuery(query)
+
+
+# --------------------------------------------------------------------------
+# macOS collectors (Mach host statistics through ctypes, I/O Registry)
 # --------------------------------------------------------------------------
 
 _HOST_CPU_LOAD_INFO = 3
@@ -521,6 +584,42 @@ def _probe_details(reason, executable=None, exit_code=None, stderr_text=None):
     return details
 
 
+def parse_macos_disk_counters(payload):
+    """Aggregate IOBlockStorageDriver byte counters from an ioreg plist."""
+    roots = plistlib.loads(payload)
+    stack = list(roots) if isinstance(roots, list) else [roots]
+    devices = {}
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, dict):
+            continue
+        children = node.get("IORegistryEntryChildren")
+        if isinstance(children, list):
+            stack.extend(children)
+        stats = node.get("Statistics")
+        identity = node.get("IORegistryEntryID")
+        if not isinstance(stats, dict) or identity is None:
+            continue
+        read = finite_non_negative_int(stats.get("Bytes (Read)"))
+        written = finite_non_negative_int(stats.get("Bytes (Write)"))
+        if read is not None and written is not None:
+            devices[str(identity)] = (read, written)
+    if not devices:
+        return None
+    # A device appearing/disappearing starts a fresh delta baseline.
+    return {"source": "disk:ioreg:" + ",".join(sorted(devices)), "label": "All physical disks",
+            "bytes_read": sum(values[0] for values in devices.values()),
+            "bytes_written": sum(values[1] for values in devices.values())}
+
+
+def collect_macos_disk_counters():
+    result = subprocess.run(
+        ["/usr/sbin/ioreg", "-a", "-r", "-c", "IOBlockStorageDriver"],
+        capture_output=True, timeout=2.0, check=True,
+    )
+    return parse_macos_disk_counters(result.stdout)
+
+
 def _read_text_file(path):
     with open(path, "r", encoding="utf-8", errors="replace") as handle:
         return handle.read()
@@ -547,7 +646,8 @@ def collect_linux_disk_counters(root_path):
     if selected is None:
         return None
     source, bytes_read, bytes_written = selected
-    return {"source": source, "bytes_read": bytes_read, "bytes_written": bytes_written}
+    label = "All physical disks" if source == "disk:all" else "Application filesystem device"
+    return {"source": source, "label": label, "bytes_read": bytes_read, "bytes_written": bytes_written}
 
 
 def collect_system_counters(ctx, platform_name):
@@ -577,11 +677,13 @@ def collect_system_counters(ctx, platform_name):
         collectors = {
             "cpu": collect_windows_cpu,
             "memory": collect_windows_memory,
+            "disk": collect_windows_disk_counters,
         }
     elif platform_name == "darwin":
         collectors = {
             "cpu": collect_macos_cpu,
             "memory": collect_macos_memory,
+            "disk": collect_macos_disk_counters,
         }
     else:
         collectors = {}
@@ -1620,23 +1722,15 @@ def _build_disk_metric(previous, counters, interval_seconds, interval_ok):
             interval_seconds,
         )
 
-    if usage is None:
-        return {
-            "available": False,
-            "path_label": "Application disk",
-            "used_bytes": None,
-            "total_bytes": None,
-            "percent": None,
-            "read_bytes_per_second": read_rate,
-            "write_bytes_per_second": write_rate,
-        }
-    used, total = usage
+    used, total = usage if usage is not None else (None, None)
     return {
-        "available": True,
+        "available": usage is not None,
         "path_label": "Application disk",
-        "used_bytes": int(used),
-        "total_bytes": int(total),
+        "used_bytes": int(used) if used is not None else None,
+        "total_bytes": int(total) if total is not None else None,
         "percent": usage_percent(used, total),
+        "io_available": current_disk is not None,
+        "io_label": current_disk.get("label", "Application filesystem device") if current_disk else "",
         "read_bytes_per_second": read_rate,
         "write_bytes_per_second": write_rate,
     }
