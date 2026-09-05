@@ -201,17 +201,22 @@
             acc.className = "accordion";
             acc.dataset.categoryId = catId;
 
-            const header = document.createElement("div");
+            const heading = document.createElement("h3");
+            heading.className = "accordion-heading";
+            const header = document.createElement("button");
+            header.type = "button";
             header.className = "accordion-header";
             const countText = visibleFlags.length === group.flags.length
-                ? String(group.flags.length)
-                : `${visibleFlags.length}/${group.flags.length}`;
+                ? `${group.flags.length} ${group.flags.length === 1 ? "setting" : "settings"}`
+                : `${visibleFlags.length} of ${group.flags.length} settings`;
 
             const arrow = document.createElement("span");
             arrow.className = "arrow";
             arrow.textContent = "\u25B6";
+            arrow.setAttribute("aria-hidden", "true");
 
-            const title = document.createElement("h3");
+            const title = document.createElement("span");
+            title.className = "accordion-title";
             title.textContent = group.name;
 
             const count = document.createElement("span");
@@ -224,6 +229,9 @@
 
             const body = document.createElement("div");
             body.className = "accordion-body";
+            body.id = `flag-category-${catId}`;
+            header.setAttribute("aria-controls", body.id);
+            header.setAttribute("aria-expanded", String(openCategories.has(catId)));
 
             if (openCategories.has(catId)) {
                 header.classList.add("open");
@@ -233,6 +241,7 @@
             header.addEventListener("click", () => {
                 header.classList.toggle("open");
                 body.classList.toggle("open");
+                header.setAttribute("aria-expanded", String(body.classList.contains("open")));
                 if (body.classList.contains("open")) {
                     openCategories.add(catId);
                 } else {
@@ -261,7 +270,8 @@
                 body.appendChild(createSubmenuBlock(catId, submenuName, submenuFlags));
             }
 
-            acc.appendChild(header);
+            heading.appendChild(header);
+            acc.appendChild(heading);
             acc.appendChild(body);
             container.appendChild(acc);
         }
@@ -301,7 +311,8 @@
 
         const arrow = document.createElement("span");
         arrow.className = "arrow";
-        arrow.innerHTML = "&#x25B6;";
+        arrow.textContent = "\u25B6";
+        arrow.setAttribute("aria-hidden", "true");
 
         const title = document.createElement("span");
         title.className = "submenu-title";
@@ -317,8 +328,11 @@
 
         const body = document.createElement("div");
         body.className = "flag-submenu-body";
+        body.id = `flag-submenu-${categoryId}-${encodeURIComponent(submenuName)}`;
 
         const key = `${categoryId}::${submenuName}`;
+        header.setAttribute("aria-controls", body.id);
+        header.setAttribute("aria-expanded", String(openSubmenus.has(key)));
         if (openSubmenus.has(key)) {
             header.classList.add("open");
             body.classList.add("open");
@@ -327,6 +341,7 @@
         header.addEventListener("click", () => {
             header.classList.toggle("open");
             body.classList.toggle("open");
+            header.setAttribute("aria-expanded", String(body.classList.contains("open")));
             if (body.classList.contains("open")) {
                 openSubmenus.add(key);
             } else {
@@ -347,6 +362,9 @@
         const row = document.createElement("div");
         row.className = "flag-row";
         row.dataset.flagId = f.id;
+        if (["path", "text_list", "multi_enum"].includes(f.type) || f.sensitive || f.id === "override_tensor") {
+            row.classList.add("flag-row-wide");
+        }
 
         const label = createFlagLabel(f);
         const input = document.createElement("div");
@@ -364,6 +382,16 @@
         }[f.type] || createTextInput;
 
         input.appendChild(builder(f));
+        const control = input.querySelector(`#flag-${f.id}`);
+        const description = label.querySelector(".flag-desc");
+        if (control) {
+            control.setAttribute("aria-labelledby", `flag-label-${f.id} flag-switch-${f.id}`);
+            if (description) control.setAttribute("aria-describedby", description.id);
+        } else if (f.type === "multi_enum") {
+            input.setAttribute("role", "group");
+            input.setAttribute("aria-labelledby", `flag-label-${f.id} flag-switch-${f.id}`);
+            if (description) input.setAttribute("aria-describedby", description.id);
+        }
         row.appendChild(label);
         row.appendChild(input);
         return row;
@@ -372,71 +400,76 @@
     function createFlagLabel(f) {
         const label = document.createElement("div");
         label.className = "flag-label";
-        let defaultText = "";
-        if (f.default !== undefined) defaultText = ` [default: ${f.default}]`;
 
         const titleRow = document.createElement("div");
         titleRow.className = "flag-title-row";
 
-        const flagName = document.createElement("span");
+        const settingName = document.createElement(f.type === "multi_enum" ? "span" : "label");
+        settingName.className = "flag-setting-name";
+        settingName.id = `flag-label-${f.id}`;
+        if (f.type !== "multi_enum") settingName.htmlFor = `flag-${f.id}`;
+        settingName.textContent = f.label || f.flag;
+        titleRow.appendChild(settingName);
+
+        const flagName = document.createElement("code");
         flagName.className = "flag-name";
+        flagName.id = `flag-switch-${f.id}`;
         flagName.textContent = f.flag;
         titleRow.appendChild(flagName);
 
-        if (f.beginner_tip) {
-            const tipDetails = document.createElement("details");
-            tipDetails.className = "flag-tip-details";
-
-            const tipSummary = document.createElement("summary");
-            tipSummary.className = "flag-tip";
-            tipSummary.textContent = "Beginner tip";
-
-            const tipText = document.createElement("div");
-            tipText.className = "flag-tip-text";
-            tipText.textContent = f.beginner_tip;
-
-            tipDetails.appendChild(tipSummary);
-            tipDetails.appendChild(tipText);
-            titleRow.appendChild(tipDetails);
-        }
-
         const { summary, details } = getFlagDescriptionParts(f);
-        const flagDesc = document.createElement("span");
-        flagDesc.className = "flag-desc";
-        flagDesc.textContent = summary;
-
         label.appendChild(titleRow);
-        label.appendChild(flagDesc);
-
-        if (details) {
-            const more = document.createElement("details");
-            more.className = "flag-more";
-
-            const moreSummary = document.createElement("summary");
-            moreSummary.textContent = "More info";
-
-            const moreText = document.createElement("div");
-            moreText.className = "flag-more-text";
-            moreText.textContent = details;
-
-            more.appendChild(moreSummary);
-            more.appendChild(moreText);
-            label.appendChild(more);
+        if (summary) {
+            const flagDesc = document.createElement("span");
+            flagDesc.className = "flag-desc";
+            flagDesc.id = `flag-desc-${f.id}`;
+            flagDesc.textContent = summary;
+            label.appendChild(flagDesc);
         }
 
-        if (defaultText) {
+        const metadata = document.createElement("div");
+        metadata.className = "flag-meta";
+        if (f.default !== undefined) {
             const flagDefault = document.createElement("span");
             flagDefault.className = "flag-default";
-            flagDefault.textContent = defaultText;
-            label.appendChild(flagDefault);
+            flagDefault.textContent = `GUI default: ${String(f.default) || "not set"}`;
+            metadata.appendChild(flagDefault);
         }
 
         if (f.type === "bool" && f.false_flag) {
             const toggleHint = document.createElement("span");
             toggleHint.className = "flag-toggle-hint";
-            toggleHint.textContent = `Off -> ${f.false_flag}`;
-            label.appendChild(toggleHint);
+            toggleHint.textContent = `Off → ${f.false_flag}`;
+            metadata.appendChild(toggleHint);
         }
+
+        if (details || f.beginner_tip) {
+            const more = document.createElement("details");
+            more.className = "flag-more";
+
+            const moreSummary = document.createElement("summary");
+            moreSummary.textContent = "Details";
+            moreSummary.setAttribute("aria-label", `Details about ${f.label || f.flag}`);
+
+            const moreText = document.createElement("div");
+            moreText.className = "flag-more-text";
+            if (details) {
+                const description = document.createElement("p");
+                description.textContent = details;
+                moreText.appendChild(description);
+            }
+            if (f.beginner_tip) {
+                const tipText = document.createElement("p");
+                tipText.className = "flag-tip-text";
+                tipText.textContent = f.beginner_tip;
+                moreText.appendChild(tipText);
+            }
+
+            more.appendChild(moreSummary);
+            more.appendChild(moreText);
+            metadata.appendChild(more);
+        }
+        if (metadata.childElementCount) label.appendChild(metadata);
 
         return label;
     }

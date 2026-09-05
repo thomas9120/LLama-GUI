@@ -97,6 +97,8 @@ Fast Node tests:
 
 Browser smoke test:
 
+Configure presentation coverage checks accessible setting labels and label-to-input focus, keyboard category/submenu and help disclosures, visible compatibility summaries, aligned numeric columns, and control containment at narrow widths.
+
 Chat context coverage also checks preview payload parity (selected answer/reasoning, system prompt, draft, sampler settings), stale-result rejection after runtime changes, the visible meter, context tools-menu visibility, keyboard dismissal and focus, warning Details, compact/summary/undo DOM wiring and narrow layout, post-search overflow feedback and recoverable Retry, and unavailable counting that leaves Send enabled.
 
 - `flag_sync_smoke.cjs`: serves `ui/`, stubs backend APIs, and verifies shared state across Quick Launch, Configure, Chat, command preview, custom model-folder change/reset sequencing, API authentication, API snippets, remote tunnel UI, sampler presets (including rename and the Configure panel's selection surviving a rebuild), custom launch args, the sidebar Model Switcher's rendered drag/keyboard guards, Monitor polling/output/card flows and responsive layout, the Presets browser's roving keyboard focus, and pixel-level clipping of the card hover gradient at rounded corners.

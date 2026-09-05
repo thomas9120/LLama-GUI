@@ -86,6 +86,69 @@ async function selectSection(page, section) {
     await page.waitForSelector(`#section-${section}`, { state: "visible" });
 }
 
+async function verifyConfigurePresentation(page) {
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const contextHeader = page.locator('.accordion[data-category-id="context"] .accordion-header');
+    const contextRow = page.locator('.flag-row[data-flag-id="ctx_size"]');
+
+    assert.equal(await page.getByRole("spinbutton", { name: "Total Context Window -c", exact: true }).getAttribute("id"), "flag-ctx_size");
+    await contextRow.locator(".flag-setting-name").click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "flag-ctx_size", "setting labels focus their inputs");
+    assert.match(await contextRow.locator(".flag-default").textContent(), /GUI default: 64000/);
+
+    const help = contextRow.locator(".flag-more");
+    assert.equal(await help.locator(".flag-tip-text").isVisible(), false, "usage tips stay out of the collapsed row");
+    await help.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await help.locator(".flag-tip-text").isVisible(), true, "detailed help opens from the keyboard");
+    await page.keyboard.press("Enter");
+
+    await contextHeader.focus();
+    await page.keyboard.press("Space");
+    assert.equal(await contextHeader.getAttribute("aria-expanded"), "false");
+    assert.equal(await page.locator("#flag-ctx_size").isVisible(), false);
+    await page.keyboard.press("Enter");
+    assert.equal(await contextHeader.getAttribute("aria-expanded"), "true");
+    assert.equal(await page.locator("#flag-ctx_size").isVisible(), true);
+    assert.equal(await contextHeader.getAttribute("aria-controls"), "flag-category-context");
+
+    const numberColumns = await page.locator("#flag-ctx_size, #flag-batch_size, #flag-ubatch_size")
+        .evaluateAll(inputs => inputs.map(input => {
+            const rect = input.getBoundingClientRect();
+            return { left: rect.left, right: rect.right };
+        }));
+    assert.equal(numberColumns.length, 3);
+    assert.ok(numberColumns.every(rect => Math.abs(rect.left - numberColumns[0].left) < 1
+        && Math.abs(rect.right - numberColumns[0].right) < 1), "numeric controls share an aligned column");
+    assert.match(await page.locator('.flag-row[data-flag-id="mlock"] .flag-desc').textContent(), /Deprecated/);
+
+    await page.fill("#config-search", "sampling");
+    const submenu = page.locator('.accordion[data-category-id="sampling"] .flag-submenu-header').first();
+    await submenu.waitFor({ state: "visible" });
+    assert.equal(await submenu.getAttribute("aria-expanded"), "true");
+    await submenu.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await submenu.getAttribute("aria-expanded"), "false");
+
+    await page.fill("#config-search", "");
+    await page.click("#btn-expand-all");
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflowingControls = await page.locator(".flag-row").evaluateAll(rows => rows.flatMap(row => {
+        const bounds = row.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return [];
+        return Array.from(row.querySelectorAll(".flag-input input, .flag-input select, .flag-input textarea, .flag-input button"))
+            .filter(input => {
+                const rect = input.getBoundingClientRect();
+                return rect.width > 0 && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1);
+            })
+            .map(input => input.id || row.dataset.flagId);
+    }));
+    assert.deepEqual(overflowingControls, [], "simple, path, sensitive, and multi-value controls fit narrow rows");
+    await page.setViewportSize(viewport);
+}
+
 // Range inputs cannot be page.fill()ed; set the value and fire input instead.
 async function setRangeValue(page, selector, value) {
     await page.evaluate(([sel, val]) => {
@@ -750,6 +813,7 @@ async function main() {
         );
 
         await selectSection(page, "configure");
+        await verifyConfigurePresentation(page);
 
         // Typed one key at a time on purpose. Every keystroke writes flag state,
         // which loops back into restoreFlagInputs(); when that rewrote el.value

@@ -211,7 +211,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 1. **Install**: Download and install `llama.cpp` releases, select backend, update app from git.
 2. **Quick Launch**: One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
-3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
+3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with readable names beside CLI switches, aligned controls, search, keyboard-operable categories/submenus, optional detailed help, command preview, and Custom Launch Args.
 4. **Monitor**: Live process output, CPU/RAM/disk usage, best-effort disk I/O, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
 5. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
 6. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.

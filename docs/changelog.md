@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Polished Configure with readable setting names beside CLI flags, aligned input columns, quieter row styling, explicit GUI defaults, and consolidated optional help. Category and submenu disclosures now expose their expanded state to assistive technology; category headers support native keyboard activation, and controls fit narrow layouts.
+
 - Fixed install dropdowns overflowing into the adjacent card at narrower window sizes by constraining them to the available card width.
 
 ## 2026-09-04

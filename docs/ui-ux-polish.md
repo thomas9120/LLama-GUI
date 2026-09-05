@@ -1,7 +1,7 @@
 # UI/UX polish direction
 
 Date: 2026-09-05  
-Status: Design discussion and reference mockups; product implementation has not started.
+Status: First Configure presentation pass implemented; later slices remain planned.
 
 ## Purpose and audience
 
@@ -9,7 +9,7 @@ Llama GUI is gaining users, and its interface should feel more cohesive and deli
 
 The primary audience for this work is **experienced llama.cpp users**, as specified by the project owner. The design direction is a compact technical workspace: fast to scan, precise to edit, and clear about which configuration is running.
 
-The owner responded positively to the initial direction and Configure concept, then requested a static Quick Launch mockup. These notes preserve that discussion. Individual details and the implementation order remain proposals, rather than a commitment to implement every item.
+The owner responded positively to the initial direction and Configure concept, requested a static Quick Launch mockup, and agreed to start implementation with Configure. These notes preserve the discussion and implementation progress. Details in later slices remain proposals, rather than a commitment to implement every item.
 
 Workflow preference: do not use the Ponytail skill for this UI/UX work.
 
@@ -56,7 +56,7 @@ Useful foundations already exist: shared flag state, searchable model selectors,
 6. **Use restrained styling.** Keep the llama identity and existing themes. Reduce decorative borders, colored icon tiles, glows, and repeated status boxes. Use color primarily for selection, changes, and operational status.
 7. **Preserve capabilities.** A collapsed or omitted control in a concept is not a decision to remove the feature.
 
-## Configure: proposed first focus
+## Configure: first focus
 
 Make Configure the flagship screen for experienced users.
 
@@ -156,6 +156,8 @@ Present endpoints as compact rows so long URLs are easier to read and copy. Trea
 
 ### Install and Update
 
+The lower-left **Install & Update** entry in the Quick Launch mockup opens a dedicated page within the app, like the existing tab. Its placement groups maintenance separately from everyday launch and tuning work. A small update-available badge is an optional future refinement.
+
 Show absent optional tools neutrally unless their absence blocks the selected task. Improve user-facing lifecycle labels, especially the distinction between stopping llama-server and quitting Llama GUI.
 
 ### Presets and Monitor
@@ -164,7 +166,7 @@ Their existing functionality provides a useful foundation. Refine hierarchy and 
 
 ## Suggested implementation sequence
 
-This order is a recommendation from the discussion; the owner has not yet selected an implementation slice.
+The owner selected Configure as the starting point. The remaining order is a recommendation from the discussion.
 
 | Slice | Scope | Review criteria |
 | --- | --- | --- |
@@ -173,11 +175,21 @@ This order is a recommendation from the discussion; the owner has not yet select
 | 3. Quick Launch layout | Preset shortcuts, unified compact controls, secondary disclosures, launch bar. | Existing launch capabilities remain reachable; selection/modified states are truthful; common launch preparation fits a normal desktop viewport. |
 | 4. Shell and secondary screens | Navigation grouping, shared visual treatments, Chat/API/Install refinements. | Cross-screen consistency improves without making existing tasks harder to find. |
 
-The initial recommendation was to start with Configure and the running-versus-pending distinction because these improve everyday work for the primary audience and establish reusable patterns. Quick Launch can be selected first if that becomes the owner's preferred starting point.
+Configure and the running-versus-pending distinction improve everyday work for the primary audience and establish patterns for Quick Launch.
+
+### Implemented: Configure presentation, 2026-09-05
+
+- Readable setting names beside CLI switches, using the existing shared definitions.
+- Aligned input columns, row separators, and full-width layouts for paths and compound controls; stacked rows on narrow screens.
+- Short descriptions stay visible, including compatibility warnings. Detailed explanations and beginner tips share one optional **Details** disclosure.
+- Defaults are explicitly labeled **GUI default**.
+- Native category buttons with expanded/collapsed state, associated setting labels, and accessible submenu disclosures.
+- Browser coverage for label focus, keyboard disclosure controls, aligned inputs, narrow-layout containment, and existing shared-state synchronization.
+
+Modified-only filtering, reset actions, modified category counts, and running-versus-pending comparisons remain for the next slice. Current category counts report settings available under the search filter.
 
 ## Open decisions
 
-- Which implementation slice should come first?
 - Which baseline should each modified indicator, filter, and reset use?
 - Which saved presets should Quick Launch surface, and where should starter profiles live?
 - How should preset selection and unsaved edits be presented?
