@@ -74,6 +74,22 @@ function flat(result) {
 {
     const result = adapter.buildBenchmarkArgs({
         benchmarkType: "bench",
+        flags: [
+            { id: "tensor_split", flag: "-ts", type: "text" },
+            { id: "device", flag: "-dev", type: "text" },
+            { id: "hf_token", flag: "-hft", type: "text", sensitive: true },
+        ],
+        source: { model: "tiny.gguf", flags: { tensor_split: "3, 1", device: "CUDA0,CUDA1", hf_token: "hf_private" } },
+    });
+    assert.equal(result.error, null);
+    assert.deepEqual(flat(result).slice(2, 8), ["-ts", "3/1", "-dev", "CUDA0/CUDA1", "-hft", "hf_private"]);
+    assert.ok(!result.command.includes("hf_private"), "copyable commands must redact HF credentials");
+    assert.ok(!JSON.stringify(result.applied).includes("hf_private"), "the settings summary must redact HF credentials");
+}
+
+{
+    const result = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
         flags,
         source: {
             model: "tiny.gguf",

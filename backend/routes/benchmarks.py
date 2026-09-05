@@ -44,12 +44,12 @@ def ensure_wikitext2(request, response, ctx):
 
         try:
             req = UrlRequest(WIKITEXT2_URL, headers={"User-Agent": "Llama-GUI"})
-            with ctx.services.urlopen_with_ssl(req, timeout=60) as upstream:
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-                    tmp_path = Path(tmp.name)
-                    shutil.copyfileobj(upstream, tmp)
-
+            tmp_path = None
             try:
+                with ctx.services.urlopen_with_ssl(req, timeout=60) as upstream:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                        tmp_path = Path(tmp.name)
+                        shutil.copyfileobj(upstream, tmp)
                 with zipfile.ZipFile(tmp_path) as archive:
                     member = _find_zip_member(archive)
                     if member is None:
@@ -73,7 +73,8 @@ def ensure_wikitext2(request, response, ctx):
                     finally:
                         part_path.unlink(missing_ok=True)
             finally:
-                tmp_path.unlink(missing_ok=True)
+                if tmp_path is not None:
+                    tmp_path.unlink(missing_ok=True)
 
             response.json({"ready": True, "downloaded": True, "path": str(target)})
         except Exception as exc:

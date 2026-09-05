@@ -22,6 +22,7 @@ const FLAGS = [
 	{
 		id: "hf_token",
 		flag: "-hft",
+		sensitive: true,
 		category: "model",
 		type: "text",
 		label: "HF Token",

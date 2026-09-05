@@ -203,7 +203,6 @@ let views = slotViews();
 assert.deepEqual(Array.from(views, view => view.state), ["standby", "standby"]);
 assert.equal(views[0].model, "alpha-api");
 assert.equal(views[0].gguf, "alpha.gguf");
-assert.equal(api.selectActionSlot(views), "a", "only one initial target action should be selected");
 assert.deepEqual(
     Array.from(api.selectActionSlots(views)),
     ["a", "b"],
@@ -223,7 +222,6 @@ views = slotViews({
     lifecycle: { phase: "ready", activeRuntime, busy: false },
 });
 assert.deepEqual(Array.from(views, view => view.state), ["active", "standby"]);
-assert.equal(api.selectActionSlot(views), "b", "the non-active slot should be the sole switch target");
 assert.deepEqual(
     Array.from(api.selectActionSlots(views)),
     ["b"],
@@ -258,7 +256,6 @@ views = slotViews({
 });
 assert.equal(views[0].state, "active", "the old runtime should not replace the pending target action");
 assert.equal(views[1].state, "loading");
-assert.equal(api.selectActionSlot(views), "b");
 assert.deepEqual(Array.from(api.selectActionSlots(views)), ["b"], "a switch in flight must show only the loading slot");
 
 views = slotViews({
@@ -271,7 +268,6 @@ views = slotViews({ failures: { b: "Load failed" } });
 assert.equal(views[1].state, "failure");
 assert.equal(views[1].message, "Load failed");
 assert.equal(views[1].actionable, true, "a failed target should remain retryable");
-assert.equal(api.selectActionSlot(views), "b", "the failed target should be the selected retry action");
 
 views = slotViews({
     status: { running: true, active_runtime: activeRuntime },
@@ -281,14 +277,12 @@ views = slotViews({
 assert.equal(views[0].activeIdentity, true);
 assert.equal(views[0].state, "active", "a healthy server surviving stop refusal should remain Active");
 assert.equal(views[1].actionable, true);
-assert.equal(api.selectActionSlot(views), "b", "stop refusal should leave the target slot retryable");
 
 views = slotViews({
     status: { running: true, active_runtime: { tool: "llama-bench" } },
     lifecycle: { phase: "running", activeRuntime: { tool: "llama-bench" } },
 });
 assert.deepEqual(Array.from(views, view => view.state), ["other-tool", "other-tool"]);
-assert.equal(api.selectActionSlot(views), "");
 
 views = slotViews({
     assignments: { version: 1, slots: { a: { preset: "Deleted" }, b: { preset: "CLI Preset" } } },

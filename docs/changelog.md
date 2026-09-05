@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Fixed the application-review findings: scrubbed HF tokens and quoted credential arguments from presets, runtime snapshots, and displayed commands; preserved session credentials when applying presets; resolved `/v1` against the live server target; sent explicit neutral Chat sampler values; prevented deleted conversations from being saved again; refreshed template hints on external reconnects; translated multi-GPU benchmark arguments; rolled back failed installations through metadata commit; downloaded complete split-GGUF sets; and cleaned interrupted WikiText downloads. Removed unused benchmark constants, the obsolete single-slot action selector, old Markdown finalizers, and the unused API-auth helper. Added regression coverage for these failure paths.
+
 - Simplified Configure's launch and restart guidance and moved comparison details into an expandable "About this comparison" note.
 
 - Removed the redundant "CPU busy" label from Monitor's CPU card, retaining the sample interval.

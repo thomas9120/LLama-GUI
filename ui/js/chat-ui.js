@@ -353,6 +353,11 @@
             : null;
         const latestStatus = getLatestStatus ? getLatestStatus() : null;
         const statusGeneration = latestStatus ? latestStatus.runtime_generation : null;
+        const runtime = lifecycle?.activeRuntime || latestStatus?.active_runtime;
+        const external = latestStatus?.external_chat_target;
+        if ((!runtime || runtime.tool !== "llama-server") && external?.connected) {
+            return JSON.stringify(["external", external.host, external.port, external.generation]);
+        }
         return String(lifecycleGeneration !== null && lifecycleGeneration !== undefined
             ? lifecycleGeneration
             : (statusGeneration !== null && statusGeneration !== undefined ? statusGeneration : "running"));
@@ -471,11 +476,11 @@
         const topP = normalizeSamplerNumber(values.top_p);
         if (topP !== null) params.top_p = topP;
         const topK = normalizeSamplerNumber(values.top_k);
-        if (topK !== null && topK !== 0) params.top_k = topK;
+        if (topK !== null) params.top_k = topK;
         const minP = normalizeSamplerNumber(values.min_p);
         if (minP !== null) params.min_p = minP;
         const repeatPenalty = normalizeSamplerNumber(values.repeat_penalty);
-        if (repeatPenalty !== null && repeatPenalty !== 1.0) params.repeat_penalty = repeatPenalty;
+        if (repeatPenalty !== null) params.repeat_penalty = repeatPenalty;
         const nPredict = normalizeSamplerNumber(values.n_predict);
         if (nPredict !== null && nPredict !== -1) params.max_tokens = nPredict;
         return params;
@@ -1168,19 +1173,17 @@
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
 
-    function deleteConversation(id) {
+    async function deleteConversation(id) {
+        if (currentConversationId === id) await startNewChat();
         const conversations = getStoredConversations();
         const filtered = conversations.filter(c => c.id !== id);
         saveConversationsToStorage(filtered);
 
-        if (currentConversationId === id) {
-            currentConversationId = null;
-        }
-
         renderHistoryList();
     }
 
-    function deleteAllConversations() {
+    async function deleteAllConversations() {
+        await startNewChat();
         saveConversationsToStorage([]);
         currentConversationId = null;
         renderHistoryList();
@@ -1245,7 +1248,7 @@
             deleteBtn.title = "Delete conversation";
             deleteBtn.addEventListener("click", (e) => {
                 e.stopPropagation();
-                deleteConversation(convo.id);
+                return deleteConversation(convo.id);
             });
 
             header.appendChild(title);
@@ -1407,8 +1410,7 @@
                 if (getStoredConversations().length === 0) return;
                 const confirmed = await confirmAction("Delete All Conversations", "Delete all conversations? This cannot be undone.", "Delete All");
                 if (confirmed) {
-                    deleteAllConversations();
-                    await clearChat();
+                    await deleteAllConversations();
                 }
             });
         }
@@ -1457,6 +1459,7 @@
             _testLoadConversation: loadConversation,
             _testClearChat: clearChat,
             _testStartNewChat: startNewChat,
+            _testDeleteAllConversations: deleteAllConversations,
             _testRegenerateResponse: regenerateResponse,
             _testCompactConversation: compactConversation,
             _testUndoCompaction: undoCompaction,

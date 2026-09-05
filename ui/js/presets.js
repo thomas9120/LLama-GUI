@@ -1,6 +1,5 @@
-const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key"]);
-const SENSITIVE_CUSTOM_ARG_PATTERN = /(^|[^A-Za-z0-9_-])--api-key(?=$|[=\s])/;
-const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key in Custom Launch Args. Use the API Key field instead.";
+const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key", "hf_token"]);
+const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key, -hft, or --hf-token in Custom Launch Args. Use the API Key or HF Token field instead, and check argument quoting.";
 let presetDependencies = {};
 let lastLoadedPresetName = "";
 let loadedPresetData = null;
@@ -14,7 +13,7 @@ function configurePresetModule(options = {}) {
 
 function hasSensitiveCustomArgs(flags) {
     const raw = flags && flags.custom_args;
-    return typeof raw === "string" && SENSITIVE_CUSTOM_ARG_PATTERN.test(raw);
+    return typeof raw === "string" && Boolean(raw.trim()) && getPresetFlagCore().hasSensitiveCustomArgs(raw);
 }
 
 function clonePresetFlagValue(value) {
@@ -212,8 +211,10 @@ function preparePresetLaunchState(data, options = {}) {
     }
     const flags = flagCore.buildEffectiveFlagValues(normalized.flags);
     if (preserveApiKey) {
-        const currentApiKey = flagCore.getFlagValues().api_key;
-        if (currentApiKey) flags.api_key = currentApiKey;
+        const currentValues = flagCore.getFlagValues();
+        for (const id of SENSITIVE_PRESET_FLAG_IDS) {
+            if (currentValues[id]) flags[id] = currentValues[id];
+        }
     }
     return {
         tool: normalized.tool,
@@ -259,7 +260,7 @@ function comparePresetToCurrent(data, currentData) {
 function formatSavedPresetValue(id, value) {
     if (value === null || value === undefined || value === "") return "Not set";
     const definition = (typeof FLAGS !== "undefined" ? FLAGS : []).find(flag => flag.id === id);
-    if (definition?.sensitive || SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "hf_token" || id === "custom_args") return "Set · value hidden";
+    if (definition?.sensitive || SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "custom_args") return "Set · value hidden";
     if (id === "ctx_size" && String(value) === "0") return "Auto · from model (0)";
     if (id === "gpu_layers" && value === "auto") return "Auto";
     if (id === "gpu_layers" && value === "all") return "All layers";
@@ -332,7 +333,7 @@ function refreshPresetContext() {
         note.classList.toggle("hidden", !loadedPresetMissing && !loadedPresetArchived && !comparison.blocked && !review.open);
         note.textContent = loadedPresetMissing ? "The source preset was removed. Your edits remain available to save as a new preset."
             : comparison.blocked ? SENSITIVE_CUSTOM_ARG_MESSAGE
-                : `${loadedPresetArchived ? "This preset is archived. " : ""}Compares saved launch inputs with your edits. API keys are excluded; sensitive values and Custom Launch Args are hidden in this review.`;
+                : `${loadedPresetArchived ? "This preset is archived. " : ""}Compares saved launch inputs with your edits. API keys and HF tokens are excluded; sensitive values and Custom Launch Args are hidden in this review.`;
     }
 }
 
@@ -1193,7 +1194,7 @@ function renderPresetDetailPanel() {
     settings.append(settingsLabel, values);
     const settingsNote = document.createElement("p");
     settingsNote.className = "help-text";
-    settingsNote.textContent = "Saved launch inputs, before llama.cpp resolves Auto or Auto Fit. Missing settings use GUI defaults on load. API keys are excluded; sensitive values and Custom Launch Args are hidden here.";
+    settingsNote.textContent = "Saved launch inputs, before llama.cpp resolves Auto or Auto Fit. Missing settings use GUI defaults on load. API keys and HF tokens are excluded; sensitive values and Custom Launch Args are hidden here.";
 
     const warnings = document.createElement("div");
     warnings.className = entry.warnings.length ? "preset-warning" : "preset-detail-note";

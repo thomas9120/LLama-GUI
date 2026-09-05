@@ -36,6 +36,7 @@ context.window = context;
 context.window.LlamaGui = {};
 
 vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), context);
 assert.doesNotThrow(() => vm.runInContext(source, context, { filename: "presets.js" }));
 assert.doesNotThrow(() => vm.runInContext("markPresetUsed('Blocked Storage Preset')", context));
 assert.ok(storageWarnings.length > 0, "storage write failures should be logged without breaking preset actions");
@@ -48,6 +49,12 @@ assert.equal(JSON.stringify(Array.from(overrideIds)), JSON.stringify(["ctx_size"
 
 const normalizeImportedPresetData = context.window.LlamaGui.presets.normalizeImportedPresetData;
 const presetApi = context.window.LlamaGui.presets;
+
+for (const custom_args of ['"--api-key" secret', "'--api-key'=secret", '--api-"key" secret',
+    '"-hft" secret', "'--hf-token=secret'", '--hf-"token"=secret', '--metrics\u00a0"--api-key"\ufeffsecret']) {
+    assert.throws(() => normalizeImportedPresetData({ flags: { custom_args } }), /Presets cannot include/);
+    assert.equal(JSON.stringify(presetApi.stripSensitivePresetFlags({ custom_args })), "{}");
+}
 
 assert.equal(presetApi.sanitizeImportedPresetName("  My/Preset?.json  "), "My_Preset_.json");
 assert.equal(
@@ -102,6 +109,7 @@ assert.equal(
     JSON.stringify(context.window.LlamaGui.presets.stripSensitivePresetFlags({
         temperature: 0.5,
         api_key: "must-not-save",
+        hf_token: "must-not-save-hf",
     })),
     JSON.stringify({ temperature: 0.5 })
 );
@@ -178,7 +186,8 @@ assert.equal(JSON.stringify(sourceEntry), sourceSnapshot, "normalized preset ent
 const applied = [];
 let currentApiKey = "session-secret";
 context.window.LlamaGui.flagCore = {
-    getFlagValues: () => ({ api_key: currentApiKey }),
+    ...context.window.LlamaGui.flagCore,
+    getFlagValues: () => ({ api_key: currentApiKey, hf_token: "session-hf" }),
     buildEffectiveFlagValues: (values) => ({ ctx_size: 4096, ...values }),
     setCurrentTool: (tool) => applied.push(["tool", tool]),
     setSelectedModelValue: (model) => applied.push(["model", model]),
@@ -190,6 +199,7 @@ assert.equal(prepared.tool, "llama-server");
 assert.equal(prepared.model, "a.gguf");
 assert.equal(prepared.flags.ctx_size, 4096);
 assert.equal(prepared.flags.api_key, "session-secret");
+assert.equal(prepared.flags.hf_token, "session-hf");
 assert.equal(sourceEntry.data.flags.api_key, "do-not-copy", "preparing a preset must not mutate source data");
 
 presetApi.applyPresetData(sourceEntry.data);
@@ -426,6 +436,9 @@ function createWriteCountingContext(initialStorage = {}) {
     ctx.window = ctx;
     ctx.window.LlamaGui = {};
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     ctx.__writes = 0;
     return ctx;
@@ -490,6 +503,9 @@ function createModelContext(knownModelNames, initialStorage = {}) {
         manager: { getKnownModelNames: () => knownModelNames },
     };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     return ctx;
 }
@@ -594,6 +610,9 @@ function createSelectContext(optionValues, knownModelNames) {
         },
     };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     return { ctx, select, selected };
 }
@@ -830,6 +849,9 @@ function createSearchContext() {
     ctx.window = ctx;
     ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     for (const relativePath of FLAG_SOURCES) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), "utf8"), ctx, {
             filename: relativePath,
@@ -940,6 +962,9 @@ function createPresenceContext(sectionDisplay) {
     ctx.window = ctx;
     ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     // Count rebuilds without performing one; loadPresets would hit the network.
     vm.runInContext("__rebuilds = 0; loadPresets = () => { __rebuilds++; }", ctx);
@@ -1010,6 +1035,9 @@ async function testPresetRefreshPreservesMissingFavorite() {
     ctx.window = ctx;
     ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     vm.runInContext("renderPresetGroups = () => {}", ctx);
 
@@ -1056,6 +1084,9 @@ async function testPresetLoadFailureClearsAuxiliaryState() {
     ctx.window = ctx;
     ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
     vm.createContext(ctx);
+    const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
+    Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
     vm.runInContext(source, ctx, { filename: "presets.js" });
     vm.runInContext(
         "currentPresetGroups = [{ key: 'stale', entries: [] }]; selectedPresetName = 'stale'; selectedPresetNames.add('stale')",

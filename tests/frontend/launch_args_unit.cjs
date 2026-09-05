@@ -165,10 +165,10 @@ function launchResult() {
     assert.equal(args[apiKeyIndex + 1], "primary-secret,backup-secret");
 
     const redacted = vm.runInContext(
-        "window.LlamaGui.flagCore.redactSensitiveTokens(['--api-key', 'primary-secret', '--api-key=backup-secret'])",
+        "window.LlamaGui.flagCore.redactSensitiveTokens(['--api-key', 'primary-secret', '--api-key=backup-secret', '-hft', 'hf-secret', '--hf-token=hf-secret'])",
         context
     );
-    assert.deepEqual(Array.from(redacted), ["--api-key", "<redacted>", "--api-key=<redacted>"]);
+    assert.deepEqual(Array.from(redacted), ["--api-key", "<redacted>", "--api-key=<redacted>", "-hft", "<redacted>", "--hf-token=<redacted>"]);
     vm.runInContext("window.LlamaGui.flagCore.setFlagValue('api_key', undefined)", context);
 }
 
@@ -858,7 +858,7 @@ function launchResult() {
 
 {
     const core = context.window.LlamaGui.flagCore;
-    core.replaceFlagValues({ ctx_size: 64000, api_key: "snapshot-secret", custom_args: "--api-key custom-secret", devices: ["0", "1"] });
+    core.replaceFlagValues({ ctx_size: 64000, api_key: "snapshot-secret", hf_token: "hf-secret", custom_args: "--api-key custom-secret", devices: ["0", "1"] });
     const captured = core.captureLaunchSettings();
     assert.equal(captured.has_custom_args, true);
     assert.ok(!JSON.stringify(captured).includes("secret"), "launch snapshots exclude sensitive controls and custom args");

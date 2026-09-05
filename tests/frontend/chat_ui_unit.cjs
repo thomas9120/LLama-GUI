@@ -588,9 +588,9 @@ async function runAbortScenario(action) {
         const body = payloads[0];
         assert.strictEqual(body.temperature, 0.7, "numeric strings must be coerced to numbers");
         assert.strictEqual(body.top_p, 0.9);
-        for (const key of ["top_k", "repeat_penalty", "max_tokens"]) {
-            assert.ok(!(key in body), `string form of the "${key}" disable sentinel must be omitted`);
-        }
+        assert.equal(body.top_k, 0, "disabling Top K must override the server default");
+        assert.equal(body.repeat_penalty, 1, "disabling repetition penalties must override the server default");
+        assert.ok(!("max_tokens" in body), "unlimited output still uses the server limit");
         assert.ok(!("min_p" in body), "NaN must be omitted rather than serialized as null");
     }
     {
@@ -1316,6 +1316,56 @@ async function runAbortScenario(action) {
         assert.equal(ctx.api._testGetState().chatCompactions.length, 1);
         for (let i = 0; i < 4; i++) ctx.api._testUndoMessage();
         assert.equal(ctx.api._testGetState().chatCompactions.length, 0, "undo across the summary boundary restores raw context");
+    }
+
+    // Deleting the active transcript must settle streaming autosaves before
+    // removing storage, and later New Chat must not recreate the deleted entry.
+    for (const streaming of [false, true]) {
+        let pending = false;
+        const ctx = makeContext({
+            seedConversations: [{ id: "delete-me", title: "Delete me", messages: [{ role: "user", content: "private transcript" }] }],
+            fetchImpl: makeFetch(streaming ? "hang" : "complete", { onStreamPending: () => { pending = true; } }),
+        });
+        await ctx.api._testLoadConversation("delete-me");
+        const send = streaming ? ctx.api._testSendMessage("follow up") : Promise.resolve();
+        if (streaming) await flushUntil(() => pending, "the deletable stream to hang");
+        const deleteButton = ctx.elements.get("chat-history-list").querySelector(".chat-history-item-delete");
+        await deleteButton._listeners.click[0]({ stopPropagation() {} });
+        await send;
+        assert.equal(ctx.getStoredConversations().length, 0);
+        assert.equal(ctx.api._testGetState().chatMessages.length, 0);
+        await ctx.api._testStartNewChat();
+        assert.equal(ctx.getStoredConversations().length, 0, "New Chat must not resurrect deleted messages");
+    }
+    {
+        const ctx = await runAbortScenario(api => api._testDeleteAllConversations());
+        assert.equal(ctx.getStoredConversations().length, 0, "Delete All must include the stream's final autosave");
+        assert.equal(ctx.api._testGetState().chatMessages.length, 0);
+        await ctx.api._testStartNewChat();
+        assert.equal(ctx.getStoredConversations().length, 0);
+    }
+    {
+        let requests = 0;
+        const status = (port, generation) => ({ running: false, runtime_generation: 0,
+            external_chat_target: { connected: true, host: "127.0.0.1", port, generation } });
+        const ctx = makeContext({ status: status(9001, 1), fetchImpl: makeFetch("complete", {
+            onPropsRequest: () => {
+                requests += 1;
+                return Promise.resolve({ ok: true, json: async () => ({
+                    chat_template_caps: { supports_reasoning_effort: requests > 1 },
+                }) });
+            },
+        }) });
+        await ctx.api.refreshTemplateCaps();
+        await ctx.api.refreshTemplateCaps();
+        assert.equal(requests, 1, "polls of the same target should reuse capabilities");
+        ctx.setStatus(status(9002, 2));
+        await ctx.api.refreshTemplateCaps();
+        assert.equal(requests, 2, "another external target must refresh capabilities");
+        ctx.setStatus(status(9002, 3));
+        await ctx.api.refreshTemplateCaps();
+        assert.equal(requests, 3, "reconnecting the same endpoint must refresh capabilities");
+        assert.equal(ctx.elements.get("chat-thinking-effort-cap-hint").textContent, "");
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

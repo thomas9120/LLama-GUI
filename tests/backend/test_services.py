@@ -1444,7 +1444,6 @@ class ProcessStateReapTests(unittest.TestCase):
             process_manager.get_active_llama_authorization(ctx, "Bearer pending-key"),
             "Bearer launch-key",
         )
-        self.assertTrue(process_manager.is_active_llama_api_auth_configured(ctx))
 
         ctx.state.active_llama_api_keys = ()
         self.assertEqual(

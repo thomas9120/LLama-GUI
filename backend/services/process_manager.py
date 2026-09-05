@@ -6,6 +6,7 @@ import json
 import math
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -25,14 +26,13 @@ from .subprocess_utils import get_no_window_creationflags
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
-_SENSITIVE_VALUE_FLAGS = {"--api-key"}
+_SENSITIVE_VALUE_FLAGS = {"--api-key", "-hft", "--hf-token"}
 _LAUNCH_CONTEXT_KEYS = {"source", "slot", "preset", "preset_fingerprint"}
 _MODEL_VALUE_FLAGS = ("-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url")
 _LOCAL_MODEL_VALUE_FLAGS = ("-m", "--model")
 _REMOTE_MODEL_VALUE_FLAGS = ("-hf", "--hf-repo", "-mu", "--model-url")
 _ALIAS_VALUE_FLAGS = ("-a", "--alias")
 _FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}\Z")
-_SENSITIVE_CUSTOM_ARG_RE = re.compile(r"(?<![A-Za-z0-9_-])--api-key(?=$|[=\s])")
 _HEALTH_TIMEOUT_SECONDS = 2
 # How long to wait on a stdin write before giving up on it (see send_input).
 SEND_INPUT_TIMEOUT_SECONDS = 5.0
@@ -926,7 +926,7 @@ def normalize_launch_settings(value: Any) -> Optional[dict[str, Any]]:
     for key, item in flags.items():
         if not isinstance(key, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", key):
             raise ValueError("launch_settings contains an invalid flag id")
-        if key in {"api_key", "custom_args", "ctx_size_draft"}:
+        if key in {"api_key", "hf_token", "custom_args", "ctx_size_draft"}:
             continue
         if isinstance(item, list):
             if len(item) > 256 or not all(valid_scalar(part) for part in item):
@@ -1033,16 +1033,6 @@ def get_active_llama_authorization(ctx: AppContext, fallback: str = "") -> str:
     return str(fallback or "")
 
 
-def is_active_llama_api_auth_configured(ctx: AppContext) -> bool:
-    with ctx.state.process_lock:
-        _reap_finished_process(ctx)
-        return bool(
-            ctx.state.process is not None
-            and ctx.state.active_process_tool == "llama-server"
-            and ctx.state.active_llama_api_keys
-        )
-
-
 def _build_process_env(ctx: AppContext) -> dict[str, str]:
     env = os.environ.copy()
     cfg = _load_config_safe(ctx)
@@ -1063,6 +1053,24 @@ def _build_process_env(ctx: AppContext) -> dict[str, str]:
             runtime_paths + ([existing_dyld] if existing_dyld else [])
         )
     return env
+
+
+def has_sensitive_cli_args(raw: str, *, reject_malformed: bool = True) -> bool:
+    """Conservatively reject credential-bearing or malformed persisted arguments."""
+    # Match the GUI tokenizer's Unicode whitespace, including the BOM character.
+    raw = re.sub(r"[\s\ufeff]", " ", raw)
+    try:
+        tokens = shlex.split(raw, comments=False, posix=True)
+    except ValueError:
+        # The GUI keeps an unquoted trailing backslash (a Windows directory).
+        # shlex treats it as an unfinished escape; doubling it preserves that token.
+        try:
+            tokens = shlex.split(raw + "\\", comments=False, posix=True) if raw.endswith("\\") else None
+        except ValueError:
+            tokens = None
+        if tokens is None:
+            return reject_malformed
+    return any(token.split("=", 1)[0] in _SENSITIVE_VALUE_FLAGS for token in tokens)
 
 
 def redact_sensitive_args(args: Iterable[Any]) -> list[str]:
@@ -1154,16 +1162,18 @@ def _canonical_fingerprint_json(value: Any) -> str:
             for key, nested in candidate.items():
                 if not isinstance(key, str):
                     raise ValueError("fingerprint_data contains an invalid key")
-                if key.casefold() == "api_key":
-                    raise ValueError("fingerprint_data must not contain api_key")
+                if key.casefold() in {"api_key", "hf_token"}:
+                    raise ValueError("fingerprint_data must not contain credentials")
+                if key == "custom_args" and isinstance(nested, str) and has_sensitive_cli_args(nested):
+                    raise ValueError("fingerprint_data must not contain unsafe custom arguments")
                 validate(nested)
             return
         if isinstance(candidate, list):
             for nested in candidate:
                 validate(nested)
             return
-        if isinstance(candidate, str) and _SENSITIVE_CUSTOM_ARG_RE.search(candidate):
-            raise ValueError("fingerprint_data must not contain --api-key")
+        if isinstance(candidate, str) and has_sensitive_cli_args(candidate, reject_malformed=False):
+            raise ValueError("fingerprint_data must not contain credential arguments or malformed quoting")
         if candidate is None or isinstance(candidate, (str, int, float, bool)):
             return
         raise ValueError("fingerprint_data contains an unsupported value")

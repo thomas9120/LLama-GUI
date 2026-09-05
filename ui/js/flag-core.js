@@ -447,9 +447,15 @@
     }
 
     function getSensitiveCliFlags() {
-        return new Set(getFlags()
+        return new Set(["--api-key", "-hft", "--hf-token", ...getFlags()
             .filter(flag => flag && flag.sensitive && flag.flag)
-            .map(flag => String(flag.flag)));
+            .map(flag => String(flag.flag))]);
+    }
+
+    function hasSensitiveCustomArgs(raw) {
+        const parsed = parseCustomLaunchArgs(raw);
+        // Malformed input cannot be established safe to persist.
+        return Boolean(parsed.error) || parsed.tokens.some(token => getSensitiveCliFlags().has(getCustomArgFlagName(token)));
     }
 
     // Shell-quotes a single token for the copyable command preview. Without this
@@ -773,6 +779,7 @@
         isValidGpuLayersValue,
         normalizeGpuLayersValue,
         parseCustomLaunchArgs,
+        hasSensitiveCustomArgs,
         normalizeModelRelPath,
         setModelDirInfo,
         buildLocalModelPath,

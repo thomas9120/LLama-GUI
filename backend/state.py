@@ -45,6 +45,7 @@ def default_external_chat_target() -> dict[str, Any]:
     """
     return {
         "connected": False,
+        "generation": 0,
         "host": "",
         "port": 0,
         "label": "",

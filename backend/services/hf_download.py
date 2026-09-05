@@ -108,6 +108,17 @@ def hf_file_to_dict(file_obj: Any) -> dict[str, Any]:
     return {"name": str(filename), "size": size, "size_mb": round(size / 1048576, 2) if size is not None else None}
 
 
+def model_shard_files(filename: str) -> list[str]:
+    """Return the complete split set, starting with the shard llama.cpp loads."""
+    match = re.fullmatch(r"(.+)-(\d{5})-of-(\d{5})(\.gguf)", filename, re.IGNORECASE)
+    if not match:
+        return [filename]
+    prefix, index, count, suffix = match.groups()
+    if not 1 <= int(index) <= int(count) <= 65535:
+        raise ValueError("Invalid split GGUF shard number or count.")
+    return [f"{prefix}-{part:05d}-of-{count}{suffix}" for part in range(1, int(count) + 1)]
+
+
 def get_hf_gguf_files(repo_id: str, revision: str = "main", token: Optional[str] = None) -> dict[str, Any]:
     try:
         from huggingface_hub import HfApi
@@ -131,7 +142,22 @@ def get_hf_gguf_files(repo_id: str, revision: str = "main", token: Optional[str]
         if item["name"].lower().endswith(".gguf"):
             files.append(item)
     files.sort(key=lambda item: item["name"].lower())
-    main_files = [item for item in files if not is_mmproj_filename(item["name"])]
+    by_name = {item["name"]: item for item in files}
+    main_files = []
+    grouped = set()
+    for item in files:
+        if item["name"] in grouped or is_mmproj_filename(item["name"]):
+            continue
+        shards = model_shard_files(item["name"])
+        grouped.update(shards)
+        if item["name"] != shards[0] or not all(name in by_name for name in shards):
+            continue
+        if len(shards) > 1:
+            sizes = [by_name[name]["size"] for name in shards]
+            size = sum(sizes) if all(value is not None for value in sizes) else None
+            item = {**item, "shard_count": len(shards), "size": size,
+                    "size_mb": round(size / 1048576, 2) if size is not None else None}
+        main_files.append(item)
     mmproj_files = [item for item in files if is_mmproj_filename(item["name"])]
     return {"repo_id": repo_id, "revision": revision, "models": main_files, "mmproj": mmproj_files}
 
@@ -416,6 +442,8 @@ def start_hf_model_download(
         raise ValueError("Choose a main model file, not an mmproj file.")
     if mmproj_file and not is_mmproj_filename(mmproj_file):
         raise ValueError("Choose an mmproj/projector file for the companion mmproj download.")
+    model_files = model_shard_files(model_file)
+    model_file = model_files[0]
 
     with ctx.state.model_download_lock:
         if ctx.state.model_download_in_progress:
@@ -430,11 +458,10 @@ def start_hf_model_download(
         if mmproj_file:
             mmproj_dest = model_dest.parent / pathlib.PurePosixPath(mmproj_file).name
 
-        existing = []
-        if model_dest.exists():
-            existing.append(model_name)
-        if mmproj_dest and mmproj_dest.exists():
-            existing.append(f"{repo_folder}/{mmproj_dest.name}")
+        downloads = [(name, model_dest.parent / pathlib.PurePosixPath(name).name) for name in model_files]
+        if mmproj_dest:
+            downloads.append((mmproj_file, mmproj_dest))
+        existing = [f"{repo_folder}/{dest.name}" for _, dest in downloads if dest.exists()]
         if existing and not overwrite:
             raise FileExistsError(f"Already exists: {', '.join(existing)}")
 
@@ -445,17 +472,15 @@ def start_hf_model_download(
         )
 
     def _worker() -> None:
-        destinations = [model_dest]
-        if mmproj_dest:
-            destinations.append(mmproj_dest)
+        destinations = [dest for _, dest in downloads]
         try:
             model_dest.parent.mkdir(parents=True, exist_ok=True)
-            model_metadata = get_hf_download_metadata(repo_id, model_file, revision, token)
-            total = int(getattr(model_metadata, "size", 0) or 0)
-            mmproj_metadata = None
-            if mmproj_file:
-                mmproj_metadata = get_hf_download_metadata(repo_id, mmproj_file, revision, token)
-                total += int(getattr(mmproj_metadata, "size", 0) or 0)
+            metadata = []
+            for filename, _ in downloads:
+                if ctx.state.model_download_cancel.is_set():
+                    raise InterruptedError("Download cancelled.")
+                metadata.append(get_hf_download_metadata(repo_id, filename, revision, token))
+            total = sum(int(getattr(item, "size", 0) or 0) for item in metadata)
             reset_model_download_state(
                 ctx,
                 status="downloading",
@@ -463,34 +488,25 @@ def start_hf_model_download(
                 total=total,
                 downloaded=0,
             )
-            completed = download_hf_file(
-                ctx,
-                repo_id,
-                model_file,
-                revision,
-                token,
-                model_dest,
-                0,
-                total,
-                urlopen,
-                model_metadata,
-            )
-            mmproj_path = ""
-            if mmproj_file and mmproj_dest:
-                set_model_download_state(ctx, message=f"Downloading {mmproj_dest.name}...")
+            completed = 0
+            for (filename, dest), file_metadata in zip(downloads, metadata):
+                if ctx.state.model_download_cancel.is_set():
+                    raise InterruptedError("Download cancelled.")
+                set_model_download_state(ctx, message=f"Downloading {dest.name}...")
                 completed += download_hf_file(
                     ctx,
                     repo_id,
-                    mmproj_file,
+                    filename,
                     revision,
                     token,
-                    mmproj_dest,
+                    dest,
                     completed,
                     total,
                     urlopen,
-                    mmproj_metadata,
+                    file_metadata,
                 )
-                mmproj_path = str(mmproj_dest)
+            if ctx.state.model_download_cancel.is_set():
+                raise InterruptedError("Download cancelled.")
             set_model_download_state(
                 ctx,
                 status="done",
@@ -500,13 +516,12 @@ def start_hf_model_download(
                 current_file="",
                 model_name=model_name,
                 model_path=str(model_dest),
-                mmproj_path=mmproj_path,
+                mmproj_path=str(mmproj_dest) if mmproj_dest else "",
             )
         except InterruptedError as exc:
-            remove_partial_downloads(destinations)
             set_model_download_state(ctx, status="cancelled", message=str(exc), current_file="")
         except Exception as exc:
-            remove_partial_downloads(destinations)
+            print(f"[hf_download] model download failed: {exc}", file=sys.stderr)
             set_model_download_state(
                 ctx,
                 status="error",
@@ -514,6 +529,7 @@ def start_hf_model_download(
                 current_file="",
             )
         finally:
+            remove_partial_downloads(destinations)
             with ctx.state.model_download_lock:
                 ctx.state.model_download_xet_group = None
                 ctx.state.model_download_in_progress = False

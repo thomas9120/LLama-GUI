@@ -376,21 +376,6 @@
         });
     }
 
-    function selectActionSlot(views, lifecycle = {}) {
-        const list = Array.isArray(views) ? views : [];
-        const loading = list.find(view => view.state === "loading");
-        if (loading) return loading.id;
-        const active = list.find(view => view.activeIdentity);
-        if (active) {
-            const alternate = list.find(view => view.id !== active.id && view.actionable);
-            return alternate ? alternate.id : "";
-        }
-        const failed = list.find(view => view.state === "failure" && view.actionable);
-        if (failed) return failed.id;
-        const target = list.find(view => view.actionable);
-        return target ? target.id : "";
-    }
-
     function selectActionSlots(views) {
         const list = Array.isArray(views) ? views : [];
         const loading = list.find(view => view.state === "loading");
@@ -904,7 +889,6 @@
         init,
         refresh,
         buildSlotViews,
-        selectActionSlot,
         selectActionSlots,
         buildSidebarSliderState,
         resolveSidebarDragTarget,
