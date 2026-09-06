@@ -173,7 +173,7 @@
         let averageBaseline = null;
         let raw = { prompt: null, gen: null };
         let sampled = false;
-        let rate = { at: 0, slots: {} };
+        let rawSeconds = { prompt: null, gen: null };
         let lastInput = null;
         let lastSnapshot = null;
 
@@ -205,7 +205,7 @@
             };
             raw = { prompt: null, gen: null };
             sampled = false;
-            rate = { at: 0, slots: {} };
+            rawSeconds = { prompt: null, gen: null };
             lastInput = null;
             if (!key) return emit(null);
             seq += 1;
@@ -241,10 +241,7 @@
             const slotsNormalized = input && input.slotsOk && input.slotsNormalized ? input.slotsNormalized : null;
             const metricsOk = Boolean(metricsValues);
             const slotsOk = Boolean(slotsNormalized);
-            const now = input && Number.isFinite(input.now) ? input.now : 0;
 
-            let promptSpeedGauge = null;
-            let genSpeedGauge = null;
             let processing = null;
             let deferred = null;
             let currentCounters = { prompt: null, gen: null };
@@ -258,22 +255,23 @@
                     prompt: finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_seconds_total"]),
                     gen: finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_seconds_total"]),
                 };
-                promptSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_seconds"]);
-                genSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:predicted_tokens_seconds"]);
                 processing = finiteNonNegativeOrNull(metricsValues["llamacpp:requests_processing"]);
                 deferred = finiteNonNegativeOrNull(metricsValues["llamacpp:requests_deferred"]);
 
                 // A cumulative counter going down without an observed target
                 // change means the upstream server restarted. Rebase instead
                 // of clamping a cross-restart delta to zero.
-                let counterRolled = false;
                 for (const name of ["prompt", "gen"]) {
                     const current = currentCounters[name];
-                    if (current === null) continue;
-                    if (raw[name] !== null && current < raw[name]) {
+                    const seconds = currentSeconds[name];
+                    const rolled = (current !== null && raw[name] !== null && current < raw[name])
+                        || (seconds !== null && rawSeconds[name] !== null && seconds < rawSeconds[name]);
+                    if (seconds !== null) rawSeconds[name] = seconds;
+                    if (rolled) {
                         baseline[name] = current;
-                        counterRolled = true;
+                        averageBaseline[name] = null;
                     }
+                    if (current === null) continue;
                     raw[name] = current;
                     // Restored targets baseline each counter independently so a
                     // field that appears late does not inherit another field's
@@ -281,14 +279,12 @@
                     if (baseline[name] === null) baseline[name] = current;
                     sampled = true;
 
-                    const seconds = currentSeconds[name];
                     const averageBase = averageBaseline[name];
                     if (seconds !== null && (!averageBase
                         || current < averageBase.tokens || seconds < averageBase.seconds)) {
                         averageBaseline[name] = { tokens: current, seconds };
                     }
                 }
-                if (counterRolled) rate = { at: 0, slots: {} };
             }
 
             let context = null;
@@ -302,47 +298,7 @@
                 if (busy !== null && total !== null) slotsInfo = { busy, total };
             }
 
-            // Slot-derived live speeds require both samples to share a stable
-            // slot/task identity; otherwise fall back to the metrics gauges.
-            let livePromptSpeed;
-            let liveGenSpeed;
             const processingBest = processing !== null ? processing : slotsProcessing;
-            if (slotsNormalized && rate.at > 0) {
-                const elapsed = (now - rate.at) / 1000;
-                if (elapsed >= 1 && elapsed <= 30) {
-                    let promptDelta = 0;
-                    let genDelta = 0;
-                    const allProcessingSampled = slotsNormalized.samples.length === slotsNormalized.processing;
-                    let promptComparable = allProcessingSampled && slotsNormalized.samples.length > 0;
-                    let genComparable = promptComparable;
-                    for (const sample of slotsNormalized.samples) {
-                        const previous = rate.slots[sample.key];
-                        if (!previous) {
-                            promptComparable = false;
-                            genComparable = false;
-                            continue;
-                        }
-                        if (sample.promptTokens !== null && previous.promptTokens !== null
-                            && sample.promptTokens >= previous.promptTokens) {
-                            promptDelta += sample.promptTokens - previous.promptTokens;
-                        } else promptComparable = false;
-                        if (sample.genTokens !== null && previous.genTokens !== null
-                            && sample.genTokens >= previous.genTokens) {
-                            genDelta += sample.genTokens - previous.genTokens;
-                        } else genComparable = false;
-                    }
-                    if (promptComparable) livePromptSpeed = promptDelta / elapsed;
-                    else if (processingBest === 0) livePromptSpeed = 0;
-                    if (genComparable) liveGenSpeed = genDelta / elapsed;
-                    else if (processingBest === 0) liveGenSpeed = 0;
-                }
-            }
-            if (slotsNormalized) {
-                rate = {
-                    at: now,
-                    slots: Object.fromEntries(slotsNormalized.samples.map(sample => [sample.key, sample])),
-                };
-            }
 
             // Session counters come from /metrics only: when that source is
             // unavailable they are marked unavailable, never carried forward.
@@ -381,12 +337,9 @@
                 requests: { processing, queued: deferred, processingBest },
                 slots: slotsInfo,
                 speed: {
-                    prompt: currentSeconds.prompt !== null
-                        ? averagePromptSpeed
-                        : livePromptSpeed !== undefined ? livePromptSpeed : promptSpeedGauge,
-                    generated: currentSeconds.gen !== null
-                        ? averageGenSpeed
-                        : liveGenSpeed !== undefined ? liveGenSpeed : genSpeedGauge,
+                    // A live slot rate or upstream rolling gauge is not a session average.
+                    prompt: averagePromptSpeed,
+                    generated: averageGenSpeed,
                 },
                 contextLevel,
                 baselinePending: !sampled,
@@ -406,6 +359,7 @@
         function resetBaseline() {
             if (!sampled) {
                 baseline = { prompt: null, gen: null };
+                averageBaseline = { prompt: null, gen: null };
                 return false;
             }
             const metricsValues = lastInput && lastInput.metricsOk && lastInput.metricsValues
@@ -438,6 +392,7 @@
                     ? { tokens: current.gen, seconds: seconds.gen } : null,
             };
             raw = { prompt: current.prompt, gen: current.gen };
+            rawSeconds = seconds;
             if (lastInput) rebuild();
             return true;
         }

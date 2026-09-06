@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-05
 
+- Corrected inference averages after counter resets and server restarts; missing processing-time counters now show unavailable instead of a live rate labeled as an average.
+- Aligned the installed llama.cpp build label with the Install & Update button text.
 - Matched the installed llama.cpp version text to the Live indicator color.
 - Hardened credentials, runtime snapshots, server targets, installations, downloads, and reconnect handling; removed obsolete code and added regression coverage.
 - Simplified Configure launch/restart guidance and moved comparison details into an expandable note.

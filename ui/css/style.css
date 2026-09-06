@@ -362,7 +362,7 @@ body.chat-focus-mode .sidebar {
 .sidebar-maintenance .nav-item { padding-inline: var(--space-2); font-size: 12px; }
 .sidebar-maintenance .badge {
     display: block;
-    padding: 2px var(--space-2) 4px 36px;
+    padding: 2px var(--space-2) 4px calc(var(--space-2) + 18px + var(--space-3));
     background: transparent;
     border: none;
     border-radius: 0;

@@ -1294,8 +1294,10 @@ async function main() {
                 contentType: "text/plain",
                 body: [
                     `llamacpp:prompt_tokens_total ${statsMetrics.promptTokens}`,
+                    `llamacpp:prompt_seconds_total ${statsMetrics.promptSeconds}`,
                     `llamacpp:prompt_tokens_seconds ${statsMetrics.promptSpeed}`,
                     `llamacpp:tokens_predicted_total ${statsMetrics.genTokens}`,
+                    `llamacpp:tokens_predicted_seconds_total ${statsMetrics.genSeconds}`,
                     `llamacpp:predicted_tokens_seconds ${statsMetrics.genSpeed}`,
                     `llamacpp:requests_processing ${statsMetrics.processing}`,
                 ].join("\n"),
@@ -1776,8 +1778,10 @@ async function main() {
 
         statsMetrics = {
             promptTokens: 1000,
+            promptSeconds: 2,
             promptSpeed: 11,
             genTokens: 500,
+            genSeconds: 10,
             genSpeed: 7,
             processing: 0,
         };
@@ -1808,12 +1812,23 @@ async function main() {
         await wait(1100);
         statsSlots[0].n_prompt_tokens = 140;
         statsSlots[0].next_token.n_decoded = 40;
+        statsMetrics.genTokens = 530;
+        statsMetrics.genSeconds = 12;
         await page.evaluate(() => pollStats());
-        const liveGenSpeed = Number(await page.textContent("#stats-gen-speed"));
-        assert.ok(liveGenSpeed > 20 && liveGenSpeed < 35,
-            `generation speed must use live slot deltas, got ${liveGenSpeed}`);
-        assert.equal(await page.textContent("#stats-context"), "0",
+        assert.equal(await page.textContent("#stats-gen-speed"), "15.0",
+            "generation average divides session tokens by generation time, not poll time");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed"), "15.0 tok/s",
+            "the Monitor card shares the fixed bar's average");
+        assert.equal(await page.textContent("#stats-context"), "30",
             "session tokens stay baseline-relative while slot context moves independently");
+        statsMetrics.processing = 0;
+        statsSlots = idleStatsSlots;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-gen-speed"), "15.0", "idle preserves the average");
+        delete statsMetrics.genSeconds;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-gen-speed"), "--", "missing time does not use a gauge");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed"), "--");
 
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");

@@ -694,57 +694,6 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     assert.equal(snap.context, null);
 }
 
-// Slot-derived speeds require a stable slot/task identity across samples.
-{
-    const engine = monitorUi.createInferenceStats({});
-    engine.setTarget("gui:4", { zeroBaseline: true });
-    engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100), now: 10000,
-    });
-    const sameTask = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 2000, 200), now: 12000,
-    });
-    assert.ok(Math.abs(sameTask.speed.prompt - 500) < 0.001, "same identity yields slot speed");
-    assert.ok(Math.abs(sameTask.speed.generated - 50) < 0.001);
-    const differentTask = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues({
-            "llamacpp:prompt_tokens_seconds": 111,
-            "llamacpp:predicted_tokens_seconds": 11,
-        }),
-        slotsOk: true, slotsNormalized: slotsSample(0, 3000, 300, 999), now: 14000,
-    });
-    assert.equal(differentTask.speed.prompt, 111, "task change falls back to the gauge");
-    assert.equal(differentTask.speed.generated, 11);
-}
-
-// A long polling gap uses the metrics gauge for that cycle and reseeds the
-// slot baseline for the next normal interval.
-{
-    const engine = monitorUi.createInferenceStats({});
-    engine.setTarget("gui:gap", { zeroBaseline: true });
-    engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100), now: 1000,
-    });
-    const afterGap = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues({
-            "llamacpp:prompt_tokens_seconds": 123,
-            "llamacpp:predicted_tokens_seconds": 13,
-        }),
-        slotsOk: true, slotsNormalized: slotsSample(0, 2000, 200), now: 33001,
-    });
-    assert.equal(afterGap.speed.prompt, 123);
-    assert.equal(afterGap.speed.generated, 13);
-    const recovered = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 3000, 300), now: 35001,
-    });
-    assert.ok(Math.abs(recovered.speed.prompt - 500) < 0.001);
-    assert.ok(Math.abs(recovered.speed.generated - 50) < 0.001);
-}
-
 // Current llama.cpp builds expose cumulative active-processing time. Session
 // averages use those counters, so idle polls neither zero nor dilute them.
 {
@@ -776,70 +725,55 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     const moreWork = engine.applyPollResult({
         metricsOk: true, metricsValues: metricValues({
             "llamacpp:prompt_tokens_total": 1200,
-            "llamacpp:tokens_predicted_total": 700,
+            "llamacpp:tokens_predicted_total": 900,
             "llamacpp:prompt_seconds_total": 2.5,
             "llamacpp:tokens_predicted_seconds_total": 14,
         }),
         slotsOk: false, slotsNormalized: null, now: 7000,
     });
     assert.equal(moreWork.speed.prompt, 480, "average is weighted by active prompt time");
-    assert.equal(moreWork.speed.generated, 50, "average is weighted by active generation time");
+    assert.equal(moreWork.speed.generated, 900 / 14, "average is weighted by active generation time");
 
     assert.equal(engine.resetBaseline(), true);
     assert.equal(engine.getSnapshot().speed.prompt, null);
     assert.equal(engine.getSnapshot().speed.generated, null);
 }
 
-// Slot deltas require both identities, and a global slot rate is published
-// only when every currently processing slot is comparable.
+// Session averages survive idle time but never mix data across resets/restarts.
 {
-    const missingTask = monitorUi.normalizeSlots([{
-        id: 0, is_processing: true, n_ctx: 1000,
-        n_prompt_tokens_processed: 100, next_token: { n_decoded: 10 },
-    }]);
-    assert.equal(missingTask.samples.length, 0);
-
     const engine = monitorUi.createInferenceStats({});
-    engine.setTarget("gui:slots", { zeroBaseline: true });
-    engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100, 1), now: 1000,
+    const poll = (tokens, seconds) => engine.applyPollResult({
+        metricsOk: true,
+        metricsValues: {
+            "llamacpp:tokens_predicted_total": tokens,
+            "llamacpp:tokens_predicted_seconds_total": seconds,
+            "llamacpp:predicted_tokens_seconds": 999,
+        },
+        slotsOk: true, slotsNormalized: slotsSample(0, 1000, tokens), now: 1000,
     });
-    const reused = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues({
-            "llamacpp:prompt_tokens_seconds": 77,
-            "llamacpp:predicted_tokens_seconds": 7,
-        }),
-        slotsOk: true,
-        slotsNormalized: monitorUi.normalizeSlots([{
-            id: 0, is_processing: true, n_ctx: 8192,
-            n_prompt_tokens_processed: 200, next_token: { n_decoded: 20 },
-        }]),
-        now: 2000,
-    });
-    assert.equal(reused.speed.prompt, 77, "slot reuse without id_task uses the gauge");
-    assert.equal(reused.speed.generated, 7);
+    engine.setTarget("gui:restart-average", { zeroBaseline: true });
+    assert.equal(poll(1000, 10).speed.generated, 100);
+    assert.equal(poll(100, 2).speed.generated, null, "rollback must clear the zero-origin average");
+    assert.equal(poll(200, 4).speed.generated, 50, "only post-restart work contributes");
+    assert.equal(poll(300, 3).speed.generated, null, "time rollback also rebases even if tokens increased");
+    assert.equal(poll(350, 4).speed.generated, 50);
+    assert.equal(poll(10, null).speed.generated, null, "missing time cannot use a rolling gauge");
+    assert.equal(poll(50, 1).speed.generated, null, "late timing establishes a matched pair");
+    assert.equal(poll(100, 2).speed.generated, 50);
 
-    const twoSlots = (first, second) => monitorUi.normalizeSlots([
-        { id: 0, id_task: 1, is_processing: true, n_ctx: 8192,
-            n_prompt_tokens_processed: first, next_token: { n_decoded: first / 10 } },
-        { id: 1, id_task: 2, is_processing: true, n_ctx: 8192,
-            n_prompt_tokens_processed: second, next_token: { n_decoded: second / 10 } },
-    ]);
-    engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues(),
-        slotsOk: true, slotsNormalized: slotsSample(0, 1000, 100, 1), now: 3000,
-    });
-    const continuingAndNew = engine.applyPollResult({
-        metricsOk: true, metricsValues: metricValues({
-            "llamacpp:prompt_tokens_seconds": 88,
-            "llamacpp:predicted_tokens_seconds": 8,
-        }),
-        slotsOk: true, slotsNormalized: twoSlots(1100, 100), now: 4000,
-    });
-    assert.equal(continuingAndNew.speed.prompt, 88,
-        "a new processing slot prevents a partial global rate");
-    assert.equal(continuingAndNew.speed.generated, 8);
+    engine.setTarget("ext:average");
+    assert.equal(poll(1000, 10).speed.generated, null, "restored target excludes pre-connection work");
+    assert.equal(poll(1100, 12).speed.generated, 50);
+    engine.resetBaseline();
+    assert.equal(poll(1300, 13).speed.generated, 200, "reset rebases tokens and time together");
+    poll(1400, null);
+    engine.resetBaseline();
+    assert.equal(poll(1500, 15).speed.generated, null, "reset with missing time stays pending");
+    assert.equal(poll(1600, 17).speed.generated, 50);
+
+    engine.setTarget("gui:pending-reset", { zeroBaseline: true });
+    assert.equal(engine.resetBaseline(), false);
+    assert.equal(poll(500, 5).speed.generated, null, "reset before the first poll excludes previous work");
 }
 
 // 80%/95% context presentation levels.
@@ -976,11 +910,8 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
         slotsOk: true, slotsNormalized: slotsSample(0, 5000, 400), now: 2000,
     });
     assert.equal(after.session.total, 0, "new target gets a fresh baseline");
-    // Slot-derived deltas must not leak across targets: with the old sample
-    // cleared there is no previous slot to compare, so the gauge is used
-    // instead of a bogus (5000 - 1000) / 1s spike.
-    assert.equal(after.speed.prompt, 300, "rate samples must not cross targets");
-    assert.equal(after.speed.generated, 30);
+    assert.equal(after.speed.prompt, null, "missing timing counters leave averages unavailable");
+    assert.equal(after.speed.generated, null);
     engine.setTarget(null);
     assert.equal(engine.getSnapshot(), null);
     assert.equal(engine.applyPollResult({ metricsOk: true, metricsValues: {}, slotsOk: false, slotsNormalized: null, now: 3000 }), null);
