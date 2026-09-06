@@ -1,3 +1,7 @@
+import json
+import os
+import subprocess
+import sys
 import unittest
 
 from backend import config
@@ -17,10 +21,27 @@ class BackendConfigTests(unittest.TestCase):
     def test_server_config_uses_shared_ports(self):
         server_config = ServerConfig()
 
-        self.assertEqual(server_config.gui_port, 5240)
-        self.assertEqual(server_config.llama_port, 8080)
-        self.assertEqual(server_config.gui_host, "127.0.0.1")
-        self.assertFalse(server_config.supervised)
+        self.assertEqual(server_config.gui_port, config.GUI_PORT)
+        self.assertEqual(server_config.llama_port, config.LLAMA_PORT)
+        self.assertEqual(server_config.gui_host, config.GUI_HOST)
+        self.assertEqual(server_config.supervised, config.SUPERVISED)
+
+    def test_import_time_defaults_and_environment_overrides(self):
+        # A child interpreter avoids reloading dataclasses used by other tests.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("LLAMA_GUI_")}
+        for overrides, expected in (
+            ({}, ["127.0.0.1", 5240, False]),
+            ({"LLAMA_GUI_HOST": "0.0.0.0", "LLAMA_GUI_PORT": "5251", "LLAMA_GUI_SUPERVISED": "1"},
+             ["0.0.0.0", 5251, True]),
+        ):
+            with self.subTest(overrides=overrides):
+                result = subprocess.run(
+                    [sys.executable, "-c", "import json; from backend.context import ServerConfig; "
+                     "c = ServerConfig(); print(json.dumps([c.gui_host, c.gui_port, c.supervised]))"],
+                    cwd=config.ROOT_DIR, env={**env, **overrides},
+                    capture_output=True, text=True, check=True, timeout=10,
+                )
+                self.assertEqual(json.loads(result.stdout), expected)
 
     def test_gui_env_parsers_accept_valid_values(self):
         self.assertEqual(config.parse_gui_host("0.0.0.0"), "0.0.0.0")

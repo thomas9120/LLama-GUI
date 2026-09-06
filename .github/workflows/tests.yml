@@ -64,6 +64,41 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: npx playwright install chromium
 
-      - name: Run frontend smoke test
+      - name: Prepare pinned llama.cpp CPU binaries
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgomp1
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import tarfile
+          import urllib.request
+
+          pin = json.loads(pathlib.Path("tests/llama-cpp-pin.json").read_text())
+          destination = pathlib.Path(os.environ["RUNNER_TEMP"]) / "llama-flag-compatibility"
+          destination.mkdir()
+          archive = destination / pin["asset"]
+          url = f'https://github.com/ggml-org/llama.cpp/releases/download/{pin["tag"]}/{pin["asset"]}'
+          with urllib.request.urlopen(url, timeout=60) as response:
+              archive.write_bytes(response.read())
+          with archive.open("rb") as downloaded:
+              digest = hashlib.file_digest(downloaded, "sha256").hexdigest()
+          if digest != pin["sha256"]:
+              raise SystemExit("Pinned llama.cpp archive SHA256 mismatch")
+          with tarfile.open(archive) as bundle:
+              bundle.extractall(destination, filter="data")
+          binaries = list(destination.rglob("llama-server"))
+          if len(binaries) != 1 or not binaries[0].with_name("llama-cli").is_file():
+              raise SystemExit("Expected one directory containing llama-server and llama-cli")
+          with open(os.environ["GITHUB_ENV"], "a") as environment:
+              environment.write(f"LLAMA_GUI_LLAMA_BIN_DIR={binaries[0].parent}\n")
+          print(f'Prepared llama.cpp {pin["tag"]}: {pin["asset"]}')
+          PY
+
+      - name: Run frontend tests with required flag compatibility
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.13'
         run: npm test

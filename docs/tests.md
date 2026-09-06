@@ -37,13 +37,30 @@ Validates structural invariants in `FLAGS` and `FLAG_CATEGORIES`, including ids,
 npm run test:flags
 ```
 
-Compares exposed GUI flags against installed `llama-server` and `llama-cli` help output when those binaries are available.
+Tests binary selection and failure handling, then compares exposed GUI flags against `llama-server` and `llama-cli` help output. Without an explicit directory, local runs use the selected installed backend (including `llama/custom/bin`) or PATH and may skip if neither binary exists.
+
+For a required check against a specific build:
+
+```powershell
+$env:LLAMA_GUI_LLAMA_BIN_DIR = 'C:\path\to\llama\bin'
+node tests/frontend/llama_flags_supported_unit.cjs --require-binaries
+```
+
+An explicit `LLAMA_GUI_LLAMA_BIN_DIR` (or legacy `LLAMA_CPP_BIN_DIR`) requires both executables and disables fallback to other installations. Missing binaries, failed/timed-out `--help`, and unsupported flags fail the check. `--require-binaries` also requires an explicit directory. This checks advertised flag names, including negated booleans; it does not validate enum values or GPU execution. Fork-only flags are excluded.
+
+The Ubuntu/Python 3.13 CI job installs the `libgomp1` OpenMP runtime, downloads the exact CPU release in `tests/llama-cpp-pin.json`, verifies its SHA256, and sets the explicit directory before `npm test`. Update the tag, asset, and checksum together from an official llama.cpp release, then run compatibility before accepting the new pin. No model or GPU is needed.
 
 ```powershell
 npm run test:frontend
 ```
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
+
+The browser suite has eight named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
+
+```powershell
+node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smoke.cjs
+```
 
 The smoke test also covers grouped sidebar navigation, current-page semantics, active-versus-pending runtime identity, external server details, duplicate Stop protection during transitions, mobile focus and dismissal, and maintenance access in short windows.
 
@@ -73,7 +90,7 @@ Fast Node tests:
 - `output_cursor_unit.cjs`: generation-aware process output cursor consumption, stale-response rejection, and `invalidate()` semantics that preserve the cursor while rejecting in-flight responses.
 - `monitor_ui_unit.cjs`: hermetic Monitor tests for polling and badge stability, card visibility/reordering and focus preservation, inference baselines and telemetry normalization, and safe rendering of hostile telemetry text. Average-speed coverage checks processing-time weighting, idle periods, restored targets, token/time counter rollback, missing timings, and resets before or between valid samples. Live prompt/generation coverage checks updates before request completion, parallel slots, task changes, stalls, missing samples, long polling gaps, and returning to the completed-session average. Prompt cases also verify cache exclusion, null counter handling, excluding intervals that span prefill and generation, and batch updates spanning several polls without spikes or zero-rate flicker.
 - `process_lifecycle_unit.cjs`: guarded launch/stop/switch ordering, readiness progression, generation conflicts, out-of-band replacement reconciliation, refused-stop recovery, stop-during-load, and stale transition handling.
-- `model_switch_ui_unit.cjs`: two-slot persistence, assignment validation, recoverable slot states, cancellation/failure cleanup, active-runtime display precedence, sidebar slider availability/drag thresholds/markup, safe rendering helpers, and storage fallback.
+- `model_switch_ui_unit.cjs`: two-slot persistence, assignment validation, recoverable slot states, cancellation/failure cleanup, active-runtime display precedence, sidebar slider availability/drag thresholds/markup, safe rendering helpers, and storage fallback. Browser interactions cover assignment changes, refresh, and drag/keyboard guards; exact CSS and source-text locks have been removed.
 - `benchmark_args_unit.cjs`: benchmark/perplexity argument adaptation through the shared local-model path builder without mutating source presets, plus visible model-folder load failures in the manual-model selector.
 - `chat_compaction_unit.cjs`: chunk budgets, complete summary validation, incremental summary merging, token savings, recent-turn preservation, cancellation, unsupported counting, and oversized-message recovery. `chat_ui_unit.cjs` additionally checks compaction persistence, request context, Undo, and cancellation when switching conversations.
 - `chat_rendering_unit.cjs`: markdown escaping, fenced code safety, and safe source-link rendering.
@@ -96,10 +113,13 @@ Fast Node tests:
   - Two usage invariants that keep the lower floors honest: `--yellow-solid`/`--favorite-solid` must never appear as a `color:`, and placeholder text must never use `--fg-faint`.
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
-- `llama_flags_supported_unit.cjs`: compares exposed GUI flags against the installed `llama-server` / `llama-cli` help output. Skips with a message when neither binary is present, so a pass here does not imply the check ran.
+- `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
+- `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
 - `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:
+
+Benchmark action coverage checks normal completion and parsed throughput summaries, safe output rendering, launch failure and retry, refused Stop with resumed polling and a successful retry, reconnecting to an existing benchmark, and WikiText preparation failure/retry before perplexity launch. It exercises the real app/lifecycle/benchmark wiring through API fixtures.
 
 Monitor runtime coverage checks authoritative identity despite pending edits, safe long model names, focused Configure change review, external-server navigation, retained versus empty logs, and layout containment at 900/390px. A missing-vendor-probe fixture verifies useful system readings and an optional, keyboard-operable GPU setup disclosure whose focus/open state survive polling. A delayed-response fixture ignores AbortSignal to verify that epoch invalidation still rejects metrics/slots after reconnecting to the same external endpoint. `monitor_ui_unit.cjs` also covers partial inference guidance, model-only changes, failed actions with a still-active process, and vendor-independent readings.
 
@@ -128,9 +148,12 @@ Backend tests use Python `unittest` and mostly exercise route/service logic with
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
 - `test_chat_context.py`: per-slot context capacity, fixed/server/unlimited output reserves, overflow boundaries, template/tokenizer fallback, preserved reasoning/options, unsupported media and unavailable counts, pinned target/auth, final post-search overflow prevention, and required-count summary requests with GUI-only metadata stripped.
 - `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract. Disk I/O coverage includes capacity-independent availability, Windows PDH raw counters and handle cleanup on failures, and macOS registry aggregation, device identity, and timeout isolation. `monitor_ui_unit.cjs` checks read/write activity, idle versus missing data, first-sample warmup and partial readings; the browser suite checks the capacity display has been replaced.
+- `test_system_stats_native.py`: Windows CPU/memory and macOS Mach/sysctl CPU/memory API fixtures, including 64-bit counters, idle accounting, physical memory, 4/16 KiB pages, invalid samples, and native API failures. These run on both existing CI platforms; actual macOS ABI and desktop behavior still need native verification.
 - `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.
 - `test_http_adapters.py`: request/response helpers and CORS origin handling.
+- `test_http_integration.py`: a real loopback HTTP server on an ephemeral port with temporary presets. Exercises POST/DELETE dispatch, multibyte bodies crossing the read-chunk boundary, origin rejection, malformed JSON, invalid/oversized lengths, unsupported transfer encoding, truncated/stalled bodies, JSON 404s, and single-response framing.
+- `test_web_fetch_transport.py`: real pinned HTTP/HTTPS connection and response parsing with only DNS/socket/TLS boundaries faked; covers destination pinning, Host/SNI, request targets, decoding, byte limits, redirect revalidation, cleanup, and sanitized transport failures.
 - `test_server_baseline.py`: compatibility wrapper behavior, API dispatch, CORS, static asset versioning, and baseline server helpers.
 - `test_services.py`: service-level helpers for install specs, runtime validation, process/auth and active-runtime lifecycle, generation-bound health/stop behavior, downloads, file picker behavior, chat/search helpers, external-server registration (local-only validation, header-safe API keys, key never published or persisted, llama.cpp-aware probe identification, remembered-address round-tripping, unattended restore rules, runtime precedence), and HF validation.
 - `test_review_regressions.py`: HF/API credential sanitization and quoted-argument rejection, live `/v1` fallback, external reconnect generations, installation rollback after grammar/permission/config failures, interrupted WikiText cleanup, and complete split-GGUF discovery/download/cancellation/overwrite handling. Frontend regression cases live in the existing launch-args, presets, Chat, and benchmark unit suites.
@@ -140,6 +163,8 @@ Backend tests use Python `unittest` and mostly exercise route/service logic with
 - `test_unix_shortcuts.py`: Linux XDG locations, disabled desktops, command escaping, macOS bundle metadata and desktop links, repeat installation, conflicting app preservation, nonfatal errors, and matching icon artwork. The desktop symlink test runs on Unix; Finder/menu launch behavior needs a native desktop check.
 
 Run backend tests after changes under `backend/`, route behavior changes, service helper changes, process management changes, install/update changes, or security-sensitive validation changes.
+
+Config-default tests run in clean child-process environments; installed-tool and CORS fixtures do not depend on the developer's saved backend or GUI port. CI deliberately remains Linux/Windows: macOS runners, especially Intel, have taken hours for the maintainer. See the dated exception in `AGENTS.md` before changing the matrix.
 
 **If `test_docs_sync.py` fails**, the fix is normally to add the missing row rather than to loosen the test. It names the exact offending method and path. When the route table or the HTML markup moves, update the section-locating helpers in that file — they raise a clear error rather than silently matching nothing, because a docs check that finds zero routes would pass vacuously.
 

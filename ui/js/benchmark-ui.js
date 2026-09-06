@@ -874,6 +874,7 @@
     async function stopBenchmark() {
         const outcome = await processLifecycle.stop({
             operation: "benchmark-stop",
+            notifyFailure: true,
             abortChat: () => {},
             invalidateOutput: stopOutputPolling,
             invalidateStats: () => {},

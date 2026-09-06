@@ -6,8 +6,8 @@
     "test:syntax": "node tests/frontend/js_syntax_check.cjs",
     "test:frontend:modules": "node tests/frontend/module_namespace_unit.cjs",
     "test:flag-definitions": "node tests/frontend/flag_definitions_unit.cjs",
-    "test:flags": "node tests/frontend/llama_flags_supported_unit.cjs",
-    "test:frontend": "node tests/frontend/flag_sync_smoke.cjs"
+    "test:flags": "node tests/frontend/llama_flags_runner_unit.cjs && node tests/frontend/llama_flags_supported_unit.cjs",
+    "test:frontend": "node --test tests/frontend/flag_sync_smoke.cjs"
   },
   "devDependencies": {
     "playwright": "^1.60.0"

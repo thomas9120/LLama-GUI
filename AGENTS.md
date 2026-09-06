@@ -44,6 +44,8 @@
 
 Run checks appropriate to the change; use `docs/tests.md` to select focused unit tests.
 
+- **Deliberate CI exception (2026-09-06):** Keep GitHub Actions on Linux and Windows. The maintainer has observed macOS jobs, especially Intel runners, taking hours while Ubuntu jobs finish in roughly 2–3 minutes. Do not add macOS runners as a test-coverage fix; revisit only when the maintainer asks to reconsider the runner limitation. Cover macOS logic with fixtures on the existing runners and document any remaining native checks.
+
 | Change | Required check |
 |--------|----------------|
 | Any JS file | `node --check <path-to-file>` |
