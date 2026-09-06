@@ -1770,6 +1770,9 @@ async function main() {
             next_token: { n_decoded: 20 },
         }];
         await page.evaluate(async () => {
+            // Settle Quick Launch's status refresh before manual sampling: the
+            // stopped-server fixture would otherwise clear the stats target.
+            await refreshRuntimeStatusPanels();
             startStatsPolling({ generation: 1 }, { operation: "manual-launch" });
             await pollStats();
         });
