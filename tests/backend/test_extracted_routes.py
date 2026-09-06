@@ -2116,6 +2116,9 @@ class ExtractedRouteTests(unittest.TestCase):
                         "models/qwen.gguf",
                         "-a=qwen-local,backup",
                     ],
+                    launch_settings={"model": "qwen.gguf", "has_custom_args": False, "flags": {
+                        "ctx_size": 8192, "api_key": "launch,part", "devices": ["0", "1"],
+                    }},
                 )
 
             self.assertEqual(result["pid"], 1234)
@@ -2137,11 +2140,44 @@ class ExtractedRouteTests(unittest.TestCase):
                     "slot": None,
                     "preset": None,
                     "preset_fingerprint": None,
+                    "launch_settings": {"model": "qwen.gguf", "has_custom_args": False, "flags": {"ctx_size": 8192, "devices": ["0", "1"]}},
+                    "version": None,
+                    "backend": None,
                 },
             )
             self.assertEqual(result["active_runtime"], ctx.state.active_runtime)
             self.assertIsNot(result["active_runtime"], ctx.state.active_runtime)
             self.assertNotIn("launch,part", json.dumps(ctx.state.active_runtime))
+            result["active_runtime"]["launch_settings"]["flags"]["devices"][0] = "changed"
+            snapshot = process_manager.get_process_status_snapshot(ctx)
+            snapshot["active_runtime"]["launch_settings"]["flags"]["ctx_size"] = 100
+            self.assertEqual(ctx.state.active_runtime["launch_settings"]["flags"]["devices"], ["0", "1"])
+            self.assertEqual(ctx.state.active_runtime["launch_settings"]["flags"]["ctx_size"], 8192)
+            fake_process.poll.return_value = 1
+            self.assertIsNone(process_manager.get_process_status_snapshot(ctx)["active_runtime"])
+
+    def test_launch_settings_validation_redaction_and_copy(self):
+        settings = {"model": "qwen.gguf", "has_custom_args": True, "flags": {
+            "ctx_size": 8192, "api_key": "never-publish", "custom_args": "--api-key secret",
+            "ctx_size_draft": 200, "tensor_split": [1, 2], "threads": None,
+        }}
+        normalized = process_manager.normalize_launch_settings(settings)
+        self.assertEqual(normalized["flags"], {"ctx_size": 8192, "tensor_split": [1, 2], "threads": None})
+        settings["flags"]["tensor_split"][0] = 9
+        self.assertEqual(normalized["flags"]["tensor_split"], [1, 2])
+        self.assertNotIn("secret", json.dumps(normalized))
+        self.assertIsNone(process_manager.normalize_launch_settings(None))
+        for bad in [[], {}, {**settings, "model": []}, {**settings, "has_custom_args": "yes"},
+                    {**settings, "flags": {"bad-id": 1}}, {**settings, "flags": {"ctx_size": float("nan")}},
+                    {**settings, "flags": {"ctx_size": 10 ** 400}}, {**settings, "flags": {"ctx_size": {}}}]:
+            with self.subTest(value=bad), self.assertRaises(ValueError):
+                process_manager.normalize_launch_settings(bad)
+        ctx = AppContext()
+        with mock.patch.object(process_manager.subprocess, "Popen") as popen:
+            result = process_manager.launch_process(ctx, "llama-server", [], launch_settings={})
+        self.assertIn("launch_settings", result["error"])
+        self.assertIsNone(ctx.state.active_runtime)
+        popen.assert_not_called()
 
     def test_process_manager_rejects_invalid_launch_context_before_popen(self):
         ctx = AppContext()
@@ -2834,7 +2870,7 @@ class ExtractedRouteTests(unittest.TestCase):
 
             self.assertEqual(response.status, 200)
             mock_launch_process.assert_called_once_with(
-                ctx, "llama-server", ["-m", "model.gguf"], launch_context
+                ctx, "llama-server", ["-m", "model.gguf"], launch_context, None
             )
 
     def test_process_launch_route_returns_missing_runtime_error(self):

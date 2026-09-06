@@ -13,7 +13,8 @@ function createElement(tagName = "div") {
         className: "",
         textContent: "",
         href: "",
-        addEventListener: () => {},
+        listeners: {},
+        addEventListener(type, handler) { this.listeners[type] = handler; },
         appendChild(child) {
             this.children.push(child);
             return child;
@@ -230,5 +231,25 @@ assert.ok(createdElements > 0, "a changed input must rebuild the API cards");
 const rebuiltCount = createdElements;
 apiTab.updateEndpoints();
 assert.equal(createdElements, rebuiltCount, "the rebuilt state must then be cached again");
+
+// Expanding a language example survives a model/auth-driven rerender.
+const snippetCards = elements.get("api-snippets-list").children;
+snippetCards[0].open = false;
+snippetCards[1].open = true;
+flagValues.alias = "updated-model";
+const copied = [];
+apiTab.configure({ copyText: value => copied.push(value) });
+apiTab.updateEndpoints();
+assert.equal(elements.get("api-snippets-list").children[0].open, false);
+assert.equal(elements.get("api-snippets-list").children[1].open, true);
+const endpoint = elements.get("api-endpoints-list").children[0];
+const endpointCopy = endpoint.children.find(el => el.tagName === "BUTTON");
+endpointCopy.listeners.click();
+assert.equal(copied[0], apiTab.getServerEndpointConfig().baseUrl + "/v1/chat/completions");
+assert.match(endpointCopy.ariaLabel, /Chat Completions URL/);
+const snippetBody = elements.get("api-snippets-list").children[1].children[1];
+snippetBody.children[0].listeners.click();
+assert.match(copied[1], /updated-model/);
+assert.match(copied[1], /from openai import OpenAI/);
 
 console.log("api tab unit tests passed");

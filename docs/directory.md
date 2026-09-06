@@ -164,7 +164,8 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 20. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
 21. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
 22. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-23. `app.js` — main orchestration (wires everything together)
+23. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
+24. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -201,22 +202,37 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, shared template helpers, toasts, module initialization, and cache-busting reload |
-| `ui/css/style.css` | — | Stylesheet and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
-| `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
+| `ui/css/style.css` | — | Shared page headings/action bars, controls, surfaces, and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
+| `ui/js/shell-ui.js` | `window.LlamaGui.shellUi` | Workspace/maintenance navigation, current-page semantics, mobile drawer focus and dismissal, and the shared sidebar summary of the authoritative local runtime or registered external server |
+| `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, control heights, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
 | `ui/templates/` | — | Bundled Jinja chat template files for Kobold-style presets |
 
 ---
 
 ## Tabs
 
-1. **Install**: Download and install `llama.cpp` releases, select backend, update app from git.
-2. **Quick Launch**: One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
-3. **Configure**: Full CLI flag configuration for `llama-server`/`llama-cli` with search, submenus, beginner tips, command preview, and Custom Launch Args.
-4. **Monitor**: Live process output, CPU/RAM/disk usage, best-effort disk I/O, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
-5. **Benchmarking**: Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
-6. **Chat**: Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
-7. **API**: View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
-8. **Presets**: Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
+1. **Quick Launch**: First navigation entry and default page. One-click model launch with preset configuration, quick profiles, integrated HF model downloader.
+2. **Configure** (Tune): Full CLI flag configuration for `llama-server`/`llama-cli` with readable names beside CLI switches, aligned controls, search, keyboard-operable categories/submenus, optional detailed help, command preview, and Custom Launch Args.
+3. **Monitor** (Tune): Live process output, CPU/RAM usage, disk read/write activity, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.
+4. **Benchmarking** (Tune): Run `llama-bench` throughput tests and `llama-perplexity` checks from current Configure state, saved presets, or a manual model.
+5. **Chat** (Interact): Streaming OpenAI-compatible chat interface with web search, conversation history, sampler sliders.
+6. **API** (Interact): View and interact with the `llama.cpp` API endpoints, connect to a llama-server started outside this GUI, start/stop Cloudflare tunnel.
+7. **Presets** (Library): Browse, search, and manage saved launch configurations grouped by model, with favorites, warnings, bulk actions, duplicate/rename, and a library summary. See [Presets Tab](#presets-tab).
+8. **Install & Update** (lower maintenance area): Download and install `llama.cpp` releases, select backend, update app from git.
+
+The sidebar runtime disclosure shows lifecycle state and active model, with launch-time build/endpoint details and a Monitor shortcut (API for external servers). Launch/stop actions reuse Quick Launch's shared readiness and lifecycle wiring. Memory estimates are labeled **Next launch**; the installed build lives with maintenance. **Quit Llama GUI** is separate from stopping the local process. Short viewports scroll the sidebar; the mobile drawer supports Close, Escape, backdrop dismissal, focus containment, and an inert hidden sidebar.
+
+---
+
+### Secondary-screen presentation
+
+- Inference speeds in Monitor and the fixed bar show explicitly labeled live rates from `/slots` samples of the same active tasks. Prompt rates use `n_prompt_tokens_processed` (excluding cached tokens) only while both samples have zero generated tokens. They average progress since the first observed nonzero prompt count, include intervening unchanged polls in elapsed time, and retain the last rate between batches; two distinct nonzero counts are needed for the first reading. This is an observed average, not the server's full-request processing-time average. Generation rates use adjacent `next_token.n_decoded` samples after generation has started. Missing samples, target/task changes, counter rollback, resets, and gaps over 15 seconds break live sampling. Without a live rate, session averages divide token deltas by matching cumulative processing-time deltas from `/metrics` (`prompt_seconds_total` and `tokens_predicted_seconds_total`), excluding idle wall time. Restored targets and manual resets establish paired token/time baselines; a token or time counter rollback rebases the affected average. Missing counters or zero elapsed processing time display `--`; rolling gauges are not substituted for session averages.
+
+- Monitor's active-runtime summary reads lifecycle identity and `flagCore.compareLaunchSettings()`, with Open Configure and focused launch-change review. System telemetry is explicitly scoped to this machine and kept separate from inference activity. Vendor probe setup/state cards sit in a native disclosure with Recheck; hardware/inference card visibility and order preferences remain intact. Inference availability notes distinguish loading, non-server tools, and independently unavailable metrics/slots. Empty idle output is hidden, while retained logs are labeled **Last run output**. Changing an inference target invalidates the previous polling epoch before setting the new baseline, including external reconnects to the same address.
+
+- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
+- API endpoints render as responsive list rows with full URLs and individually labeled Copy buttons. Client examples are native disclosures; cURL starts open and `updateEndpoints()` preserves expanded examples when their content changes. External-server and tunnel controls are separate disclosures whose status badges remain visible while closed. Tunnel warnings remain beside the actions. Endpoint/auth resolution and connection behavior are unchanged.
+- Install & Update keeps required launch tools visible and groups optional tools under an installed-count disclosure. Missing optional tools use neutral status text; missing required binaries/runtime libraries retain repair guidance. `updateStatusUI()` skips rebuilding installation details when only runtime status changes, preserving disclosure focus. **Restart Llama GUI** uses the existing restart/confirmation path.
 
 ---
 
@@ -224,8 +240,14 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 - Launch-relevant UI changes route through `window.LlamaGui.flagCore` shared setters (`setFlagValue`/`setMultipleFlagValues`) to update state.
 - All mirrored controls read from the same underlying `flagCore` state object (`flagValues`, selected model, and current tool).
+- Configure compares those pending GUI inputs with `active_runtime.launch_settings` for the active local process. `flagCore.captureLaunchSettings()` snapshots the exact state used to build manual/Model Switcher requests; `compareLaunchSettings()` normalizes known recorded values without substituting current defaults. API keys and Custom Launch Args text are excluded. Oversized values are omitted from optional comparison metadata without restricting launch arguments. Model/root differences are separate from the setting count. Unknown fields, missing snapshots, and a different selected tool have no inferred baseline.
+- `POST /api/launch` accepts optional `launch_settings` metadata (`model`, `flags`, `has_custom_args`, and optional `model_root`). The backend validates size/types, removes sensitive/inert fields, and retains the snapshot only after successful process creation under the process lock. `active_runtime` also includes launch-time `version` and `backend`. Launch/status responses deep-copy the snapshot; it is cleared with the process. The metadata describes GUI inputs, never effective values resolved by Auto Fit, model defaults, or custom arguments, and never controls process execution.
+- Configure's **Changed since launch** filter combines with search; category counts and **Review changes** use the same launch baseline. Per-setting and bulk reverts use shared setters, preserving API keys, Custom Launch Args, model selection, and the models folder. The review includes changes outside the search, and focused rows stay visible while edits temporarily equal their baseline. The runtime summary currently belongs to Configure; its lifecycle state comes from `processLifecycle`.
 - Configure flag rendering lives in `window.LlamaGui.configFlagsUi`, but rendered controls still read from `flagCore` and write through the shared setter path.
+- Configure's **Restart with changes** captures the manual launch request from shared state, validates it through `/api/launch/preflight`, and uses `processLifecycle.switchRuntime()` with the original process generation. It confirms stop before launching and waiting for readiness; validation failures preserve the current process, while edits made during the operation remain pending. This action is available for the local `llama-server` and includes all launch arguments, even fields excluded from comparison.
 - Configure's Custom Launch Args textarea stores its raw value in shared `flagCore.flagValues.custom_args` through `setFlagValue("custom_args", ...)`.
+- Quick Launch groups shared model, memory, and sampling controls in one panel, with direct Temperature/Top P inputs alongside the sliders and port/API/template controls behind a disclosure. Its model-folder controls use the same manager handlers and error/busy state as Configure. The runtime strip reads lifecycle/status data; the launch bar and command describe pending settings.
+- Quick Launch refreshes three full-preset shortcuts on entry, ordered by existing favorites and last-used metadata, then name; archived and partial presets are excluded. `presets.matchesCurrentPreset()` compares current savable inputs with the normalized saved configuration, excluding API keys and inert draft context. `loadPreset()` returns its result and loaded data for inline feedback; shortcut selection never launches a process. All sampler-management controls, starter profiles, downloads, and Model Switcher remain accessible through disclosures.
 - Command preview and launch args are generated from shared state (`flagCore.getLaunchArgs()`), never per-tab copies.
 - Custom launch args are parsed and appended only by `flagCore.getLaunchArgs()`, after UI-managed flags and before the selected model arg.
 - Benchmarking reads Configure state or saved preset JSON without mutating them, builds tool-compatible benchmark args, can prepare the official WikiText-2 raw test file through `/api/benchmark/wikitext2`, and uses `/api/launch`, `/api/stop`, `/api/output`, and `/api/status` through the existing single process slot.
@@ -425,18 +447,18 @@ Each profile applies a tool setting, flag values, fit linking, and sampler prese
 
 Quick Launch renders simplified controls for:
 - Model selection (synced with Configure's model dropdown)
-- Tool mode toggle (Web / API Server = llama-server, Terminal Chat = llama-cli), shown as descriptive cards
-- Context size (K-formatted preset dropdown with 64K recommended + custom input, linked to fit_ctx by default)
+- Compact tool mode toggle (Web / API server = llama-server, Terminal = llama-cli)
+- Context size (K-formatted preset dropdown + custom input, linked to fit_ctx by default)
 - GPU layers (auto/0/all/custom, synced with Configure)
 - Auto Fit toggle; fit target/context inputs live behind an "Advanced fit options" disclosure
 - Chat template (reuses shared `chat_template` options from `ui/js/flags/chat-templates.js`)
 - Sampler preset selection (load/save/delete from shared sampler preset store)
-- Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty) with live value badges
+- Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty), plus direct temperature/Top P numeric inputs; additional samplers and management controls are collapsed initially
 - Metrics toggle
 - Optional session-only API key with masked entry, generation, copy, a "Protected" badge, and shared Configure synchronization
-- Profile selector with summary text
-- Readiness chips (model required; profile/context/GPU/API are informational) above the launch actions
-- Collapsible launch-command preview and a sticky launch/stop action bar with a busy ("Starting…") state
+- Starter profile selector and summary in a disclosure below the launch bar
+- Compact pending model/context/GPU/API summary alongside launch readiness
+- Collapsible launch-command preview and a launch/stop bar in normal document flow with a busy ("Starting…") state
 - The Model Switcher card is collapsed by default; slots are assigned via inline per-slot preset selects (no manage mode) and detail values are ellipsis-truncated filenames
 
 All controls write through `window.LlamaGui.flagCore` setters (`setFlagValue()` / `setMultipleFlagValues()`), keeping Configure and Quick Launch in sync.
@@ -483,6 +505,12 @@ The Quick Launch tab includes a full HF model downloader section initialized by 
 Frontend downloader controls, status rendering, progress polling, cancel handling, and completion flow live in `ui/js/hf-download-ui.js`. `app.js` injects `fetchJson`, confirmation/model callbacks, and `flagCore`; the module must not mutate `flagValues` directly.
 
 ---
+
+## Monitor Disk Activity
+
+The `system:disk` card shows read/write throughput instead of capacity, preserving its layout and visibility preference. The `/api/system-stats` disk object retains capacity fields for compatibility and adds `io_available` (counter availability, independent of capacity) and `io_label` (the measured scope). Rates stay null during warmup, long sampling gaps, counter rollback, or a source change; a valid zero is Idle.
+
+Windows collects raw `PhysicalDisk(_Total)` byte counters through [language-neutral PDH APIs](https://learn.microsoft.com/en-us/windows/win32/api/pdh/nf-pdh-pdhaddenglishcounterw). macOS reads the built-in `ioreg` property-list output using the [IOBlockStorageDriver byte statistics](https://github.com/apple-oss-distributions/IOStorageFamily/blob/main/IOBlockStorageDriver.h). Both aggregate physical disks. Linux retains `/proc/diskstats` selection for the application filesystem device, with its existing whole-disk fallback. The card labels the scope; readings include other applications and do not depend on GPU vendor probes.
 
 ## Presets Tab
 
@@ -539,9 +567,17 @@ Because warnings are computed at build time, `refreshModels()` calls `refreshMod
 
 ### Detail Panel
 
-With a preset selected: model, tool, override count, quant, warning count, notable settings chips, and the action row — Load Preset, Duplicate, Rename, Update from Current, Export, Windows Shortcut, Favorite, and Delete.
+With a preset selected: model and warnings, followed by **Load into Configure**, Favorite, and a keyboard-operable **More actions** disclosure containing a named Update action, Duplicate, Rename, Export, Windows Shortcut, Archive/Restore, and Delete. The launch-input summary shows tool, context, GPU offload, and K/V cache settings from shared flag definitions. Missing values are explicitly labeled as GUI defaults; Auto is not presented as a resolved runtime value. All saved settings are available in a separate disclosure, with API keys and the retired draft-context flag excluded, and HF tokens, sensitive flags, and Custom Launch Args masked.
 
 With nothing selected: a library summary — preset count, model groups, favorites, warnings, missing models, most recently used, and a health line. The summary describes the **visible** presets, not everything on disk, so its numbers always agree with the list and the count line. Any absolute claim about library health is suppressed while a filter is active or while the model list is unchecked.
+
+### Editing And Saving
+
+Configure and Quick Launch share a preset context bar. Before loading or saving a preset it offers **Save as new preset** for the unsaved configuration. Afterwards it shows **Based on** the last loaded/saved preset and whether the current edits match it. Selecting a row in the library never changes that source. The source name opens its library detail and clears conflicting filters. This session-only source is independent of the active runtime and Configure's **Changed since launch** comparison.
+
+`comparePresetToCurrent()` uses the same default/speculative-flag normalization and model-name resolution as loading. API keys and `ctx_size_draft` do not participate; sensitive/custom-argument values are masked in rendered differences. `refreshContext()` runs from the shared command-preview broadcast; accepted library fetches reconcile the saved source, including renamed, archived, and missing presets.
+
+New saves use `overwrite: false`. Updating fetches the saved target, captures current savable inputs, and opens a native dialog with saved/current differences. On confirmation it rechecks that the target still exists and matches the reviewed saved data, then posts the captured snapshot. Edits made while the dialog is open remain pending. Duplicate submissions are guarded; failures preserve edits for retry. These operations do not launch, stop, or restart a process.
 
 ### Keyboard Navigation
 
@@ -938,7 +974,6 @@ Stored conversations retain their complete `messages` array (including reasoning
 - Quick Launch sampler edits sync to Chat, Configure, shared flag state, and launch args.
 - Custom Launch Args update shared state, command preview, launch args, and launch blocking on parser errors.
 - API-key controls sync across Configure and Quick Launch, generated/manual keys authenticate Chat and stats, and rendered commands never expose the secret.
-- The card hover gradient reaches into the rounded top corner without filling outside the card outline.
 - The Presets browser list is a single tab stop, arrow keys skip collapsed groups' rows, only the focused row's controls stay tabbable, and focus survives the re-render that selecting a preset triggers.
 
 When running local browser smoke checks manually, serve `ui/` as the web root. Serving from the repo root will break root-relative assets such as `/js/app.js`.
@@ -994,6 +1029,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
 | `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
+| `docs/ui-ux-polish.md` | UI/UX polish direction for experienced llama.cpp users, open decisions, implementation slices, and saved Configure/Quick Launch mockups |
 | `docs/design-docs/router-mode.md` | Router mode design notes |
 | `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
 | `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |

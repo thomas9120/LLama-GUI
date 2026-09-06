@@ -49,6 +49,7 @@ from backend.routing import Router
 from backend.routes import chat as chat_routes
 from backend.routes import benchmarks as benchmarks_routes
 from backend.routes import external_server as external_server_routes
+from backend.services import external_server as external_server_service
 from backend.routes import file_picker as file_picker_routes
 from backend.routes import hf_download as hf_download_routes
 from backend.routes import metrics as metrics_routes
@@ -270,6 +271,9 @@ def set_llama_api_target(host=None, port=None):
 
 
 def get_llama_api_target():
+    target = external_server_service.resolve_llama_target(APP_CONTEXT)
+    if target:
+        return {"host": target["host"], "port": target["port"]}
     state = APP_CONTEXT.state
     with state.llama_api_target_lock:
         return state.llama_api_target.snapshot()

@@ -125,6 +125,8 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 
 ## Screenshots
 
+Current interface in the **Nebula** theme.
+
 | Quick Launch | Configure |
 | --- | --- |
 | ![Quick Launch tab](docs/images/quick-launch.png) | ![Configure tab](docs/images/configure.png) |
@@ -133,9 +135,9 @@ If you use [Pinokio](https://pinokio.computer/), install via [thomas9120/llama-g
 | --- | --- |
 | ![Chat tab](docs/images/chat.png) | ![API tab](docs/images/api.png) |
 
-| Install | Presets |
+| Install & Update | Presets |
 | --- | --- |
-| ![Install tab](docs/images/install.png) | ![Presets tab](docs/images/presets.png) |
+| ![Install & Update tab](docs/images/install.png) | ![Presets tab](docs/images/presets.png) |
 
 | Monitor |
 | --- |

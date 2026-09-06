@@ -357,7 +357,7 @@
 
         list.innerHTML = "";
         for (const endpoint of API_ENDPOINTS) {
-            const card = document.createElement("div");
+            const card = document.createElement("li");
             card.className = "api-card";
 
             const topRow = document.createElement("div");
@@ -369,10 +369,14 @@
 
             const meta = document.createElement("div");
             meta.className = "api-card-meta";
-            meta.textContent = `${endpoint.method} | ${endpoint.compatibility}`;
+            meta.textContent = endpoint.compatibility;
 
             const urlRow = document.createElement("div");
             urlRow.className = "api-url-row";
+
+            const method = document.createElement("span");
+            method.className = "api-method";
+            method.textContent = endpoint.method;
 
             const code = document.createElement("code");
             code.textContent = baseUrl + endpoint.path;
@@ -381,6 +385,7 @@
             copyBtn.className = "btn btn-sm";
             copyBtn.type = "button";
             copyBtn.textContent = "Copy";
+            copyBtn.ariaLabel = `Copy ${endpoint.name} URL`;
             copyBtn.addEventListener("click", () => {
                 if (copyText) copyText(baseUrl + endpoint.path);
             });
@@ -391,30 +396,36 @@
 
             topRow.appendChild(title);
             topRow.appendChild(meta);
+            urlRow.appendChild(method);
             urlRow.appendChild(code);
-            urlRow.appendChild(copyBtn);
+            urlRow.appendChild(detail);
             card.appendChild(topRow);
             card.appendChild(urlRow);
-            card.appendChild(detail);
+            card.appendChild(copyBtn);
             list.appendChild(card);
         }
 
+        const existingSnippets = Array.from(snippets.querySelectorAll(".api-snippet"));
+        const openSnippets = new Set(existingSnippets.filter(item => item.open).map(item => item.id));
         snippets.innerHTML = "";
-        for (const snippet of API_SNIPPETS) {
-            const card = document.createElement("div");
+        for (const [index, snippet] of API_SNIPPETS.entries()) {
+            const card = document.createElement("details");
             card.className = "api-snippet";
+            card.id = `api-snippet-${index}`;
+            card.open = existingSnippets.length ? openSnippets.has(card.id) : index === 0;
 
-            const top = document.createElement("div");
-            top.className = "api-snippet-top";
-
-            const title = document.createElement("div");
+            const title = document.createElement("summary");
             title.className = "api-snippet-title";
             title.textContent = snippet.name;
+
+            const body = document.createElement("div");
+            body.className = "api-snippet-body";
 
             const copyBtn = document.createElement("button");
             copyBtn.className = "btn btn-sm";
             copyBtn.type = "button";
             copyBtn.textContent = "Copy";
+            copyBtn.ariaLabel = `Copy ${snippet.name} snippet`;
 
             const code = document.createElement("code");
             code.textContent = snippet.build(baseUrl, modelName, hasApiKey);
@@ -423,10 +434,10 @@
                 if (copyText) copyText(code.textContent || "");
             });
 
-            top.appendChild(title);
-            top.appendChild(copyBtn);
-            card.appendChild(top);
-            card.appendChild(code);
+            body.appendChild(copyBtn);
+            body.appendChild(code);
+            card.appendChild(title);
+            card.appendChild(body);
             snippets.appendChild(card);
         }
     }

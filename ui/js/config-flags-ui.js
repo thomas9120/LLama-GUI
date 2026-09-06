@@ -5,6 +5,7 @@
     let openSubmenus = new Set();
     let savedOpenSubmenus = null;
     let configSearchQuery = "";
+    let changesOnly = false;
     let dependencies = {};
     let tensorBufferTypesPromise = null;
     let tensorBufferTypesState = { buffers: ["CPU"], default: "CPU", detail: "" };
@@ -114,6 +115,68 @@
             openSubmenus.clear();
             renderFlags();
         });
+
+        document.getElementById("config-changes-only").addEventListener("change", (event) => {
+            changesOnly = event.target.checked;
+            if (changesOnly) openMatchingSearchSections();
+            renderFlags();
+        });
+        document.getElementById("config-revert-changes").addEventListener("click", () => {
+            const runtime = getComparisonRuntime();
+            const comparison = getFlagCore().compareLaunchSettings(runtime);
+            const patch = {};
+            for (const { flag } of comparison.changes) patch[flag.id] = runtime.launch_settings.flags[flag.id] ?? undefined;
+            getFlagCore().setMultipleFlagValues(patch);
+            document.getElementById("config-changes-only").focus();
+        });
+        document.getElementById("flags-container").addEventListener("focusout", () => {
+            if (changesOnly) requestAnimationFrame(refreshComparison);
+        });
+        document.getElementById("config-restart").addEventListener("click", restartWithChanges);
+    }
+
+    async function restartWithChanges() {
+        const lifecycle = dependencies.processLifecycle;
+        const state = lifecycle.getSnapshot();
+        const generation = Number(state.activeRuntime && state.activeRuntime.generation);
+        if (state.busy || state.activeRuntime?.tool !== "llama-server" || getCurrentTool() !== "llama-server"
+            || !Number.isSafeInteger(generation) || generation < 1) return;
+        const errorMessage = document.getElementById("config-restart-error");
+        errorMessage.textContent = "";
+        errorMessage.classList.add("hidden");
+        try {
+            const outcome = await lifecycle.switchRuntime({
+                operation: "restart",
+                expectedGeneration: generation,
+                resolveTarget: async () => {
+                    const request = dependencies.buildLaunchRequest();
+                    const preflight = await dependencies.fetchJson("/api/launch/preflight", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            tool: request.tool,
+                            args: request.args,
+                            fingerprint_data: { tool: request.tool, model: request.launch_settings?.model || "" },
+                        }),
+                    });
+                    if (!preflight || !preflight.ok) throw new Error(preflight?.error || "Could not validate the pending configuration.");
+                    return request;
+                },
+                // Launch the validated snapshot; later edits remain pending.
+                applyTarget: () => {},
+            });
+            if (!outcome.ok && !outcome.cancelled) {
+                errorMessage.textContent = outcome.error || "Could not restart the server.";
+                errorMessage.classList.remove("hidden");
+                if (outcome.status?.running) dependencies.resumeRuntimePolling(outcome.status);
+            }
+        } catch (error) {
+            console.warn("Configure restart failed", error);
+            errorMessage.textContent = "Could not restart the server. Check Monitor for details.";
+            errorMessage.classList.remove("hidden");
+        } finally {
+            refreshComparison();
+        }
     }
 
     function resetOpenCategories() {
@@ -201,22 +264,28 @@
             acc.className = "accordion";
             acc.dataset.categoryId = catId;
 
-            const header = document.createElement("div");
+            const heading = document.createElement("h3");
+            heading.className = "accordion-heading";
+            const header = document.createElement("button");
+            header.type = "button";
             header.className = "accordion-header";
             const countText = visibleFlags.length === group.flags.length
-                ? String(group.flags.length)
-                : `${visibleFlags.length}/${group.flags.length}`;
+                ? `${group.flags.length} ${group.flags.length === 1 ? "setting" : "settings"}`
+                : `${visibleFlags.length} of ${group.flags.length} settings`;
 
             const arrow = document.createElement("span");
             arrow.className = "arrow";
             arrow.textContent = "\u25B6";
+            arrow.setAttribute("aria-hidden", "true");
 
-            const title = document.createElement("h3");
+            const title = document.createElement("span");
+            title.className = "accordion-title";
             title.textContent = group.name;
 
             const count = document.createElement("span");
             count.className = "count";
             count.textContent = countText;
+            count.dataset.settingCount = countText;
 
             header.appendChild(arrow);
             header.appendChild(title);
@@ -224,6 +293,9 @@
 
             const body = document.createElement("div");
             body.className = "accordion-body";
+            body.id = `flag-category-${catId}`;
+            header.setAttribute("aria-controls", body.id);
+            header.setAttribute("aria-expanded", String(openCategories.has(catId)));
 
             if (openCategories.has(catId)) {
                 header.classList.add("open");
@@ -233,6 +305,7 @@
             header.addEventListener("click", () => {
                 header.classList.toggle("open");
                 body.classList.toggle("open");
+                header.setAttribute("aria-expanded", String(body.classList.contains("open")));
                 if (body.classList.contains("open")) {
                     openCategories.add(catId);
                 } else {
@@ -261,7 +334,8 @@
                 body.appendChild(createSubmenuBlock(catId, submenuName, submenuFlags));
             }
 
-            acc.appendChild(header);
+            heading.appendChild(header);
+            acc.appendChild(heading);
             acc.appendChild(body);
             container.appendChild(acc);
         }
@@ -274,6 +348,7 @@
         }
 
         restoreFlagInputs();
+        refreshComparison();
         dependencies.refreshQuickLaunchUI();
     }
 
@@ -301,7 +376,8 @@
 
         const arrow = document.createElement("span");
         arrow.className = "arrow";
-        arrow.innerHTML = "&#x25B6;";
+        arrow.textContent = "\u25B6";
+        arrow.setAttribute("aria-hidden", "true");
 
         const title = document.createElement("span");
         title.className = "submenu-title";
@@ -317,8 +393,11 @@
 
         const body = document.createElement("div");
         body.className = "flag-submenu-body";
+        body.id = `flag-submenu-${categoryId}-${encodeURIComponent(submenuName)}`;
 
         const key = `${categoryId}::${submenuName}`;
+        header.setAttribute("aria-controls", body.id);
+        header.setAttribute("aria-expanded", String(openSubmenus.has(key)));
         if (openSubmenus.has(key)) {
             header.classList.add("open");
             body.classList.add("open");
@@ -327,6 +406,7 @@
         header.addEventListener("click", () => {
             header.classList.toggle("open");
             body.classList.toggle("open");
+            header.setAttribute("aria-expanded", String(body.classList.contains("open")));
             if (body.classList.contains("open")) {
                 openSubmenus.add(key);
             } else {
@@ -347,6 +427,10 @@
         const row = document.createElement("div");
         row.className = "flag-row";
         row.dataset.flagId = f.id;
+        if (f.sensitive) row.dataset.comparisonExcluded = "true";
+        if (["path", "text_list", "multi_enum"].includes(f.type) || f.sensitive || f.id === "override_tensor") {
+            row.classList.add("flag-row-wide");
+        }
 
         const label = createFlagLabel(f);
         const input = document.createElement("div");
@@ -364,79 +448,250 @@
         }[f.type] || createTextInput;
 
         input.appendChild(builder(f));
+        const control = input.querySelector(`#flag-${f.id}`);
+        const description = label.querySelector(".flag-desc");
+        if (control) {
+            control.setAttribute("aria-labelledby", `flag-label-${f.id} flag-switch-${f.id}`);
+            if (description) control.setAttribute("aria-describedby", description.id);
+        } else if (f.type === "multi_enum") {
+            input.setAttribute("role", "group");
+            input.setAttribute("aria-labelledby", `flag-label-${f.id} flag-switch-${f.id}`);
+            if (description) input.setAttribute("aria-describedby", description.id);
+        }
         row.appendChild(label);
         row.appendChild(input);
+        const baseline = document.createElement("div");
+        baseline.className = "flag-baseline hidden";
+        const baselineLabel = document.createElement("span");
+        baselineLabel.className = "flag-baseline-label";
+        baselineLabel.textContent = "At launch";
+        const value = document.createElement("span");
+        value.className = "flag-baseline-value";
+        const reset = document.createElement("button");
+        reset.type = "button";
+        reset.className = "btn btn-sm flag-revert";
+        reset.textContent = "Use launch value";
+        reset.setAttribute("aria-label", `Use launch value for ${f.label || f.flag}`);
+        reset.addEventListener("click", () => {
+            const runtime = getComparisonRuntime();
+            const entry = getFlagCore().compareLaunchSettings(runtime).entries.find(entry => entry.flag.id === f.id);
+            if (!entry) return;
+            const nextValue = runtime.launch_settings.flags[f.id] ?? undefined;
+            getFlagCore().setFlagValue(f.id, nextValue);
+            const target = changesOnly ? document.getElementById("config-changes-only") : control || input.querySelector("input, select, textarea");
+            if (target) target.focus();
+        });
+        baseline.append(baselineLabel, value, reset);
+        row.appendChild(baseline);
         return row;
+    }
+
+    function getComparisonRuntime() {
+        const state = dependencies.getLifecycleSnapshot ? dependencies.getLifecycleSnapshot() : {};
+        return state.activeRuntime || null;
+    }
+
+    function openLaunchComparison() {
+        dependencies.switchTab("configure");
+        refreshComparison();
+        const review = document.getElementById("config-change-review");
+        if (!review.classList.contains("hidden")) {
+            review.open = true;
+            review.querySelector("summary").focus();
+            review.scrollIntoView({ block: "nearest" });
+        } else {
+            const summary = document.getElementById("config-runtime-state");
+            summary.tabIndex = -1;
+            summary.focus();
+            summary.scrollIntoView({ block: "nearest" });
+        }
+    }
+
+    function formatComparisonValue(flag, value) {
+        const option = value !== null && value !== undefined && (flag.options || []).find(option => String(option.value) === String(value));
+        if (option) return option.label;
+        if (value === null || value === undefined || value === "") return "Not set";
+        if (flag.type === "bool") return value === true ? "Enabled" : "Disabled";
+        if (Array.isArray(value)) return value.length ? value.join(", ") : "None";
+        return String(value);
+    }
+
+    function refreshComparison() {
+        const summary = document.getElementById("config-runtime-state");
+        if (!summary) return;
+        const state = dependencies.getLifecycleSnapshot ? dependencies.getLifecycleSnapshot() : {};
+        const runtime = state.activeRuntime;
+        const status = dependencies.getLatestStatus ? dependencies.getLatestStatus() : null;
+        const external = !runtime && status && status.external_chat_target && status.external_chat_target.connected;
+        const restarting = state.busy && state.operation === "restart";
+        const restartVisible = restarting || (runtime?.tool === "llama-server" && getCurrentTool() === "llama-server");
+        const restart = document.getElementById("config-restart");
+        restart.classList.toggle("hidden", !restartVisible);
+        restart.disabled = Boolean(state.busy);
+        restart.textContent = restarting
+            ? ({ stopping: "Stopping…", starting: "Starting…", loading: "Loading…" }[state.phase] || "Checking…")
+            : "Restart with changes";
+        document.getElementById("config-restart-help").classList.toggle("hidden", !restartVisible);
+        const comparison = getFlagCore().compareLaunchSettings(runtime);
+        const entries = new Map(comparison.entries.map(entry => [entry.flag.id, entry]));
+        const phaseNames = { idle: "Stopped", starting: "Starting", loading: "Loading", ready: "Ready", running: "Running", stopping: "Stopping", failed: "Failed" };
+        summary.textContent = external ? "External server" : (phaseNames[state.phase] || "Stopped");
+        if (runtime && state.phase === "failed") summary.textContent = "Process active · action failed";
+        const identity = document.getElementById("config-runtime-model");
+        identity.textContent = runtime
+            ? [runtime.tool, runtime.alias || runtime.model || "Model unavailable", runtime.host && runtime.port ? `${runtime.host}:${runtime.port}` : ""].filter(Boolean).join(" · ")
+            : external ? "Managed outside this app" : "No local process running";
+        identity.title = identity.textContent;
+        document.getElementById("config-runtime-build").textContent = runtime ? [runtime.backend, runtime.version].filter(Boolean).join(" · ") : "";
+        const count = comparison.changes.length;
+        const changeText = comparison.available
+            ? count ? `${count} ${count === 1 ? "setting changed" : "settings changed"} since launch` : "Settings match launch"
+            : "Comparison unavailable";
+        const changeCount = document.getElementById("config-change-count");
+        if (changeCount.textContent !== changeText) changeCount.textContent = changeText;
+        const filter = document.getElementById("config-changes-only");
+        filter.disabled = !comparison.available;
+        if (!comparison.available) changesOnly = false;
+        filter.checked = changesOnly;
+        document.getElementById("config-comparison-note").textContent = comparison.available
+            ? "Changes apply on your next launch or restart. Sampling changes also apply to new messages in Chat."
+            : runtime && runtime.tool !== getCurrentTool()
+                ? `Select ${runtime.tool} to compare with this process.`
+                : runtime || external
+                    ? "This process has no recorded GUI launch settings. Its values will not be inferred from your edits."
+                    : "Launch a model to compare edits with its launch settings.";
+        const exclusions = document.getElementById("config-comparison-exclusions");
+        const notes = [];
+        if (comparison.available) {
+            notes.push("“At launch” shows the settings you chose when starting the server. Automatic values, API keys, and custom launch arguments aren’t compared. Reverting settings keeps your current model selection.");
+            if (runtime.launch_settings.has_custom_args || String(getFlagValues().custom_args || "").trim()) {
+                notes.push("Custom launch arguments can override the settings shown here.");
+            }
+            if (comparison.modelChanged) notes.push("You’ve selected a different model.");
+            if (comparison.modelRootChanged) notes.push("You’ve changed the models folder. Reverting settings keeps your current folder.");
+        }
+        exclusions.textContent = notes.join(" ");
+        document.getElementById("config-comparison-about").classList.toggle("hidden", !notes.length);
+
+        let visibleRows = 0;
+        for (const row of document.querySelectorAll(".flag-row")) {
+            const entry = entries.get(row.dataset.flagId);
+            const changed = Boolean(entry && entry.changed);
+            const showBaseline = comparison.available && row.dataset.comparisonExcluded !== "true";
+            row.classList.toggle("flag-row-comparing", showBaseline);
+            row.classList.toggle("flag-row-changed", changed);
+            const editing = row.contains(document.activeElement);
+            row.classList.toggle("hidden", changesOnly && !changed && !editing);
+            if (!changesOnly || changed || editing) visibleRows += 1;
+            const baseline = row.querySelector(".flag-baseline");
+            if (!baseline) continue;
+            baseline.classList.toggle("hidden", !showBaseline);
+            baseline.querySelector(".flag-baseline-value").textContent = entry ? formatComparisonValue(entry.flag, entry.before) : "Unknown";
+            baseline.querySelector(".flag-revert").classList.toggle("hidden", !changed);
+        }
+        const groups = getGroups();
+        for (const category of document.querySelectorAll(".accordion[data-category-id]")) {
+            const group = groups[category.dataset.categoryId];
+            const changedCount = group ? group.flags.filter(flag => entries.get(flag.id)?.changed).length : 0;
+            const categoryCount = category.querySelector(".accordion-header .count");
+            categoryCount.textContent = categoryCount.dataset.settingCount + (changedCount ? ` · ${changedCount} changed` : "");
+            category.classList.toggle("hidden", changesOnly && !category.querySelector(".flag-row:not(.hidden)"));
+            for (const submenu of category.querySelectorAll(".flag-submenu")) {
+                submenu.classList.toggle("hidden", changesOnly && !submenu.querySelector(".flag-row:not(.hidden)"));
+            }
+        }
+        document.getElementById("config-comparison-empty").classList.toggle("hidden", !changesOnly || visibleRows > 0);
+        const searchEmpty = document.querySelector("#flags-container > .flags-empty");
+        if (searchEmpty) searchEmpty.classList.toggle("hidden", changesOnly);
+        const review = document.getElementById("config-change-review");
+        // Keep the disclosure itself mounted so editing a value doesn't close it.
+        review.classList.toggle("hidden", !comparison.available || !count);
+        const list = document.getElementById("config-change-list");
+        list.replaceChildren();
+        for (const entry of comparison.changes) {
+            const row = document.createElement("tr");
+            for (const text of [entry.flag.label || entry.flag.flag, formatComparisonValue(entry.flag, entry.before), formatComparisonValue(entry.flag, entry.after)]) {
+                const cell = document.createElement("td");
+                cell.textContent = text;
+                row.appendChild(cell);
+            }
+            list.appendChild(row);
+        }
     }
 
     function createFlagLabel(f) {
         const label = document.createElement("div");
         label.className = "flag-label";
-        let defaultText = "";
-        if (f.default !== undefined) defaultText = ` [default: ${f.default}]`;
 
         const titleRow = document.createElement("div");
         titleRow.className = "flag-title-row";
 
-        const flagName = document.createElement("span");
+        const settingName = document.createElement(f.type === "multi_enum" ? "span" : "label");
+        settingName.className = "flag-setting-name";
+        settingName.id = `flag-label-${f.id}`;
+        if (f.type !== "multi_enum") settingName.htmlFor = `flag-${f.id}`;
+        settingName.textContent = f.label || f.flag;
+        titleRow.appendChild(settingName);
+
+        const flagName = document.createElement("code");
         flagName.className = "flag-name";
+        flagName.id = `flag-switch-${f.id}`;
         flagName.textContent = f.flag;
         titleRow.appendChild(flagName);
 
-        if (f.beginner_tip) {
-            const tipDetails = document.createElement("details");
-            tipDetails.className = "flag-tip-details";
-
-            const tipSummary = document.createElement("summary");
-            tipSummary.className = "flag-tip";
-            tipSummary.textContent = "Beginner tip";
-
-            const tipText = document.createElement("div");
-            tipText.className = "flag-tip-text";
-            tipText.textContent = f.beginner_tip;
-
-            tipDetails.appendChild(tipSummary);
-            tipDetails.appendChild(tipText);
-            titleRow.appendChild(tipDetails);
-        }
-
         const { summary, details } = getFlagDescriptionParts(f);
-        const flagDesc = document.createElement("span");
-        flagDesc.className = "flag-desc";
-        flagDesc.textContent = summary;
-
         label.appendChild(titleRow);
-        label.appendChild(flagDesc);
-
-        if (details) {
-            const more = document.createElement("details");
-            more.className = "flag-more";
-
-            const moreSummary = document.createElement("summary");
-            moreSummary.textContent = "More info";
-
-            const moreText = document.createElement("div");
-            moreText.className = "flag-more-text";
-            moreText.textContent = details;
-
-            more.appendChild(moreSummary);
-            more.appendChild(moreText);
-            label.appendChild(more);
+        if (summary) {
+            const flagDesc = document.createElement("span");
+            flagDesc.className = "flag-desc";
+            flagDesc.id = `flag-desc-${f.id}`;
+            flagDesc.textContent = summary;
+            label.appendChild(flagDesc);
         }
 
-        if (defaultText) {
+        const metadata = document.createElement("div");
+        metadata.className = "flag-meta";
+        if (f.default !== undefined) {
             const flagDefault = document.createElement("span");
             flagDefault.className = "flag-default";
-            flagDefault.textContent = defaultText;
-            label.appendChild(flagDefault);
+            flagDefault.textContent = `GUI default: ${String(f.default) || "not set"}`;
+            metadata.appendChild(flagDefault);
         }
 
         if (f.type === "bool" && f.false_flag) {
             const toggleHint = document.createElement("span");
             toggleHint.className = "flag-toggle-hint";
-            toggleHint.textContent = `Off -> ${f.false_flag}`;
-            label.appendChild(toggleHint);
+            toggleHint.textContent = `Off → ${f.false_flag}`;
+            metadata.appendChild(toggleHint);
         }
+
+        if (details || f.beginner_tip) {
+            const more = document.createElement("details");
+            more.className = "flag-more";
+
+            const moreSummary = document.createElement("summary");
+            moreSummary.textContent = "Details";
+            moreSummary.setAttribute("aria-label", `Details about ${f.label || f.flag}`);
+
+            const moreText = document.createElement("div");
+            moreText.className = "flag-more-text";
+            if (details) {
+                const description = document.createElement("p");
+                description.textContent = details;
+                moreText.appendChild(description);
+            }
+            if (f.beginner_tip) {
+                const tipText = document.createElement("p");
+                tipText.className = "flag-tip-text";
+                tipText.textContent = f.beginner_tip;
+                moreText.appendChild(tipText);
+            }
+
+            more.appendChild(moreSummary);
+            more.appendChild(moreText);
+            metadata.appendChild(more);
+        }
+        if (metadata.childElementCount) label.appendChild(metadata);
 
         return label;
     }
@@ -1035,6 +1290,8 @@
     }
 
     window.LlamaGui.configFlagsUi = {
+        openLaunchComparison,
+        refreshComparison,
         configure,
         initConfigControls,
         resetOpenCategories,

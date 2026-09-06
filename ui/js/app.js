@@ -64,7 +64,7 @@ samplerPresets.configure({
     showToast,
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
-presetsApi.configure({ showToast });
+presetsApi.configure({ showToast, switchTab });
 const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
 remoteTunnelUi.configure({
     fetchJson,
@@ -89,6 +89,9 @@ hfDownloadUi.configure({
 });
 quickLaunchUi.configure({
     flagCore,
+    presets: presetsApi,
+    getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    getLatestStatus: () => latestStatus,
     configFlagsUi,
     hfDownloadUi,
     debounce,
@@ -133,8 +136,12 @@ monitorUi.configure({
     showToast,
     invalidateCursor: () => processOutputCursor.invalidate(),
     resetStatsBaseline: () => snapshotStatsBaseline(),
+    getInferenceSnapshot: () => inferenceStats.getSnapshot(),
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     getLatestStatus: () => latestStatus,
+    compareLaunchSettings: runtime => flagCore.compareLaunchSettings(runtime),
+    switchTab,
+    reviewLaunchChanges: () => configFlagsUi.openLaunchComparison(),
 });
 processLifecycle.configure({
     fetchJson,
@@ -221,6 +228,7 @@ async function resolveModelSwitchTarget(slotId) {
     const presetData = presetsApi.normalizePresetData(entry.data);
     const prepared = presetsApi.preparePresetLaunchState(presetData, { preserveApiKey: true });
     const launch = flagCore.buildLaunchArgs(prepared);
+    const launchSettings = flagCore.captureLaunchSettings(prepared);
     if (launch.error) throw new Error(launch.error);
     if (!flagCore.hasLaunchModelArg(launch.args)) throw new Error(`Preset "${presetName}" has no model source.`);
 
@@ -240,6 +248,7 @@ async function resolveModelSwitchTarget(slotId) {
     return {
         tool: "llama-server",
         args: launch.args,
+        launch_settings: launchSettings,
         launch_context: {
             source: "model-switcher",
             slot: slotId,
@@ -344,6 +353,11 @@ configFlagsUi.configure({
     getSelectedChatTemplateDropdownValue,
     copyText,
     showToast,
+    getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    getLatestStatus: () => latestStatus,
+    processLifecycle,
+    buildLaunchRequest: buildManualLaunchRequest,
+    resumeRuntimePolling,
 });
 
 flagCore.configure({
@@ -362,6 +376,9 @@ flagCore.configure({
         preview.textContent = result && result.error ? `Cannot launch: ${result.error}` : command;
         preview.classList.toggle("command-preview-error", Boolean(result && result.error));
         setCustomLaunchArgsMessages(result || {});
+        configFlagsUi.refreshComparison();
+        presetsApi.refreshContext();
+        monitorUi.renderRuntime();
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
@@ -532,6 +549,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     externalServerUi.init();
     initPresetImport();
     initPresetLibraryControls();
+    presetsApi.initContextControls();
     initQuickLaunch();
     initChatTab();
     benchmarkUi.init();
@@ -627,30 +645,21 @@ async function loadStartupPresetFromUrl() {
 }
 
 function initTabs() {
-    document.querySelectorAll(".nav-item").forEach(navItem => {
-        navItem.addEventListener("click", () => switchTab(navItem.dataset.section));
-    });
-    const mobileToggle = document.getElementById("mobile-toggle");
-    if (mobileToggle) {
-        mobileToggle.addEventListener("click", () => {
-            document.getElementById("sidebar").classList.toggle("open");
-        });
-    }
+    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: () => latestStatus });
 }
 
 function switchTab(tabId) {
     if (chatUi && typeof chatUi.onTabChanged === "function") chatUi.onTabChanged(tabId);
-    document.querySelectorAll(".nav-item").forEach(t => t.classList.toggle("active", t.dataset.section === tabId));
     document.querySelectorAll(".section-panel").forEach(panel => {
         panel.style.display = panel.id === "section-" + tabId ? "" : "none";
     });
     monitorUi.onTabChanged(tabId);
-    const sidebar = document.getElementById("sidebar");
-    if (sidebar) sidebar.classList.remove("open");
+    window.LlamaGui.shellUi.onTabChanged(tabId);
     if (tabId === "presets") loadPresets();
     if (tabId === "benchmarking") benchmarkUi.onShow();
     if (tabId === "quick-launch") {
         refreshQuickLaunchUI();
+        quickLaunchUi.refreshSavedPresets();
         refreshRuntimeStatusPanels();
         modelSwitchUi.refresh({ reloadPresets: true })
             .catch(error => console.debug("Failed to reload Model Switcher presets", error));
@@ -761,6 +770,8 @@ function getToolBinaryName(tool) {
 }
 
 function handleLifecycleSnapshot(state) {
+    window.LlamaGui.shellUi.renderRuntime();
+    configFlagsUi.refreshComparison();
     const launchBtn = document.getElementById("btn-launch");
     const stopBtn = document.getElementById("btn-stop");
     if (!launchBtn || !stopBtn) return;
@@ -878,7 +889,7 @@ function buildManualLaunchRequest() {
     if (!flagCore.hasLaunchModelArg(args)) {
         throw new Error("Select a model or provide a remote model source before launching.");
     }
-    return { tool, args };
+    return { tool, args, launch_settings: flagCore.captureLaunchSettings() };
 }
 
 async function launchLlama() {
@@ -1084,8 +1095,10 @@ function renderStatsBarFromSnapshot(snapshot) {
     bar.classList.remove("hidden");
     setStatsBarValue("stats-prompt-tokens", snapshot.session.prompt, v => Math.round(v).toLocaleString());
     setStatsBarValue("stats-prompt-speed", snapshot.speed.prompt, v => v.toFixed(1));
+    setStatsBarValue("stats-prompt-speed-label", snapshot.speed.promptIsLive, live => live ? "tok/s prompt live" : "tok/s prompt avg");
     setStatsBarValue("stats-gen-tokens", snapshot.session.generated, v => Math.round(v).toLocaleString());
     setStatsBarValue("stats-gen-speed", snapshot.speed.generated, v => v.toFixed(1));
+    setStatsBarValue("stats-gen-speed-label", snapshot.speed.generatedIsLive, live => live ? "tok/s gen live" : "tok/s gen avg");
     // Session tokens: cumulative prompt plus generated since the shared reset
     // baseline. Actual context occupancy lives in the Inference card's
     // most-filled-slot view.
@@ -1220,6 +1233,9 @@ function reconcileInferenceTarget(status) {
         // connect/restore, or an out-of-band replacement) never had its
         // counters start at zero in this session: the first valid counter
         // sample becomes the baseline.
+        // Invalidate delayed responses from the previous external connection,
+        // including a reconnect to the same host with a new revision.
+        stopStatsPolling();
         inferenceStats.setTarget(key, { zeroBaseline: false });
     }
     if (!inferencePollingActive()) beginInferencePolling();
@@ -1246,6 +1262,10 @@ async function reconcileAuthoritativeStatus(status) {
     // Every accepted status, including the first page-load status, is the
     // authoritative source for the resolved inference target.
     reconcileInferenceTarget(status);
+    configFlagsUi.refreshComparison();
+    quickLaunchUi.refreshRuntime();
+    window.LlamaGui.shellUi.renderRuntime();
+    monitorUi.updateProcessHeader();
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }

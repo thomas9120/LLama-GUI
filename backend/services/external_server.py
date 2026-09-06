@@ -249,9 +249,11 @@ def connect(
 
     with ctx.state.external_chat_target_lock:
         ctx.state.external_chat_api_key = normalized_key
+        generation = ctx.state.external_chat_target.snapshot().get("generation", 0) + 1
         ctx.state.external_chat_target.replace(
             {
                 "connected": True,
+                "generation": generation,
                 "host": normalized_host,
                 "port": normalized_port,
                 "label": normalized_label,
@@ -303,7 +305,8 @@ def disconnect(ctx) -> None:
     """
     with ctx.state.external_chat_target_lock:
         ctx.state.external_chat_api_key = ""
-        ctx.state.external_chat_target.replace(default_external_chat_target())
+        generation = ctx.state.external_chat_target.snapshot().get("generation", 0) + 1
+        ctx.state.external_chat_target.replace({**default_external_chat_target(), "generation": generation})
 
     _write_remembered_target(ctx, None)
     _sync_v1_proxy_target(ctx)

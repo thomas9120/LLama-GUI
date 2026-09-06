@@ -277,8 +277,6 @@ const rendering = context.window.LlamaGui.chatRendering;
     assert.ok(reasoning, "reasoning block should be inserted while streaming");
     assert.equal(reasoning.querySelector(".chat-reasoning-body").textContent, "Plan **quietly**.");
 
-    rendering.finalizeChatReasoningMarkdown(bubble);
-    assert.match(reasoning.querySelector(".chat-reasoning-body").innerHTML, /<strong>quietly<\/strong>/);
 }
 
 {

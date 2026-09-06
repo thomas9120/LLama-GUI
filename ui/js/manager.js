@@ -11,6 +11,7 @@ let installPollStartTime = null;
 let installPollFailCount = 0;
 let installPollInFlight = false;
 let latestStatus = null;
+let lastInstalledInfoRenderKey = "";
 let latestAppUpdateStatus = null;
 let pendingInstallBackendId = null;
 let modelDirChangeInProgress = false;
@@ -394,8 +395,6 @@ function markSelectFailedToLoad(id) {
 function updateStatusUI(status) {
     if (!status) return;
     const badge = document.getElementById("version-badge");
-    const sidebarStatus = document.getElementById("sidebar-status");
-    const sidebarStatusText = document.getElementById("sidebar-status-text");
     const info = document.getElementById("installed-info");
     const backendSelect = document.getElementById("backend-select");
     const releaseSelect = document.getElementById("release-select");
@@ -448,13 +447,15 @@ function updateStatusUI(status) {
         badge.className = "badge";
     }
 
-    if (status.running) {
-        if (sidebarStatus) sidebarStatus.style.display = "";
-        if (sidebarStatusText) sidebarStatusText.textContent = (status.active_process_tool || "llama.cpp") + " running";
-    } else {
-        if (sidebarStatus) sidebarStatus.style.display = "none";
-    }
-
+    // Keep disclosure focus and state during status polls that change only runtime data.
+    const installedInfoRenderKey = JSON.stringify([
+        status.installed, status.config_stale, status.version, status.backend, status.executables,
+        status.runtime_files, status.runtime_files_label, status.missing_runtime_files,
+        status.platform, status.platform_label, status.arch, status.available_backends,
+    ]);
+    if (installedInfoRenderKey === lastInstalledInfoRenderKey) return;
+    lastInstalledInfoRenderKey = installedInfoRenderKey;
+    const optionalToolsOpen = Boolean(document.getElementById("installed-optional-tools")?.open);
     info.textContent = "";
 
     const appendRow = (label, value) => {
@@ -470,24 +471,42 @@ function updateStatusUI(status) {
         appendRow("Version", String(status.version));
         appendRow("Backend", String(status.backend));
 
-        const exeWrap = document.createElement("div");
-        const exeTitle = document.createElement("strong");
-        exeTitle.textContent = "Available tools:";
-        exeWrap.appendChild(exeTitle);
-        const exeHint = document.createElement("span");
-        exeHint.className = "installed-info-hint";
-        exeHint.textContent = " Core launch tools are required; benchmark and utility tools are optional.";
-        exeWrap.appendChild(exeHint);
-        exeWrap.appendChild(document.createElement("br"));
-        for (const [name, exists] of Object.entries(status.executables)) {
-            const isCoreTool = /^llama-(cli|server)(\.|$)/.test(String(name));
-            const line = document.createElement("span");
-            line.className = exists ? "exe-ok" : "exe-missing";
-            line.textContent = `${exists ? "✓" : "✗"} ${name}${isCoreTool ? "" : " (optional)"}`;
-            exeWrap.appendChild(line);
-            exeWrap.appendChild(document.createElement("br"));
+        const tools = Object.entries(status.executables || {});
+        const isCoreTool = name => /^llama-(cli|server)(\.|$)/.test(String(name));
+        const coreTools = document.createElement("div");
+        coreTools.className = "installed-tools";
+        const coreTitle = document.createElement("h4");
+        coreTitle.textContent = "Launch tools";
+        coreTools.appendChild(coreTitle);
+
+        const optionalTools = document.createElement("details");
+        optionalTools.id = "installed-optional-tools";
+        optionalTools.className = "installed-tools";
+        optionalTools.open = optionalToolsOpen;
+        const optionalEntries = tools.filter(([name]) => !isCoreTool(name));
+        const optionalTitle = document.createElement("summary");
+        optionalTitle.textContent = `Optional tools · ${optionalEntries.filter(([, exists]) => exists).length} of ${optionalEntries.length} installed`;
+        optionalTools.appendChild(optionalTitle);
+        const hint = document.createElement("p");
+        hint.className = "installed-info-hint";
+        hint.textContent = "Benchmark and utility tools are only needed for their respective tasks.";
+        optionalTools.appendChild(hint);
+
+        for (const [name, exists] of tools) {
+            const required = isCoreTool(name);
+            const row = document.createElement("div");
+            row.className = "installed-tool-row";
+            const label = document.createElement("code");
+            label.textContent = name;
+            const state = document.createElement("span");
+            state.className = exists ? "exe-ok" : required ? "exe-missing" : "exe-optional";
+            state.textContent = exists ? "Available" : required ? "Missing · required" : "Not installed";
+            row.appendChild(label);
+            row.appendChild(state);
+            (required ? coreTools : optionalTools).appendChild(row);
         }
-        info.appendChild(exeWrap);
+        info.appendChild(coreTools);
+        if (optionalEntries.length) info.appendChild(optionalTools);
 
         if (status.runtime_files && status.runtime_files.length > 0) {
             appendRow(status.runtime_files_label || "Runtime libraries", `${status.runtime_files.length} file(s)`);
@@ -622,9 +641,9 @@ async function stopPythonServer() {
         ? " Any running llama.cpp process will be stopped first."
         : "";
     const ok = await confirmAction(
-        "Stop Python Server",
-        `Stop this Llama GUI Python server? The page will disconnect until you start server.py again.${runningHint}`,
-        "Stop Server"
+        "Quit Llama GUI",
+        `Quit Llama GUI? The page will disconnect until you start Llama GUI again.${runningHint}`,
+        "Quit Llama GUI"
     );
     if (!ok) return;
 
@@ -632,16 +651,16 @@ async function stopPythonServer() {
     const sidebarButton = document.getElementById("btn-sidebar-stop-app");
     if (button) button.disabled = true;
     if (sidebarButton) sidebarButton.disabled = true;
-    showStatus("info", "Stopping Python server...");
+    showStatus("info", "Quitting Llama GUI...");
 
     try {
         await fetchJson("/api/shutdown", { method: "POST" });
-        showStatus("success", "Python server is shutting down. This page will stop responding.");
+        showStatus("success", "Llama GUI is shutting down. This page will stop responding.");
         window.setTimeout(() => {
             window.location.reload();
         }, 1500);
     } catch (e) {
-        showStatus("error", "Failed to stop Python server: " + e.message);
+        showStatus("error", "Failed to quit Llama GUI: " + e.message);
         if (button) button.disabled = false;
         if (sidebarButton) sidebarButton.disabled = false;
     }
@@ -653,8 +672,8 @@ async function restartPythonServer() {
         ? " Any running llama.cpp process will be stopped first."
         : "";
     const ok = await confirmAction(
-        "Restart Python Server",
-        `Restart the Llama GUI Python server? The page will briefly disconnect.${runningHint}`,
+        "Restart Llama GUI",
+        `Restart Llama GUI? The page will briefly disconnect.${runningHint}`,
         "Restart"
     );
     if (!ok) return;
@@ -662,11 +681,11 @@ async function restartPythonServer() {
     await restartPythonServerAndReload({
         button: document.getElementById("btn-restart-app"),
         showStatusFn: showStatus,
-        restartingMessage: "Restarting Python server...",
-        reconnectingMessage: "Python server is restarting. Reconnecting...",
-        successMessage: "Python server restarted successfully.",
+        restartingMessage: "Restarting Llama GUI...",
+        reconnectingMessage: "Llama GUI is restarting. Reconnecting...",
+        successMessage: "Llama GUI restarted successfully.",
         timeoutMessage: "Server did not become ready in time. Try reloading manually.",
-        failurePrefix: "Failed to restart Python server: ",
+        failurePrefix: "Failed to restart Llama GUI: ",
     });
 }
 
@@ -675,14 +694,14 @@ async function restartPythonServerAndReload(options = {}) {
     const targetButton = options.button || button;
     const showStatusFn = options.showStatusFn || showStatus;
     if (targetButton) targetButton.disabled = true;
-    showStatusFn("info", options.restartingMessage || "Restarting Python server...");
+    showStatusFn("info", options.restartingMessage || "Restarting Llama GUI...");
 
     try {
         await fetchJson("/api/restart", { method: "POST" });
-        showStatusFn("info", options.reconnectingMessage || "Python server is restarting. Reconnecting...");
+        showStatusFn("info", options.reconnectingMessage || "Llama GUI is restarting. Reconnecting...");
         const ready = await waitForServerReady(30, 1000);
         if (ready) {
-            showStatusFn("success", options.successMessage || "Python server restarted successfully.");
+            showStatusFn("success", options.successMessage || "Llama GUI restarted successfully.");
         } else {
             showStatusFn("error", options.timeoutMessage || "Server did not become ready in time. Try reloading manually.");
         }
@@ -690,7 +709,7 @@ async function restartPythonServerAndReload(options = {}) {
             reloadAppWithCacheBust();
         }, 500);
     } catch (e) {
-        showStatusFn("error", (options.failurePrefix || "Failed to restart Python server: ") + e.message);
+        showStatusFn("error", (options.failurePrefix || "Failed to restart Llama GUI: ") + e.message);
         if (targetButton) targetButton.disabled = false;
     }
 }
@@ -882,23 +901,25 @@ function showAppUpdateStatus(type, message) {
 }
 
 function renderModelDirInfo(info) {
-    const pathEl = document.getElementById("models-folder-path");
-    const changeBtn = document.getElementById("btn-change-models-folder");
-    const resetBtn = document.getElementById("btn-reset-models-folder");
-    const errorEl = document.getElementById("models-folder-error");
-    if (pathEl) pathEl.textContent = info && info.models_dir ? info.models_dir : "Loading...";
-    if (changeBtn) changeBtn.disabled = modelDirChangeInProgress;
-    if (resetBtn) {
-        resetBtn.hidden = !info || info.models_dir_is_default === true;
-        resetBtn.disabled = modelDirChangeInProgress;
-    }
-    if (errorEl) {
-        const unavailableError = info && info.models_dir_available === false
-            ? String(info.models_dir_error || "Models folder is unavailable.")
-            : "";
-        const message = modelDirOperationError || unavailableError;
-        errorEl.textContent = message;
-        errorEl.className = message ? "status-box error" : "status-box hidden";
+    for (const prefix of ["", "quick-"]) {
+        const pathEl = document.getElementById(prefix + "models-folder-path");
+        const changeBtn = document.getElementById("btn-" + prefix + "change-models-folder");
+        const resetBtn = document.getElementById("btn-" + prefix + "reset-models-folder");
+        const errorEl = document.getElementById(prefix + "models-folder-error");
+        if (pathEl) pathEl.textContent = info && info.models_dir ? info.models_dir : "Loading...";
+        if (changeBtn) changeBtn.disabled = modelDirChangeInProgress;
+        if (resetBtn) {
+            resetBtn.hidden = !info || info.models_dir_is_default === true;
+            resetBtn.disabled = modelDirChangeInProgress;
+        }
+        if (errorEl) {
+            const unavailableError = info && info.models_dir_available === false
+                ? String(info.models_dir_error || "Models folder is unavailable.")
+                : "";
+            const message = modelDirOperationError || unavailableError;
+            errorEl.textContent = message;
+            errorEl.className = message ? "status-box error" : "status-box hidden";
+        }
     }
 }
 
@@ -979,10 +1000,12 @@ async function chooseModelsDir() {
 }
 
 function initModelDirControls() {
-    const changeBtn = document.getElementById("btn-change-models-folder");
-    const resetBtn = document.getElementById("btn-reset-models-folder");
-    if (changeBtn) changeBtn.addEventListener("click", chooseModelsDir);
-    if (resetBtn) resetBtn.addEventListener("click", () => persistModelsDir(null));
+    for (const prefix of ["", "quick-"]) {
+        const changeBtn = document.getElementById("btn-" + prefix + "change-models-folder");
+        const resetBtn = document.getElementById("btn-" + prefix + "reset-models-folder");
+        if (changeBtn) changeBtn.addEventListener("click", chooseModelsDir);
+        if (resetBtn) resetBtn.addEventListener("click", () => persistModelsDir(null));
+    }
     renderModelDirInfo(latestStatus);
 }
 

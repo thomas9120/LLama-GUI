@@ -86,6 +86,591 @@ async function selectSection(page, section) {
     await page.waitForSelector(`#section-${section}`, { state: "visible" });
 }
 
+async function verifyConfigurePresentation(page) {
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const contextHeader = page.locator('.accordion[data-category-id="context"] .accordion-header');
+    const contextRow = page.locator('.flag-row[data-flag-id="ctx_size"]');
+
+    assert.equal(await page.getByRole("spinbutton", { name: "Total Context Window -c", exact: true }).getAttribute("id"), "flag-ctx_size");
+    await contextRow.locator(".flag-setting-name").click();
+    assert.equal(await page.evaluate(() => document.activeElement.id), "flag-ctx_size", "setting labels focus their inputs");
+    assert.match(await contextRow.locator(".flag-default").textContent(), /GUI default: 64000/);
+
+    const help = contextRow.locator(".flag-more");
+    assert.equal(await help.locator(".flag-tip-text").isVisible(), false, "usage tips stay out of the collapsed row");
+    await help.locator("summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await help.locator(".flag-tip-text").isVisible(), true, "detailed help opens from the keyboard");
+    await page.keyboard.press("Enter");
+
+    await contextHeader.focus();
+    await page.keyboard.press("Space");
+    assert.equal(await contextHeader.getAttribute("aria-expanded"), "false");
+    assert.equal(await page.locator("#flag-ctx_size").isVisible(), false);
+    await page.keyboard.press("Enter");
+    assert.equal(await contextHeader.getAttribute("aria-expanded"), "true");
+    assert.equal(await page.locator("#flag-ctx_size").isVisible(), true);
+    assert.equal(await contextHeader.getAttribute("aria-controls"), "flag-category-context");
+
+    const numberColumns = await page.locator("#flag-ctx_size, #flag-batch_size, #flag-ubatch_size")
+        .evaluateAll(inputs => inputs.map(input => {
+            const rect = input.getBoundingClientRect();
+            return { left: rect.left, right: rect.right };
+        }));
+    assert.equal(numberColumns.length, 3);
+    assert.ok(numberColumns.every(rect => Math.abs(rect.left - numberColumns[0].left) < 1
+        && Math.abs(rect.right - numberColumns[0].right) < 1), "numeric controls share an aligned column");
+    assert.match(await page.locator('.flag-row[data-flag-id="mlock"] .flag-desc').textContent(), /Deprecated/);
+
+    await page.fill("#config-search", "sampling");
+    const submenu = page.locator('.accordion[data-category-id="sampling"] .flag-submenu-header').first();
+    await submenu.waitFor({ state: "visible" });
+    assert.equal(await submenu.getAttribute("aria-expanded"), "true");
+    await submenu.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await submenu.getAttribute("aria-expanded"), "false");
+
+    await page.fill("#config-search", "");
+    await page.click("#btn-expand-all");
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflowingControls = await page.locator(".flag-row").evaluateAll(rows => rows.flatMap(row => {
+        const bounds = row.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return [];
+        return Array.from(row.querySelectorAll(".flag-input input, .flag-input select, .flag-input textarea, .flag-input button"))
+            .filter(input => {
+                const rect = input.getBoundingClientRect();
+                return rect.width > 0 && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1);
+            })
+            .map(input => input.id || row.dataset.flagId);
+    }));
+    assert.deepEqual(overflowingControls, [], "simple, path, sensitive, and multi-value controls fit narrow rows");
+    await page.setViewportSize(viewport);
+}
+
+async function verifyConfigureComparison(page) {
+    await selectSection(page, "configure");
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const original = await page.inputValue("#flag-ctx_size");
+    const row = page.locator('.flag-row[data-flag-id="ctx_size"]');
+    assert.equal(await page.textContent("#config-runtime-state"), "Process active · action failed", "a failed stop does not describe the process as stopped");
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+    assert.equal(await row.locator(".flag-baseline-value").textContent(), original);
+    await page.fill("#flag-ctx_size", String(Number(original) + 1));
+    assert.equal(await page.textContent("#config-change-count"), "1 setting changed since launch");
+    assert.match(await page.locator('.accordion[data-category-id="context"] .count').first().textContent(), /1 changed/);
+    await page.check("#config-changes-only");
+    assert.equal(await page.locator('.flag-row:not(.hidden)').count(), 1);
+    await page.fill("#flag-ctx_size", original);
+    assert.equal(await row.isVisible(), true, "typing through the launch value must not hide the focused input");
+    await page.locator("#config-search").focus();
+    await row.waitFor({ state: "hidden" });
+    assert.equal(await page.locator("#config-comparison-empty").isVisible(), true);
+    await page.uncheck("#config-changes-only");
+    await page.fill("#flag-ctx_size", String(Number(original) + 2));
+    await row.locator(".flag-revert").click();
+    assert.equal(await page.inputValue("#flag-ctx_size"), original);
+    assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().ctx_size), Number(original));
+    assert.match(await page.textContent("#command-preview-text"), new RegExp(`-c ${original}(?: |$)`));
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({ ctx_size: 32768, port: 9091 }));
+    await page.locator("#config-change-review > summary").click();
+    assert.equal(await page.locator("#config-change-list tr").count(), 2, "review includes changes outside the search");
+    assert.equal(await page.locator("#config-comparison-exclusions").isVisible(), false);
+    await page.locator("#config-comparison-about > summary").click();
+    assert.equal(await page.locator("#config-comparison-exclusions").isVisible(), true);
+    assert.match(await page.textContent("#config-comparison-exclusions"), /Automatic values, API keys, and custom launch arguments aren’t compared/);
+    assert.ok(!await page.locator(".config-runtime").textContent().then(text => text.includes("first-secret")));
+    const viewport = page.viewportSize();
+    for (const width of [820, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        assert.equal(await row.evaluate(el => {
+            const bounds = el.getBoundingClientRect();
+            return Array.from(el.querySelectorAll("input, .flag-baseline, .flag-revert")).some(child => {
+                const rect = child.getBoundingClientRect();
+                return rect.width && (rect.left < bounds.left - 1 || rect.right > bounds.right + 1);
+            });
+        }), false, `comparison controls fit a ${width}px viewport`);
+    }
+    await page.setViewportSize(viewport);
+    await page.click("#config-revert-changes");
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+    assert.equal(await page.inputValue("#flag-ctx_size"), original);
+    const selectedModel = await page.evaluate(() => window.LlamaGui.flagCore.getSelectedModel());
+    await page.evaluate(() => {
+        window.LlamaGui.flagCore.setSelectedModelValue("different.gguf");
+        window.LlamaGui.flagCore.updateCommandPreview();
+    });
+    assert.match(await page.textContent("#config-comparison-exclusions"), /selected a different model/);
+    await page.evaluate(model => {
+        window.LlamaGui.flagCore.setSelectedModelValue(model);
+        window.LlamaGui.flagCore.updateCommandPreview();
+    }, selectedModel);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
+    assert.equal(await page.locator("#config-changes-only").isDisabled(), true);
+    assert.match(await page.textContent("#config-comparison-note"), /Select llama-server/);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-server"));
+    assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+}
+
+async function verifyPresetPolish(page) {
+    const entries = [
+        { name: "Daily server", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4, hf_token: "hidden-hf-token", custom_args: "--alias daily" } } },
+        { name: "Another preset", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { ctx_size: 0 } } },
+    ];
+    const writes = [];
+    let failSave = false;
+    const handler = async route => {
+        const request = route.request();
+        const pathname = new URL(request.url()).pathname;
+        if (request.method() === "GET") return route.fulfill({ json: entries });
+        const body = request.postDataJSON();
+        if (pathname === "/api/presets/rename") {
+            entries.find(entry => entry.name === body.name).name = body.new_name;
+            return route.fulfill({ json: { renamed: true, name: body.new_name } });
+        }
+        if (pathname === "/api/presets/archive") {
+            for (const entry of entries) if (body.names.includes(entry.name)) entry.archived = body.archived;
+            return route.fulfill({ json: { archived: body.archived, count: body.names.length } });
+        }
+        writes.push(body);
+        const existing = entries.find(entry => entry.name.toLowerCase() === body.name.toLowerCase());
+        if (existing && body.overwrite === false) return route.fulfill({ status: 409, json: { error: "Preset already exists" } });
+        if (failSave) return route.fulfill({ status: 500, json: { error: "Could not save preset" } });
+        if (existing) existing.data = body.data;
+        else entries.push({ name: body.name, data: body.data });
+        return route.fulfill({ json: { saved: true, name: body.name } });
+    };
+    await page.route("**/api/presets**", handler);
+    const runtimeBefore = await page.evaluate(() => JSON.stringify(processLifecycle.getSnapshot().activeRuntime));
+    const config = page.locator("#section-configure [data-preset-context]");
+    const quick = page.locator("#section-quick-launch [data-preset-context]");
+    try {
+        await page.evaluate(() => {
+            presetSearchQuery = "";
+            presetFavoritesMode = "all";
+            presetWarningFilterActive = false;
+            presetArchiveViewActive = false;
+            document.getElementById("preset-search").value = "";
+            savePresetGroupState({});
+            flagCore.setFlagValue("api_key", "session-only-api-key");
+        });
+        await selectSection(page, "presets");
+        await page.locator("#presets-list .preset-group-header").first().waitFor();
+        await page.click("#btn-presets-expand-all");
+        await page.locator('.preset-item[data-preset-name="Daily server"]').click();
+        assert.equal(await page.getByRole("button", { name: "Duplicate", exact: true }).isVisible(), false);
+        assert.match(await page.textContent(".preset-detail-stats"), /GUI default/);
+        await page.locator(".preset-saved-settings > summary").click();
+        assert.doesNotMatch(await page.textContent(".preset-saved-settings"), /hidden-hf-token|--alias daily|ctx_size_draft/);
+        await page.getByRole("button", { name: "Load into Configure", exact: true }).click();
+        await config.waitFor({ state: "visible" });
+        assert.equal(await config.locator("[data-preset-name]").textContent(), "Daily server");
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Matches saved preset");
+        assert.equal(await config.locator("[data-preset-update]").isDisabled(), true);
+
+        await page.evaluate(() => flagCore.setMultipleFlagValues({ temperature: 0.25, hf_token: "changed-hf-token", custom_args: "--alias changed" }));
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        await config.locator("[data-preset-review-label]").click();
+        await config.locator("tbody tr").first().waitFor();
+        assert.doesNotMatch(await config.locator("tbody").textContent(), /hidden-hf-token|changed-hf-token|--alias|session-only-api-key/);
+        assert.match(await config.locator("tbody").textContent(), /Changed · value hidden/);
+        await selectSection(page, "quick-launch");
+        assert.equal(await quick.locator("[data-preset-state]").textContent(), "Modified");
+        await selectSection(page, "presets");
+        await page.locator('.preset-item[data-preset-name="Another preset"]').click();
+        assert.match(await page.textContent(".preset-detail-stats"), /Auto · from model/);
+        assert.equal(await config.locator("[data-preset-name]").textContent(), "Daily server", "browsing must not change the edit source");
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        assert.match(await page.textContent("#preset-update-title"), /Daily server/);
+        assert.doesNotMatch(await page.textContent("#preset-update-dialog tbody"), /changed-hf-token|--alias/);
+        await page.keyboard.press("Escape");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.length, 0, "cancelling the review must not write");
+        assert.equal(await config.locator("[data-preset-update]").evaluate(el => el === document.activeElement), true, "cancelling restores keyboard focus");
+
+        // The save uses the reviewed snapshot even if settings change while open.
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.6));
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.at(-1).data.flags.temperature, 0.25);
+        assert.equal(writes.at(-1).data.flags.api_key, undefined);
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.25));
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Matches saved preset");
+
+        await config.locator("[data-preset-save-new]").click();
+        await page.fill("#prompt-modal-input", "Daily server");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.at(-1).overwrite, false);
+        assert.equal(entries.length, 2, "save as new must reject a name collision");
+        assert.match(await page.textContent("#preset-status"), /already exists/);
+        const newName = "New <img src=x> " + "long preset name ".repeat(6);
+        await config.locator("[data-preset-save-new]").click();
+        await page.fill("#prompt-modal-input", newName.trim());
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(await config.locator("[data-preset-name]").textContent(), newName.trim());
+        assert.equal(await config.locator("img").count(), 0);
+        await config.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.activeElement?.classList.contains("preset-detail-title"));
+        assert.equal(await page.textContent(".preset-detail-title"), newName.trim());
+
+        await page.locator(".preset-more-actions > summary").focus();
+        await page.keyboard.press("Enter");
+        await page.keyboard.press("Escape");
+        assert.equal(await page.locator(".preset-more-actions").evaluate(el => el.open), false);
+        await page.locator(".preset-more-actions > summary").click();
+        await page.getByRole("button", { name: "Rename", exact: true }).click();
+        await page.fill("#prompt-modal-input", "Renamed source");
+        await page.click("#prompt-modal-ok");
+        await page.waitForFunction(() => lastLoadedPresetName === "Renamed source");
+        // Source links must clear filters that would hide the requested preset.
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.querySelector(".preset-detail-title")?.textContent === "Renamed source");
+        await page.locator(".preset-more-actions > summary").click();
+        await page.locator("#preset-detail-panel").getByRole("button", { name: "Archive", exact: true }).click();
+        await page.waitForFunction(() => loadedPresetArchived);
+        await selectSection(page, "quick-launch");
+        await quick.locator("[data-preset-name]").click();
+        await page.waitForFunction(() => document.querySelector(".preset-detail-title")?.textContent === "Renamed source");
+        assert.match(await page.textContent("#preset-archive-view"), /Viewing archive/);
+
+        // Failure leaves the source and pending edits available for retry.
+        await selectSection(page, "configure");
+        await page.evaluate(() => flagCore.setFlagValue("temperature", 0.5));
+        failSave = true;
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(await config.locator("[data-preset-update]").isEnabled(), true);
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "Modified");
+        failSave = false;
+
+        for (const section of ["configure", "quick-launch", "presets"]) {
+            await selectSection(page, section);
+            for (const width of [390, 900, 1440]) {
+                await page.setViewportSize({ width, height: 1000 });
+                assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `${section} fits at ${width}px`);
+            }
+        }
+        await selectSection(page, "configure");
+        await config.locator("[data-preset-update]").click();
+        await page.locator("#preset-update-dialog[open]").waitFor();
+        const writesBeforeRemoval = writes.length;
+        entries.splice(entries.findIndex(entry => entry.name === "Renamed source"), 1);
+        await page.locator('#preset-update-dialog button[value="update"]').click();
+        await page.waitForFunction(() => !presetSavePending);
+        assert.equal(writes.length, writesBeforeRemoval, "deleting a preset during review must not recreate it");
+        assert.equal(await config.locator("[data-preset-state]").textContent(), "No longer saved");
+        assert.equal(await config.locator("[data-preset-update]").isDisabled(), true);
+        assert.equal(await config.locator("[data-preset-save-new]").isEnabled(), true);
+        assert.equal(await page.evaluate(() => JSON.stringify(processLifecycle.getSnapshot().activeRuntime)), runtimeBefore, "preset edits must not change the active runtime");
+    } finally {
+        await page.unroute("**/api/presets**", handler);
+    }
+}
+
+async function verifyQuickLaunchPolish(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    let activeRuntime = null;
+    let entries = [
+        { name: "Recent session", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4 } } },
+        { name: "Favorite session", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.8 } } },
+        { name: "A very long saved preset name with <img src=x> text", data: { tool: "llama-cli", model: "folder/" + "long-model-name-".repeat(12) + ".gguf", flags: {} } },
+        { name: "Archived", archived: true, data: { tool: "llama-server", model: "smoke-model.gguf", flags: {} } },
+        { name: "Legacy sampler", data: { temperature: 0.7 } },
+    ];
+    let failPresets = false;
+    const status = () => ({ ...baseStatus, running: Boolean(activeRuntime), active_process_tool: activeRuntime?.tool, active_runtime: activeRuntime, external_chat_target: null });
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: status() }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: activeRuntime?.generation } }),
+        "**/api/presets": route => route.fulfill({ status: failPresets ? 500 : 200, json: failPresets ? { error: "Unavailable" } : entries }),
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await page.evaluate(async () => {
+        stopOutputPolling(); stopStatsPolling();
+        localStorage.setItem("llama_gui_preset_favorites_v1", JSON.stringify({ "Favorite session": true }));
+        localStorage.setItem("llama_gui_preset_last_used_v1", JSON.stringify({ "Recent session": 123 }));
+        await processLifecycle.restore({ running: false, active_runtime: null });
+        flagCore.setCurrentTool("llama-server");
+        flagCore.applyFlagValues(getDefaultValues());
+    });
+    await selectSection(page, "quick-launch");
+    await page.waitForFunction(() => document.querySelector(".quick-saved-preset")?.dataset.presetName === "Favorite session");
+    assert.equal(await page.locator(".quick-saved-preset").count(), 3);
+    assert.equal(await page.locator(".quick-saved-preset img").count(), 0, "preset names are plain text");
+    assert.equal(await page.textContent("#quick-runtime-state"), "Stopped");
+    assert.equal(await page.textContent("#quick-models-folder-path"), await page.textContent("#models-folder-path"));
+    for (const disclosure of await page.locator("#section-quick-launch details").all()) {
+        if (await disclosure.evaluate(el => el.open)) await disclosure.locator(":scope > summary").click();
+    }
+    if (await page.locator("#model-switch-toggle").getAttribute("aria-expanded") === "true") await page.click("#model-switch-toggle");
+    await page.locator(".quick-saved-preset").first().click();
+    // The preset can already match before its async reload completes. Wait for
+    // the load to finish before editing, or its response can overwrite the edit.
+    await page.waitForFunction(() => {
+        const preset = document.querySelector(".quick-saved-preset");
+        return preset && !preset.disabled && preset.getAttribute("aria-pressed") === "true";
+    });
+    assert.equal(await page.inputValue("#quick-model-select"), "smoke-model.gguf");
+    assert.equal(await page.textContent("#btn-quick-launch-label"), "Launch server");
+    await page.fill("#quick-temperature-input", "0.43");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().temperature), 0.43);
+    assert.match(await page.locator(".quick-saved-preset").first().textContent(), /Modified/);
+    await page.fill("#quick-temperature-input", "0.8125");
+    assert.equal(await page.locator("#quick-temperature-input").evaluate(el => el.validity.valid), true);
+    await page.fill("#quick-temperature-input", "");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().temperature), undefined);
+    assert.equal(await page.locator(".quick-saved-preset").first().getAttribute("aria-pressed"), "false", "clearing an explicit setting does not substitute a GUI default in preset comparisons");
+    await page.fill("#quick-temperature-input", "0.8");
+    assert.equal(await page.locator(".quick-saved-preset").first().getAttribute("aria-pressed"), "true", "reverting inputs restores the preset match");
+    await page.fill("#quick-top-p-input", "0.73");
+    assert.equal(await page.inputValue("#chat-slider-top-p"), "0.73");
+    await page.locator("#quick-server-settings > summary").focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.locator("#quick-port").isVisible(), true);
+    await page.fill("#quick-port", "9050");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().port), 9050);
+    assert.match(await page.textContent("#quick-server-summary"), /Port 9050/);
+    assert.ok((await page.textContent("#quick-command-preview")).includes("--port 9050"));
+    await page.locator("#quick-server-settings > summary").click();
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.locator(".quick-runtime").scrollIntoViewIfNeeded();
+    const launchBottom = await page.locator(".quick-launch-bar").evaluate(el => el.getBoundingClientRect().bottom);
+    assert.ok(launchBottom < 1000, `common launch controls and action fit a desktop viewport (bottom: ${launchBottom})`);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.waitForTimeout(400);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    for (const selector of ["#btn-quick-launch", "#btn-quick-change-models-folder", "#quick-command-details > summary"]) {
+        const box = await page.locator(selector).boundingBox();
+        assert.ok(box.x >= 0 && box.x + box.width <= 391, `${selector} fits the narrow viewport`);
+    }
+    await page.setViewportSize(viewport);
+    activeRuntime = { generation: 401, tool: "llama-server", model: "running-model.gguf", host: "127.0.0.1", port: 8080, backend: "vulkan", version: "b12345" };
+    await page.evaluate(s => processLifecycle.restore(s, { startOutput: () => {}, startStats: () => {}, postReady: () => {} }), status());
+    assert.match(await page.textContent("#quick-runtime-model"), /running-model.gguf.*8080/);
+    assert.equal(await page.textContent(".quick-endpoint-label"), "Active endpoint");
+    assert.match(await page.textContent("#quick-server-summary"), /9050/, "pending port stays distinct from the running endpoint");
+    await page.check('input[name="quick-launch-mode"][value="llama-cli"]');
+    assert.equal(await page.locator("#quick-server-fields").isVisible(), false);
+    assert.equal(await page.textContent("#btn-quick-launch-label"), "Launch terminal");
+    assert.equal(await page.textContent("#btn-quick-stop-label"), "Stop server", "stop labels the active process");
+    await page.click("#btn-quick-download");
+    assert.equal(await page.locator(".hf-download-panel").evaluate(el => el.open), true);
+    assert.equal(await page.locator("#hf-repo-input").evaluate(el => el === document.activeElement), true);
+    entries = [];
+    await page.evaluate(() => quickLaunchUi.refreshSavedPresets());
+    assert.match(await page.textContent("#quick-presets-status"), /Save a launch preset/);
+    failPresets = true;
+    await page.evaluate(() => quickLaunchUi.refreshSavedPresets());
+    assert.match(await page.textContent("#quick-presets-status"), /Could not refresh presets/);
+    activeRuntime = null;
+    await page.evaluate(() => processLifecycle.restore({ running: false, active_runtime: null }));
+    for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+}
+
+async function verifyConfigureRestart(page) {
+    await selectSection(page, "configure");
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.evaluate(async () => {
+        const core = window.LlamaGui.flagCore;
+        core.setCurrentTool("llama-server");
+        core.applyFlagValues(getDefaultValues());
+        await refreshModels();
+    });
+    await page.selectOption("#model-select", "smoke-model.gguf");
+    const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
+    let runtime = { generation: 301, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 8080, launch_settings: baseline };
+    let preflightError = "";
+    let refuseStop = false;
+    let preflightGate = null;
+    const events = [];
+    const launches = [];
+    const routes = {
+        "**/api/status": async route => route.fulfill({ json: { ...baseStatus, running: Boolean(runtime), active_process_tool: runtime?.tool, active_runtime: runtime } }),
+        "**/api/llama/health?*": async route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
+        "**/api/output?*": async route => route.fulfill({ json: { lines: [], running: Boolean(runtime), runtime_generation: runtime?.generation, next_cursor: 0 } }),
+        "**/api/launch/preflight": async route => {
+            events.push("preflight");
+            assert.equal(route.request().postDataJSON().fingerprint_data.tool, "llama-server");
+            if (preflightGate) await preflightGate;
+            await route.fulfill({ json: preflightError ? { error: preflightError } : { ok: true } });
+        },
+        "**/api/stop": async route => {
+            events.push("stop");
+            assert.equal(route.request().postDataJSON().expected_generation, runtime.generation);
+            if (!refuseStop) runtime = null;
+            await route.fulfill({ json: { stopped: !refuseStop } });
+        },
+        "**/api/launch": async route => {
+            events.push("launch");
+            assert.equal(runtime, null, "restart must confirm stop before launching");
+            const request = route.request().postDataJSON();
+            launches.push(request);
+            runtime = { generation: 302, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 8080, launch_settings: request.launch_settings };
+            await route.fulfill({ json: { pid: 302, output_cursor: 0, active_runtime: runtime } });
+        },
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await page.evaluate(activeRuntime => processLifecycle.restore({ running: true, active_runtime: activeRuntime }, {
+        startOutput: () => {}, startStats: () => {}, postReady: () => {},
+    }), runtime);
+    await page.fill("#config-search", "context & memory");
+    await page.waitForSelector("#flag-ctx_size", { state: "visible" });
+    const button = page.locator("#config-restart");
+    assert.equal(await button.isEnabled(), true);
+    await page.fill("#flag-ctx_size", "16000");
+    await page.fill("#custom-launch-args", '--threads "unfinished');
+    await button.click();
+    await page.waitForSelector("#config-restart-error:not(.hidden)");
+    assert.deepEqual(events, [], "invalid custom arguments must not reach stop or preflight");
+    await page.fill("#custom-launch-args", "");
+    preflightError = "Local model file does not exist.";
+    await button.click();
+    await page.waitForSelector("#config-restart-error:not(.hidden)");
+    assert.match(await page.textContent("#config-restart-error"), /Local model/);
+    assert.deepEqual(events, ["preflight"]);
+    preflightError = "";
+    refuseStop = true;
+    await button.click();
+    await page.waitForFunction(() => document.getElementById("config-restart-error").textContent.includes("refused to stop"));
+    assert.equal(launches.length, 0, "a refused stop must not launch a second process");
+    assert.equal(await button.isEnabled(), true);
+    refuseStop = false;
+    events.length = 0;
+    let releasePreflight;
+    preflightGate = new Promise(resolve => { releasePreflight = resolve; });
+    await button.click();
+    await page.waitForFunction(() => document.getElementById("config-restart").disabled);
+    await page.evaluate(() => document.getElementById("config-restart").click());
+    await page.fill("#flag-ctx_size", "32000");
+    releasePreflight();
+    await page.waitForFunction(() => processLifecycle.getSnapshot().activeRuntime?.generation === 302 && !processLifecycle.getSnapshot().busy);
+    assert.deepEqual(events, ["preflight", "stop", "launch"], "double activation must still produce only one restart");
+    assert.equal(launches[0].launch_settings.flags.ctx_size, 16000, "the preflighted snapshot is the one launched");
+    assert.ok(launches[0].args.flat().includes("16000"));
+    assert.equal(await page.inputValue("#flag-ctx_size"), "32000", "edits made during restart remain pending");
+    assert.equal(await page.locator('.flag-row[data-flag-id="ctx_size"] .flag-baseline-value').textContent(), "16000");
+    assert.equal(await button.textContent(), "Restart with changes");
+    assert.equal(await page.locator("#config-restart-error").isVisible(), false);
+    await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-cli"));
+    assert.equal(await button.isVisible(), false, "restart is available only for the local server tool");
+    await page.evaluate(async () => {
+        stopOutputPolling(); stopStatsPolling();
+        await processLifecycle.restore({ running: false, active_runtime: null });
+    });
+    assert.equal(await button.isVisible(), false, "no restart button is offered without a local runtime");
+    for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+}
+
+async function verifyShellPolish(page) {
+    await page.evaluate(() => document.querySelectorAll("#toast-container .toast").forEach(toast => toast.remove()));
+    const viewport = page.viewportSize();
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const sections = ["quick-launch", "configure", "monitor", "benchmarking", "chat", "api", "presets", "install"];
+    assert.deepEqual(await page.locator("#sidebar .nav-item").evaluateAll(items => items.map(el => el.dataset.section)), sections);
+    assert.deepEqual(await page.locator(".nav-section-label").allTextContents(), ["Tune", "Interact", "Library"]);
+    for (const section of sections) {
+        await selectSection(page, section);
+        assert.equal(await page.locator('#sidebar [aria-current="page"]').getAttribute("data-section"), section);
+    }
+
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    let runtime = { tool: "llama-server", generation: 501, model: "folder/" + "long-model-".repeat(20) + "<img>.gguf", host: "127.0.0.1", port: 8091, backend: "vulkan", version: "b501" };
+    let target = null;
+    let releaseStop;
+    let stops = 0;
+    const stopGate = new Promise(resolve => { releaseStop = resolve; });
+    const status = () => ({ ...baseStatus, running: Boolean(runtime), active_runtime: runtime, active_process_tool: runtime?.tool, external_chat_target: target });
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: status() }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { ready: true, state: "ready", generation: runtime?.generation } }),
+        "**/api/output?*": route => route.fulfill({ json: { lines: [], running: Boolean(runtime), runtime_generation: runtime?.generation, next_cursor: 0 } }),
+        "**/api/stop": async route => {
+            stops += 1;
+            assert.equal(route.request().postDataJSON().expected_generation, 501);
+            await stopGate;
+            runtime = null;
+            await route.fulfill({ json: { stopped: true } });
+        },
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await page.evaluate(s => processLifecycle.restore(s, { startOutput: () => {}, startStats: () => {}, postReady: () => {} }), status());
+    assert.equal(await page.textContent("#sidebar-runtime-state"), "Ready");
+    assert.equal(await page.getAttribute("#sidebar-runtime-model", "title"), runtime.model);
+    assert.equal(await page.locator("#sidebar-runtime img").count(), 0);
+    await page.evaluate(() => {
+        flagCore.setCurrentTool("llama-cli");
+        flagCore.setFlagValue("port", 9999);
+    });
+    assert.equal(await page.textContent("#btn-sidebar-stop-label"), "Stop server");
+    await page.locator("#sidebar-runtime > summary").click();
+    assert.match(await page.textContent("#sidebar-runtime-build"), /vulkan.*b501/);
+    assert.match(await page.textContent("#sidebar-runtime-endpoint"), /8091/);
+    await page.click("#btn-sidebar-runtime-details");
+    assert.equal(await page.locator("#section-monitor").isVisible(), true);
+    await page.click("#btn-sidebar-stop");
+    await page.waitForFunction(() => document.getElementById("sidebar-runtime-state").textContent === "Stopping");
+    assert.equal(await page.locator("#btn-sidebar-stop").isDisabled(), true);
+    await page.evaluate(() => document.getElementById("btn-sidebar-stop").click());
+    assert.equal(stops, 1, "a second Stop cannot run during the transition");
+    releaseStop();
+    await page.waitForFunction(() => document.getElementById("sidebar-runtime-state").textContent === "Stopped");
+    assert.equal(await page.textContent("#btn-sidebar-launch-label"), "Launch terminal");
+    target = { connected: true, host: "127.0.0.2", port: 9001, label: "Remote workstation" };
+    await page.evaluate(() => refreshRuntimeStatusPanels());
+    assert.equal(await page.textContent("#sidebar-runtime-state"), "External server");
+    assert.match(await page.textContent("#sidebar-runtime-endpoint"), /9001/);
+    await page.click("#btn-sidebar-runtime-details");
+    assert.equal(await page.locator("#section-api").isVisible(), true);
+    assert.equal(await page.locator("#btn-sidebar-stop").isVisible(), false);
+    target = null;
+    await page.evaluate(() => refreshRuntimeStatusPanels());
+    await page.locator("#sidebar-runtime > summary").click();
+
+    await page.setViewportSize({ width: 390, height: 500 });
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator("#sidebar").evaluate(el => el.inert), true);
+    await page.click("#mobile-toggle");
+    assert.equal(await page.getAttribute("#mobile-toggle", "aria-expanded"), "true");
+    assert.equal(await page.locator(".main-content").evaluate(el => el.inert), true);
+    assert.equal(await page.evaluate(() => document.activeElement.id), "sidebar-close");
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "btn-sidebar-stop-app");
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "sidebar-close");
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => document.activeElement.id), "mobile-toggle");
+    await page.click("#mobile-toggle");
+    await page.click('.sidebar-maintenance [data-section="install"]');
+    assert.equal(await page.locator("#section-install").isVisible(), true);
+    assert.equal(await page.getAttribute("#mobile-toggle", "aria-expanded"), "false");
+    assert.equal(await page.locator(".main-content").evaluate(el => el.inert), false);
+    await page.click("#mobile-toggle");
+    await page.click("#sidebar-backdrop", { position: { x: 350, y: 100 } });
+    assert.equal(await page.getAttribute("#mobile-toggle", "aria-expanded"), "false");
+    await page.click("#mobile-toggle");
+    await page.click("#btn-sidebar-stop-app");
+    assert.equal(await page.textContent("#confirm-modal-title"), "Quit Llama GUI");
+    await page.click("#confirm-modal-cancel");
+    await page.setViewportSize(viewport);
+    await page.waitForTimeout(250);
+    assert.equal(await page.locator("#sidebar").evaluate(el => el.inert), false);
+    await page.evaluate(() => { stopOutputPolling(); stopStatsPolling(); });
+    for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+}
+
 // Range inputs cannot be page.fill()ed; set the value and fire input instead.
 async function setRangeValue(page, selector, value) {
     await page.evaluate(([sel, val]) => {
@@ -96,27 +681,232 @@ async function setRangeValue(page, selector, value) {
     }, [selector, value]);
 }
 
-async function sampleScreenshotPixels(page, screenshot, points) {
-    return page.evaluate(async ({ dataUrl, points: samplePoints }) => {
-        const image = new Image();
-        image.src = dataUrl;
-        await image.decode();
-
-        const canvas = document.createElement("canvas");
-        canvas.width = image.naturalWidth;
-        canvas.height = image.naturalHeight;
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        context.drawImage(image, 0, 0);
-
-        return samplePoints.map(([x, y]) => Array.from(context.getImageData(x, y, 1, 1).data));
-    }, {
-        dataUrl: `data:image/png;base64,${screenshot.toString("base64")}`,
-        points,
+async function verifyMonitorRuntimePolish(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseline = await page.evaluate(() => {
+        flagCore.setCurrentTool("llama-server");
+        flagCore.setMultipleFlagValues({ ctx_size: 8000, port: 8091 });
+        return flagCore.captureLaunchSettings();
     });
+    let runtime = { tool: "llama-server", generation: 601, model: "models/" + "long-model-".repeat(25) + "<img>.gguf", host: "127.0.0.1", port: 8091, backend: "vulkan", version: "b601", launch_settings: baseline };
+    let target = null;
+    const status = () => ({ ...baseStatus, running: Boolean(runtime), active_runtime: runtime, active_process_tool: runtime?.tool, external_chat_target: target });
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: status() }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
+        "**/api/output?*": route => route.fulfill({ json: { lines: [], running: Boolean(runtime), runtime_generation: runtime?.generation, next_cursor: 0 } }),
+        "**/api/system-stats*": route => route.fulfill({ json: {
+            sampled_at: Date.now() / 1000,
+            system: { cpu: { available: true, percent: 12 }, memory: { available: true, used_bytes: 4e9, total_bytes: 16e9, percent: 25 }, disk: { available: true, percent: 50 } },
+            gpus: [], gpu_setup: [{ provider: "nvidia", state: "setup_required", message: "nvidia-smi was not found." }],
+        } }),
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    try {
+        await page.evaluate(s => processLifecycle.restore(s, { startOutput: () => {}, startStats: () => {}, postReady: () => {} }), status());
+        await selectSection(page, "monitor");
+        await page.waitForFunction(() => document.getElementById("monitor-cpu-value").textContent === "12.0%");
+        assert.equal(await page.textContent("#monitor-runtime-state"), "Ready");
+        assert.equal(await page.getAttribute("#monitor-runtime-model", "title"), runtime.model);
+        assert.equal(await page.locator(".monitor-runtime img").count(), 0);
+        assert.match(await page.textContent("#monitor-runtime-build"), /vulkan.*b601/);
+        await page.evaluate(() => flagCore.setMultipleFlagValues({ ctx_size: 16000, port: 9999 }));
+        assert.equal(await page.textContent("#btn-monitor-review"), "Review changes · 2");
+        assert.match(await page.textContent("#monitor-runtime-endpoint"), /8091/);
+        await page.click("#btn-monitor-review");
+        assert.equal(await page.locator("#section-configure").isVisible(), true);
+        assert.equal(await page.locator("#config-change-review").evaluate(el => el.open), true);
+        assert.equal(await page.locator("#config-change-review > summary").evaluate(el => el === document.activeElement), true);
+        await selectSection(page, "monitor");
+        const gpuHelp = page.locator("#monitor-gpu-help");
+        // The disclosure may have been opened by the earlier Monitor check.
+        if (await gpuHelp.evaluate(el => el.open)) await gpuHelp.locator("summary").click();
+        assert.equal(await page.locator("#monitor-setup-cards").isVisible(), false);
+        assert.equal(await page.locator("#monitor-inference-card").isVisible(), true);
+        assert.match(await page.textContent("#monitor-gpu-summary"), /unavailable/);
+        await gpuHelp.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        assert.equal(await page.locator("#btn-monitor-recheck").isVisible(), true);
+        assert.match(await page.textContent("#monitor-setup-cards"), /nvidia-smi/);
+        await page.click("#btn-monitor-recheck");
+        await page.waitForTimeout(100);
+        assert.equal(await gpuHelp.evaluate(el => el.open), true);
+        assert.equal(await page.locator("#btn-monitor-recheck").evaluate(el => el === document.activeElement), true);
+        await page.locator('[data-monitor-key="state:nvidia"] .monitor-hide-btn').click();
+        await gpuHelp.locator("summary").click();
+        await page.locator("#monitor-hidden-controls > summary").click();
+        await page.locator("#monitor-restore-items button").first().click();
+        assert.equal(await gpuHelp.evaluate(el => el.open), true, "restoring a guidance card reveals its disclosure");
+        assert.equal(await page.locator('#monitor-gpu-help').evaluate(el => el.contains(document.activeElement)), true);
+        for (const width of [900, 390]) {
+            await page.setViewportSize({ width, height: 844 });
+            assert.equal(await page.locator("#section-monitor").evaluate(el => el.scrollWidth <= el.clientWidth + 1), true, `Monitor fits at ${width}px`);
+            assert.equal(await page.locator(".monitor-runtime button").evaluateAll(buttons => buttons.every(button => {
+                const r = button.getBoundingClientRect();
+                return !r.width || (r.left >= 0 && r.right <= innerWidth);
+            })), true);
+        }
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        runtime = null;
+        await page.evaluate(async () => {
+            await processLifecycle.restore({ running: false, active_runtime: null });
+            monitorUi.appendOutputLine("retained output");
+        });
+        assert.equal(await page.textContent("#monitor-output-title"), "Last run output");
+        await page.click("#btn-clear-output");
+        assert.equal(await page.locator("#output-terminal").isVisible(), false);
+        assert.equal(await page.locator("#btn-monitor-quick-launch").isVisible(), true);
+        target = { connected: true, host: "127.0.0.1", port: 9008 };
+        await page.evaluate(() => checkStatus());
+        assert.equal(await page.textContent("#monitor-runtime-state"), "External server");
+        assert.match(await page.textContent("#monitor-runtime-endpoint"), /9008/);
+        assert.equal(await page.locator("#btn-monitor-review").isVisible(), false);
+        await page.click("#btn-monitor-api");
+        assert.equal(await page.locator("#section-api").isVisible(), true);
+
+        // Force delayed responses to ignore AbortSignal: epoch validation must
+        // still reject the old connection after reconnecting to the same URL.
+        const staleResult = await page.evaluate(async () => {
+            stopStatsPolling();
+            const originalFetch = window.fetch;
+            const pending = [];
+            window.fetch = (url, options) => String(url).includes("/api/llama/metrics") || String(url).includes("/api/llama/slots")
+                ? new Promise(resolve => pending.push(() => resolve({ ok: true,
+                    text: async () => "llamacpp:prompt_tokens_total 99999\nllamacpp:tokens_predicted_total 99999",
+                    json: async () => [{ id: 0, is_processing: true, n_ctx: 1000, n_prompt_tokens: 999 }],
+                }))) : originalFetch(url, options);
+            try {
+                reconcileInferenceTarget(latestStatus);
+                const oldPoll = pollStats();
+                markExternalTargetChanged();
+                reconcileInferenceTarget(latestStatus);
+                pending.forEach(release => release());
+                await oldPoll;
+                const snapshot = inferenceStats.getSnapshot();
+                return { seq: snapshot.seq, context: snapshot.context, total: snapshot.session.total };
+            } finally {
+                window.fetch = originalFetch;
+                stopStatsPolling();
+            }
+        });
+        assert.deepEqual(staleResult, { seq: 1, context: null, total: null });
+    } finally {
+        runtime = null;
+        target = null;
+        await page.evaluate(async () => { stopOutputPolling(); stopStatsPolling(); await checkStatus(); });
+        for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
+    }
 }
 
-function colorDistance(a, b) {
-    return Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+async function verifySecondaryPagePolish(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => {
+        localStorage.removeItem("llama_gui_chat_history_collapsed");
+        localStorage.removeItem("llama_gui_chat_settings_collapsed");
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    const panels = [
+        ["chat-history-panel", "btn-open-history", "btn-collapse-history"],
+        ["chat-sidebar", "btn-open-sidebar", "btn-collapse-sidebar"],
+    ];
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false, "new users start with room for the conversation");
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), true);
+        await page.locator(`#${open}`).click();
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+        assert.equal(await page.locator(`#${close}`).evaluate(el => el === document.activeElement), true);
+    }
+    await page.setViewportSize({ width: 760, height: 900 });
+    for (const [panel] of panels) await page.waitForSelector(`#${panel}`, { state: "hidden" });
+    assert.equal(await page.locator("#btn-open-sidebar").evaluate(el => el === document.activeElement), true,
+        "responsive collapse moves focus out of hidden controls");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const [panel] of panels) await page.waitForSelector(`#${panel}`, { state: "visible" });
+    assert.equal(await page.locator("#btn-collapse-sidebar").evaluate(el => el === document.activeElement), true,
+        "restoring the panel keeps focus on a visible control");
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true, "panel preference survives reload");
+        await page.locator(`#${close}`).click();
+        assert.equal(await page.locator(`#${open}`).evaluate(el => el === document.activeElement), true);
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-open-sidebar").click();
+    const samplerHelp = page.locator(".chat-settings-help");
+    assert.equal(await samplerHelp.locator("dl").isVisible(), false);
+    await samplerHelp.locator("summary").press("Enter");
+    assert.equal(await samplerHelp.locator("dl").isVisible(), true);
+    await page.locator('label[for="chat-slider-temp"]').click();
+    assert.equal(await page.locator("#chat-slider-temp").evaluate(el => el === document.activeElement), true);
+    await page.locator("#btn-collapse-sidebar").click();
+
+    await selectSection(page, "api");
+    assert.equal(await page.locator("#api-endpoints-list > li").count(), 6);
+    assert.equal(await page.locator("#api-endpoints-list button[aria-label]").count(), 6);
+    assert.equal(await page.locator("#btn-connect-external-server").isVisible(), false);
+    assert.equal(await page.locator("#btn-start-remote-tunnel").isVisible(), false);
+    await page.locator("#api-remote-details > summary").press("Enter");
+    assert.equal(await page.locator("#remote-tunnel-warning").isVisible(), true);
+    assert.equal(await page.locator("#btn-start-remote-tunnel").isVisible(), true);
+    await page.locator("#api-external-details > summary").press("Enter");
+    assert.equal(await page.locator("#external-server-host").isVisible(), true);
+    await page.locator("#api-snippet-0 > summary").click();
+    await page.locator("#api-snippet-1 > summary").click();
+    await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("alias", "polish model"));
+    assert.equal(await page.locator("#api-snippet-0").evaluate(el => el.open), false);
+    assert.equal(await page.locator("#api-snippet-1").evaluate(el => el.open), true);
+    for (const width of [1440, 900, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const overflow = await page.locator("#section-api").evaluate(root => [...root.querySelectorAll("input, button, code, summary")]
+            .filter(el => el.getClientRects().length && el.getBoundingClientRect().width && el.getBoundingClientRect().right > innerWidth + 1)
+            .map(el => el.id || el.className));
+        assert.deepEqual(overflow, [], `API controls and code fit ${width}px`);
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await selectSection(page, "install");
+    const installed = await page.evaluate(() => {
+        const status = { ...latestStatus, installed: true, config_stale: false, version: "polish-test",
+            executables: { "llama-cli.exe": true, "llama-server.exe": false, "llama-bench.exe": true, "llama-optional<test>.exe": false } };
+        updateStatusUI(status);
+        const details = document.querySelector("#installed-optional-tools");
+        const summary = details.querySelector("summary");
+        details.open = true;
+        summary.focus();
+        updateStatusUI({ ...status, running: !status.running });
+        const result = {
+            optional: details.querySelector(".exe-optional")?.textContent,
+            required: document.querySelector("#installed-info .exe-missing")?.textContent,
+            summary: summary.textContent,
+            focusKept: document.activeElement === summary,
+            nodeKept: details === document.querySelector("#installed-optional-tools"),
+            unsafeElements: document.querySelectorAll("#installed-info test").length,
+        };
+        updateStatusUI({ ...status, version: "polish-test-2" });
+        result.openKept = document.querySelector("#installed-optional-tools").open;
+        updateStatusUI({ ...status, installed: false, config_stale: true, missing_runtime_files: ["required.dll"] });
+        result.warning = document.querySelector(".installed-info-warning")?.textContent;
+        updateStatusUI(latestStatus);
+        return result;
+    });
+    assert.equal(installed.optional, "Not installed");
+    assert.equal(installed.required, "Missing · required");
+    assert.match(installed.summary, /1 of 2 installed/);
+    assert.equal(installed.nodeKept && installed.focusKept && installed.openKept, true);
+    assert.equal(installed.unsafeElements, 0);
+    assert.match(installed.warning, /required.*runtime libraries are missing/);
+    await selectSection(page, "quick-launch");
 }
 
 async function main() {
@@ -194,6 +984,8 @@ async function main() {
                 disk: {
                     available: true,
                     path_label: "Application disk",
+                    io_available: true,
+                    io_label: "All physical disks",
                     used_bytes: 500000000000,
                     total_bytes: 1000000000000,
                     percent: 50,
@@ -507,8 +1299,10 @@ async function main() {
                 contentType: "text/plain",
                 body: [
                     `llamacpp:prompt_tokens_total ${statsMetrics.promptTokens}`,
+                    `llamacpp:prompt_seconds_total ${statsMetrics.promptSeconds}`,
                     `llamacpp:prompt_tokens_seconds ${statsMetrics.promptSpeed}`,
                     `llamacpp:tokens_predicted_total ${statsMetrics.genTokens}`,
+                    `llamacpp:tokens_predicted_seconds_total ${statsMetrics.genSeconds}`,
                     `llamacpp:predicted_tokens_seconds ${statsMetrics.genSpeed}`,
                     `llamacpp:requests_processing ${statsMetrics.processing}`,
                 ].join("\n"),
@@ -577,34 +1371,7 @@ async function main() {
         assert.equal(presetSaveBodies[0].name, "new-import");
         assert.equal(presetSaveBodies[0].overwrite, false, "launch preset imports must ask the backend to reject races");
 
-        // The hover gradient must follow the rounded card outline. A previous
-        // implementation inset the bar by the full corner radius, leaving a
-        // visible straight gap before the curve. Pixel samples keep this tied
-        // to the rendered result rather than merely restating the CSS rules.
-        await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("nebula"));
-        await page.mouse.move(0, 0);
-        const modelCard = page.locator(".quick-setup-grid > .card").first();
-        const restingCard = await modelCard.screenshot({ animations: "disabled" });
-        await modelCard.hover();
-        const hoveredCard = await modelCard.screenshot({ animations: "disabled" });
-        const samplePoints = [[1, 1], [12, 2], [28, 2]];
-        const [restOutside, restCurve] = await sampleScreenshotPixels(page, restingCard, samplePoints);
-        const [hoverOutside, hoverCurve, hoverStrip] = await sampleScreenshotPixels(page, hoveredCard, samplePoints);
-
-        assert.ok(
-            colorDistance(restCurve, hoverCurve) > 60,
-            `hover must reveal the gradient at the card curve: rest=${restCurve}, hover=${hoverCurve}`
-        );
-        assert.ok(
-            colorDistance(hoverCurve, hoverStrip) < 100,
-            `gradient must reach the curve without a radius-sized gap: curve=${hoverCurve}, strip=${hoverStrip}`
-        );
-        assert.ok(
-            colorDistance(restOutside, hoverOutside) < 8,
-            `gradient must remain clipped out of the rounded corner: rest=${restOutside}, hover=${hoverOutside}`
-        );
-        await page.mouse.move(0, 0);
-        await page.evaluate(() => window.LlamaGui.themeUi.applyTheme("tokyo"));
+        await selectSection(page, "quick-launch");
 
         assert.equal(await page.locator("#chat-slider-temp").getAttribute("step"), "0.01");
 
@@ -710,6 +1477,7 @@ async function main() {
         );
         assert.ok(!quickProfileOptions.includes("low-memory"));
 
+        await page.locator("#quick-starter-profiles > summary").click();
         await page.selectOption("#quick-profile-select", "long-context");
         await page.dispatchEvent("#quick-profile-select", "change");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 128000);
@@ -750,6 +1518,7 @@ async function main() {
         );
 
         await selectSection(page, "configure");
+        await verifyConfigurePresentation(page);
 
         // Typed one key at a time on purpose. Every keystroke writes flag state,
         // which loops back into restoreFlagInputs(); when that rewrote el.value
@@ -1001,6 +1770,9 @@ async function main() {
             next_token: { n_decoded: 20 },
         }];
         await page.evaluate(async () => {
+            // Settle Quick Launch's status refresh before manual sampling: the
+            // stopped-server fixture would otherwise clear the stats target.
+            await refreshRuntimeStatusPanels();
             startStatsPolling({ generation: 1 }, { operation: "manual-launch" });
             await pollStats();
         });
@@ -1014,8 +1786,10 @@ async function main() {
 
         statsMetrics = {
             promptTokens: 1000,
+            promptSeconds: 2,
             promptSpeed: 11,
             genTokens: 500,
+            genSeconds: 10,
             genSpeed: 7,
             processing: 0,
         };
@@ -1034,6 +1808,36 @@ async function main() {
 
         statsMetrics.processing = 1;
         statsSlots = [{
+            id: 1, id_task: 76, n_ctx: 1000, is_processing: true,
+            n_prompt_tokens: 700, n_prompt_tokens_cache: 600,
+            n_prompt_tokens_processed: 100, next_token: [{ n_decoded: 0 }],
+        }];
+        await page.evaluate(() => pollStats());
+        await wait(1100);
+        statsSlots[0].n_prompt_tokens_processed = 400;
+        statsSlots[0].n_prompt_tokens = 1000;
+        await page.evaluate(() => pollStats());
+        const livePromptSpeed = await page.textContent("#stats-prompt-speed");
+        assert.ok(Number(livePromptSpeed) > 0, "prompt speed updates before completed counters advance");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), `${livePromptSpeed} tok/s`);
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed-label"), "Live prompt speed");
+        assert.equal(await page.textContent("#stats-prompt-speed-label"), "tok/s prompt live");
+        assert.equal(await page.textContent("#stats-prompt-tokens"), "0");
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-prompt-speed"), livePromptSpeed,
+            "an unchanged prompt batch retains the measured average");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), `${livePromptSpeed} tok/s`);
+        statsSlots[0].next_token[0].n_decoded = 1;
+        statsMetrics.promptTokens = 1400;
+        statsMetrics.promptSeconds = 4;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-prompt-speed"), "200.0");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), "200.0 tok/s");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed-label"), "Avg prompt speed");
+        assert.equal(await page.textContent("#stats-prompt-speed-label"), "tok/s prompt avg");
+
+        statsMetrics.processing = 1;
+        statsSlots = [{
             id: 1,
             id_task: 77,
             n_ctx: 1000,
@@ -1047,11 +1851,26 @@ async function main() {
         statsSlots[0].n_prompt_tokens = 140;
         statsSlots[0].next_token.n_decoded = 40;
         await page.evaluate(() => pollStats());
-        const liveGenSpeed = Number(await page.textContent("#stats-gen-speed"));
-        assert.ok(liveGenSpeed > 20 && liveGenSpeed < 35,
-            `generation speed must use live slot deltas, got ${liveGenSpeed}`);
-        assert.equal(await page.textContent("#stats-context"), "0",
+        const liveGenSpeed = await page.textContent("#stats-gen-speed");
+        assert.ok(Number(liveGenSpeed) > 0, "live speed updates before completion counters advance");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed"), `${liveGenSpeed} tok/s`,
+            "the Monitor card shares the fixed bar's live rate");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed-label"), "Live generation speed");
+        assert.equal(await page.textContent("#stats-gen-speed-label"), "tok/s gen live");
+        assert.equal(await page.textContent("#stats-context"), "400",
             "session tokens stay baseline-relative while slot context moves independently");
+        statsMetrics.genTokens = 530;
+        statsMetrics.genSeconds = 12;
+        statsMetrics.processing = 0;
+        statsSlots = idleStatsSlots;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-gen-speed"), "15.0", "idle preserves the average");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed-label"), "Avg generation speed");
+        assert.equal(await page.textContent("#stats-gen-speed-label"), "tok/s gen avg");
+        delete statsMetrics.genSeconds;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-gen-speed"), "--", "missing time does not use a gauge");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed"), "--");
 
         await page.evaluate(() => stopStatsPolling());
         assert.equal(metricsHeaders.at(-1).authorization, "Bearer first-secret");
@@ -1061,16 +1880,19 @@ async function main() {
         // its runtime through startStatsPolling so inference polling resumes.
         statusRunning = true;
         activeProcessTool = "llama-server";
-        statusActiveRuntime = { tool: "llama-server", generation: 42 };
+        statusActiveRuntime = {
+            tool: "llama-server", generation: 42, model: "models/smoke-model.gguf", backend: "cpu", version: "b9999",
+            launch_settings: await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings()),
+        };
         stopShouldFail = true;
-        await page.evaluate(async () => {
+        await page.evaluate(async (activeRuntime) => {
             await processLifecycle.restore({
                 running: true,
                 active_process_tool: "llama-server",
-                active_runtime: { tool: "llama-server", generation: 42 },
+                active_runtime: activeRuntime,
             }, { startOutput: () => {}, postReady: () => {} });
             await stopLlama();
-        });
+        }, statusActiveRuntime);
         assert.equal(await page.evaluate(() => inferenceStats.getTargetKey()), "gui:42");
         assert.equal(
             await page.locator("#stats-bar").evaluate((el) => el.classList.contains("hidden")),
@@ -1078,12 +1900,14 @@ async function main() {
             "failed Stop recovery must keep the fixed stats bar active",
         );
         await page.evaluate(() => stopOutputPolling());
+        await verifyConfigureComparison(page);
         stopShouldFail = false;
         statusRunning = false;
         activeProcessTool = "";
         statusActiveRuntime = null;
         await page.evaluate(() => stopStatsPolling());
         await page.evaluate(() => refreshRuntimeStatusPanels());
+        assert.equal(await page.locator("#config-changes-only").isDisabled(), true, "stopping clears the comparison baseline");
 
         // A rejected metrics body must not discard a successful slots response.
         const independentSourceSnapshot = await page.evaluate(async () => {
@@ -1135,7 +1959,7 @@ async function main() {
             });
             if (width > 900) {
                 const gap = await page.evaluate(() => document.querySelector(".chat-layout").getBoundingClientRect().right
-                    - document.querySelector("#btn-open-sidebar").getBoundingClientRect().right);
+                    - document.querySelector(".chat-main").getBoundingClientRect().right);
                 assert.ok(gap <= 10, `collapsed settings must not reserve panel width at ${width}px (gap ${gap})`);
             }
             await page.locator("#btn-open-sidebar").evaluate(el => el.click());
@@ -1190,6 +2014,7 @@ async function main() {
         assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
             "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
         ]);
+        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
         await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
         await page.fill("#chat-web-search-max-results", "7");
@@ -1525,6 +2350,7 @@ async function main() {
         await setRangeValue(page, "#quick-repeat-penalty", "1.07");
         await setRangeValue(page, "#quick-presence-penalty", "0.4");
         await page.waitForTimeout(250);
+        await page.locator("#quick-sampling-details > summary").click();
         await page.fill("#quick-sampler-name", "Smoke Sampler");
         await page.click("#btn-quick-sampler-save");
         await page.waitForFunction(() => {
@@ -1773,6 +2599,7 @@ async function main() {
             true
         );
 
+        await page.locator("#api-external-details > summary").click();
         await page.fill("#external-server-host", "127.0.0.1");
         await page.fill("#external-server-port", "9001");
         await page.fill("#external-server-key", "external-secret");
@@ -1936,6 +2763,7 @@ async function main() {
 
         await selectSection(page, "quick-launch");
         await page.setViewportSize({ width: 1346, height: 674 });
+        await page.locator(".sidebar-meta-row").scrollIntoViewIfNeeded();
         const initialSidebarSlider = await page.evaluate(() => {
             const sidebar = document.querySelector("#sidebar");
             const nav = document.querySelector(".sidebar-nav");
@@ -1962,7 +2790,7 @@ async function main() {
         assert.equal(initialSidebarSlider.disabled, "true");
         assert.equal(initialSidebarSlider.value, "0");
         assert.ok(initialSidebarSlider.panelBottom <= initialSidebarSlider.themeTop, "model and theme switchers must not overlap");
-        assert.ok(initialSidebarSlider.footerBottom <= initialSidebarSlider.viewportHeight, "sidebar footer must remain in the viewport");
+        assert.ok(initialSidebarSlider.footerBottom <= initialSidebarSlider.viewportHeight + 12, "sidebar footer must remain reachable in a short viewport");
         assert.equal(initialSidebarSlider.actionsContained, true, "runtime buttons must stay inside the sidebar");
         assert.equal(initialSidebarSlider.memoryContained, true, "memory estimate must stay inside the sidebar");
         assert.equal(initialSidebarSlider.navFits, true, "sidebar navigation should fit without scrolling at 1346x674");
@@ -2305,6 +3133,10 @@ async function main() {
         await page.waitForFunction(() => document.getElementById("monitor-cpu-value")?.textContent === "18.4%");
         assert.equal(await page.textContent("#monitor-memory-value"), "37.5%");
         assert.equal(await page.textContent("#monitor-disk-read"), "1.2 MB/s");
+        assert.equal(await page.textContent("#monitor-disk-write"), "410 KB/s");
+        assert.equal(await page.textContent("#monitor-disk-activity"), "Reading and writing");
+        assert.match(await page.textContent("#monitor-disk-sub"), /All physical disks.*Includes other applications/);
+        assert.equal(await page.locator("#monitor-disk-value, #monitor-disk-bar").count(), 0, "capacity no longer appears in the activity card");
         assert.match(await page.textContent("#monitor-live-badge"), /Live/);
         await page.waitForFunction(() => document.querySelectorAll("#monitor-card-grid [data-monitor-key^='gpu:']").length === 1);
         assert.match(await page.textContent("#monitor-card-grid"), /Smoke GPU/);
@@ -2315,12 +3147,14 @@ async function main() {
                 display: style.display,
                 wrap: style.flexWrap,
                 gpuWidth: gpu.getBoundingClientRect().width,
+                regularWidths: Array.from(grid.querySelectorAll(':scope > .card:not(.monitor-inference-card)'))
+                    .map(card => card.getBoundingClientRect().width),
             };
         });
         assert.equal(wideMonitorLayout.display, "flex");
         assert.equal(wideMonitorLayout.wrap, "wrap");
-        assert.ok(wideMonitorLayout.gpuWidth >= 320,
-            "a trailing GPU card should grow beyond the old cramped track width");
+        assert.ok(wideMonitorLayout.regularWidths.every(width => Math.abs(width - wideMonitorLayout.gpuWidth) < 1),
+            "standard Monitor cards keep equal widths across incomplete rows");
 
         await page.setViewportSize({ width: 760, height: 720 });
         const narrowMonitorLayout = await page.locator("#monitor-card-grid").evaluate((grid) => ({
@@ -2339,6 +3173,7 @@ async function main() {
             "working probes produce no setup cards");
 
         // Recheck bypasses the backend cache via the fixed refresh=1 form.
+        await page.locator("#monitor-gpu-help > summary").click();
         await page.click("#btn-monitor-recheck");
         await wait(200);
         assert.ok(systemStatsRequests.some(url => url.includes("refresh=1")),
@@ -2419,6 +3254,12 @@ async function main() {
         assert.equal(systemStatsRequests.length, systemCountWhileVisible,
             "system stats must not poll while the Monitor tab is hidden");
 
+        await verifyConfigureRestart(page);
+        await verifyQuickLaunchPolish(page);
+        await verifyShellPolish(page);
+        await verifySecondaryPagePolish(page);
+        await verifyMonitorRuntimePolish(page);
+        await verifyPresetPolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
         console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);

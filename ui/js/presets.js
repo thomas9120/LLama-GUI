@@ -1,7 +1,11 @@
-const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key"]);
-const SENSITIVE_CUSTOM_ARG_PATTERN = /(^|[^A-Za-z0-9_-])--api-key(?=$|[=\s])/;
-const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key in Custom Launch Args. Use the API Key field instead.";
+const SENSITIVE_PRESET_FLAG_IDS = new Set(["api_key", "hf_token"]);
+const SENSITIVE_CUSTOM_ARG_MESSAGE = "Presets cannot include --api-key, -hft, or --hf-token in Custom Launch Args. Use the API Key or HF Token field instead, and check argument quoting.";
 let presetDependencies = {};
+let lastLoadedPresetName = "";
+let loadedPresetData = null;
+let loadedPresetMissing = false;
+let loadedPresetArchived = false;
+let presetSavePending = false;
 
 function configurePresetModule(options = {}) {
     presetDependencies = Object.assign({}, presetDependencies, options);
@@ -9,7 +13,7 @@ function configurePresetModule(options = {}) {
 
 function hasSensitiveCustomArgs(flags) {
     const raw = flags && flags.custom_args;
-    return typeof raw === "string" && SENSITIVE_CUSTOM_ARG_PATTERN.test(raw);
+    return typeof raw === "string" && Boolean(raw.trim()) && getPresetFlagCore().hasSensitiveCustomArgs(raw);
 }
 
 function clonePresetFlagValue(value) {
@@ -207,8 +211,10 @@ function preparePresetLaunchState(data, options = {}) {
     }
     const flags = flagCore.buildEffectiveFlagValues(normalized.flags);
     if (preserveApiKey) {
-        const currentApiKey = flagCore.getFlagValues().api_key;
-        if (currentApiKey) flags.api_key = currentApiKey;
+        const currentValues = flagCore.getFlagValues();
+        for (const id of SENSITIVE_PRESET_FLAG_IDS) {
+            if (currentValues[id]) flags[id] = currentValues[id];
+        }
     }
     return {
         tool: normalized.tool,
@@ -228,6 +234,136 @@ function applyPresetData(data, options = {}) {
     applyPresetModel(prepared.model);
     flagCore.applyFlagValues(prepared.flags);
     return prepared;
+}
+
+function matchesCurrentPreset(data) {
+    const comparison = comparePresetToCurrent(data);
+    return !comparison.blocked && comparison.changes.length === 0;
+}
+
+function comparePresetToCurrent(data, currentData) {
+    const core = getPresetFlagCore();
+    const prepared = preparePresetLaunchState(data, { preserveApiKey: false });
+    const current = currentData ? currentData.flags : core.getFlagValues();
+    const flags = core.normalizeSpeculativeFlagValues(stripSensitivePresetFlags(current));
+    const keys = new Set([...Object.keys(prepared.flags), ...Object.keys(flags)]);
+    const valueKey = value => Array.isArray(value) ? JSON.stringify(value.map(String)) : String(value ?? "");
+    const entries = [
+        { id: "tool", label: "Tool", before: prepared.tool || (currentData ? currentData.tool : core.getCurrentTool()), after: currentData ? currentData.tool : core.getCurrentTool() },
+        { id: "model", label: "Model", before: prepared.model, after: currentData ? currentData.model : core.getSelectedModel() },
+        ...Array.from(keys).filter(id => !SENSITIVE_PRESET_FLAG_IDS.has(id) && id !== "ctx_size_draft")
+            .map(id => ({ id, label: getPresetFlagLabel(id), before: prepared.flags[id], after: flags[id] })),
+    ];
+    return { changes: entries.filter(entry => valueKey(entry.before) !== valueKey(entry.after)), blocked: hasSensitiveCustomArgs(current) };
+}
+
+function formatSavedPresetValue(id, value) {
+    if (value === null || value === undefined || value === "") return "Not set";
+    const definition = (typeof FLAGS !== "undefined" ? FLAGS : []).find(flag => flag.id === id);
+    if (definition?.sensitive || SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "custom_args") return "Set · value hidden";
+    if (id === "ctx_size" && String(value) === "0") return "Auto · from model (0)";
+    if (id === "gpu_layers" && value === "auto") return "Auto";
+    if (id === "gpu_layers" && value === "all") return "All layers";
+    const option = definition?.options?.find(option => String(option.value) === String(value));
+    if (option) return option.label;
+    if (typeof value === "boolean") return value ? "Enabled" : "Disabled";
+    return Array.isArray(value) ? value.join(", ") || "None" : String(value);
+}
+
+function renderPresetChangeRows(body, changes) {
+    body.replaceChildren();
+    for (const entry of changes) {
+        const row = document.createElement("tr");
+        const before = formatSavedPresetValue(entry.id, entry.before);
+        const after = formatSavedPresetValue(entry.id, entry.after);
+        for (const text of [entry.label, before, before === after && after === "Set · value hidden" ? "Changed · value hidden" : after]) {
+            const cell = document.createElement("td");
+            cell.textContent = text;
+            row.appendChild(cell);
+        }
+        body.appendChild(row);
+    }
+}
+
+function setLoadedPreset(name, data, archived = false) {
+    lastLoadedPresetName = name;
+    loadedPresetData = normalizePresetData(data);
+    loadedPresetMissing = false;
+    loadedPresetArchived = archived;
+    refreshPresetContext();
+}
+
+function reconcileLoadedPreset(entries) {
+    if (!lastLoadedPresetName) return;
+    const entry = entries.find(entry => entry.name === lastLoadedPresetName);
+    loadedPresetMissing = !entry;
+    if (entry) {
+        loadedPresetData = normalizePresetData(entry.data);
+        loadedPresetArchived = entry.archived === true;
+    }
+    refreshPresetContext();
+}
+
+function refreshPresetContext() {
+    const panels = document.querySelectorAll?.("[data-preset-context]") || [];
+    if (!panels.length) return;
+    const comparison = loadedPresetData ? comparePresetToCurrent(loadedPresetData)
+        : { changes: [], blocked: hasSensitiveCustomArgs(getPresetFlagCore().getFlagValues()) };
+    for (const panel of panels) {
+        panel.classList.remove("hidden");
+        panel.querySelector("[data-preset-origin]").textContent = lastLoadedPresetName ? "Based on:" : "Unsaved configuration";
+        const name = panel.querySelector("[data-preset-name]");
+        name.classList.toggle("hidden", !lastLoadedPresetName);
+        name.textContent = lastLoadedPresetName;
+        name.title = lastLoadedPresetName;
+        panel.querySelector("[data-preset-state]").classList.toggle("hidden", !lastLoadedPresetName);
+        panel.querySelector("[data-preset-state]").textContent = loadedPresetMissing ? "No longer saved"
+            : comparison.blocked ? "Cannot save custom API key"
+                : comparison.changes.length ? "Modified" : "Matches saved preset";
+        const update = panel.querySelector("[data-preset-update]");
+        update.classList.toggle("hidden", !lastLoadedPresetName);
+        update.textContent = `Update ${lastLoadedPresetName}`;
+        update.disabled = presetSavePending || loadedPresetMissing || comparison.blocked || !comparison.changes.length;
+        panel.querySelector("[data-preset-save-new]").disabled = presetSavePending || comparison.blocked;
+        const review = panel.querySelector("[data-preset-review]");
+        review.classList.toggle("hidden", loadedPresetMissing || !comparison.changes.length);
+        panel.querySelector("[data-preset-review-label]").textContent = `Compared with saved preset · ${comparison.changes.length} changes`;
+        if (review.open) renderPresetChangeRows(review.querySelector("tbody"), comparison.changes);
+        const note = panel.querySelector("[data-preset-context-note]");
+        note.classList.toggle("hidden", !loadedPresetMissing && !loadedPresetArchived && !comparison.blocked && !review.open);
+        note.textContent = loadedPresetMissing ? "The source preset was removed. Your edits remain available to save as a new preset."
+            : comparison.blocked ? SENSITIVE_CUSTOM_ARG_MESSAGE
+                : `${loadedPresetArchived ? "This preset is archived. " : ""}Compares saved launch inputs with your edits. API keys and HF tokens are excluded; sensitive values and Custom Launch Args are hidden in this review.`;
+    }
+}
+
+async function openLoadedPresetInLibrary() {
+    presetSearchQuery = lastLoadedPresetName;
+    presetWarningFilterActive = false;
+    presetFavoritesMode = "all";
+    presetArchiveViewActive = loadedPresetArchived;
+    document.getElementById("preset-search").value = presetSearchQuery;
+    // Clear filter controls together with their state so the requested preset
+    // remains reachable even after browsing a filtered/archived library.
+    document.getElementById("preset-filter-all").classList.add("active");
+    document.getElementById("preset-filter-warnings").classList.remove("active");
+    renderPresetFavoritesChip();
+    setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, presetFavoritesMode);
+    selectedPresetName = lastLoadedPresetName;
+    presetDependencies.switchTab("presets");
+    await loadPresets();
+    const title = document.querySelector("#preset-detail-panel .preset-detail-title");
+    if (title) { title.tabIndex = -1; title.focus(); }
+}
+
+function initPresetContextControls() {
+    for (const panel of document.querySelectorAll("[data-preset-context]")) {
+        panel.querySelector("[data-preset-name]").addEventListener("click", openLoadedPresetInLibrary);
+        panel.querySelector("[data-preset-update]").addEventListener("click", () => updatePreset(lastLoadedPresetName));
+        panel.querySelector("[data-preset-save-new]").addEventListener("click", () => savePresetAsNew());
+        panel.querySelector("[data-preset-review]").addEventListener("toggle", refreshPresetContext);
+    }
+    refreshPresetContext();
 }
 
 // The set of .gguf names currently in the models/ folder, as cached by
@@ -456,6 +592,10 @@ function setPresetsFavorite(names, favorite) {
 }
 
 function renamePresetLocalState(oldName, newName) {
+    if (lastLoadedPresetName === oldName) {
+        lastLoadedPresetName = newName;
+        refreshPresetContext();
+    }
     // group collapse state is keyed by model path, so only the name-keyed maps move
     for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
         const map = loadPresetJsonMap(storageKey);
@@ -467,6 +607,10 @@ function renamePresetLocalState(oldName, newName) {
 }
 
 function deletePresetLocalState(name) {
+    if (lastLoadedPresetName === name) {
+        loadedPresetMissing = true;
+        refreshPresetContext();
+    }
     for (const storageKey of [PRESET_FAVORITES_STORAGE_KEY, PRESET_LAST_USED_STORAGE_KEY]) {
         const map = loadPresetJsonMap(storageKey);
         if (!Object.prototype.hasOwnProperty.call(map, name)) continue;
@@ -733,35 +877,6 @@ function getPresetFlagLabel(flagId) {
     return getPresetFlagLabelMap().get(flagId) || String(flagId).replace(/_/g, " ");
 }
 
-function getNotablePresetSettings(presetData, overrideFlagIds = getNonDefaultPresetFlagIds(presetData)) {
-    const flags = (presetData && presetData.flags) || {};
-    const overrides = new Set(overrideFlagIds);
-    const notableIds = [
-        "ctx_size",
-        "gpu_layers",
-        "chat_template",
-        "chat_template_custom",
-        "temperature",
-        "top_k",
-        "top_p",
-        "min_p",
-        "repeat_penalty",
-    ];
-    const settings = [];
-
-    for (const id of notableIds) {
-        if (overrides.has(id) && flags[id] !== "" && flags[id] !== null && flags[id] !== undefined) {
-            settings.push({ label: getPresetFlagLabel(id), value: String(flags[id]) });
-        }
-    }
-
-    if (overrides.has("custom_args") && typeof flags.custom_args === "string" && flags.custom_args.trim()) {
-        settings.push({ label: "Custom Args", value: "present" });
-    }
-
-    return settings;
-}
-
 const PRESET_ICON_WARNING = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>';
 const PRESET_ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
 const PRESET_ICON_CHEVRON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>';
@@ -986,7 +1101,7 @@ function renderPresetDetailPanel() {
 
     const kicker = document.createElement("div");
     kicker.className = "preset-detail-kicker";
-    kicker.textContent = "Selected Preset";
+    kicker.textContent = "Saved configuration";
 
     const title = document.createElement("div");
     title.className = "preset-detail-title";
@@ -998,12 +1113,10 @@ function renderPresetDetailPanel() {
 
     const actions = document.createElement("div");
     actions.className = "preset-detail-actions";
-    actions.appendChild(createPresetButton("Load Preset", "btn btn-sm btn-primary", () => loadPreset(entry.name)));
-    actions.appendChild(createPresetButton("Duplicate", "btn btn-sm", () => duplicatePreset(entry.name), "Save a copy of this preset without changing current settings"));
-    actions.appendChild(createPresetButton("Rename", "btn btn-sm", () => renamePreset(entry.name), "Rename this preset, keeping its favorite and usage history"));
-    actions.appendChild(createPresetButton("Update from Current", "btn btn-sm", () => updatePreset(entry.name), "Overwrite this preset with current Configure values"));
-    actions.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
-    actions.appendChild(createPresetButton("Windows Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows .cmd shortcut for this preset"));
+    actions.appendChild(createPresetButton("Load into Configure", "btn btn-sm btn-primary", async () => {
+        const result = await loadPreset(entry.name);
+        if (result.ok) presetDependencies.switchTab("configure");
+    }, "Load these saved settings for editing; the running process stays as it is"));
 
     const favoriteBtn = document.createElement("button");
     favoriteBtn.type = "button";
@@ -1018,7 +1131,20 @@ function renderPresetDetailPanel() {
         loadPresets();
     });
     actions.appendChild(favoriteBtn);
-    actions.appendChild(createPresetButton(
+
+    const more = document.createElement("details");
+    more.className = "preset-more-actions";
+    const moreLabel = document.createElement("summary");
+    moreLabel.className = "btn btn-sm";
+    moreLabel.textContent = "More actions";
+    const moreButtons = document.createElement("div");
+    moreButtons.className = "preset-more-buttons";
+    moreButtons.appendChild(createPresetButton(`Update "${entry.name}"…`, "btn btn-sm", () => updatePreset(entry.name), "Review current edits before overwriting this saved preset"));
+    moreButtons.appendChild(createPresetButton("Duplicate", "btn btn-sm", () => duplicatePreset(entry.name), "Save a copy of this preset without changing current settings"));
+    moreButtons.appendChild(createPresetButton("Rename", "btn btn-sm", () => renamePreset(entry.name), "Rename this preset, keeping its favorite and usage history"));
+    moreButtons.appendChild(createPresetButton("Export", "btn btn-sm", () => exportPreset(entry.name)));
+    moreButtons.appendChild(createPresetButton("Windows Shortcut", "btn btn-sm", () => exportPresetShortcut(entry.name), "Export a Windows .cmd shortcut for this preset"));
+    moreButtons.appendChild(createPresetButton(
         entry.archived ? "Restore" : "Archive",
         "btn btn-sm",
         () => setPresetArchived([entry.name], !entry.archived),
@@ -1027,48 +1153,48 @@ function renderPresetDetailPanel() {
             : "Move this preset to the archive to clean up the list; it can be restored any time"
     ));
 
-    const spacer = document.createElement("span");
-    spacer.className = "preset-detail-actions-spacer";
-    actions.appendChild(spacer);
-    actions.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
+    moreButtons.appendChild(createPresetButton("Delete", "btn btn-sm btn-danger", () => deletePreset(entry.name)));
+    more.append(moreLabel, moreButtons);
+    more.addEventListener("keydown", event => {
+        if (event.key === "Escape" && more.open) {
+            event.preventDefault();
+            more.open = false;
+            moreLabel.focus();
+        }
+    });
+    actions.appendChild(more);
 
     const stats = document.createElement("div");
     stats.className = "preset-detail-stats";
-    appendDetailStat(stats, "Tool", entry.toolText);
-    appendDetailStat(stats, "Non-default Overrides", String(entry.overrideCount));
-    const quant = getModelQuantLabel(entry.modelLabel);
-    if (quant) {
-        appendDetailStat(stats, "Quant", quant);
+    appendDetailStat(stats, "Tool", entry.data.tool || "Keep current tool");
+    const effective = getPresetFlagCore().buildEffectiveFlagValues(entry.data.flags);
+    for (const [id, label] of [["ctx_size", "Context"], ["gpu_layers", "GPU offload"], ["cache_type_k", "K cache"], ["cache_type_v", "V cache"]]) {
+        const saved = Object.prototype.hasOwnProperty.call(entry.data.flags, id);
+        appendDetailStat(stats, label, `${saved ? "" : "GUI default · "}${formatSavedPresetValue(id, effective[id])}`);
     }
-    appendDetailStat(stats, "Warnings", String(entry.warnings.length), entry.warnings.length ? "warn" : "ok");
 
     const settingsTitle = document.createElement("div");
     settingsTitle.className = "preset-detail-section-title";
-    settingsTitle.textContent = "Notable Settings";
+    settingsTitle.textContent = "Launch inputs";
 
-    const settings = document.createElement("div");
-    settings.className = "preset-flag-chips";
-    const notable = getNotablePresetSettings(entry.data, entry.overrideFlagIds);
-    for (const item of notable) {
-        const chip = document.createElement("span");
-        chip.className = "preset-flag-chip";
-        const labelEl = document.createElement("b");
-        labelEl.textContent = item.label;
-        chip.appendChild(labelEl);
-        chip.appendChild(document.createTextNode(` ${item.value}`));
-        settings.appendChild(chip);
+    const settings = document.createElement("details");
+    settings.className = "preset-saved-settings";
+    const settingsLabel = document.createElement("summary");
+    settingsLabel.textContent = `All saved settings · ${entry.overrideCount} non-default overrides`;
+    const values = document.createElement("dl");
+    values.className = "preset-saved-values";
+    for (const [id, value] of Object.entries(entry.data.flags)) {
+        if (SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "ctx_size_draft") continue;
+        const label = document.createElement("dt");
+        label.textContent = getPresetFlagLabel(id);
+        const text = document.createElement("dd");
+        text.textContent = formatSavedPresetValue(id, value);
+        values.append(label, text);
     }
-    const remaining = Math.max(entry.overrideCount - notable.length, 0);
-    if (remaining > 0) {
-        const moreChip = document.createElement("span");
-        moreChip.className = "preset-flag-chip more";
-        moreChip.textContent = `+ ${remaining} more override${remaining === 1 ? "" : "s"}`;
-        settings.appendChild(moreChip);
-    }
-
-    const warningsTitle = document.createElement("div");
-    warningsTitle.className = "preset-detail-section-title";
-    warningsTitle.textContent = "Warnings";
+    settings.append(settingsLabel, values);
+    const settingsNote = document.createElement("p");
+    settingsNote.className = "help-text";
+    settingsNote.textContent = "Saved launch inputs, before llama.cpp resolves Auto or Auto Fit. Missing settings use GUI defaults on load. API keys and HF tokens are excluded; sensitive values and Custom Launch Args are hidden here.";
 
     const warnings = document.createElement("div");
     warnings.className = entry.warnings.length ? "preset-warning" : "preset-detail-note";
@@ -1082,12 +1208,12 @@ function renderPresetDetailPanel() {
     panel.appendChild(kicker);
     panel.appendChild(title);
     panel.appendChild(subtitle);
-    panel.appendChild(actions);
-    panel.appendChild(stats);
-    panel.appendChild(settingsTitle);
-    panel.appendChild(settings);
-    panel.appendChild(warningsTitle);
     panel.appendChild(warnings);
+    panel.appendChild(actions);
+    panel.appendChild(settingsTitle);
+    panel.appendChild(stats);
+    panel.appendChild(settingsNote);
+    panel.appendChild(settings);
 }
 
 function renderPresetBulkControls() {
@@ -1614,6 +1740,7 @@ async function loadPresets() {
     try {
         const presets = await fetchPresetEntries();
         if (requestId !== loadPresetsRequestId) return;
+        reconcileLoadedPreset(presets);
         presetArchivedCount = presets.filter((preset) => preset.archived === true).length;
         renderPresetArchiveChip();
         currentPresetGroups = buildPresetGroups(presets);
@@ -1626,6 +1753,7 @@ async function loadPresets() {
         renderPresetGroups(container, currentPresetGroups);
     } catch (e) {
         if (requestId !== loadPresetsRequestId) return;
+        console.warn("Failed to load preset library", e);
         currentPresetGroups = [];
         selectedPresetName = "";
         selectedPresetNames.clear();
@@ -1635,6 +1763,22 @@ async function loadPresets() {
         container.appendChild(error);
         renderPresetLoadErrorState();
     }
+}
+
+function renderPresetFavoritesChip() {
+    const chip = document.getElementById("preset-favorites-first");
+    if (!chip) return;
+    const labels = {
+        all: { text: "★ Favorites", title: "Click to keep favorite presets and model groups above other results" },
+        first: { text: "★ Favorites first", title: "Favorites are sorted first. Click to show only favorites" },
+        only: { text: "★ Favorites only", title: "Showing only favorites. Click to show all presets" },
+    };
+    const label = labels[presetFavoritesMode] || labels.all;
+    chip.textContent = label.text;
+    chip.title = label.title;
+    chip.classList.toggle("active", presetFavoritesMode !== "all");
+    chip.classList.toggle("preset-chip-favorite-only", presetFavoritesMode === "only");
+    chip.setAttribute("aria-pressed", String(presetFavoritesMode !== "all"));
 }
 
 function initPresetLibraryControls() {
@@ -1761,23 +1905,10 @@ function initPresetLibraryControls() {
         filterWarnings.addEventListener("click", () => setWarningFilter(!presetWarningFilterActive));
     }
     if (favoritesFirst) {
-        const favoritesLabels = {
-            all: { text: "★ Favorites", title: "Click to keep favorite presets and model groups above other results" },
-            first: { text: "★ Favorites first", title: "Favorites are sorted first. Click to show only favorites" },
-            only: { text: "★ Favorites only", title: "Showing only favorites. Click to show all presets" },
-        };
-        const renderFavoritesChip = () => {
-            const label = favoritesLabels[presetFavoritesMode] || favoritesLabels.all;
-            favoritesFirst.textContent = label.text;
-            favoritesFirst.title = label.title;
-            favoritesFirst.classList.toggle("active", presetFavoritesMode !== "all");
-            favoritesFirst.classList.toggle("preset-chip-favorite-only", presetFavoritesMode === "only");
-            favoritesFirst.setAttribute("aria-pressed", String(presetFavoritesMode !== "all"));
-        };
-        renderFavoritesChip();
+        renderPresetFavoritesChip();
         favoritesFirst.addEventListener("click", () => {
             presetFavoritesMode = nextPresetFavoritesMode(presetFavoritesMode);
-            renderFavoritesChip();
+            renderPresetFavoritesChip();
             setPresetStorageItem(PRESET_FAVORITES_FIRST_STORAGE_KEY, presetFavoritesMode);
             loadPresets();
         });
@@ -1788,56 +1919,113 @@ async function savePreset() {
     const nameInput = document.getElementById("preset-name-input");
     const name = nameInput.value.trim();
     if (!name) {
-        nameInput.style.borderColor = "var(--red)";
-        setTimeout(() => nameInput.style.borderColor = "", 1500);
+        nameInput.focus();
+        showPresetActionStatus("Enter a name for the new preset", "error", 3200);
         return;
     }
+    if (await savePresetAsNew(name)) nameInput.value = "";
+}
+
+function setPresetSavePending(pending) {
+    presetSavePending = pending;
+    const save = document.getElementById("btn-save-preset");
+    if (save) save.disabled = pending;
+    refreshPresetContext();
+}
+
+function restorePresetActionFocus(trigger) {
+    if (trigger?.isConnected && !trigger.disabled) {
+        trigger.focus();
+        return;
+    }
+    const context = Array.from(document.querySelectorAll("[data-preset-context]"))
+        .find(panel => panel.offsetParent !== null);
+    context?.querySelector("[data-preset-name]")?.focus();
+}
+
+async function savePresetAsNew(name) {
+    if (presetSavePending) return false;
+    const trigger = document.activeElement;
+    setPresetSavePending(true);
     try {
         const data = buildCurrentPresetData();
+        if (name === undefined) {
+            name = await promptAction("Save as new preset", "Save the settings being edited under a new name. Existing presets will be kept.", "", "Save new preset");
+        }
+        if (name === null) return false;
+        name = name.trim();
+        if (!name) throw new Error("Preset name cannot be empty");
         const result = await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name, data }),
+            body: JSON.stringify({ name, data, overwrite: false }),
         });
-        if (result.saved) {
-            nameInput.value = "";
-            loadPresets();
-            showPresetActionStatus(`Saved preset \"${result.name || name}\"`, "success");
-        }
+        if (!result.saved) throw new Error("The preset could not be saved");
+        const savedName = result.name || name;
+        setLoadedPreset(savedName, data);
+        selectedPresetName = savedName;
+        await loadPresets();
+        showPresetActionStatus(`Saved new preset "${savedName}"`, "success");
+        return true;
     } catch (e) {
-        const message = e && e.message === SENSITIVE_CUSTOM_ARG_MESSAGE
-            ? SENSITIVE_CUSTOM_ARG_MESSAGE
-            : "Failed to save preset";
-        showPresetActionStatus(message, "error", 5000);
+        showPresetActionStatus(e.message || "Failed to save preset", "error", 5000);
         console.warn("Failed to save preset", e);
+        return false;
+    } finally {
+        setPresetSavePending(false);
+        restorePresetActionFocus(trigger);
     }
 }
 
-async function updatePreset(name) {
-    const ok = await confirmAction(
-        "Update Preset",
-        `Overwrite preset "${name}" with current Configure settings?`,
-        "Update"
-    );
-    if (!ok) return;
+function reviewPresetUpdate(name, changes) {
+    const dialog = document.getElementById("preset-update-dialog");
+    document.getElementById("preset-update-title").textContent = `Update "${name}"?`;
+    renderPresetChangeRows(dialog.querySelector("tbody"), changes);
+    dialog.returnValue = "cancel";
+    return new Promise(resolve => {
+        dialog.addEventListener("close", () => resolve(dialog.returnValue === "update"), { once: true });
+        dialog.showModal();
+    });
+}
 
+async function updatePreset(name) {
+    if (presetSavePending) return;
+    const trigger = document.activeElement;
+    setPresetSavePending(true);
     try {
+        // Capture before opening the review; save only what the user reviewed.
         const data = buildCurrentPresetData();
+        const entries = await fetchPresetEntries();
+        reconcileLoadedPreset(entries);
+        const preset = findPresetByName(entries, name);
+        if (!preset) throw new Error(`Preset "${name}" no longer exists. Save your edits as a new preset.`);
+        const { changes } = comparePresetToCurrent(preset.data, data);
+        if (!changes.length) {
+            showPresetActionStatus(`Current settings already match "${name}"`, "success");
+            return;
+        }
+        if (!await reviewPresetUpdate(name, changes)) return;
+        const latestEntries = await fetchPresetEntries();
+        const latest = findPresetByName(latestEntries, name);
+        if (!latest || JSON.stringify(latest.data) !== JSON.stringify(preset.data)) {
+            reconcileLoadedPreset(latestEntries);
+            throw new Error("The saved preset changed while this review was open. Review it again before updating.");
+        }
         const result = await fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, data }),
         });
-        if (result.saved) {
-            loadPresets();
-            showPresetStatus(`Updated preset \"${name}\"`, "success");
-        }
+        if (!result.saved) throw new Error("The preset could not be updated");
+        setLoadedPreset(result.name || name, data, latestEntries.some(entry => entry.name === name && entry.archived));
+        await loadPresets();
+        showPresetActionStatus(`Updated preset "${name}"`, "success");
     } catch (e) {
-        const message = e && e.message === SENSITIVE_CUSTOM_ARG_MESSAGE
-            ? SENSITIVE_CUSTOM_ARG_MESSAGE
-            : "Failed to update preset";
-        showPresetStatus(message, "error", 5000);
+        showPresetActionStatus(e.message || "Failed to update preset", "error", 5000);
         console.warn("Failed to update preset", e);
+    } finally {
+        setPresetSavePending(false);
+        restorePresetActionFocus(trigger);
     }
 }
 
@@ -1926,18 +2114,22 @@ async function loadPreset(name) {
             const presetData = preset.data;
             const warnings = getPresetWarnings(presetData);
             applyPresetData(presetData);
+            setLoadedPreset(name, presetData, presets.some(item => item.name === name && item.archived));
             markPresetUsed(name);
             if (warnings.length > 0) {
                 showPresetStatus(`Loaded "${name}" with warning: ${warnings[0]}`, "warning", 5000);
             } else {
                 showPresetStatus(`Loaded preset "${name}"`, "success");
             }
+            return { ok: true, name, data: presetData, warnings };
         } else {
             showPresetStatus(`Preset "${name}" not found.`, "error", 3200);
+            return { ok: false, error: `Preset "${name}" no longer exists.` };
         }
     } catch (e) {
         showPresetStatus("Failed to load preset", "error", 3200);
         console.warn("Failed to load preset", e);
+        return { ok: false, error: "Could not load this preset. Try again from the preset library." };
     }
 }
 
@@ -2245,6 +2437,14 @@ if (window.LlamaGui) {
     window.LlamaGui.presets = Object.assign(window.LlamaGui.presets || {}, {
         configure: configurePresetModule,
         loadPreset,
+        matchesCurrentPreset,
+        comparePresetToCurrent,
+        formatSavedPresetValue,
+        initContextControls: initPresetContextControls,
+        refreshContext: refreshPresetContext,
+        getLastLoadedPresetName: () => lastLoadedPresetName,
+        isPresetFavorite,
+        getPresetLastUsed,
         fetchPresetEntries,
         findPresetByName,
         normalizePresetData,
