@@ -117,8 +117,8 @@
             const nextToken = Array.isArray(slot && slot.next_token)
                 ? slot.next_token[0]
                 : slot && slot.next_token;
-            const samplePrompt = Number(slot && slot.n_prompt_tokens_processed);
-            const sampleGen = Number(nextToken && nextToken.n_decoded);
+            const samplePrompt = finiteNonNegativeOrNull(slot && slot.n_prompt_tokens_processed);
+            const sampleGen = finiteNonNegativeOrNull(nextToken && nextToken.n_decoded);
             const slotId = slot && slot.id;
             const taskId = slot && slot.id_task;
             if (isProcessing
@@ -175,6 +175,7 @@
         let sampled = false;
         let rawSeconds = { prompt: null, gen: null };
         let lastInput = null;
+        let lastSlotSample = null;
         let lastSnapshot = null;
 
         function emit(snapshot) {
@@ -207,6 +208,7 @@
             sampled = false;
             rawSeconds = { prompt: null, gen: null };
             lastInput = null;
+            lastSlotSample = null;
             if (!key) return emit(null);
             seq += 1;
             return emit({
@@ -217,7 +219,7 @@
                 context: null,
                 requests: { processing: null, queued: null, processingBest: null },
                 slots: null,
-                speed: { prompt: null, generated: null },
+                speed: { prompt: null, generated: null, promptIsLive: false, generatedIsLive: false },
                 contextLevel: "normal",
                 baselinePending: true,
             });
@@ -268,6 +270,7 @@
                         || (seconds !== null && rawSeconds[name] !== null && seconds < rawSeconds[name]);
                     if (seconds !== null) rawSeconds[name] = seconds;
                     if (rolled) {
+                        lastSlotSample = null;
                         baseline[name] = current;
                         averageBaseline[name] = null;
                     }
@@ -320,6 +323,32 @@
                 currentCounters.gen, currentSeconds.gen, averageBaseline.gen,
             );
 
+            // Completed-request metrics can stand still throughout a long reply.
+            // Sample the same active tasks across adjacent polls for a live rate.
+            const now = finiteNonNegativeOrNull(input && input.now);
+            const samples = slotsNormalized?.samples || [];
+            const elapsed = now !== null && lastSlotSample ? (now - lastSlotSample.now) / 1000 : 0;
+            let livePromptSpeed = null;
+            let liveGenSpeed = null;
+            // A hidden tab or a failed poll must not dilute the live reading.
+            if (elapsed > 0 && elapsed <= 15) {
+                for (const sample of samples) {
+                    const previous = lastSlotSample.samples.find(item => item.key === sample.key);
+                    // Both samples must still be in prefill. The processed
+                    // counter excludes cached tokens; context occupancy does not.
+                    if (previous?.genTokens === 0 && sample.genTokens === 0
+                        && previous.promptTokens !== null && sample.promptTokens !== null
+                        && sample.promptTokens >= previous.promptTokens) {
+                        livePromptSpeed = (livePromptSpeed ?? 0) + (sample.promptTokens - previous.promptTokens) / elapsed;
+                    }
+                    if (previous?.genTokens > 0 && sample.genTokens !== null
+                        && sample.genTokens >= previous.genTokens) {
+                        liveGenSpeed = (liveGenSpeed ?? 0) + (sample.genTokens - previous.genTokens) / elapsed;
+                    }
+                }
+            }
+            lastSlotSample = slotsOk && now !== null ? { now, samples } : null;
+
             const percent = context ? context.percent : null;
             const contextLevel = percent === null
                 ? "normal"
@@ -337,9 +366,10 @@
                 requests: { processing, queued: deferred, processingBest },
                 slots: slotsInfo,
                 speed: {
-                    // A live slot rate or upstream rolling gauge is not a session average.
-                    prompt: averagePromptSpeed,
-                    generated: averageGenSpeed,
+                    prompt: livePromptSpeed ?? averagePromptSpeed,
+                    generated: liveGenSpeed ?? averageGenSpeed,
+                    promptIsLive: livePromptSpeed !== null,
+                    generatedIsLive: liveGenSpeed !== null,
                 },
                 contextLevel,
                 baselinePending: !sampled,
@@ -357,6 +387,7 @@
         // re-renders both views as zero immediately; otherwise the reset
         // stays pending until the next valid sample establishes the baseline.
         function resetBaseline() {
+            lastSlotSample = null;
             if (!sampled) {
                 baseline = { prompt: null, gen: null };
                 averageBaseline = { prompt: null, gen: null };
@@ -1502,6 +1533,10 @@
         }
 
         const speed = snapshot.speed || {};
+        setInferenceText("monitor-inference-prompt-speed-label",
+            speed.promptIsLive ? "Live prompt speed" : "Avg prompt speed");
+        setInferenceText("monitor-inference-gen-speed-label",
+            speed.generatedIsLive ? "Live generation speed" : "Avg generation speed");
         setInferenceText("monitor-inference-prompt-speed",
             speed.prompt === null || speed.prompt === undefined ? "--" : `${formatSpeed(speed.prompt)} tok/s`);
         setInferenceText("monitor-inference-gen-speed",

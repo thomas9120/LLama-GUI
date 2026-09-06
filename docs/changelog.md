@@ -2,6 +2,11 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-06
+
+- Show live prompt processing throughput in Monitor and the stats bar, excluding cached tokens and falling back to the completed-session average after prefill.
+- Show live generation throughput in Monitor and the stats bar while a reply is streaming, instead of waiting for completed-request counters; label live readings separately from completed-session averages.
+
 ## 2026-09-05
 
 - Corrected inference averages after counter resets and server restarts; missing processing-time counters now show unavailable instead of a live rate labeled as an average.

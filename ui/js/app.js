@@ -1095,8 +1095,10 @@ function renderStatsBarFromSnapshot(snapshot) {
     bar.classList.remove("hidden");
     setStatsBarValue("stats-prompt-tokens", snapshot.session.prompt, v => Math.round(v).toLocaleString());
     setStatsBarValue("stats-prompt-speed", snapshot.speed.prompt, v => v.toFixed(1));
+    setStatsBarValue("stats-prompt-speed-label", snapshot.speed.promptIsLive, live => live ? "tok/s prompt live" : "tok/s prompt avg");
     setStatsBarValue("stats-gen-tokens", snapshot.session.generated, v => Math.round(v).toLocaleString());
     setStatsBarValue("stats-gen-speed", snapshot.speed.generated, v => v.toFixed(1));
+    setStatsBarValue("stats-gen-speed-label", snapshot.speed.generatedIsLive, live => live ? "tok/s gen live" : "tok/s gen avg");
     // Session tokens: cumulative prompt plus generated since the shared reset
     // baseline. Actual context occupancy lives in the Inference card's
     // most-filled-slot view.

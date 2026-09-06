@@ -776,6 +776,118 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     assert.equal(poll(500, 5).speed.generated, null, "reset before the first poll excludes previous work");
 }
 
+// Live generation updates while completed-request counters remain unchanged.
+{
+    const engine = monitorUi.createInferenceStats({});
+    engine.setTarget("ext:live");
+    const poll = (now, decoded, taskId = 1, slotsOk = true) => engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:tokens_predicted_seconds_total": 10,
+        }),
+        slotsOk, slotsNormalized: slotsSample(0, 1000, decoded, taskId), now,
+    });
+    assert.equal(poll(1000, 4000).speed.generated, null);
+    const live = poll(4000, 4045);
+    assert.equal(live.speed.generated, 15, "no completed-request delta is needed");
+    assert.equal(live.speed.generatedIsLive, true);
+    assert.equal(live.session.generated, 0, "live samples do not inflate completed counters");
+    assert.equal(poll(7000, 4105).speed.generated, 20, "the next poll updates the live rate");
+    assert.equal(poll(10000, 4105).speed.generated, 0, "a stalled active task is a real zero");
+    assert.equal(poll(13000, 5000, 2).speed.generated, null, "task replacement needs a new sample pair");
+    assert.equal(poll(16000, 5030, 2).speed.generated, 10);
+    assert.equal(poll(19000, 5, 2).speed.generated, null, "token rollback discards the old sample");
+    assert.equal(poll(22000, 35, 2).speed.generated, 10);
+    engine.resetBaseline();
+    assert.equal(engine.getSnapshot().speed.generated, null, "reset clears the live rate immediately");
+    assert.equal(poll(25000, 65, 2).speed.generated, 10);
+    assert.equal(poll(28000, 95, 2, false).speed.generated, null);
+    assert.equal(poll(31000, 125, 2).speed.generated, null, "missing slots break sample continuity");
+    assert.equal(poll(61000, 425, 2).speed.generated, null, "long pauses do not dilute the rate");
+    assert.equal(poll(64000, 455, 2).speed.generated, 10);
+    assert.equal(poll(67000, 0, 3).speed.generated, null);
+    assert.equal(poll(70000, 10, 3).speed.generated, null, "prompt processing is excluded from generation time");
+    assert.equal(poll(73000, 40, 3).speed.generated, 10);
+    engine.setTarget("ext:replacement");
+    assert.equal(poll(76000, 70, 3).speed.generated, null);
+
+    // Parallel tasks contribute their combined throughput; idle tasks do not.
+    const parallel = (now, first, second) => engine.applyPollResult({
+        metricsOk: false, slotsOk: true, now,
+        slotsNormalized: monitorUi.normalizeSlots([
+            { id: 0, id_task: 3, is_processing: true, next_token: { n_decoded: first } },
+            { id: 1, id_task: 4, is_processing: true, next_token: [{ n_decoded: second }] },
+            { id: 2, id_task: 5, is_processing: false, next_token: { n_decoded: 10000 } },
+        ]),
+    });
+    parallel(79000, 100, 100);
+    assert.equal(parallel(82000, 130, 160).speed.generated, 30);
+    const idle = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:tokens_predicted_total": 600,
+            "llamacpp:tokens_predicted_seconds_total": 12,
+        }), slotsOk: true, slotsNormalized: monitorUi.normalizeSlots([]), now: 85000,
+    });
+    assert.equal(idle.speed.generated, 50, "idle returns to the completed-session average");
+    assert.equal(idle.speed.generatedIsLive, false);
+}
+
+// Live prefill excludes cache reuse and never spans the transition to generation.
+{
+    const engine = monitorUi.createInferenceStats();
+    engine.setTarget("ext:prefill");
+    const slot = (processed, decoded = 0, taskId = 1) => ({
+        id: 0, id_task: taskId, is_processing: true, n_ctx: 10000,
+        n_prompt_tokens: 8000 + (processed || 0), n_prompt_tokens_cache: 8000,
+        n_prompt_tokens_processed: processed, next_token: [{ n_decoded: decoded }],
+    });
+    const poll = (now, slots) => engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({ "llamacpp:prompt_seconds_total": 2 }),
+        slotsOk: slots !== null, slotsNormalized: monitorUi.normalizeSlots(slots), now,
+    });
+    assert.equal(poll(1000, [slot(0)]).speed.prompt, null);
+    const live = poll(4000, [slot(300)]);
+    assert.equal(live.speed.prompt, 100, "8000 cached tokens do not count toward live speed");
+    assert.equal(live.speed.promptIsLive, true);
+    assert.equal(live.session.prompt, 0, "completed counters remain independent");
+    assert.equal(live.speed.generated, null);
+    assert.equal(poll(7000, [slot(300)]).speed.prompt, 0, "prefill stalls are real zeroes");
+    assert.equal(poll(10000, [slot(600, 1)]).speed.prompt, null, "mixed prefill/generation interval is excluded");
+    assert.equal(poll(13000, [slot(600, 30)]).speed.promptIsLive, false);
+    assert.equal(poll(16000, [slot(100, 0, 2)]).speed.prompt, null, "new task starts a fresh pair");
+    assert.equal(poll(19000, [slot(400, 0, 2)]).speed.prompt, 100);
+    assert.equal(poll(22000, [slot(10, 0, 2)]).speed.prompt, null, "rollback cannot create a live rate");
+    assert.equal(poll(25000, [slot(null, 0, 2)]).speed.prompt, null, "null is not a zero counter");
+    assert.equal(poll(28000, [slot(40, 0, 2)]).speed.prompt, null);
+    assert.equal(poll(31000, [slot(70, null, 2)]).speed.prompt, null, "missing decode count does not prove prefill");
+    poll(34000, [slot(100, 0, 2)]);
+    assert.equal(poll(37000, [slot(400, 0, 2)]).speed.prompt, 100);
+    engine.resetBaseline();
+    assert.equal(engine.getSnapshot().speed.prompt, null);
+    assert.equal(engine.getSnapshot().speed.promptIsLive, false);
+    assert.equal(poll(40000, [slot(700, 0, 2)]).speed.prompt, 100);
+    poll(43000, null);
+    assert.equal(poll(46000, [slot(1000, 0, 2)]).speed.prompt, null);
+    assert.equal(poll(76000, [slot(1300, 0, 2)]).speed.prompt, null, "long gaps break continuity");
+    engine.setTarget("ext:other-prefill");
+    assert.equal(poll(79000, [slot(1600, 0, 2)]).speed.prompt, null);
+
+    const parallelSlots = (processed) => [
+        slot(processed, 0, 2),
+        { ...slot(processed, 0, 3), id: 1, next_token: { n_decoded: 0 } },
+        { ...slot(processed, 40, 4), id: 2 },
+        { ...slot(processed, 0, 5), id: 3, is_processing: false },
+    ];
+    poll(82000, parallelSlots(1900));
+    assert.equal(poll(85000, parallelSlots(2200)).speed.prompt, 200, "only prefill slots contribute");
+    const complete = engine.applyPollResult({
+        metricsOk: true, metricsValues: metricValues({
+            "llamacpp:prompt_tokens_total": 1600, "llamacpp:prompt_seconds_total": 4,
+        }), slotsOk: true, slotsNormalized: monitorUi.normalizeSlots([]), now: 88000,
+    });
+    assert.equal(complete.speed.prompt, 300, "completed average replaces the live rate");
+    assert.equal(complete.speed.promptIsLive, false);
+}
+
 // 80%/95% context presentation levels.
 {
     const engine = monitorUi.createInferenceStats({});

@@ -1800,6 +1800,32 @@ async function main() {
 
         statsMetrics.processing = 1;
         statsSlots = [{
+            id: 1, id_task: 76, n_ctx: 1000, is_processing: true,
+            n_prompt_tokens: 700, n_prompt_tokens_cache: 600,
+            n_prompt_tokens_processed: 100, next_token: [{ n_decoded: 0 }],
+        }];
+        await page.evaluate(() => pollStats());
+        await wait(1100);
+        statsSlots[0].n_prompt_tokens_processed = 400;
+        statsSlots[0].n_prompt_tokens = 1000;
+        await page.evaluate(() => pollStats());
+        const livePromptSpeed = await page.textContent("#stats-prompt-speed");
+        assert.ok(Number(livePromptSpeed) > 0, "prompt speed updates before completed counters advance");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), `${livePromptSpeed} tok/s`);
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed-label"), "Live prompt speed");
+        assert.equal(await page.textContent("#stats-prompt-speed-label"), "tok/s prompt live");
+        assert.equal(await page.textContent("#stats-prompt-tokens"), "0");
+        statsSlots[0].next_token[0].n_decoded = 1;
+        statsMetrics.promptTokens = 1400;
+        statsMetrics.promptSeconds = 4;
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-prompt-speed"), "200.0");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), "200.0 tok/s");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed-label"), "Avg prompt speed");
+        assert.equal(await page.textContent("#stats-prompt-speed-label"), "tok/s prompt avg");
+
+        statsMetrics.processing = 1;
+        statsSlots = [{
             id: 1,
             id_task: 77,
             n_ctx: 1000,
@@ -1812,19 +1838,23 @@ async function main() {
         await wait(1100);
         statsSlots[0].n_prompt_tokens = 140;
         statsSlots[0].next_token.n_decoded = 40;
+        await page.evaluate(() => pollStats());
+        const liveGenSpeed = await page.textContent("#stats-gen-speed");
+        assert.ok(Number(liveGenSpeed) > 0, "live speed updates before completion counters advance");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed"), `${liveGenSpeed} tok/s`,
+            "the Monitor card shares the fixed bar's live rate");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed-label"), "Live generation speed");
+        assert.equal(await page.textContent("#stats-gen-speed-label"), "tok/s gen live");
+        assert.equal(await page.textContent("#stats-context"), "400",
+            "session tokens stay baseline-relative while slot context moves independently");
         statsMetrics.genTokens = 530;
         statsMetrics.genSeconds = 12;
-        await page.evaluate(() => pollStats());
-        assert.equal(await page.textContent("#stats-gen-speed"), "15.0",
-            "generation average divides session tokens by generation time, not poll time");
-        assert.equal(await page.textContent("#monitor-inference-gen-speed"), "15.0 tok/s",
-            "the Monitor card shares the fixed bar's average");
-        assert.equal(await page.textContent("#stats-context"), "30",
-            "session tokens stay baseline-relative while slot context moves independently");
         statsMetrics.processing = 0;
         statsSlots = idleStatsSlots;
         await page.evaluate(() => pollStats());
         assert.equal(await page.textContent("#stats-gen-speed"), "15.0", "idle preserves the average");
+        assert.equal(await page.textContent("#monitor-inference-gen-speed-label"), "Avg generation speed");
+        assert.equal(await page.textContent("#stats-gen-speed-label"), "tok/s gen avg");
         delete statsMetrics.genSeconds;
         await page.evaluate(() => pollStats());
         assert.equal(await page.textContent("#stats-gen-speed"), "--", "missing time does not use a gauge");
