@@ -330,6 +330,7 @@
             const elapsed = now !== null && lastSlotSample ? (now - lastSlotSample.now) / 1000 : 0;
             let livePromptSpeed = null;
             let liveGenSpeed = null;
+            const promptRates = new Map();
             // A hidden tab or a failed poll must not dilute the live reading.
             if (elapsed > 0 && elapsed <= 15) {
                 for (const sample of samples) {
@@ -337,9 +338,19 @@
                     // Both samples must still be in prefill. The processed
                     // counter excludes cached tokens; context occupancy does not.
                     if (previous?.genTokens === 0 && sample.genTokens === 0
-                        && previous.promptTokens !== null && sample.promptTokens !== null
+                        && previous.promptTokens > 0 && sample.promptTokens !== null
                         && sample.promptTokens >= previous.promptTokens) {
-                        livePromptSpeed = (livePromptSpeed ?? 0) + (sample.promptTokens - previous.promptTokens) / elapsed;
+                        // Prompt counts arrive in batches, often slower than polling.
+                        // Average from the first observed nonzero count and update
+                        // only on progress, retaining the rate between batches.
+                        const start = lastSlotSample.promptRates.get(sample.key) || {
+                            tokens: previous.promptTokens, now: lastSlotSample.now, speed: null,
+                        };
+                        const speed = sample.promptTokens > previous.promptTokens
+                            ? (sample.promptTokens - start.tokens) / ((now - start.now) / 1000)
+                            : start.speed;
+                        promptRates.set(sample.key, { ...start, speed });
+                        if (speed !== null) livePromptSpeed = (livePromptSpeed ?? 0) + speed;
                     }
                     if (previous?.genTokens > 0 && sample.genTokens !== null
                         && sample.genTokens >= previous.genTokens) {
@@ -347,7 +358,7 @@
                     }
                 }
             }
-            lastSlotSample = slotsOk && now !== null ? { now, samples } : null;
+            lastSlotSample = slotsOk && now !== null ? { now, samples, promptRates } : null;
 
             const percent = context ? context.percent : null;
             const contextLevel = percent === null

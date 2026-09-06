@@ -1815,6 +1815,10 @@ async function main() {
         assert.equal(await page.textContent("#monitor-inference-prompt-speed-label"), "Live prompt speed");
         assert.equal(await page.textContent("#stats-prompt-speed-label"), "tok/s prompt live");
         assert.equal(await page.textContent("#stats-prompt-tokens"), "0");
+        await page.evaluate(() => pollStats());
+        assert.equal(await page.textContent("#stats-prompt-speed"), livePromptSpeed,
+            "an unchanged prompt batch retains the measured average");
+        assert.equal(await page.textContent("#monitor-inference-prompt-speed"), `${livePromptSpeed} tok/s`);
         statsSlots[0].next_token[0].n_decoded = 1;
         statsMetrics.promptTokens = 1400;
         statsMetrics.promptSeconds = 4;

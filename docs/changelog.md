@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-06
 
+- Stabilized live prompt speed by averaging observed batch progress over its full elapsed time and retaining the reading between batches, avoiding spikes from dividing a multi-poll batch by one poll interval.
 - Show live prompt processing throughput in Monitor and the stats bar, excluding cached tokens and falling back to the completed-session average after prefill.
 - Show live generation throughput in Monitor and the stats bar while a reply is streaming, instead of waiting for completed-request counters; label live readings separately from completed-session averages.
 

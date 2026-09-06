@@ -844,13 +844,13 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
         metricsOk: true, metricsValues: metricValues({ "llamacpp:prompt_seconds_total": 2 }),
         slotsOk: slots !== null, slotsNormalized: monitorUi.normalizeSlots(slots), now,
     });
-    assert.equal(poll(1000, [slot(0)]).speed.prompt, null);
-    const live = poll(4000, [slot(300)]);
+    assert.equal(poll(1000, [slot(100)]).speed.prompt, null);
+    const live = poll(4000, [slot(400)]);
     assert.equal(live.speed.prompt, 100, "8000 cached tokens do not count toward live speed");
     assert.equal(live.speed.promptIsLive, true);
     assert.equal(live.session.prompt, 0, "completed counters remain independent");
     assert.equal(live.speed.generated, null);
-    assert.equal(poll(7000, [slot(300)]).speed.prompt, 0, "prefill stalls are real zeroes");
+    assert.equal(poll(7000, [slot(400)]).speed.prompt, 100, "unchanged batch counts retain the measured rate");
     assert.equal(poll(10000, [slot(600, 1)]).speed.prompt, null, "mixed prefill/generation interval is excluded");
     assert.equal(poll(13000, [slot(600, 30)]).speed.promptIsLive, false);
     assert.equal(poll(16000, [slot(100, 0, 2)]).speed.prompt, null, "new task starts a fresh pair");
@@ -886,6 +886,27 @@ function slotsSample(slotId, promptProcessed, decoded, taskId = 1) {
     });
     assert.equal(complete.speed.prompt, 300, "completed average replaces the live rate");
     assert.equal(complete.speed.promptIsLive, false);
+}
+
+// Batch-sized prompt updates must include the intervening unchanged polls.
+{
+    const engine = monitorUi.createInferenceStats();
+    engine.setTarget("ext:batched-prefill");
+    const poll = (now, tokens) => engine.applyPollResult({
+        metricsOk: false, slotsOk: true,
+        slotsNormalized: slotsSample(0, tokens, 0), now,
+    });
+    assert.equal(poll(0, 0).speed.prompt, null);
+    assert.equal(poll(3000, 0).speed.prompt, null);
+    assert.equal(poll(6000, 2048).speed.prompt, null, "the first batch establishes the observation baseline");
+    assert.equal(poll(9000, 2048).speed.prompt, null);
+    assert.equal(poll(12000, 2048).speed.prompt, null);
+    assert.equal(poll(15000, 4096).speed.prompt, 2048 / 9,
+        "a batch taking nine seconds must not be divided by the last three-second poll");
+    assert.equal(poll(18000, 4096).speed.prompt, 2048 / 9, "hold the measured average between batches");
+    assert.equal(poll(21000, 6144).speed.prompt, 4096 / 15, "average all observed progress and elapsed time");
+    assert.equal(poll(24000, 6144).speed.prompt, 4096 / 15);
+    assert.equal(poll(42000, 8192).speed.prompt, null, "a polling gap discards the previous prompt average");
 }
 
 // 80%/95% context presentation levels.
