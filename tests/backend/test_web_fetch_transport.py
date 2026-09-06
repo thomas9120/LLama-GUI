@@ -81,6 +81,9 @@ class WebFetchTransportTests(unittest.TestCase):
             def read(self, *args):
                 raise OSError("private transport detail")
 
+            # Python 3.9 HTTPResponse.read(amt) uses the stream's readinto().
+            readinto = read
+
         for stage in ("request", "read"):
             with self.subTest(stage=stage):
                 sock = self.response_socket(b"body")

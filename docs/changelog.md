@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-06
 
+- Fixed the interrupted web-response test fixture for Python 3.9's `readinto()` path while preserving its cleanup and error-sanitization checks.
 - Restored benchmark error feedback and output polling after a refused Stop request, allowing Stop to be retried.
 - Added real HTTP and web-transport tests, native telemetry fixtures, independent browser scenarios and benchmark action coverage; isolated configuration-sensitive tests, replaced brittle source-text checks, and required pinned CPU flag compatibility in CI.
 - Stabilized live prompt speed by averaging observed batch progress over its full elapsed time and retaining the reading between batches, avoiding spikes from dividing a multi-poll batch by one poll interval.
