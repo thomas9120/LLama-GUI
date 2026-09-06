@@ -5,10 +5,6 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "model-switch-ui.js"), "utf8");
-const appSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app.js"), "utf8");
-const managerSource = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
-const indexHtml = fs.readFileSync(path.join(ROOT, "ui", "index.html"), "utf8");
-const styleSource = fs.readFileSync(path.join(ROOT, "ui", "css", "style.css"), "utf8");
 
 function createContext(storage) {
     const warnings = [];
@@ -98,62 +94,8 @@ assert.equal(blocked.api.getStorageStatus().persistent, false);
 assert.match(blocked.api.getStorageStatus().warning, /session only/);
 assert.ok(blocked.warnings.length >= 2, "storage failures should be logged");
 
-assert.match(indexHtml, /id="model-switch-card"/);
-assert.match(indexHtml, /id="model-switch-toggle"[^>]+aria-controls="model-switch-body"/);
-assert.doesNotMatch(indexHtml, /model-switch-manage-toggle/, "manage mode should be replaced by inline slot selects");
-assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-select-a"/, "slot A should carry its own preset select");
-assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-select-b"/, "slot B should carry its own preset select");
-assert.match(indexHtml, /id="model-switch-slot-a"[\s\S]*?id="model-switch-refresh-a"/, "slot A should carry its own preset refresh button");
-assert.match(indexHtml, /id="model-switch-slot-b"[\s\S]*?id="model-switch-refresh-b"/, "slot B should carry its own preset refresh button");
-assert.match(indexHtml, /Standby means the model configuration is saved and ready to preflight/);
-assert.match(
-    styleSource,
-    /\.model-switch-details\s*{[^}]*grid-template-columns:\s*repeat\(2,/,
-    "the two remaining Model Switcher details should use a two-column grid"
-);
-assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?role="slider"/);
-assert.match(indexHtml, /id="sidebar-model-switcher-slider"[\s\S]*?aria-disabled="true"/);
-assert.ok(
-    indexHtml.indexOf('id="sidebar-model-switcher"') < indexHtml.indexOf('class="theme-menu"'),
-    "the compact model slider should sit above the theme menu"
-);
-const sidebarFooterMarkup = indexHtml.match(/<div class="sidebar-footer">[\s\S]*?<\/aside>/)?.[0] || "";
-assert.match(sidebarFooterMarkup, /class="sidebar-runtime-controls"/, "runtime controls should stay in the fixed sidebar footer");
-assert.match(sidebarFooterMarkup, /<details class="sidebar-memory-estimate"/, "memory details should collapse natively");
-assert.match(sidebarFooterMarkup, /class="sidebar-maintenance"[\s\S]*?id="version-badge"/, "installed build belongs with maintenance");
-assert.match(styleSource, /\.sidebar-runtime-controls\s*{[^}]*min-width:\s*0/, "runtime controls must be allowed to shrink inside the sidebar");
-assert.match(styleSource, /\.sidebar-memory-reading\s*{[^}]*grid-template-columns:\s*30px/, "GPU and RAM values should use stacked rows");
-const sidebarSwitcherMarkup = indexHtml.match(/<section class="sidebar-model-switcher"[\s\S]*?<\/section>/)?.[0] || "";
-assert.doesNotMatch(sidebarSwitcherMarkup, /<svg/, "the sidebar switch thumb should not contain an icon");
-assert.match(source, /sidebarThumb\.addEventListener\("pointerdown", handleSidebarPointerDown\)/);
-assert.doesNotMatch(source, /sidebarThumb\.addEventListener\("click"/, "thumb clicks must not switch models");
-assert.match(appSource, /\/api\/presets\/fingerprint/);
-assert.doesNotMatch(appSource, /crypto\.subtle/, "drift fingerprints must use backend canonicalization");
-assert.match(source, /handleAssignmentChange[\s\S]*refresh\(\{ reloadPresets: true \}\)/);
-assert.match(source, /handlePresetRefresh[\s\S]*refresh\(\{ reloadPresets: true \}\)/);
-assert.match(source, /model-switch-refresh-\$\{slotId\}[\s\S]*addEventListener\("click", handlePresetRefresh\)/);
-assert.match(managerSource, /await acceptedStatusObserver\(status\)/);
-assert.match(appSource, /setAcceptedStatusObserver\(reconcileAuthoritativeStatus\)/);
-assert.match(
-    appSource,
-    /shouldAdoptBenchmark[\s\S]*benchmarkUi\.restoreRunningState\(status\)/,
-    "authoritative benchmark replacements must adopt benchmark controls and output polling"
-);
-assert.match(
-    appSource,
-    /reconcileOptions[\s\S]*onFailed: handleReconciliationFailure/,
-    "observer-driven health failures must not call the status-refreshing global failure hook"
-);
-assert.match(
-    appSource,
-    /invalidateOutput:\s*stopOutputPolling,\s*startOutput:\s*\(\.\.\.args\)\s*=>\s*\{\s*clearOutput\(\);\s*handleLifecycleProcessStarted\(\.\.\.args\);\s*\}/,
-    "switches must preserve prior output until the replacement process is accepted"
-);
-assert.ok(
-    indexHtml.indexOf('id="model-switch-card"') > indexHtml.indexOf('class="quick-config"')
-        && indexHtml.indexOf('id="model-switch-card"') < indexHtml.indexOf('class="quick-launch-bar"'),
-    "model switcher should remain available between the configuration panel and launch bar"
-);
+// DOM wiring, refresh buttons, drag/keyboard guards, and layout containment are
+// exercised in flag_sync_smoke.cjs; avoid locking this unit suite to source spelling.
 
 const entries = [
     {

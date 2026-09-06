@@ -35,6 +35,10 @@ def reset_shared_server_state():
 
 class ServerStateIsolationMixin:
     def setUp(self):
+        for name, value in (("GUI_HOST", "127.0.0.1"), ("GUI_PORT", 5240)):
+            patcher = mock.patch.object(backend_app, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         reset_shared_server_state()
 
     def tearDown(self):

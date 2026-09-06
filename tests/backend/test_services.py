@@ -922,12 +922,19 @@ class GetToolFilenameTests(unittest.TestCase):
 
 
 class FindToolExecutableTests(unittest.TestCase):
-    def test_returns_path_in_llama_bin_dir(self):
-        from backend.app import find_tool_executable, LLAMA_BIN_DIR, BINARY_SUFFIX
+    def test_selects_configured_install_without_reading_local_config(self):
+        from backend import app
 
-        result = find_tool_executable("llama-server")
-
-        self.assertEqual(result, LLAMA_BIN_DIR / f"llama-server{BINARY_SUFFIX}")
+        for cfg, directory in (
+            ({}, app.LLAMA_BIN_DIR),
+            ({"backend": "cpu"}, app.LLAMA_BIN_DIR),
+            ({"backend": "custom"}, app.LLAMA_CUSTOM_BIN_DIR),
+        ):
+            with self.subTest(config=cfg), mock.patch.object(app, "load_config", return_value=cfg):
+                self.assertEqual(
+                    app.find_tool_executable("llama-server"),
+                    directory / f"llama-server{app.BINARY_SUFFIX}",
+                )
 
 
 class Sha256FileTests(unittest.TestCase):

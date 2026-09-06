@@ -5,6 +5,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
+const EXPLICIT_BIN_DIR = process.env.LLAMA_GUI_LLAMA_BIN_DIR || process.env.LLAMA_CPP_BIN_DIR;
+const REQUIRE_BINARIES = process.argv.includes("--require-binaries") || Boolean(EXPLICIT_BIN_DIR);
 const FLAG_SOURCES = [
     path.join(ROOT, "ui", "js", "flags", "options.js"),
     path.join(ROOT, "ui", "js", "flags", "chat-templates.js"),
@@ -29,10 +31,21 @@ function pathEntries() {
 
 function candidateExecutables(toolName) {
     const exeName = process.platform === "win32" ? `${toolName}.exe` : toolName;
+    // An explicitly selected build must never fall back to another installation.
+    if (EXPLICIT_BIN_DIR) return [path.resolve(EXPLICIT_BIN_DIR, exeName)];
+    let backend;
+    const configPath = path.join(ROOT, "config.json");
+    if (fs.existsSync(configPath)) {
+        try {
+            backend = JSON.parse(fs.readFileSync(configPath, "utf8"))?.backend;
+        } catch (error) {
+            console.warn(`Could not read installed backend selection: ${error.message}`);
+        }
+    }
+    const installedDirectory = backend === "custom"
+        ? path.join(ROOT, "llama", "custom", "bin") : path.join(ROOT, "llama", "bin");
     const dirs = [
-        process.env.LLAMA_GUI_LLAMA_BIN_DIR,
-        process.env.LLAMA_CPP_BIN_DIR,
-        path.join(ROOT, "llama", "bin"),
+        installedDirectory,
         path.join(ROOT, "llama"),
         ...pathEntries(),
     ].filter(Boolean);
@@ -61,12 +74,13 @@ function runHelp(executable) {
         cwd: ROOT,
         encoding: "utf8",
         windowsHide: true,
+        timeout: 30000,
         maxBuffer: 4 * 1024 * 1024,
     });
     assert.equal(
         result.status,
         0,
-        `expected "${executable} --help" to exit successfully\n${result.stderr || result.stdout || ""}`
+        `expected "${executable} --help" to exit successfully\n${result.error?.message || result.stderr || result.stdout || ""}`
     );
     return `${result.stdout || ""}\n${result.stderr || ""}`;
 }
@@ -115,11 +129,18 @@ function collectUnsupportedFlags(flags, advertisedByTool) {
     return unsupported;
 }
 
+assert.ok(!REQUIRE_BINARIES || EXPLICIT_BIN_DIR,
+    "Required flag compatibility checks need LLAMA_GUI_LLAMA_BIN_DIR or LLAMA_CPP_BIN_DIR.");
 const flags = loadFlags();
 const executables = {
     server: findExecutable("llama-server"),
     cli: findExecutable("llama-cli"),
 };
+if (REQUIRE_BINARIES) {
+    for (const [tool, executable] of Object.entries(executables)) {
+        assert.ok(executable, `Required llama-${tool} executable missing from ${EXPLICIT_BIN_DIR}.`);
+    }
+}
 
 const advertisedByTool = {};
 for (const [tool, executable] of Object.entries(executables)) {

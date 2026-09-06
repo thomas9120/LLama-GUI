@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
+const { after, before, test } = require("node:test");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const UI_DIR = path.join(ROOT, "ui");
@@ -909,14 +910,130 @@ async function verifySecondaryPagePolish(page) {
     await selectSection(page, "quick-launch");
 }
 
-async function main() {
-    const { chromium } = loadPlaywright();
-    const port = await findFreePort(START_PORT);
-    const server = await startStaticServer(port);
-    const browser = await chromium.launch({ headless: true });
+async function verifyBenchmarkActions(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    let runtime = null;
+    let generation = 600;
+    let lines = [];
+    let launchError = "";
+    let refuseStop = false;
+    let wikitextError = false;
+    const launches = [];
+    const stops = [];
+    await page.route("**/api/status", route => route.fulfill({ json: {
+        ...baseStatus, running: Boolean(runtime), active_runtime: runtime,
+        active_process_tool: runtime?.tool || "", runtime_generation: generation,
+    } }));
+    await page.route("**/api/output*", route => {
+        const cursor = Number(new URL(route.request().url()).searchParams.get("since") || 0);
+        return route.fulfill({ json: {
+            lines: lines.slice(cursor), next_cursor: lines.length, dropped: false,
+            running: Boolean(runtime), runtime_generation: generation,
+            active_process_tool: runtime?.tool || "",
+        } });
+    });
+    await page.route("**/api/launch", route => {
+        const body = route.request().postDataJSON();
+        launches.push(body);
+        if (launchError) return route.fulfill({ status: 400, json: { error: launchError } });
+        generation += 1;
+        runtime = { generation, tool: body.tool, model: "models/smoke-model.gguf" };
+        lines = [];
+        return route.fulfill({ json: { pid: generation, active_runtime: runtime, output_cursor: 0 } });
+    });
+    await page.route("**/api/stop", route => {
+        stops.push(route.request().postDataJSON());
+        if (!refuseStop) runtime = null;
+        return route.fulfill({ json: { stopped: !refuseStop } });
+    });
+    await page.route("**/api/benchmark/wikitext2", route => {
+        assert.equal(route.request().method(), "POST");
+        return route.fulfill(wikitextError
+            ? { status: 500, json: { error: "Dataset unavailable" } }
+            : { json: { path: "benchmarks/wiki.test.raw", downloaded: true } });
+    });
+    await selectSection(page, "benchmarking");
+    await page.selectOption("#benchmark-source", "manual");
+    await page.selectOption("#benchmark-manual-model", "smoke-model.gguf");
+    const run = page.locator("#btn-run-benchmark");
+    const stop = page.locator("#btn-stop-benchmark");
+    const output = page.locator("#benchmark-output-terminal");
 
+    await run.click();
+    await page.waitForFunction(() => window.LlamaGui.processLifecycle.getSnapshot().phase === "running");
+    assert.equal(launches[0].tool, "llama-bench");
+    assert.ok(launches[0].args.some(arg => arg[0] === "-m" && arg[1] === "models/smoke-model.gguf"));
+    assert.equal(await run.isVisible(), false);
+    assert.equal(await stop.isVisible(), true);
+    lines = ["prefill 123.45 ± 1.00 t/s", "generation 67.89 t/s", "<img src=x onerror=alert(1)>"];
+    await page.waitForFunction(() => document.querySelector("#benchmark-summary").textContent.includes("67.89 t/s"));
+    assert.equal(await page.textContent("#benchmark-summary"), "Throughput observed: 123.45 t/s, 67.89 t/s");
+    assert.equal(await output.locator("img").count(), 0);
+    runtime = null;
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("process exited"));
+    assert.equal(await run.isVisible(), true);
+    assert.equal(await stop.isVisible(), false);
+
+    launchError = "Benchmark executable missing";
+    await run.click();
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("ERROR:"));
+    assert.match(await output.textContent(), /Benchmark executable missing/);
+    assert.equal(await run.isVisible(), true);
+    launchError = "";
+    await run.click();
+    await page.waitForFunction(() => window.LlamaGui.processLifecycle.getSnapshot().phase === "running");
+    refuseStop = true;
+    await stop.click();
+    await page.waitForFunction(() => window.LlamaGui.processLifecycle.getSnapshot().phase === "failed"
+        && !window.LlamaGui.processLifecycle.getSnapshot().busy);
+    assert.match(await output.textContent(), /Stop request failed/);
+    assert.equal(stops.at(-1).expected_generation, runtime.generation);
+    assert.equal(await stop.isVisible(), true, "a refused stop keeps the process controllable");
+    assert.equal(await run.isVisible(), false);
+    lines.push("Output continues after refused stop");
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Output continues"));
+    refuseStop = false;
+    await stop.click();
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Benchmark stopped"));
+
+    runtime = { generation: ++generation, tool: "llama-bench", model: "models/smoke-model.gguf" };
+    lines = ["restored throughput 42 t/s"];
+    await page.evaluate(() => checkStatus());
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Reconnected to running llama-bench"));
+    assert.equal(await stop.isVisible(), true, "accepted status updates must adopt an external benchmark launch");
+    await page.reload();
+    await selectSection(page, "benchmarking");
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Reconnected to running llama-bench"));
+    await page.waitForFunction(() => document.querySelector("#benchmark-summary").textContent.includes("42 t/s"));
+    assert.equal(await stop.isVisible(), true);
+    await stop.click();
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Benchmark stopped"));
+
+    await page.selectOption("#benchmark-type", "perplexity");
+    await page.selectOption("#benchmark-manual-model", "smoke-model.gguf");
+    assert.equal(await run.isDisabled(), true, "perplexity requires a dataset");
+    const prepare = page.locator("#btn-benchmark-wikitext-clean");
+    wikitextError = true;
+    await prepare.click();
+    await page.waitForFunction(() => document.querySelector("#toast-container").textContent.includes("Dataset unavailable"));
+    assert.equal(await prepare.isDisabled(), false, "failed preparation can be retried");
+    assert.equal(await page.inputValue("#benchmark-prompt-file"), "");
+    wikitextError = false;
+    await prepare.click();
+    await page.waitForFunction(() => document.querySelector("#benchmark-prompt-file").value === "benchmarks/wiki.test.raw");
+    assert.equal(await page.inputValue("#benchmark-ppl-preset"), "clean");
+    await run.click();
+    await page.waitForFunction(() => window.LlamaGui.processLifecycle.getSnapshot().phase === "running");
+    assert.deepEqual(launches.at(-1), {
+        tool: "llama-perplexity", args: [["-m", "models/smoke-model.gguf"], ["-f", "benchmarks/wiki.test.raw"]],
+    });
+    await stop.click();
+    await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Benchmark stopped"));
+}
+
+async function runScenario(browser, port, verify) {
+    const page = await browser.newPage();
     try {
-        const page = await browser.newPage();
         const chatCompletionBodies = [];
         const chatCompletionHeaders = [];
         const launchBodies = [];
@@ -1348,6 +1465,12 @@ async function main() {
         await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => window.LlamaGui?.flagCore && window.LlamaGui?.configFlagsUi);
         await page.waitForSelector("#flag-ctx_size", { state: "attached" });
+
+        if (verify) {
+            await verify(page);
+            assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
+            return;
+        }
 
         await page.setInputFiles("#preset-import", {
             name: "smoke-alpha.json",
@@ -2887,6 +3010,16 @@ async function main() {
         await page.waitForFunction(() => Array.from(document.querySelector("#model-switch-select-a")?.options || [])
             .some(option => option.value === "Refreshed from B"));
 
+        const fetchesBeforeAssignment = await page.evaluate(() => window.__modelSwitcherFetchCalls);
+        await page.selectOption("#model-switch-select-a", "Refreshed from A");
+        await page.waitForFunction(previous => window.__modelSwitcherFetchCalls === previous + 1, fetchesBeforeAssignment);
+        assert.deepEqual(await page.evaluate(() => [
+            document.querySelector("#model-switch-select-a").value,
+            document.querySelector("#model-switch-select-b").value,
+        ]), ["Refreshed from A", "Sidebar Model B"], "changing one assignment must survive reload and preserve the other");
+        await page.selectOption("#model-switch-select-a", "Sidebar Model A");
+        await page.waitForFunction(() => document.querySelector("#sidebar-model-switcher-slider")?.getAttribute("aria-disabled") === "false");
+
         await page.evaluate(() => {
             const select = document.querySelector("#model-switch-select-a");
             for (let i = 0; i < 20; i += 1) {
@@ -2936,6 +3069,8 @@ async function main() {
 
         await page.click("#sidebar-model-switcher-track", { position: { x: 70, y: 5 } });
         assert.equal(await page.evaluate(() => window.__sidebarSwitchCalls), 0, "track clicks must be inert");
+        await page.click("#sidebar-model-switcher-thumb");
+        assert.equal(await page.evaluate(() => window.__sidebarSwitchCalls), 0, "clicking the thumb without dragging must be inert");
 
         const sliderBox = await page.locator("#sidebar-model-switcher-slider").boundingBox();
         const thumbBox = await page.locator("#sidebar-model-switcher-thumb").boundingBox();
@@ -3254,22 +3389,37 @@ async function main() {
         assert.equal(systemStatsRequests.length, systemCountWhileVisible,
             "system stats must not poll while the Monitor tab is hidden");
 
-        await verifyConfigureRestart(page);
-        await verifyQuickLaunchPolish(page);
-        await verifyShellPolish(page);
-        await verifySecondaryPagePolish(page);
-        await verifyMonitorRuntimePolish(page);
-        await verifyPresetPolish(page);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
-
-        console.log(`flag sync smoke passed on http://127.0.0.1:${port}/`);
     } finally {
-        await browser.close().catch(() => {});
-        server.kill();
+        await page.close();
     }
 }
 
-main().catch((error) => {
-    console.error(error);
-    process.exit(1);
+let browser;
+let server;
+let port;
+before(async () => {
+    port = await findFreePort(START_PORT);
+    server = await startStaticServer(port);
+    browser = await loadPlaywright().chromium.launch({ headless: true });
 });
+after(async () => {
+    try {
+        if (browser) await browser.close();
+    } finally {
+        if (server) server.kill();
+    }
+});
+
+for (const [name, verify] of [
+    ["shared controls, chat, downloads and model switcher", null],
+    ["configure restart", verifyConfigureRestart],
+    ["quick launch presentation", verifyQuickLaunchPolish],
+    ["navigation and responsive shell", verifyShellPolish],
+    ["chat, API and install presentation", verifySecondaryPagePolish],
+    ["monitor runtime presentation", verifyMonitorRuntimePolish],
+    ["preset library", verifyPresetPolish],
+    ["benchmark actions and recovery", verifyBenchmarkActions],
+]) {
+    test(name, { timeout: 120000 }, () => runScenario(browser, port, verify));
+}

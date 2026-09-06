@@ -29,7 +29,7 @@ class HttpCorsAdapterTests(unittest.TestCase):
         return headers
 
     def test_allowed_origins_include_local_and_active_tunnel(self):
-        origins = get_allowed_request_origins("https://example.trycloudflare.com")
+        origins = get_allowed_request_origins("https://example.trycloudflare.com", gui_host="127.0.0.1", gui_port=5240)
 
         self.assertIn("http://127.0.0.1:5240", origins)
         self.assertIn("http://localhost:5240", origins)
@@ -88,7 +88,7 @@ class HttpCorsAdapterTests(unittest.TestCase):
                 self.assertEqual(get_request_host_origin(host_header, 5240), "")
 
     def test_origin_and_referer_validation(self):
-        allowed = get_allowed_request_origins()
+        allowed = get_allowed_request_origins(gui_host="127.0.0.1", gui_port=5240)
 
         self.assertTrue(is_safe_request_origin(self.make_headers(origin="http://localhost:5240"), allowed))
         self.assertTrue(is_safe_request_origin(self.make_headers(referer="http://127.0.0.1:5240/index.html"), allowed))
@@ -99,14 +99,15 @@ class HttpCorsAdapterTests(unittest.TestCase):
         self.assertFalse(is_safe_request_origin(self.make_headers(referer="http://localhost:5240.evil.example/"), allowed))
 
     def test_access_control_origin_reflects_allowed_origin_or_default(self):
-        allowed = get_allowed_request_origins()
+        allowed = get_allowed_request_origins(gui_host="127.0.0.1", gui_port=5240)
 
         self.assertEqual(
             get_access_control_origin(self.make_headers(origin="http://localhost:5240"), allowed),
             "http://localhost:5240",
         )
         self.assertEqual(
-            get_access_control_origin(self.make_headers(origin="https://evil.example"), allowed),
+            get_access_control_origin(self.make_headers(origin="https://evil.example"), allowed,
+                                      default_origin="http://127.0.0.1:5240"),
             "http://127.0.0.1:5240",
         )
 
@@ -145,8 +146,8 @@ class HttpResponseAdapterTests(unittest.TestCase):
             handler.headers_ended = True
 
         def get_access_control_origin_for_handler():
-            allowed = get_allowed_request_origins()
-            return get_access_control_origin(handler.headers, allowed)
+            allowed = get_allowed_request_origins(gui_host="127.0.0.1", gui_port=5240)
+            return get_access_control_origin(handler.headers, allowed, default_origin="http://127.0.0.1:5240")
 
         handler.send_response = send_response
         handler.send_header = send_header
