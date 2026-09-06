@@ -33,8 +33,6 @@
         "cache_type_v",
     ]);
 
-    const BENCH_ONLY_IDS = new Set(["repetitions", "n_prompt", "n_gen", "output_format"]);
-    const PERPLEXITY_ONLY_IDS = new Set(["prompt_file", "chunks", "ppl_stride", "warmup"]);
     const BENCHMARK_SOURCE_LABELS = {
         current: "Current Configure",
         preset: "Saved Preset",
@@ -128,7 +126,7 @@
     }
 
     function formatCommand(tool, args) {
-        return [tool, ...flattenArgs(args)].map(quoteArg).join(" ");
+        return [tool, ...root.flagCore.redactSensitiveTokens(flattenArgs(args))].map(quoteArg).join(" ");
     }
 
     function normalizePresetData(data) {
@@ -246,7 +244,10 @@
             return added;
         }
 
-        args.push([flag.flag, String(value)]);
+        // llama-bench uses commas for independent runs and slashes within one GPU group.
+        const cliValue = tool === "llama-bench" && ["tensor_split", "device"].includes(flag.id)
+            ? String(value).split(",").map(part => part.trim()).join("/") : String(value);
+        args.push([flag.flag, cliValue]);
         return true;
     }
 
@@ -307,7 +308,7 @@
                 const before = args.length;
                 const didApply = pushFlagArg(args, tool, flag, value);
                 if (didApply && args.length > before) {
-                    applied.push({ label: getFlagLabel(flag), value: Array.isArray(value) ? value.join(",") : String(value) });
+                    applied.push({ label: getFlagLabel(flag), value: flag.sensitive ? "<redacted>" : Array.isArray(value) ? value.join(",") : String(value) });
                 } else {
                     if (!Object.prototype.hasOwnProperty.call(defaultFlags, flag.id) || !valuesEqual(value, defaultFlags[flag.id])) {
                         excluded.push({ label: getFlagLabel(flag), reason: "Not supported for this benchmark" });

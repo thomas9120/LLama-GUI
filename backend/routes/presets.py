@@ -7,12 +7,12 @@ import time
 import urllib.parse
 
 from ..http import sanitize_error
+from ..services.process_manager import has_sensitive_cli_args
 
 
 _PRESET_CREATED_TIMES_FILE = ".preset-created-times"
 _PRESET_ARCHIVED_FILE = ".preset-archived"
-_SENSITIVE_PRESET_KEYS = {"api_key"}
-_SENSITIVE_CUSTOM_ARG_RE = re.compile(r"(?<![A-Za-z0-9_-])--api-key(?=$|[=\s])")
+_SENSITIVE_PRESET_KEYS = {"api_key", "hf_token"}
 
 
 def has_sensitive_custom_args(data):
@@ -24,7 +24,7 @@ def has_sensitive_custom_args(data):
         candidates.append(flags)
     return any(
         isinstance(candidate.get("custom_args"), str)
-        and bool(_SENSITIVE_CUSTOM_ARG_RE.search(candidate["custom_args"]))
+        and has_sensitive_cli_args(candidate["custom_args"])
         for candidate in candidates
     )
 
@@ -279,7 +279,7 @@ def save_preset(request, response, ctx):
         return
     if has_sensitive_custom_args(data):
         response.error(
-            "Presets cannot include --api-key in Custom Launch Args. Use the API Key field instead.",
+            "Presets cannot include --api-key, -hft, or --hf-token in Custom Launch Args. Use the API Key or HF Token field instead, and check argument quoting.",
             400,
         )
         return

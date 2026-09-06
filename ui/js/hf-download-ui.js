@@ -87,7 +87,7 @@
         for (const file of files || []) {
             const opt = document.createElement("option");
             opt.value = file.name;
-            opt.textContent = `${file.name}  (${formatHfBytes(file.size)})`;
+            opt.textContent = `${file.name}  (${formatHfBytes(file.size)}${file.shard_count > 1 ? `, ${file.shard_count} shards` : ""})`;
             select.appendChild(opt);
         }
     }

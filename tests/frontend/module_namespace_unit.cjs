@@ -68,6 +68,7 @@ const expectedNamespaces = [
     "outputCursor",
     "processLifecycle",
     "themeUi",
+    "shellUi",
     "configFlagsUi",
     "quickLaunchUi",
     "chatUi",

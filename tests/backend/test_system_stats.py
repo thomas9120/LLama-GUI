@@ -9,6 +9,7 @@ states, cache/coalescing behavior, and the thin route contract.
 import contextlib
 import io
 import json
+import plistlib
 import threading
 import time
 import unittest
@@ -104,6 +105,7 @@ class DeltaMathTests(unittest.TestCase):
         self.assertTrue(disk["available"])
         self.assertIsNone(disk["read_bytes_per_second"])
         self.assertIsNone(disk["write_bytes_per_second"])
+        self.assertTrue(disk["io_available"], "warmup differs from missing disk counters")
         # Capacity is not a rate: it is available on the very first sample.
         self.assertIsNotNone(disk["percent"])
 
@@ -184,6 +186,22 @@ class DeltaMathTests(unittest.TestCase):
         data, _ = self._sample(previous, make_counters(monotonic=100.0))
         self.assertIsNotNone(data["system"]["cpu"]["percent"])
         self.assertIsNone(data["system"]["disk"]["read_bytes_per_second"])
+
+    def test_disk_io_is_independent_of_capacity(self):
+        previous = make_counters(monotonic=98.0, disk_read=0, disk_write=0)
+        counters = make_counters(disk_usage=None)
+        counters["disk"]["label"] = "All physical disks"
+        data, _ = self._sample(previous, counters)
+        disk = data["system"]["disk"]
+        self.assertFalse(disk["available"])
+        self.assertTrue(disk["io_available"])
+        self.assertEqual(disk["io_label"], "All physical disks")
+        self.assertEqual(disk["read_bytes_per_second"], 500_000)
+        counters["disk"] = None
+        counters["disk_usage"] = (10, 100)
+        data, _ = self._sample(previous, counters)
+        self.assertTrue(data["system"]["disk"]["available"])
+        self.assertFalse(data["system"]["disk"]["io_available"])
 
     def test_zero_total_delta_nulls_cpu_percent(self):
         previous = {
@@ -339,6 +357,7 @@ class CollectorFailureTests(unittest.TestCase):
         ctx = make_context(platform="win32")
         with mock.patch.object(svc, "collect_windows_cpu", side_effect=OSError("boom")), \
                 mock.patch.object(svc, "collect_windows_memory", return_value=None), \
+                mock.patch.object(svc, "collect_windows_disk_counters", side_effect=OSError("no counters")), \
                 mock.patch("shutil.disk_usage", side_effect=OSError("no disk")):
             counters = svc.collect_system_counters(ctx, "win32")
         self.assertIsNone(counters["cpu"])
@@ -353,6 +372,92 @@ class CollectorFailureTests(unittest.TestCase):
         self.assertFalse(data["system"]["cpu"]["available"])
         self.assertFalse(data["system"]["memory"]["available"])
         self.assertFalse(data["system"]["disk"]["available"])
+
+
+class NativeDiskCountersTests(unittest.TestCase):
+    def make_pdh(self):
+        pdh = SimpleNamespace(**{name: mock.Mock(return_value=0) for name in (
+            "PdhOpenQueryW", "PdhAddEnglishCounterW", "PdhCollectQueryData",
+            "PdhGetRawCounterValue", "PdhCloseQuery",
+        )})
+
+        def open_query(source, user, query):
+            query._obj.value = 0x100000000
+            return 0
+
+        def add_counter(query, path, user, counter):
+            counter._obj.value = 1 if "Read" in path else 2
+            return 0
+
+        def get_raw(counter, type_pointer, raw):
+            raw._obj.CStatus = 1
+            raw._obj.FirstValue = 2 ** 40 + counter.value
+            return 0
+
+        pdh.PdhOpenQueryW.side_effect = open_query
+        pdh.PdhAddEnglishCounterW.side_effect = add_counter
+        pdh.PdhGetRawCounterValue.side_effect = get_raw
+        return pdh
+
+    def test_windows_cumulative_bytes_and_handle_cleanup(self):
+        pdh = self.make_pdh()
+        with mock.patch.object(svc.ctypes, "WinDLL", return_value=pdh, create=True):
+            counters = svc.collect_windows_disk_counters()
+        self.assertEqual(counters["bytes_read"], 2 ** 40 + 1)
+        self.assertEqual(counters["bytes_written"], 2 ** 40 + 2)
+        self.assertEqual(counters["label"], "All physical disks")
+        self.assertEqual(pdh.PdhCloseQuery.call_args.args[0].value, 0x100000000)
+        self.assertEqual(pdh.PdhAddEnglishCounterW.call_count, 2)
+        self.assertEqual(pdh.PdhAddEnglishCounterW.call_args_list[0].args[1],
+                         r"\PhysicalDisk(_Total)\Disk Read Bytes/sec")
+        self.assertEqual(pdh.PdhCloseQuery.argtypes, [svc.ctypes.c_void_p])
+        self.assertEqual(svc.ctypes.sizeof(svc._PDH_RAW_COUNTER), 40)
+
+    def test_windows_failed_queries_always_close_handles(self):
+        for stage in ("PdhAddEnglishCounterW", "PdhCollectQueryData", "PdhGetRawCounterValue", "CStatus", "negative"):
+            with self.subTest(stage=stage):
+                pdh = self.make_pdh()
+                if stage in ("CStatus", "negative"):
+                    def bad_raw(counter, type_pointer, raw):
+                        raw._obj.CStatus = 0x800007D1 if stage == "CStatus" else 0
+                        raw._obj.FirstValue = -1
+                        return 0
+                    pdh.PdhGetRawCounterValue.side_effect = bad_raw
+                else:
+                    getattr(pdh, stage).side_effect = None
+                    getattr(pdh, stage).return_value = 0x800007D1
+                with mock.patch.object(svc.ctypes, "WinDLL", return_value=pdh, create=True):
+                    with self.assertRaises((OSError, ValueError)):
+                        svc.collect_windows_disk_counters()
+                pdh.PdhCloseQuery.assert_called_once()
+
+    def test_macos_plist_counters_and_device_identity(self):
+        first = {"IORegistryEntryID": 10, "Statistics": {"Bytes (Read)": 1024, "Bytes (Write)": 512}}
+        second = {"IORegistryEntryID": 20, "Statistics": {"Bytes (Read)": 2048, "Bytes (Write)": 256}}
+        payload = plistlib.dumps([{"IORegistryEntryChildren": [first, second, first]}])
+        counters = svc.parse_macos_disk_counters(payload)
+        self.assertEqual(counters["bytes_read"], 3072, "duplicate registry entries are not counted twice")
+        self.assertEqual(counters["bytes_written"], 768)
+        self.assertNotEqual(counters["source"], svc.parse_macos_disk_counters(plistlib.dumps([first]))["source"])
+        self.assertIsNone(svc.parse_macos_disk_counters(plistlib.dumps([{"Statistics": {}}])))
+        self.assertIsNone(svc.parse_macos_disk_counters(plistlib.dumps([
+            {"IORegistryEntryID": 1, "Statistics": {"Bytes (Read)": -1, "Bytes (Write)": 0}}
+        ])))
+        with mock.patch.object(svc.subprocess, "run", return_value=SimpleNamespace(stdout=payload)) as run:
+            self.assertEqual(svc.collect_macos_disk_counters(), counters)
+        self.assertEqual(run.call_args.args[0], ["/usr/sbin/ioreg", "-a", "-r", "-c", "IOBlockStorageDriver"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 2.0)
+        self.assertTrue(run.call_args.kwargs["check"])
+
+    def test_macos_failure_only_removes_io(self):
+        with mock.patch.object(svc, "collect_macos_cpu", return_value=None), \
+                mock.patch.object(svc, "collect_macos_memory", return_value=(1, 4)), \
+                mock.patch.object(svc, "collect_macos_disk_counters", side_effect=svc.subprocess.TimeoutExpired("ioreg", 2)), \
+                mock.patch.object(svc.shutil, "disk_usage", return_value=SimpleNamespace(used=10, total=100)):
+            counters = svc.collect_system_counters(make_context(platform="darwin"), "darwin")
+        self.assertIsNone(counters["disk"])
+        self.assertEqual(counters["memory"], (1, 4))
+        self.assertEqual(counters["disk_usage"], (10, 100))
 
 
 class AllSmiTests(unittest.TestCase):

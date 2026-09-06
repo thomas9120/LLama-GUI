@@ -48,9 +48,10 @@
 
 <div class="toast-container" id="toast-container" role="status" aria-live="polite" aria-atomic="false"></div>
 
-<button class="mobile-toggle" id="mobile-toggle" type="button" aria-label="Open navigation" title="Open navigation">
+<button class="mobile-toggle" id="mobile-toggle" type="button" aria-label="Open navigation" title="Open navigation" aria-controls="sidebar" aria-expanded="false">
     <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg></span>
 </button>
+<div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
 
 <div class="app-shell">
 
@@ -63,18 +64,16 @@
                 <div class="sidebar-title">Llama GUI</div>
                 <div class="sidebar-subtitle">llama.cpp Launcher</div>
             </div>
+            <button class="btn btn-sm sidebar-close" id="sidebar-close" type="button" aria-label="Close navigation" title="Close navigation">×</button>
         </div>
 
-        <nav class="sidebar-nav">
-            <div class="nav-section-label">Setup</div>
-            <button class="nav-item" data-section="install">
-                <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
-                Install and Update
-            </button>
-            <button class="nav-item active" data-section="quick-launch">
+        <nav class="sidebar-nav" aria-label="Workspace">
+            <button class="nav-item active" data-section="quick-launch" aria-current="page">
                 <span class="icon"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
                 Quick Launch
             </button>
+            <div class="nav-group" role="group" aria-labelledby="nav-tune">
+            <div class="nav-section-label" id="nav-tune">Tune</div>
             <button class="nav-item" data-section="configure">
                 <span class="icon"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
                 Configure
@@ -84,8 +83,14 @@
                 Monitor
                 <span id="monitor-nav-live" class="badge badge-green hidden" title="llama-server is running"><span class="badge-dot" aria-hidden="true"></span>Live</span>
             </button>
+            <button class="nav-item" data-section="benchmarking">
+                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
+                Benchmarking
+            </button>
+            </div>
 
-            <div class="nav-section-label">Interact</div>
+            <div class="nav-group" role="group" aria-labelledby="nav-interact">
+            <div class="nav-section-label" id="nav-interact">Interact</div>
             <button class="nav-item" data-section="chat">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
                 Chat
@@ -94,37 +99,46 @@
                 <span class="icon"><svg viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span>
                 API
             </button>
+            </div>
 
-            <div class="nav-section-label">Manage</div>
-            <button class="nav-item" data-section="benchmarking">
-                <span class="icon"><svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg></span>
-                Benchmarking
-            </button>
+            <div class="nav-group" role="group" aria-labelledby="nav-library">
+            <div class="nav-section-label" id="nav-library">Library</div>
             <button class="nav-item" data-section="presets">
                 <span class="icon"><svg viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg></span>
                 Presets
             </button>
+            </div>
 
         </nav>
 
         <div class="sidebar-footer">
             <div class="sidebar-runtime-controls" aria-label="Runtime controls">
+                <details class="sidebar-runtime" id="sidebar-runtime">
+                    <summary>
+                        <span class="sidebar-runtime-heading">Runtime</span>
+                        <span id="sidebar-runtime-state" data-phase="idle" role="status">Checking…</span>
+                        <span id="sidebar-runtime-model">No local process running</span>
+                    </summary>
+                    <div class="sidebar-runtime-detail">
+                        <span id="sidebar-runtime-build"></span>
+                        <span id="sidebar-runtime-endpoint"></span>
+                        <button class="btn btn-sm" id="btn-sidebar-runtime-details" type="button">Open Monitor</button>
+                    </div>
+                </details>
                 <div class="sidebar-runtime-actions">
                     <button id="btn-sidebar-launch" class="btn btn-primary sidebar-runtime-btn" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                        Launch
+                        <span id="btn-sidebar-launch-label">Launch server</span>
                     </button>
                     <button id="btn-sidebar-stop" class="btn btn-danger sidebar-runtime-btn hidden" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12"/></svg></span>
-                        Stop
-                    </button>
-                    <button id="btn-sidebar-stop-app" class="btn btn-danger sidebar-runtime-power" type="button" aria-label="Stop Python Server" title="Stop Python Server">
-                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                        <span id="btn-sidebar-stop-label">Stop server</span>
                     </button>
                 </div>
+                <div class="sidebar-launch-reason" id="sidebar-launch-reason" hidden></div>
                 <details class="sidebar-memory-estimate" id="sidebar-memory-estimate">
-                    <summary class="sidebar-memory-summary">
-                        <span class="sidebar-memory-title">Memory</span>
+                    <summary class="sidebar-memory-summary" title="Estimated memory for your next launch, based on pending settings">
+                        <span class="sidebar-memory-title">Next launch</span>
                         <span class="sidebar-memory-reading">
                             <span class="sidebar-memory-label">GPU</span>
                             <strong id="memory-estimate-accelerator">--</strong>
@@ -162,6 +176,13 @@
                 </div>
                 <div class="sidebar-model-switcher-status" id="sidebar-model-switcher-status" aria-live="polite">Launch a slot in Quick Launch first</div>
             </section>
+            <nav class="sidebar-maintenance" aria-label="Maintenance">
+                <button class="nav-item" data-section="install">
+                    <span class="icon"><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></span>
+                    Install &amp; Update
+                </button>
+                <span id="version-badge" class="badge badge-neutral" title="Installed llama.cpp build">Not Installed</span>
+            </nav>
             <!-- The list is built by theme-ui.js from its THEMES registry, so
                  adding a theme needs no markup change here. -->
             <div class="sidebar-meta-row">
@@ -173,11 +194,10 @@
                     </button>
                     <ul class="theme-menu-list" id="theme-menu-list" role="menu" aria-label="Theme" hidden></ul>
                 </div>
-                <span id="version-badge" class="badge badge-neutral" title="llama.cpp version">Not Installed</span>
-            </div>
-            <div class="sidebar-status" id="sidebar-status" style="display:none;">
-                <span class="status-dot"></span>
-                <span id="sidebar-status-text">Running</span>
+                <button id="btn-sidebar-stop-app" class="btn sidebar-quit" type="button" title="Quit Llama GUI and stop its local process">
+                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/><line x1="12" y1="2" x2="12" y2="12"/></svg></span>
+                    Quit Llama GUI
+                </button>
             </div>
         </div>
     </aside>
@@ -188,7 +208,7 @@
         <div class="section-panel" id="section-install" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Install llama.cpp</div>
+                    <h1 class="page-title">Install &amp; Update</h1>
                     <div class="page-title-sub">Download releases, choose an install target, and manage your llama.cpp installation.</div>
                 </div>
             </div>
@@ -280,8 +300,8 @@
                     <p class="help-text">These actions remove files or stop the app itself. They ask for confirmation, but use them deliberately.</p>
                     <div class="form-row">
                         <button id="btn-remove-llama" class="btn btn-danger">Remove llama.cpp Files</button>
-                        <button id="btn-restart-app" class="btn" type="button">Restart Python Server</button>
-                        <button id="btn-stop-app" class="btn btn-danger" type="button">Stop Python Server</button>
+                        <button id="btn-restart-app" class="btn" type="button">Restart Llama GUI</button>
+                        <button id="btn-stop-app" class="btn btn-danger" type="button">Quit Llama GUI</button>
                     </div>
                 </div>
             </div>
@@ -289,30 +309,247 @@
 
         <!-- ═══ QUICK LAUNCH ═══ -->
         <div class="section-panel" id="section-quick-launch">
+            <div class="quick-runtime" aria-label="Current runtime">
+                <div><strong id="quick-runtime-state">Checking runtime…</strong><span id="quick-runtime-model"></span>
+                </div>
+                <span id="quick-runtime-build"></span>
+            </div>
             <div class="page-header">
                 <div>
-                    <div class="page-title">Quick Launch</div>
-                    <div class="page-title-sub">Pick a model, use a beginner-friendly setup, and launch with sensible llama.cpp defaults.</div>
+                    <h1 class="page-title">Quick Launch</h1>
+                    <div class="page-title-sub">Your next session, ready to go.</div>
                 </div>
-                <button id="btn-open-configure" class="btn btn-ghost" type="button">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/></svg></span>
-                    Fine-tune in Configure
-                </button>
+                <button id="btn-open-configure" class="btn btn-ghost" type="button">Open Configure ↗</button>
             </div>
-
-            <section class="card model-switch-card" id="model-switch-card" aria-labelledby="model-switch-title">
+            <section class="quick-saved" aria-labelledby="quick-saved-title">
+                <div class="quick-section-heading">
+                    <h2 id="quick-saved-title">Saved presets</h2>
+                    <button id="btn-quick-presets" class="btn btn-sm btn-ghost" type="button">View all →</button>
+                </div>
+                <div id="quick-saved-presets" class="quick-saved-grid">
+                </div>
+                <p id="quick-presets-status" class="help-text" role="status">Loading saved presets…</p>
+            </section>
+            <section class="preset-context hidden" data-preset-context aria-label="Saved preset comparison">
+                <div class="preset-context-heading">
+                    <div class="preset-context-identity"><span data-preset-origin>Unsaved configuration</span> <button type="button" class="btn btn-link" data-preset-name></button><span data-preset-state></span></div>
+                    <div class="preset-context-actions"><button type="button" class="btn btn-sm" data-preset-update>Update preset</button><button type="button" class="btn btn-sm btn-ghost" data-preset-save-new>Save as new preset</button></div>
+                </div>
+                <details data-preset-review class="preset-review hidden">
+                    <summary data-preset-review-label>Compared with saved preset</summary>
+                    <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+                </details>
+                <p class="help-text" data-preset-context-note></p>
+            </section>
+            <div class="quick-config">
+                <section class="quick-model-section" aria-label="Model and launch mode">
+                    <div class="quick-model-row">
+                        <div class="form-group">
+                            <label class="form-label" for="quick-model-select">Model</label>
+                            <div class="input-row">
+                                <select id="quick-model-select">
+                                    <option value="">-- Select Model --</option>
+                                </select>
+                                <button id="btn-quick-refresh-models" class="btn btn-sm" type="button" title="Refresh models" aria-label="Refresh models"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                </button>
+                            </div>
+                        </div>
+                        <button id="btn-quick-download" class="btn btn-sm" type="button">Download model</button>
+                    </div>
+                    <div class="models-folder-row quick-folder-row"><span class="form-label form-label-inline">Models folder</span><code id="quick-models-folder-path" class="models-folder-path">Loading…</code>
+                        <button id="btn-quick-change-models-folder" class="btn btn-sm btn-ghost" type="button">Change…</button>
+                        <button id="btn-quick-reset-models-folder" class="btn btn-sm btn-ghost" type="button" hidden>Reset to default</button>
+                    </div>
+                    <div id="quick-models-folder-error" class="status-box hidden" role="status">
+                    </div>
+                    <fieldset class="quick-mode-row">
+                        <legend>Launch mode</legend>
+                        <div class="quick-mode-toggle" id="quick-mode-toggle">
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-server" checked> Web / API server</label>
+                            <label class="quick-choice">
+                                <input type="radio" name="quick-launch-mode" value="llama-cli"> Terminal</label>
+                        </div><span id="quick-mode-summary" class="help-text"></span>
+                    </fieldset>
+                </section>
+                <div class="quick-tuning">
+                    <section class="quick-tuning-section" aria-labelledby="quick-memory-title">
+                        <h2 id="quick-memory-title">Memory &amp; GPU</h2>
+                        <div class="quick-settings-rows">
+                            <div class="form-group">
+                                <label class="form-label" for="quick-context-preset">Context Length</label>
+                                <div class="input-row">
+                                    <select id="quick-context-preset">
+                                        <option value="8192">8K</option>
+                                        <option value="16000">16K</option>
+                                        <option value="32768">32K</option>
+                                        <option value="64000">64K</option>
+                                        <option value="128000">128K</option>
+                                        <option value="256000">256K</option>
+                                        <option value="custom">Custom…</option>
+                                    </select>
+                                    <input type="number" id="quick-context-custom" min="0" step="1" aria-label="Custom context tokens" placeholder="Custom tokens" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-gpu-mode">GPU Offload</label>
+                                <div class="input-row">
+                                    <select id="quick-gpu-mode">
+                                        <option value="auto">Auto</option>
+                                        <option value="0">CPU only</option>
+                                        <option value="all">All GPU layers</option>
+                                        <option value="custom">Custom</option>
+                                    </select>
+                                    <input type="text" id="quick-gpu-custom" aria-label="Custom GPU layers" placeholder="Manual layers" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-fit-toggle">Auto Fit</label>
+                                <select id="quick-fit-toggle">
+                                    <option value="on">On</option>
+                                    <option value="off">Off</option>
+                                </select>
+                            </div>
+                        </div>
+                        <details class="fit-advanced">
+                            <summary>Advanced fit options</summary>
+                            <div class="quick-fit-grid">
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
+                                    <input type="text" id="quick-fit-target" placeholder="1024" />
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
+                                    <div class="input-row">
+                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
+                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        <p id="quick-fit-summary" class="help-text">
+                        </p>
+                    </section>
+                    <section class="quick-tuning-section" aria-labelledby="quick-sampling-title">
+                        <h2 id="quick-sampling-title">Sampling</h2>
+                        <div class="form-group">
+                            <label class="form-label" for="quick-sampler-select">Sampler Preset</label>
+                            <div class="input-row">
+                                <select id="quick-sampler-select">
+                                </select>
+                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
+                            </div>
+                        </div>
+                        <div class="quick-slider-grid">
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-temperature">Temperature</label>
+                                    <span class="sampler-slider-value" id="quick-temperature-value">—</span>
+                                    <input type="number" id="quick-temperature-input" class="quick-sampler-number" aria-label="Temperature value" min="0" step="any" placeholder="Default">
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-temperature" min="0" max="2" step="0.01" />
+                            </div>
+                            <div class="sampler-slider">
+                                <div class="sampler-slider-head">
+                                    <label class="form-label" for="quick-top-p">Top-P</label>
+                                    <span class="sampler-slider-value" id="quick-top-p-value">—</span>
+                                    <input type="number" id="quick-top-p-input" class="quick-sampler-number" aria-label="Top P value" min="0" max="1" step="any" placeholder="Default">
+                                </div>
+                                <input type="range" class="sampler-range" id="quick-top-p" min="0" max="1" step="0.01" />
+                            </div>
+                        </div>
+                        <details id="quick-sampling-details" class="fit-advanced">
+                            <summary>More sampling settings</summary>
+                            <div class="quick-slider-grid">
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-top-k">Top-K</label>
+                                        <span class="sampler-slider-value" id="quick-top-k-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-top-k" min="0" max="200" step="1" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-min-p">Min-P</label>
+                                        <span class="sampler-slider-value" id="quick-min-p-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-min-p" min="0" max="1" step="0.01" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
+                                        <span class="sampler-slider-value" id="quick-repeat-penalty-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-repeat-penalty" min="0.5" max="2" step="0.01" />
+                                </div>
+                                <div class="sampler-slider">
+                                    <div class="sampler-slider-head">
+                                        <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
+                                        <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
+                                    </div>
+                                    <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.1" />
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-sampler-name">Save Current Sampler</label>
+                                <div class="input-row">
+                                    <input type="text" id="quick-sampler-name" placeholder="Preset name..." />
+                                    <button id="btn-quick-sampler-save" class="btn btn-sm" type="button">Save</button>
+                                    <button id="btn-quick-sampler-rename" class="btn btn-sm" type="button">Rename</button>
+                                    <button id="btn-quick-sampler-delete" class="btn btn-sm btn-danger" type="button">Delete</button>
+                                </div>
+                            </div>
+                            <button id="btn-quick-more-sampling" class="btn btn-sm btn-ghost" type="button">All sampling flags in Configure ↗</button>
+                        </details>
+                    </section>
+                </div>
+                <details id="quick-server-settings" class="quick-disclosure">
+                    <summary><span>Server &amp; template settings</span><span id="quick-server-summary" class="quick-disclosure-summary"></span>
+                    </summary>
+                    <div class="quick-server-grid">
+                        <div id="quick-server-fields">
+                            <div class="form-group">
+                                <label class="form-label" for="quick-port">Port <code>--port</code>
+                                </label>
+                                <input type="number" id="quick-port" min="1" max="65535" step="1" placeholder="Server default">
+                            </div>
+                            <div class="quick-auth-section" id="quick-auth-section">
+                                <div class="quick-subsection-label">API Protection (optional)</div>
+                                <label class="form-label" for="quick-api-key">API Key</label>
+                                <div class="api-key-row">
+                                    <div id="quick-api-key-control">
+                                    </div>
+                                    <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
+                                </div>
+                                <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
+                            </div>
+                            <label class="checkbox-group">
+                                <input type="checkbox" id="quick-metrics-toggle" checked> Enable metrics &amp; stats bar</label>
+                        </div>
+                        <div class="quick-template-section">
+                            <div class="quick-subsection-label">Instruction Template</div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-template-pack">Template Pack</label>
+                                <select id="quick-template-pack">
+                                </select>
+                            </div>
+                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            <section class="model-switch-card quick-disclosure" id="model-switch-card" aria-labelledby="model-switch-title">
                 <div class="model-switch-header">
-                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="false" aria-controls="model-switch-body">
-                        <span class="model-switch-chevron" aria-hidden="true">▾</span>
+                    <button class="model-switch-collapse" id="model-switch-toggle" type="button" aria-expanded="false" aria-controls="model-switch-body"><span class="model-switch-chevron" aria-hidden="true">▾</span>
                         <span>
-                            <span class="card-kicker">Two-slot launcher</span>
                             <span class="model-switch-heading" id="model-switch-title">Model Switcher</span>
                             <span class="model-switch-summary" id="model-switch-summary">Assign two saved server presets for quick switching.</span>
                         </span>
                     </button>
                 </div>
                 <div id="model-switch-body" class="hidden" aria-hidden="true">
-                    <div class="model-switch-notice hidden" id="model-switch-notice" role="status" aria-live="polite"></div>
+                    <div class="model-switch-notice hidden" id="model-switch-notice" role="status" aria-live="polite">
+                    </div>
                     <div class="model-switch-slots">
                         <article class="model-switch-slot" id="model-switch-slot-a" aria-labelledby="model-switch-slot-a-title">
                             <div class="model-switch-slot-top">
@@ -323,15 +560,16 @@
                                 <span class="model-switch-badge" id="model-switch-slot-a-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Model</dt><dd id="model-switch-slot-a-model">—</dd></div>
-                                <div><dt>GGUF</dt><dd id="model-switch-slot-a-gguf">—</dd></div>
+                                <div><dt>Model</dt><dd id="model-switch-slot-a-model">—</dd>
+                                </div>
+                                <div><dt>GGUF</dt><dd id="model-switch-slot-a-gguf">—</dd>
+                                </div>
                             </dl>
                             <div class="slot-assign-row">
                                 <select id="model-switch-select-a" aria-label="Model A preset">
                                     <option value="">Assign preset…</option>
                                 </select>
-                                <button class="btn btn-sm" id="model-switch-refresh-a" type="button" title="Refresh presets" aria-label="Refresh Model A presets">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                <button class="btn btn-sm" id="model-switch-refresh-a" type="button" title="Refresh presets" aria-label="Refresh Model A presets"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 </button>
                                 <button class="btn btn-sm btn-ghost" id="model-switch-clear-a" type="button" title="Clear slot A" aria-label="Clear slot A preset" disabled>✕</button>
                             </div>
@@ -349,15 +587,16 @@
                                 <span class="model-switch-badge" id="model-switch-slot-b-badge">Unassigned</span>
                             </div>
                             <dl class="model-switch-details">
-                                <div><dt>Model</dt><dd id="model-switch-slot-b-model">—</dd></div>
-                                <div><dt>GGUF</dt><dd id="model-switch-slot-b-gguf">—</dd></div>
+                                <div><dt>Model</dt><dd id="model-switch-slot-b-model">—</dd>
+                                </div>
+                                <div><dt>GGUF</dt><dd id="model-switch-slot-b-gguf">—</dd>
+                                </div>
                             </dl>
                             <div class="slot-assign-row">
                                 <select id="model-switch-select-b" aria-label="Model B preset">
                                     <option value="">Assign preset…</option>
                                 </select>
-                                <button class="btn btn-sm" id="model-switch-refresh-b" type="button" title="Refresh presets" aria-label="Refresh Model B presets">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
+                                <button class="btn btn-sm" id="model-switch-refresh-b" type="button" title="Refresh presets" aria-label="Refresh Model B presets"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 </button>
                                 <button class="btn btn-sm btn-ghost" id="model-switch-clear-b" type="button" title="Clear slot B" aria-label="Clear slot B preset" disabled>✕</button>
                             </div>
@@ -370,342 +609,128 @@
                     <p class="help-text model-switch-footer-note">Only saved full presets configured for llama-server are available. Standby means the model configuration is saved and ready to preflight; it is not kept loaded in RAM or VRAM.</p>
                 </div>
             </section>
-
-            <div class="quick-grid">
-                <div class="quick-setup-grid span-full">
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Model</div>
-                            </div>
-                            <div class="card-icon icon-blue">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-model-select">Model</label>
-                            <div class="input-row">
-                                <select id="quick-model-select">
-                                    <option value="">-- Select Model --</option>
-                                </select>
-                                <button id="btn-quick-refresh-models" class="btn btn-sm" type="button" title="Refresh models" aria-label="Refresh models">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-profile-select">Profile</label>
-                            <select id="quick-profile-select">
-                                <option value="">Choose a profile...</option>
-                            </select>
-                        </div>
-                        <p id="quick-profile-summary" class="help-text">Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.</p>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Launch Mode</div>
-                            </div>
-                            <div class="card-icon icon-green">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="quick-mode-toggle" id="quick-mode-toggle">
-                            <label class="quick-choice">
-                                <span class="quick-choice-title">
-                                    <input type="radio" name="quick-launch-mode" value="llama-server" checked />
-                                    Web / API Server
-                                </span>
-                                <span class="quick-choice-desc">Browser chat and OpenAI-compatible API endpoints.</span>
-                            </label>
-                            <label class="quick-choice">
-                                <span class="quick-choice-title">
-                                    <input type="radio" name="quick-launch-mode" value="llama-cli" />
-                                    Terminal Chat
-                                </span>
-                                <span class="quick-choice-desc">Interactive llama-cli chat in a console window.</span>
-                            </label>
-                        </div>
-                        <p id="quick-mode-summary" class="help-text">API Server exposes the OpenAI-compatible endpoints and built-in web UI.</p>
-
-                        <div class="quick-auth-section" id="quick-auth-section">
-                            <div class="quick-subsection-label">API Protection (optional)</div>
-                            <label class="form-label" for="quick-api-key">API Key</label>
-                            <div class="api-key-row">
-                                <div id="quick-api-key-control"></div>
-                                <span class="protected-badge" id="quick-api-protected-badge">● Protected</span>
-                            </div>
-                            <p class="help-text">Leave blank to keep the current open-access behavior. The key is not saved in presets.</p>
-                        </div>
-
-                        <div class="quick-template-section">
-                            <div class="quick-subsection-label">Instruction Template</div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-template-pack">Template Pack</label>
-                                <select id="quick-template-pack"></select>
-                            </div>
-                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
+            <section class="quick-launch-bar" aria-label="Launch">
+                <div class="quick-launch-bar-main">
+                    <div class="quick-launch-info"><strong id="quick-launch-readiness">Choose a model</strong>
+                        <div class="readiness-bar" id="quick-readiness-bar">
+                            <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
+                            <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: optional</span></span>
+                            <span class="readiness-chip info" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
+                            <span class="readiness-chip info" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
+                            <span class="readiness-chip info" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
                         </div>
                     </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Memory &amp; Fit</div>
-                            </div>
-                            <div class="card-icon icon-cyan">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="12" x2="6" y2="12.01"/><line x1="10" y1="12" x2="10" y2="12.01"/><line x1="14" y1="12" x2="14" y2="12.01"/><line x1="18" y1="12" x2="18" y2="12.01"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-context-preset">Context Length</label>
-                            <div class="input-row">
-                                <select id="quick-context-preset">
-                                    <option value="8192">8K</option>
-                                    <option value="16000">16K</option>
-                                    <option value="32768">32K</option>
-                                    <option value="64000">64K (recommended)</option>
-                                    <option value="128000">128K</option>
-                                    <option value="256000">256K</option>
-                                    <option value="custom">Custom…</option>
-                                </select>
-                                <input type="number" id="quick-context-custom" min="0" step="1" placeholder="Custom tokens" />
-                            </div>
-                            <p class="help-text">64K is a strong default for most local chat use. Higher values use more RAM or VRAM.</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="quick-gpu-mode">GPU Offload</label>
-                            <div class="input-row">
-                                <select id="quick-gpu-mode">
-                                    <option value="auto">Auto</option>
-                                    <option value="0">CPU only</option>
-                                    <option value="all">All GPU layers</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                                <input type="text" id="quick-gpu-custom" placeholder="Manual layers" />
-                            </div>
-                            <p class="help-text">Leave this on Auto unless you are tuning a specific machine.</p>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label" for="quick-fit-toggle">Auto Fit</label>
-                            <select id="quick-fit-toggle">
-                                <option value="on">On</option>
-                                <option value="off">Off</option>
-                            </select>
-                        </div>
-
-                        <details class="fit-advanced">
-                            <summary>Advanced fit options</summary>
-                            <div class="quick-fit-grid">
-                                <div class="form-group">
-                                    <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
-                                    <input type="text" id="quick-fit-target" placeholder="1024" />
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
-                                    <div class="input-row">
-                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
-                                        <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </details>
-
-                        <p id="quick-fit-summary" class="help-text"></p>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <div class="card-title">Sampler</div>
-                            </div>
-                            <div class="card-icon icon-magenta">
-                                <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-sampler-select">Sampler Preset</label>
-                            <div class="input-row">
-                                <select id="quick-sampler-select"></select>
-                                <button id="btn-quick-sampler-load" class="btn btn-sm" type="button">Load</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="quick-sampler-name">Save Current Sampler</label>
-                            <div class="input-row">
-                                <input type="text" id="quick-sampler-name" placeholder="Preset name..." />
-                                <button id="btn-quick-sampler-save" class="btn btn-sm" type="button">Save</button>
-                                <button id="btn-quick-sampler-rename" class="btn btn-sm" type="button">Rename</button>
-                                <button id="btn-quick-sampler-delete" class="btn btn-sm btn-danger" type="button">Delete</button>
-                            </div>
-                        </div>
-
-                        <div class="quick-slider-grid">
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-temperature">Temperature</label>
-                                    <span class="sampler-slider-value" id="quick-temperature-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-temperature" min="0" max="2" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-top-k">Top-K</label>
-                                    <span class="sampler-slider-value" id="quick-top-k-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-top-k" min="0" max="200" step="1" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-top-p">Top-P</label>
-                                    <span class="sampler-slider-value" id="quick-top-p-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-top-p" min="0" max="1" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-min-p">Min-P</label>
-                                    <span class="sampler-slider-value" id="quick-min-p-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-min-p" min="0" max="1" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-repeat-penalty">Repeat Penalty</label>
-                                    <span class="sampler-slider-value" id="quick-repeat-penalty-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-repeat-penalty" min="0.5" max="2" step="0.01" />
-                            </div>
-                            <div class="sampler-slider">
-                                <div class="sampler-slider-head">
-                                    <label class="form-label" for="quick-presence-penalty">Presence Penalty</label>
-                                    <span class="sampler-slider-value" id="quick-presence-penalty-value">—</span>
-                                </div>
-                                <input type="range" class="sampler-range" id="quick-presence-penalty" min="0" max="2" step="0.1" />
-                            </div>
-                        </div>
+                    <div class="quick-actions">
+                        <button id="btn-quick-launch" class="btn btn-primary " type="button"><span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
+                            <span id="btn-quick-launch-label">Launch server</span>
+                        </button>
+                        <button id="btn-quick-stop" class="btn btn-danger  hidden" type="button"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
+                            <span id="btn-quick-stop-label">Stop server</span>
+                        </button>
                     </div>
                 </div>
-
-                <details class="card hf-download-panel span-full">
-                    <summary class="hf-download-title">
-                        <span class="hf-download-copy">
-                            <span class="hf-download-label">Download from Hugging Face</span>
-                            <span class="hf-download-summary">Find GGUF files from a repo</span>
-                        </span>
-                        <span class="hf-download-toggle" aria-hidden="true">
-                            <span class="hf-toggle-expand">Expand</span>
-                            <span class="hf-toggle-collapse">Collapse</span>
-                        </span>
-                    </summary>
-                    <div class="hf-download-body">
-                        <div id="hf-download-status" class="hf-download-status"></div>
-                        <div class="form-group">
-                            <label class="form-label" for="hf-repo-input">Repo ID</label>
-                            <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
-                        </div>
-                        <div class="hf-download-grid">
-                            <div class="form-group">
-                                <label class="form-label" for="hf-revision-input">Revision</label>
-                                <input type="text" id="hf-revision-input" placeholder="main" />
-                            </div>
-                            <div class="form-group">
-                                <label class="form-label" for="hf-token-input">Token</label>
-                                <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" spellcheck="false" />
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <button id="btn-hf-find-files" class="btn btn-sm" type="button">Find GGUF Files</button>
-                        </div>
-                        <div id="hf-file-options" class="hidden">
-                            <div class="form-group">
-                                <label class="form-label" for="hf-model-file-select">Model File</label>
-                                <select id="hf-model-file-select"></select>
-                            </div>
-                            <div class="form-group" id="hf-mmproj-group">
-                                <label class="form-label" for="hf-mmproj-file-select">Companion mmproj</label>
-                                <select id="hf-mmproj-file-select"></select>
-                            </div>
-                            <div id="hf-download-progress" class="progress-container hidden">
-                                <div class="progress-bar"><div id="hf-progress-fill" class="progress-fill"></div></div>
-                                <span id="hf-progress-text">Starting...</span>
-                            </div>
-                            <div class="form-row">
-                                <button id="btn-hf-download" class="btn btn-primary" type="button">Download</button>
-                                <button id="btn-hf-cancel" class="btn btn-danger hidden" type="button">Cancel</button>
-                            </div>
-                        </div>
+                <div id="quick-launch-status" class="quick-launch-status" role="status" aria-live="polite">
+                </div>
+                <div class="quick-launch-links"><span class="quick-endpoint-label">Next launch endpoint</span>
+                    <div id="quick-server-address" class="server-address server-address-bare hidden">
+                        <span class="badge badge-accent"><span class="badge-dot"></span> <a id="quick-server-url" href="#" target="_blank" class="badge-link"></a></span>
+                        <span class="server-sep">|</span>
+                        <a id="quick-server-webui" href="#" target="_blank" class="server-link">Web UI</a>
+                        <button id="btn-copy-quick-server-url" class="btn btn-sm btn-ghost" type="button" title="Copy URL" aria-label="Copy Quick Launch server URL"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                        </button>
                     </div>
-                </details>
-
-                <div class="card span-full launch-preview">
-                    <div class="card-header">
-                        <div>
-                            <div class="card-kicker">Launch</div>
-                            <div class="card-title">Launch Preview</div>
-                        </div>
-                        <div class="launch-preview-badges">
-                            <div id="quick-server-address" class="server-address server-address-bare hidden">
-                                <span class="badge badge-accent"><span class="badge-dot"></span> <a id="quick-server-url" href="#" target="_blank" class="badge-link"></a></span>
-                                <span class="server-sep">|</span>
-                                <a id="quick-server-webui" href="#" target="_blank" class="server-link">Web UI</a>
-                                <button id="btn-copy-quick-server-url" class="btn btn-sm btn-ghost" type="button" title="Copy URL" aria-label="Copy Quick Launch server URL">
-                                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                                </button>
-                            </div>
-                            <label class="toggle toggle-sm">
-                                <input type="checkbox" id="quick-metrics-toggle" checked />
-                                <span class="toggle-track"><span class="toggle-thumb"></span></span>
-                                Stats bar
-                            </label>
-                        </div>
-                    </div>
-                    <p class="help-text">Quick Launch uses the same shared settings as Configure. You can always switch over for full control.</p>
-                    <div class="readiness-bar" id="quick-readiness-bar">
-                        <span class="readiness-chip missing" id="quick-chip-model"><span class="chip-dot"></span><span class="chip-text">Model: none</span></span>
-                        <span class="readiness-chip info" id="quick-chip-profile"><span class="chip-dot"></span><span class="chip-text">Profile: optional</span></span>
-                        <span class="readiness-chip info" id="quick-chip-context"><span class="chip-dot"></span><span class="chip-text">Context: 64K</span></span>
-                        <span class="readiness-chip info" id="quick-chip-gpu"><span class="chip-dot"></span><span class="chip-text">GPU: Auto</span></span>
-                        <span class="readiness-chip info" id="quick-chip-api"><span class="chip-dot"></span><span class="chip-text">API: open access</span></span>
-                    </div>
-                    <details class="cmd-preview-toggle">
-                        <summary>Show launch command</summary>
+                    <details class="cmd-preview-toggle" id="quick-command-details">
+                        <summary>View command</summary>
                         <div class="code-block-wrap">
-                            <div class="code-block" id="quick-command-preview"></div>
-                            <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command">
-                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                            <div class="code-block" id="quick-command-preview">
+                            </div>
+                            <button id="btn-copy-quick-command" class="btn btn-xs btn-ghost code-block-copy" type="button" title="Copy command" aria-label="Copy Quick Launch command"><span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
                                 Copy
                             </button>
                         </div>
                     </details>
-                    <div id="quick-launch-status" class="quick-launch-status" role="status" aria-live="polite"></div>
-                    <div class="quick-actions-sticky">
-                        <div class="quick-actions">
-                            <button id="btn-quick-launch" class="btn btn-primary btn-lg" type="button">
-                                <span class="icon"><svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg></span>
-                                <span id="btn-quick-launch-label">Launch</span>
-                            </button>
-                            <button id="btn-quick-stop" class="btn btn-danger btn-lg hidden" type="button">
-                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/></svg></span>
-                                Stop
-                            </button>
+                </div>
+            </section>
+            <details id="quick-starter-profiles" class="quick-disclosure">
+                <summary><span>Starter profiles</span><span class="quick-disclosure-summary">Built-in starting points</span>
+                </summary>
+                <div class="quick-profile-body">
+                    <div class="form-group">
+                        <label class="form-label" for="quick-profile-select">Profile</label>
+                        <select id="quick-profile-select">
+                            <option value="">Choose a profile...</option>
+                        </select>
+                    </div>
+                    <p id="quick-profile-summary" class="help-text">
+                    </p>
+                </div>
+            </details>
+            <details class="hf-download-panel quick-disclosure">
+                <summary class="hf-download-title">
+                    <span class="hf-download-copy">
+                        <span class="hf-download-label">Download from Hugging Face</span>
+                        <span class="hf-download-summary">Find GGUF files from a repo</span>
+                    </span>
+                    <span class="hf-download-toggle" aria-hidden="true">
+                        <span class="hf-toggle-expand">Expand</span>
+                        <span class="hf-toggle-collapse">Collapse</span>
+                    </span>
+                </summary>
+                <div class="hf-download-body">
+                    <div id="hf-download-status" class="hf-download-status">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="hf-repo-input">Repo ID</label>
+                        <input type="text" id="hf-repo-input" placeholder="owner/model-GGUF" />
+                    </div>
+                    <div class="hf-download-grid">
+                        <div class="form-group">
+                            <label class="form-label" for="hf-revision-input">Revision</label>
+                            <input type="text" id="hf-revision-input" placeholder="main" />
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="hf-token-input">Token</label>
+                            <input type="password" id="hf-token-input" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <button id="btn-hf-find-files" class="btn btn-sm" type="button">Find GGUF Files</button>
+                    </div>
+                    <div id="hf-file-options" class="hidden">
+                        <div class="form-group">
+                            <label class="form-label" for="hf-model-file-select">Model File</label>
+                            <select id="hf-model-file-select">
+                            </select>
+                        </div>
+                        <div class="form-group" id="hf-mmproj-group">
+                            <label class="form-label" for="hf-mmproj-file-select">Companion mmproj</label>
+                            <select id="hf-mmproj-file-select">
+                            </select>
+                        </div>
+                        <div id="hf-download-progress" class="progress-container hidden">
+                            <div class="progress-bar">
+                                <div id="hf-progress-fill" class="progress-fill">
+                                </div>
+                            </div>
+                            <span id="hf-progress-text">Starting...</span>
+                        </div>
+                        <div class="form-row">
+                            <button id="btn-hf-download" class="btn btn-primary" type="button">Download</button>
+                            <button id="btn-hf-cancel" class="btn btn-danger hidden" type="button">Cancel</button>
                         </div>
                     </div>
                 </div>
-            </div>
+            </details>
         </div>
 
         <!-- ═══ CONFIGURE ═══ -->
         <div class="section-panel" id="section-configure" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Configure &amp; Launch</div>
+                    <h1 class="page-title">Configure &amp; Launch</h1>
                 </div>
-                <div class="input-row">
-                    <label class="form-label form-label-inline">Tool:</label>
+                <div class="input-row page-actions">
+                    <label class="form-label form-label-inline" for="tool-select">Tool:</label>
                     <select id="tool-select">
                         <option value="llama-cli">llama-cli (Interactive Chat)</option>
                         <option value="llama-server" selected>llama-server (HTTP API)</option>
@@ -728,6 +753,17 @@
             </div>
             <div id="models-folder-error" class="status-box hidden" role="status" aria-live="polite"></div>
 
+            <section class="preset-context hidden" data-preset-context aria-label="Saved preset comparison">
+                <div class="preset-context-heading">
+                    <div class="preset-context-identity"><span data-preset-origin>Unsaved configuration</span> <button type="button" class="btn btn-link" data-preset-name></button><span data-preset-state></span></div>
+                    <div class="preset-context-actions"><button type="button" class="btn btn-sm" data-preset-update>Update preset</button><button type="button" class="btn btn-sm btn-ghost" data-preset-save-new>Save as new preset</button></div>
+                </div>
+                <details data-preset-review class="preset-review hidden">
+                    <summary data-preset-review-label>Compared with saved preset</summary>
+                    <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+                </details>
+                <p class="help-text" data-preset-context-note></p>
+            </section>
             <div class="config-controls">
                 <input type="text" id="config-search" placeholder="Search categories and flags..." />
                 <div class="form-row">
@@ -737,7 +773,39 @@
                 </div>
             </div>
 
+            <section class="config-runtime" aria-label="Configuration comparison">
+                <div class="config-runtime-heading">
+                    <div class="config-runtime-identity">
+                        <strong id="config-runtime-state">Stopped</strong>
+                        <span id="config-runtime-model">No local process running</span>
+                        <span id="config-runtime-build"></span>
+                    </div>
+                    <div class="config-comparison-actions">
+                        <span id="config-change-count" role="status"></span>
+                        <label class="checkbox-group"><input type="checkbox" id="config-changes-only" disabled> Changed since launch</label>
+                        <button id="config-restart" type="button" class="btn btn-primary btn-sm hidden" aria-describedby="config-restart-help">Restart with changes</button>
+                    </div>
+                </div>
+                <p id="config-comparison-note">Launch a model to compare edits with its launch settings.</p>
+                <p id="config-restart-help" class="hidden">Restart loads the selected model with your current settings and interrupts active requests.</p>
+                <details id="config-comparison-about" class="hidden">
+                    <summary>About this comparison</summary>
+                    <p id="config-comparison-exclusions"></p>
+                </details>
+                <p id="config-restart-error" class="config-restart-error hidden" role="alert"></p>
+                <details id="config-change-review" class="hidden">
+                    <summary>Review changes</summary>
+                    <div class="config-change-table-wrap">
+                        <table class="config-change-table">
+                            <thead><tr><th scope="col">Setting</th><th scope="col">At launch</th><th scope="col">Next launch</th></tr></thead>
+                            <tbody id="config-change-list"></tbody>
+                        </table>
+                    </div>
+                    <button id="config-revert-changes" type="button" class="btn btn-sm">Revert compared settings</button>
+                </details>
+            </section>
             <div id="flags-container"></div>
+            <p id="config-comparison-empty" class="flags-empty hidden">No settings match this search and change filter.</p>
 
             <div class="custom-launch-args-panel">
                 <div class="custom-args-header">
@@ -793,23 +861,37 @@
         <div class="section-panel" id="section-monitor" style="display:none;">
             <div class="page-header monitor-page-header">
                 <div>
-                    <div class="page-title">Monitor</div>
-                    <div class="page-title-sub">Live process output, inference activity, system resources, and GPU telemetry for this machine.</div>
+                    <h1 class="page-title">Monitor</h1>
+                    <div class="page-title-sub">Follow the active runtime, inference activity, and this machine’s resources.</div>
                 </div>
-                <div class="monitor-header-actions">
-                    <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="The next poll is scheduled after the previous response completes">Unavailable</span>
+                <div class="page-actions monitor-header-actions">
+                    <span class="badge badge-dim" id="monitor-live-badge" aria-live="polite" title="System telemetry refreshes independently of the llama-server lifecycle">System telemetry · Unavailable</span>
                     <span class="monitor-updated">Updated <span id="monitor-last-updated">--:--:--</span></span>
-                    <button class="btn btn-sm" id="btn-monitor-recheck" type="button" title="Probe vendor GPU tools again now">
-                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
-                        Recheck GPU monitoring
-                    </button>
                 </div>
             </div>
+
+            <section class="monitor-runtime" aria-label="Active runtime">
+                <div class="monitor-runtime-heading">
+                    <div class="monitor-runtime-identity">
+                        <span class="badge badge-neutral" id="monitor-runtime-state" aria-live="polite">Checking…</span>
+                        <strong id="monitor-runtime-model">No local process running</strong>
+                    </div>
+                    <div class="page-actions">
+                        <button class="btn btn-sm hidden" id="btn-monitor-quick-launch" type="button">Open Quick Launch</button>
+                        <button class="btn btn-sm hidden" id="btn-monitor-api" type="button">Open API</button>
+                        <button class="btn btn-sm" id="btn-monitor-configure" type="button">Open Configure</button>
+                        <button class="btn btn-sm hidden" id="btn-monitor-review" type="button">Review changes</button>
+                    </div>
+                </div>
+                <div class="monitor-runtime-details"><span id="monitor-runtime-build"></span><span id="monitor-runtime-endpoint"></span></div>
+                <p class="help-text hidden" id="monitor-runtime-note"></p>
+                <p class="help-text hidden" id="monitor-runtime-error" role="status"></p>
+            </section>
 
             <!-- Process output (moved here from Configure, IDs preserved) -->
             <div class="card monitor-section monitor-output-section" id="output-section">
                 <div class="output-header">
-                    <h3>Process Output</h3>
+                    <h3 id="monitor-output-title">Process Output</h3>
                     <div class="monitor-output-tools">
                         <span class="badge badge-neutral hidden" id="monitor-process-tool"></span>
                         <span class="badge badge-green hidden" id="monitor-process-state">Running</span>
@@ -822,7 +904,7 @@
                     No process running &mdash; the most recent output backlog is retained until the next launch.
                 </p>
                 <div class="status-box info hidden" id="monitor-external-note">
-                    Connected to an external llama-server. System and GPU stats stay live, but process output is unavailable &mdash; Llama GUI does not own that process&rsquo;s stdout.
+                    Connected to an external llama-server. Inference readings come from that server; hardware readings describe this machine. Process output is unavailable because Llama GUI did not start that process.
                 </div>
 
                 <div id="output-terminal" class="terminal" aria-label="Process output log"></div>
@@ -846,6 +928,7 @@
 
             <!-- Compact system cards plus the optional expanded inference card -->
             <div class="monitor-section" id="monitor-system-section">
+                <p class="help-text monitor-scope-note">CPU, memory, disk, and GPU readings cover this machine, including other applications. Inference readings come directly from llama-server and do not require vendor GPU monitoring tools.</p>
                 <div class="monitor-metrics-grid monitor-drag-container" id="monitor-card-grid">
                     <div class="card" data-monitor-key="system:cpu" data-monitor-label="CPU">
                         <div class="card-header">
@@ -885,24 +968,21 @@
                         <div class="monitor-metric-sub" id="monitor-memory-sub"></div>
                     </div>
 
-                    <div class="card" data-monitor-key="system:disk" data-monitor-label="Application disk">
+                    <div class="card" data-monitor-key="system:disk" data-monitor-label="Disk activity">
                         <div class="card-header">
                             <div>
                                 <div class="card-kicker">System</div>
-                                <div class="card-title">Disk</div>
+                                <div class="card-title">Disk activity</div>
                             </div>
                             <div class="monitor-card-tools">
-                                <button class="btn btn-sm btn-ghost monitor-drag-handle" type="button" draggable="true" title="Drag to reorder; use arrow keys to move" aria-label="Move application disk monitor; use arrow keys">⠿</button>
+                                <button class="btn btn-sm btn-ghost monitor-drag-handle" type="button" draggable="true" title="Drag to reorder; use arrow keys to move" aria-label="Move disk activity monitor; use arrow keys">⠿</button>
                                 <button class="btn btn-sm btn-ghost monitor-hide-btn" type="button" data-monitor-hide="system:disk" aria-label="Hide disk monitor">Hide</button>
                                 <div class="card-icon icon-cyan">
                                     <span class="icon icon-lg"><svg viewBox="0 0 24 24"><line x1="22" y1="12" x2="2" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" y1="16" x2="6.01" y2="16"/><line x1="10" y1="16" x2="10.01" y2="16"/></svg></span>
                                 </div>
                             </div>
                         </div>
-                        <div class="monitor-metric-value" id="monitor-disk-value">Not available</div>
-                        <div id="monitor-disk-bar"></div>
-                        <div class="monitor-metric-sub" id="monitor-disk-sub"></div>
-                        <div class="monitor-io-grid hidden" id="monitor-disk-io">
+                        <div class="monitor-io-grid" id="monitor-disk-io">
                             <div class="monitor-io-cell">
                                 <span class="monitor-io-label">Read</span>
                                 <span class="monitor-io-value" id="monitor-disk-read">Not available</span>
@@ -912,6 +992,8 @@
                                 <span class="monitor-io-value" id="monitor-disk-write">Not available</span>
                             </div>
                         </div>
+                        <div class="monitor-disk-activity" id="monitor-disk-activity">Collecting activity…</div>
+                        <div class="monitor-metric-sub" id="monitor-disk-sub"></div>
                     </div>
 
                     <div class="card monitor-inference-card" id="monitor-inference-card" data-monitor-key="inference" data-monitor-label="Inference">
@@ -962,35 +1044,52 @@
 
                         <div id="monitor-inference-empty">
                             <div class="empty-state empty-state-sm">
-                                <div class="empty-state-title">Inference metrics unavailable</div>
-                                <p>Start or connect to a llama-server to view token, request, and context activity.</p>
+                                <div class="empty-state-title">No inference readings</div>
                             </div>
                         </div>
+                        <p class="help-text" id="monitor-inference-note">Start or connect to a llama-server to view token, request, and context activity. GPU monitoring tools are not required.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- Degraded GPU telemetry states; detected GPUs join the metrics grid above. -->
-            <div class="monitor-section" id="monitor-gpu-section">
-                <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
-            </div>
+            <details class="monitor-gpu-help monitor-section" id="monitor-gpu-help">
+                <summary><strong id="monitor-gpu-summary">Checking GPU telemetry…</strong><span>Monitoring details &amp; optional setup</span></summary>
+                <div class="monitor-gpu-help-body">
+                    <div class="monitor-runtime-heading">
+                        <p class="help-text">GPU probes add utilization, VRAM, and temperature readings where supported. Process output, server inference, and available system readings work independently.</p>
+                        <button class="btn btn-sm" id="btn-monitor-recheck" type="button">Recheck GPU monitoring</button>
+                    </div>
+                    <!-- Detected GPUs join the metrics grid above; guidance stays secondary. -->
+                    <div class="monitor-section" id="monitor-gpu-section">
+                        <div class="stacked-cards monitor-drag-container" id="monitor-gpu-states"></div>
+                    </div>
 
-            <!-- Only the relevant failed provider gets a setup card. -->
-            <div class="monitor-section hidden" id="monitor-gpu-setup">
-                <div class="status-box info">Setup states are provider-specific. Commands come from a fixed backend allowlist and are shown for you to run &mdash; Llama GUI never executes package managers or elevates privileges.</div>
-                <div class="stacked-cards monitor-setup-cards monitor-drag-container" id="monitor-setup-cards"></div>
-            </div>
+                    <!-- Only the relevant failed provider gets a setup card. -->
+                    <div class="monitor-section hidden" id="monitor-gpu-setup">
+                        <p class="help-text">Follow the guidance for your detected hardware. Copying a command does not run it.</p>
+                        <div class="stacked-cards monitor-setup-cards monitor-drag-container" id="monitor-setup-cards"></div>
+                    </div>
+                </div>
+            </details>
         </div>
 
         <!-- ═══ CHAT ═══ -->
         <div class="section-panel" id="section-chat" style="display:none;">
-            <div class="chat-header-bar">
+            <div class="page-header chat-header-bar">
                 <div class="chat-header-title">
-                    <h2>Chat</h2>
+                    <h1 class="page-title">Chat</h1>
                     <span class="badge badge-green" id="chat-status-badge" style="display:none;"><span class="badge-dot"></span> Server Running</span>
                     <span class="badge badge-neutral" id="chat-no-server-badge">No Server</span>
                 </div>
-                <div class="chat-header-actions">
+                <div class="page-actions chat-header-actions">
+                    <button class="btn btn-sm btn-ghost btn-history-open" id="btn-open-history" type="button" title="Show conversations" aria-label="Show conversations" aria-controls="chat-history-panel" aria-expanded="false">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+                        Conversations
+                    </button>
+                    <button class="btn btn-sm btn-ghost btn-settings-open" id="btn-open-sidebar" type="button" title="Show settings" aria-label="Show settings" aria-controls="chat-sidebar" aria-expanded="false">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
+                        Settings
+                    </button>
                     <button class="btn btn-sm btn-ghost" id="btn-chat-focus" type="button" aria-pressed="false" title="Focus Chat">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></span>
                         <span id="chat-focus-label">Focus</span>
@@ -1021,9 +1120,6 @@
                         </button>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-sidebar-open btn-history-open" id="btn-open-history" type="button" title="Show conversations" aria-label="Show conversations" aria-controls="chat-history-panel" aria-expanded="false">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
-                </button>
                 <div class="chat-main">
                     <div class="chat-messages" id="chat-messages">
                         <div class="chat-empty" id="chat-empty">
@@ -1086,9 +1182,6 @@
                         </div>
                     </div>
                 </div>
-                <button class="btn btn-sm btn-sidebar-open btn-settings-open" id="btn-open-sidebar" type="button" title="Show settings" aria-label="Show settings" aria-controls="chat-sidebar" aria-expanded="false">
-                    <span class="icon icon-sm"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
-                </button>
                 <div class="chat-sidebar" id="chat-sidebar">
                     <div class="sidebar-header">
                         <h3>Settings</h3>
@@ -1099,7 +1192,7 @@
                     <div class="sidebar-body">
                         <div class="sidebar-section">
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> System Prompt</div>
-                            <textarea class="sidebar-system-prompt" id="chat-system-prompt" placeholder="You are a helpful assistant..."></textarea>
+                            <textarea class="sidebar-system-prompt" id="chat-system-prompt" aria-label="System prompt" placeholder="You are a helpful assistant..."></textarea>
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
                         </div>
                         <div class="sidebar-section">
@@ -1114,7 +1207,7 @@
                                     <option value="high">High</option>
                                     <option value="xhigh">XHigh</option>
                                 </select>
-                                <div class="sidebar-field-desc">Sent per request as top-level reasoning_effort, with a chat-template-kwargs fallback for older builds. Unsupported models ignore it or may reject non-default values.</div>
+                                <div class="sidebar-field-desc">Applies to the next message. Unsupported models may ignore or reject non-default values.</div>
                                 <div id="chat-thinking-effort-cap-hint" class="chat-effort-cap-warning hidden"></div>
                             </div>
                         </div>
@@ -1130,52 +1223,57 @@
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span> Samplers</div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Temperature</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-temp">Temperature</label>
                                     <span class="sidebar-sampler-value" id="chat-val-temp">0.80</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Higher = more random, lower = more focused</div>
                                 <input type="range" id="chat-slider-temp" min="0" max="2" step="0.01" value="0.80">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Top-P</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-top-p">Top-P</label>
                                     <span class="sidebar-sampler-value" id="chat-val-top-p">0.95</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Nucleus sampling threshold</div>
                                 <input type="range" id="chat-slider-top-p" min="0" max="1" step="0.01" value="0.95">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Top-K</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-top-k">Top-K</label>
                                     <span class="sidebar-sampler-value" id="chat-val-top-k">40</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Limits vocabulary to top K tokens</div>
                                 <input type="range" id="chat-slider-top-k" min="1" max="200" step="1" value="40">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Min-P</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-min-p">Min-P</label>
                                     <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Minimum probability relative to top token</div>
                                 <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Repeat Penalty</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-repeat">Repeat Penalty</label>
                                     <span class="sidebar-sampler-value" id="chat-val-repeat">1.00</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Penalize repeated tokens</div>
                                 <input type="range" id="chat-slider-repeat" min="1" max="2" step="0.01" value="1.00">
                             </div>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
-                                    <span class="sidebar-sampler-text">Max Tokens</span>
+                                    <label class="sidebar-sampler-text" for="chat-slider-max-tokens">Max Tokens</label>
                                     <span class="sidebar-sampler-value" id="chat-val-max-tokens">Server default</span>
                                 </div>
-                                <div class="sidebar-sampler-desc">Maximum tokens per response; -1 uses the server default.</div>
                                 <input type="range" id="chat-slider-max-tokens" aria-label="Max Tokens" min="-1" max="32768" step="1" value="-1">
                             </div>
+                            <details class="chat-settings-help">
+                                <summary>Sampler reference</summary>
+                                <dl>
+                                    <dt>Temperature</dt><dd>Higher = more random, lower = more focused</dd>
+                                    <dt>Top-P</dt><dd>Nucleus sampling threshold</dd>
+                                    <dt>Top-K</dt><dd>Limits vocabulary to top K tokens</dd>
+                                    <dt>Min-P</dt><dd>Minimum probability relative to top token</dd>
+                                    <dt>Repeat Penalty</dt><dd>Penalize repeated tokens</dd>
+                                    <dt>Max Tokens</dt><dd>Maximum tokens per response; -1 uses the server default.</dd>
+                                </dl>
+                            </details>
                         </div>
                     </div>
                 </div>
@@ -1186,11 +1284,76 @@
         <div class="section-panel" id="section-api" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">OpenAI-Compatible API</div>
+                    <h1 class="page-title">OpenAI-Compatible API</h1>
                     <div class="page-title-sub">llama-server can expose OpenAI-style endpoints so other apps and services can connect directly.</div>
                 </div>
             </div>
 
+            <div class="api-connections">
+                <details class="card api-connection" id="api-external-details">
+                    <summary>
+                        <span class="api-connection-heading"><span class="api-connection-title">Connect to a running server</span><span class="api-connection-hint">Use a llama-server on this machine started outside Llama GUI.</span></span>
+                        <span id="external-server-badge" class="remote-tunnel-badge">Not connected</span>
+                    </summary>
+                    <div class="api-connection-body">
+                        <div id="external-server-summary" class="api-base-row hidden">
+                            <span class="api-base-label">Target</span>
+                            <span id="external-server-target" class="server-link"></span>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-host">Host</label>
+                                <input type="text" id="external-server-host" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-port">Port</label>
+                                <input type="number" id="external-server-port" min="1" max="65535" value="8080" placeholder="8080" autocomplete="off" />
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label" for="external-server-key">API Key</label>
+                                <input type="password" id="external-server-key" placeholder="Optional" autocomplete="off" spellcheck="false" />
+                            </div>
+                        </div>
+                        <div id="external-server-note" class="api-status-note"></div>
+                        <div class="form-row">
+                            <button id="btn-connect-external-server" class="btn btn-primary" type="button">Connect</button>
+                            <button id="btn-disconnect-external-server" class="btn btn-danger hidden" type="button">Disconnect</button>
+                        </div>
+                    </div>
+                </details>
+                <details class="card api-connection" id="api-remote-details">
+                    <summary>
+                        <span class="api-connection-heading"><span class="api-connection-title">Remote access</span><span class="api-connection-hint">Share this session through a Cloudflare tunnel.</span></span>
+                        <span id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</span>
+                    </summary>
+                    <div class="api-connection-body">
+                        <div id="remote-tunnel-warning" class="remote-tunnel-warning">
+                            Anyone with the tunnel URL can access and control this Llama-GUI session and use the proxied OpenAI-compatible API until you stop the tunnel.
+                        </div>
+                        <div id="remote-tunnel-url-row" class="api-base-row hidden">
+                            <span class="api-base-label">Remote URL</span>
+                            <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                            <button id="btn-copy-remote-tunnel" class="btn btn-sm btn-ghost" type="button" title="Copy remote URL" aria-label="Copy remote URL">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                        <div id="remote-openai-url-row" class="api-base-row hidden">
+                            <span class="api-base-label">Remote OpenAI Base URL</span>
+                            <a id="remote-openai-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
+                            <button id="btn-copy-remote-openai" class="btn btn-sm btn-ghost" type="button" title="Copy remote OpenAI base URL" aria-label="Copy remote OpenAI base URL">
+                                <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
+                                Copy
+                            </button>
+                        </div>
+                        <div id="remote-tunnel-status" class="api-status-note">Remote tunnel is not running.</div>
+                        <div class="form-row">
+                            <button id="btn-start-remote-tunnel" class="btn btn-primary" type="button">Start Tunnel</button>
+                            <button id="btn-stop-remote-tunnel" class="btn btn-danger hidden" type="button">Stop Tunnel</button>
+                        </div>
+                    </div>
+                </details>
+            </div>
             <div class="card">
                 <div class="api-base-row">
                     <span class="api-base-label">Base URL</span>
@@ -1203,77 +1366,11 @@
 
                 <div id="api-status-note" class="api-status-note"></div>
 
-                <div class="section remote-access-panel">
-                    <div class="remote-access-header">
-                        <div>
-                            <h3>Connect to a Running Server</h3>
-                            <p class="api-intro">Point Chat, metrics, and this proxy at a llama-server you started yourself. Local addresses only.</p>
-                        </div>
-                        <div id="external-server-badge" class="remote-tunnel-badge">Not connected</div>
-                    </div>
-                    <div id="external-server-summary" class="api-base-row hidden">
-                        <span class="api-base-label">Target</span>
-                        <span id="external-server-target" class="server-link"></span>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-host">Host</label>
-                            <input type="text" id="external-server-host" value="127.0.0.1" placeholder="127.0.0.1" autocomplete="off" spellcheck="false" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-port">Port</label>
-                            <input type="number" id="external-server-port" min="1" max="65535" value="8080" placeholder="8080" autocomplete="off" />
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label" for="external-server-key">API Key</label>
-                            <input type="password" id="external-server-key" placeholder="Optional" autocomplete="off" spellcheck="false" />
-                        </div>
-                    </div>
-                    <div id="external-server-note" class="api-status-note"></div>
-                    <div class="form-row">
-                        <button id="btn-connect-external-server" class="btn btn-primary" type="button">Connect</button>
-                        <button id="btn-disconnect-external-server" class="btn btn-danger hidden" type="button">Disconnect</button>
-                    </div>
-                </div>
-
-                <div class="section remote-access-panel">
-                    <div class="remote-access-header">
-                        <div>
-                            <h3>Remote Access</h3>
-                            <p class="api-intro">Start an opt-in Cloudflare tunnel for Llama-GUI and its proxied OpenAI-compatible API.</p>
-                        </div>
-                        <div id="remote-tunnel-badge" class="remote-tunnel-badge">Idle</div>
-                    </div>
-                    <div id="remote-tunnel-warning" class="remote-tunnel-warning">
-                        Anyone with the tunnel URL can access and control this Llama-GUI session and use the proxied OpenAI-compatible API until you stop the tunnel.
-                    </div>
-                    <div id="remote-tunnel-url-row" class="api-base-row hidden">
-                        <span class="api-base-label">Remote URL</span>
-                        <a id="remote-tunnel-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
-                        <button id="btn-copy-remote-tunnel" class="btn btn-sm btn-ghost" type="button" title="Copy remote URL" aria-label="Copy remote URL">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                            Copy
-                        </button>
-                    </div>
-                    <div id="remote-openai-url-row" class="api-base-row hidden">
-                        <span class="api-base-label">Remote OpenAI Base URL</span>
-                        <a id="remote-openai-url" href="#" target="_blank" rel="noopener noreferrer" class="server-link"></a>
-                        <button id="btn-copy-remote-openai" class="btn btn-sm btn-ghost" type="button" title="Copy remote OpenAI base URL" aria-label="Copy remote OpenAI base URL">
-                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></span>
-                            Copy
-                        </button>
-                    </div>
-                    <div id="remote-tunnel-status" class="api-status-note">Remote tunnel is not running.</div>
-                    <div class="form-row">
-                        <button id="btn-start-remote-tunnel" class="btn btn-primary" type="button">Start Tunnel</button>
-                        <button id="btn-stop-remote-tunnel" class="btn btn-danger hidden" type="button">Stop Tunnel</button>
-                    </div>
-                </div>
-
-                <div id="api-endpoints-list" class="api-endpoints"></div>
+                <h2 id="api-endpoints-title">Endpoints</h2>
+                <ul id="api-endpoints-list" class="api-endpoints" aria-labelledby="api-endpoints-title"></ul>
 
                 <div class="section">
-                    <h3>Client Snippets</h3>
+                    <h2>Client snippets</h2>
                     <p class="api-intro">Copy one of these templates and replace the prompt/model values as needed.</p>
                     <div id="api-snippets-list" class="api-snippets"></div>
                 </div>
@@ -1284,10 +1381,10 @@
         <div class="section-panel" id="section-benchmarking" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Benchmarking</div>
+                    <h1 class="page-title">Benchmarking</h1>
                     <div class="page-title-sub">Run llama.cpp throughput and perplexity checks using your current configuration or saved presets.</div>
                 </div>
-                <div class="benchmark-readiness">
+                <div class="page-actions benchmark-readiness">
                     <span id="benchmark-bench-badge" class="badge badge-neutral">llama-bench: Checking</span>
                     <span id="benchmark-ppl-badge" class="badge badge-neutral">llama-perplexity: Checking</span>
                 </div>
@@ -1539,10 +1636,10 @@
         <div class="section-panel" id="section-presets" style="display:none;">
             <div class="page-header">
                 <div>
-                    <div class="page-title">Presets</div>
+                    <h1 class="page-title">Presets</h1>
                     <div class="page-title-sub">Save, load, and manage preset configurations.</div>
                 </div>
-                <div class="presets-header-actions">
+                <div class="page-actions presets-header-actions">
                     <button class="btn" id="btn-import-preset">Import JSON</button>
                     <button class="btn" id="btn-export-all-presets">Export All</button>
                 </div>
@@ -1551,10 +1648,10 @@
             <div id="preset-status" class="status-box"></div>
 
             <div class="presets-save-bar">
-                <label class="presets-save-label" for="preset-name-input">Save current config</label>
+                <label class="presets-save-label" for="preset-name-input">New preset</label>
                 <input type="text" id="preset-name-input" placeholder="Preset name..." aria-label="Preset name" />
-                <button class="btn btn-primary" id="btn-save-preset">Save</button>
-                <span class="presets-save-hint">Captures the active Configure settings</span>
+                <button class="btn btn-primary" id="btn-save-preset">Save new preset</button>
+                <span class="presets-save-hint">Saves your current edits under a new name</span>
             </div>
             <input type="file" id="preset-import" accept=".json" style="display:none" />
 
@@ -1625,6 +1722,14 @@
     <span class="stats-item">Context (most-filled slot) <span class="stats-value" id="stats-kv-usage">--%</span></span>
 </div>
 
+<dialog id="preset-update-dialog" class="modal-dialog preset-update-dialog" aria-labelledby="preset-update-title" aria-describedby="preset-update-description">
+    <form method="dialog">
+        <h3 id="preset-update-title">Update preset?</h3>
+        <p id="preset-update-description">Replace this preset with the settings captured for this review. The running process will stay as it is. API keys are excluded; sensitive values and Custom Launch Args are hidden below.</p>
+        <div class="preset-table-scroll"><table class="preset-comparison-table"><thead><tr><th scope="col">Setting</th><th scope="col">Saved preset</th><th scope="col">Current edits</th></tr></thead><tbody></tbody></table></div>
+        <div class="form-row"><button class="btn" value="cancel" autofocus>Cancel</button><button class="btn btn-primary" value="update">Update preset</button></div>
+    </form>
+</dialog>
 <div id="confirm-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
     <div class="modal-dialog">
         <h3 id="confirm-modal-title">Confirm Action</h3>
@@ -1674,6 +1779,7 @@
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
 <script src="/js/monitor-ui.js?v=monitor-1"></script>
+<script src="/js/shell-ui.js?v=shell-1"></script>
 <script src="/js/app.js?v=revamp-4"></script>
 </body>
 </html>

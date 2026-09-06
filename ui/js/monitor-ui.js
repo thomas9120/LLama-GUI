@@ -173,7 +173,7 @@
         let averageBaseline = null;
         let raw = { prompt: null, gen: null };
         let sampled = false;
-        let rate = { at: 0, slots: {} };
+        let rawSeconds = { prompt: null, gen: null };
         let lastInput = null;
         let lastSnapshot = null;
 
@@ -205,7 +205,7 @@
             };
             raw = { prompt: null, gen: null };
             sampled = false;
-            rate = { at: 0, slots: {} };
+            rawSeconds = { prompt: null, gen: null };
             lastInput = null;
             if (!key) return emit(null);
             seq += 1;
@@ -241,10 +241,7 @@
             const slotsNormalized = input && input.slotsOk && input.slotsNormalized ? input.slotsNormalized : null;
             const metricsOk = Boolean(metricsValues);
             const slotsOk = Boolean(slotsNormalized);
-            const now = input && Number.isFinite(input.now) ? input.now : 0;
 
-            let promptSpeedGauge = null;
-            let genSpeedGauge = null;
             let processing = null;
             let deferred = null;
             let currentCounters = { prompt: null, gen: null };
@@ -258,22 +255,23 @@
                     prompt: finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_seconds_total"]),
                     gen: finiteNonNegativeOrNull(metricsValues["llamacpp:tokens_predicted_seconds_total"]),
                 };
-                promptSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:prompt_tokens_seconds"]);
-                genSpeedGauge = finiteNonNegativeOrNull(metricsValues["llamacpp:predicted_tokens_seconds"]);
                 processing = finiteNonNegativeOrNull(metricsValues["llamacpp:requests_processing"]);
                 deferred = finiteNonNegativeOrNull(metricsValues["llamacpp:requests_deferred"]);
 
                 // A cumulative counter going down without an observed target
                 // change means the upstream server restarted. Rebase instead
                 // of clamping a cross-restart delta to zero.
-                let counterRolled = false;
                 for (const name of ["prompt", "gen"]) {
                     const current = currentCounters[name];
-                    if (current === null) continue;
-                    if (raw[name] !== null && current < raw[name]) {
+                    const seconds = currentSeconds[name];
+                    const rolled = (current !== null && raw[name] !== null && current < raw[name])
+                        || (seconds !== null && rawSeconds[name] !== null && seconds < rawSeconds[name]);
+                    if (seconds !== null) rawSeconds[name] = seconds;
+                    if (rolled) {
                         baseline[name] = current;
-                        counterRolled = true;
+                        averageBaseline[name] = null;
                     }
+                    if (current === null) continue;
                     raw[name] = current;
                     // Restored targets baseline each counter independently so a
                     // field that appears late does not inherit another field's
@@ -281,14 +279,12 @@
                     if (baseline[name] === null) baseline[name] = current;
                     sampled = true;
 
-                    const seconds = currentSeconds[name];
                     const averageBase = averageBaseline[name];
                     if (seconds !== null && (!averageBase
                         || current < averageBase.tokens || seconds < averageBase.seconds)) {
                         averageBaseline[name] = { tokens: current, seconds };
                     }
                 }
-                if (counterRolled) rate = { at: 0, slots: {} };
             }
 
             let context = null;
@@ -302,47 +298,7 @@
                 if (busy !== null && total !== null) slotsInfo = { busy, total };
             }
 
-            // Slot-derived live speeds require both samples to share a stable
-            // slot/task identity; otherwise fall back to the metrics gauges.
-            let livePromptSpeed;
-            let liveGenSpeed;
             const processingBest = processing !== null ? processing : slotsProcessing;
-            if (slotsNormalized && rate.at > 0) {
-                const elapsed = (now - rate.at) / 1000;
-                if (elapsed >= 1 && elapsed <= 30) {
-                    let promptDelta = 0;
-                    let genDelta = 0;
-                    const allProcessingSampled = slotsNormalized.samples.length === slotsNormalized.processing;
-                    let promptComparable = allProcessingSampled && slotsNormalized.samples.length > 0;
-                    let genComparable = promptComparable;
-                    for (const sample of slotsNormalized.samples) {
-                        const previous = rate.slots[sample.key];
-                        if (!previous) {
-                            promptComparable = false;
-                            genComparable = false;
-                            continue;
-                        }
-                        if (sample.promptTokens !== null && previous.promptTokens !== null
-                            && sample.promptTokens >= previous.promptTokens) {
-                            promptDelta += sample.promptTokens - previous.promptTokens;
-                        } else promptComparable = false;
-                        if (sample.genTokens !== null && previous.genTokens !== null
-                            && sample.genTokens >= previous.genTokens) {
-                            genDelta += sample.genTokens - previous.genTokens;
-                        } else genComparable = false;
-                    }
-                    if (promptComparable) livePromptSpeed = promptDelta / elapsed;
-                    else if (processingBest === 0) livePromptSpeed = 0;
-                    if (genComparable) liveGenSpeed = genDelta / elapsed;
-                    else if (processingBest === 0) liveGenSpeed = 0;
-                }
-            }
-            if (slotsNormalized) {
-                rate = {
-                    at: now,
-                    slots: Object.fromEntries(slotsNormalized.samples.map(sample => [sample.key, sample])),
-                };
-            }
 
             // Session counters come from /metrics only: when that source is
             // unavailable they are marked unavailable, never carried forward.
@@ -381,12 +337,9 @@
                 requests: { processing, queued: deferred, processingBest },
                 slots: slotsInfo,
                 speed: {
-                    prompt: currentSeconds.prompt !== null
-                        ? averagePromptSpeed
-                        : livePromptSpeed !== undefined ? livePromptSpeed : promptSpeedGauge,
-                    generated: currentSeconds.gen !== null
-                        ? averageGenSpeed
-                        : liveGenSpeed !== undefined ? liveGenSpeed : genSpeedGauge,
+                    // A live slot rate or upstream rolling gauge is not a session average.
+                    prompt: averagePromptSpeed,
+                    generated: averageGenSpeed,
                 },
                 contextLevel,
                 baselinePending: !sampled,
@@ -406,6 +359,7 @@
         function resetBaseline() {
             if (!sampled) {
                 baseline = { prompt: null, gen: null };
+                averageBaseline = { prompt: null, gen: null };
                 return false;
             }
             const metricsValues = lastInput && lastInput.metricsOk && lastInput.metricsValues
@@ -438,6 +392,7 @@
                     ? { tokens: current.gen, seconds: seconds.gen } : null,
             };
             raw = { prompt: current.prompt, gen: current.gen };
+            rawSeconds = seconds;
             if (lastInput) rebuild();
             return true;
         }
@@ -579,7 +534,7 @@
             unavailable: "Unavailable",
             paused: "Paused",
         };
-        badge.textContent = labels[state];
+        badge.textContent = `System telemetry · ${labels[state]}`;
         badge.classList.toggle("badge-green", state === "live");
         badge.classList.toggle("badge-neutral", state === "refreshing" || state === "paused");
         badge.classList.toggle("badge-yellow", state === "stale");
@@ -890,13 +845,14 @@
         const disk = data.disk || {};
 
         const interval = Number(lastSample && lastSample.interval_seconds);
-        const intervalText = Number.isFinite(interval) && interval > 0
-            ? ` \u00b7 ${interval.toFixed(1)} s sample`
+        const sampleText = Number.isFinite(interval) && interval > 0
+            ? `${interval.toFixed(1)} s sample`
             : "";
+        const intervalText = sampleText ? ` \u00b7 ${sampleText}` : "";
 
         setMetricCard("cpu", cpu.available === true, cpu.percent,
             cpu.available === true && cpu.percent !== null && cpu.percent !== undefined
-                ? `CPU busy${intervalText}`
+                ? sampleText
                 : cpu.available === true ? `Waiting for first sample${intervalText}` : "");
 
         const memUsed = Number(memory.used_bytes);
@@ -906,26 +862,22 @@
                 ? `${formatBytes(memUsed)} used of ${formatBytes(memTotal)}`
                 : memory.available === true ? "Waiting for first sample" : "");
 
-        const diskUsed = Number(disk.used_bytes);
-        const diskTotal = Number(disk.total_bytes);
-        const diskLabel = String(disk.path_label || "").trim();
-        setMetricCard("disk", disk.available === true, disk.percent,
-            disk.available === true && Number.isFinite(diskUsed) && Number.isFinite(diskTotal)
-                ? `${formatBytes(diskUsed)} used of ${formatBytes(diskTotal)}${diskLabel ? ` \u00b7 ${diskLabel}` : ""}`
-                : disk.available === true ? "Waiting for first sample" : "");
-
-        const ioGrid = byId("monitor-disk-io");
-        if (ioGrid) {
-            const readRate = disk.read_bytes_per_second;
-            const writeRate = disk.write_bytes_per_second;
-            const supported = readRate !== null && readRate !== undefined
-                || writeRate !== null && writeRate !== undefined;
-            ioGrid.classList.toggle("hidden", !supported);
-            const readEl = byId("monitor-disk-read");
-            const writeEl = byId("monitor-disk-write");
-            if (readEl) readEl.textContent = formatRate(readRate);
-            if (writeEl) writeEl.textContent = formatRate(writeRate);
-        }
+        const readRate = finiteNonNegativeOrNull(disk.read_bytes_per_second);
+        const writeRate = finiteNonNegativeOrNull(disk.write_bytes_per_second);
+        const hasRates = readRate !== null || writeRate !== null;
+        const waiting = !hasRates && disk.io_available === true;
+        setText(byId("monitor-disk-read"), waiting ? "--" : formatRate(readRate));
+        setText(byId("monitor-disk-write"), waiting ? "--" : formatRate(writeRate));
+        const activity = !hasRates ? waiting ? "Collecting activity…" : "Disk activity unavailable"
+            : readRate > 0 && writeRate > 0 ? "Reading and writing"
+                : readRate > 0 ? "Reading" : writeRate > 0 ? "Writing"
+                    : readRate === 0 && writeRate === 0 ? "Idle" : "Partial reading";
+        setText(byId("monitor-disk-activity"), activity);
+        const scope = String(disk.io_label || "").trim();
+        setText(byId("monitor-disk-sub"), hasRates
+            ? `${scope || "Disk I/O"}${intervalText} · Includes other applications`
+            : waiting ? `${scope ? `${scope} · ` : ""}Waiting for two samples`
+                : "The system collector could not provide disk I/O readings.");
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1250,6 +1202,10 @@
         });
         setupSection.classList.toggle("hidden", actionable.length === 0);
 
+        setText(byId("monitor-gpu-summary"), gpus.length
+            ? stateEntries.length ? "Some GPU telemetry is unavailable" : `GPU telemetry · ${gpus.length} ${gpus.length === 1 ? "device" : "devices"}`
+            : "GPU telemetry is unavailable");
+
         applyHiddenCardsToDom();
         applyCardOrderToDom();
     }
@@ -1270,7 +1226,54 @@
     // Rendering: process output card header
     // ════════════════════════════════════════════════════════════════════
 
+    function renderRuntime() {
+        const state = deps.getLifecycleSnapshot?.() || {};
+        const runtime = state.activeRuntime;
+        const target = deps.getLatestStatus?.()?.external_chat_target;
+        const external = !runtime && state.phase === "idle" && target?.connected;
+        const phases = { idle: "Stopped", starting: "Starting", loading: "Loading model", ready: "Ready", running: "Running", stopping: "Stopping", failed: "Action failed" };
+        const phaseLabel = external ? "External server"
+            : runtime && state.phase === "failed" ? "Process active · action failed"
+                : phases[state.phase] || "Checking…";
+        const badge = byId("monitor-runtime-state");
+        setText(badge, phaseLabel);
+        if (badge) {
+            badge.classList.toggle("badge-green", state.phase === "ready" || state.phase === "running");
+            badge.classList.toggle("badge-yellow", Boolean(state.busy) || state.phase === "failed");
+        }
+        const model = runtime ? String(runtime.alias || runtime.model || "Model unavailable")
+            : external ? String(target.label || "Managed outside Llama GUI") : "No local process running";
+        const modelEl = byId("monitor-runtime-model");
+        setText(modelEl, runtime && !runtime.alias ? model.split(/[\\/]/).pop() : model);
+        if (modelEl) modelEl.title = model;
+        setText(byId("monitor-runtime-build"), runtime
+            ? [runtime.tool, runtime.backend, runtime.version].filter(Boolean).join(" · ")
+            : external ? "llama-server · Managed outside Llama GUI" : "Launch a model to follow its output and activity here.");
+        const endpoint = runtime?.tool === "llama-server" ? runtime : external ? target : null;
+        setText(byId("monitor-runtime-endpoint"), endpoint?.host && endpoint?.port
+            ? `Endpoint: ${endpoint.host}:${endpoint.port}` : "");
+
+        const comparison = deps.compareLaunchSettings?.(runtime);
+        const count = comparison?.available ? comparison.changes.length : 0;
+        const modelChanged = comparison?.available && (comparison.modelChanged || comparison.modelRootChanged);
+        const review = byId("btn-monitor-review");
+        if (review) {
+            review.classList.toggle("hidden", !count && !modelChanged);
+            setText(review, count ? `Review changes · ${count}` : "Review model change");
+        }
+        const note = count || modelChanged
+            ? "Edits are pending for the next launch. The count covers recorded GUI settings; API keys and Custom Launch Args are excluded."
+            : "";
+        setText(byId("monitor-runtime-note"), note);
+        byId("monitor-runtime-note")?.classList.toggle("hidden", !note);
+        setText(byId("monitor-runtime-error"), state.error || "");
+        byId("monitor-runtime-error")?.classList.toggle("hidden", !state.error);
+        byId("btn-monitor-quick-launch")?.classList.toggle("hidden", Boolean(runtime) || Boolean(state.busy) || Boolean(external));
+        byId("btn-monitor-api")?.classList.toggle("hidden", !external);
+    }
+
     function updateProcessHeader() {
+        renderRuntime();
         const toolBadge = byId("monitor-process-tool");
         const stateBadge = byId("monitor-process-state");
         const externalNote = byId("monitor-external-note");
@@ -1289,7 +1292,7 @@
         const running = Boolean(runtime) || Boolean(transitional);
         const tool = runtime && runtime.tool ? runtime.tool : "";
         const externalTarget = status && status.external_chat_target;
-        const externalConnected = Boolean(externalTarget && externalTarget.connected);
+        const externalConnected = phase === "idle" && Boolean(externalTarget && externalTarget.connected);
         const navLive = byId("monitor-nav-live");
         if (navLive) navLive.classList.toggle("hidden",
             !((tool === "llama-server" && phase === "ready") || (!running && externalConnected)));
@@ -1311,9 +1314,9 @@
         }
         if (stateBadge) {
             if (running) {
-                stateBadge.textContent = phaseLabels[phase] || "Running";
+                stateBadge.textContent = phaseLabels[phase] || (phase === "failed" ? "Action failed" : phase === "ready" ? "Ready" : "Running");
                 stateBadge.classList.remove("hidden", "badge-dim", "badge-green", "badge-yellow");
-                stateBadge.classList.add(transitional ? "badge-yellow" : "badge-green");
+                stateBadge.classList.add(transitional || phase === "failed" ? "badge-yellow" : "badge-green");
             } else {
                 stateBadge.textContent = "No process running";
                 stateBadge.classList.remove("hidden", "badge-green", "badge-yellow");
@@ -1321,9 +1324,15 @@
             }
         }
         const externalOnly = externalConnected && !running;
+        const hasOutput = Boolean(terminal?.children.length);
+        setText(byId("monitor-output-title"), !running && !externalOnly && hasOutput ? "Last run output" : "Process Output");
+        setText(noProcessNote, hasOutput
+            ? "No process running — the most recent output backlog is retained until the next launch."
+            : "Process output will appear here when you launch a model.");
         if (externalNote) externalNote.classList.toggle("hidden", !externalOnly);
         if (noProcessNote) noProcessNote.classList.toggle("hidden", running || externalOnly);
-        if (terminal) terminal.classList.toggle("hidden", externalOnly);
+        if (terminal) terminal.classList.toggle("hidden", externalOnly || (!running && !hasOutput));
+        renderInferenceAvailability(deps.getInferenceSnapshot?.());
         // #input-row visibility belongs to app.js, which owns process
         // lifecycle and sets it from the active runtime before calling
         // updateProcessHeader(); touching it here would fight that.
@@ -1364,6 +1373,7 @@
         const line = document.createElement("div");
         line.textContent = text;
         terminal.appendChild(line);
+        if (terminal.children.length === 1) updateProcessHeader();
         trimTerminal();
         scrollTerminalToBottom();
     }
@@ -1374,6 +1384,7 @@
         // Advance the cursor epoch without discarding the cursor; otherwise
         // the next cursorless request would replay the whole backend backlog.
         if (typeof deps.invalidateCursor === "function") deps.invalidateCursor();
+        updateProcessHeader();
     }
 
     // ════════════════════════════════════════════════════════════════════
@@ -1385,7 +1396,31 @@
         if (el) el.textContent = text;
     }
 
+    function renderInferenceAvailability(snapshot) {
+        const state = deps.getLifecycleSnapshot?.() || {};
+        let message = "";
+        if (!snapshot?.targetKey) {
+            message = state.phase === "starting" || state.phase === "loading"
+                ? "Waiting for llama-server to become ready. Follow loading progress in Process Output."
+                : state.phase === "stopping"
+                    ? "The process is stopping. Inference readings will resume when a server is ready."
+                    : state.activeRuntime && state.activeRuntime.tool !== "llama-server"
+                        ? `${state.activeRuntime.tool} does not expose server inference metrics. Follow its output above; system readings remain available independently.`
+                        : "Start or connect to a llama-server to view token, request, and context activity. GPU monitoring tools are not required.";
+        } else if (snapshot.seq === 1) {
+            message = "Waiting for the first inference sample from this server.";
+        } else {
+            const notes = [];
+            if (snapshot.sources?.metrics !== "ok") notes.push("Session counters unavailable: check the server connection and whether --metrics is enabled.");
+            if (snapshot.sources?.slots !== "ok") notes.push("Slot activity and context unavailable: check the server connection and whether /slots is enabled.");
+            message = notes.join(" ");
+        }
+        setText(byId("monitor-inference-note"), message);
+        byId("monitor-inference-note")?.classList.toggle("hidden", !message);
+    }
+
     function renderInferenceSnapshot(snapshot) {
+        renderInferenceAvailability(snapshot);
         const kicker = byId("monitor-inference-kicker");
         const badge = byId("monitor-inference-state-badge");
         const body = byId("monitor-inference-body");
@@ -1405,8 +1440,12 @@
 
         const processing = snapshot.requests ? snapshot.requests.processingBest : null;
         const activityUnknown = processing === null || processing === undefined;
-        const stateText = activityUnknown ? "Activity unknown" : processing > 0 ? "Generating" : "Idle";
-        kicker.textContent = `Llama server \u00b7 ${stateText}`;
+        const stateText = activityUnknown ? "Activity unknown" : processing > 0 ? "Processing" : "Idle";
+        const external = String(snapshot.targetKey).startsWith("ext:");
+        const target = external ? deps.getLatestStatus?.()?.external_chat_target : null;
+        kicker.textContent = external && target?.host && target?.port
+            ? `External llama-server · ${target.host}:${target.port}`
+            : `Llama server · ${stateText}`;
         if (processing !== null && processing > 0) {
             badge.textContent = `${processing} active`;
             badge.classList.remove("badge-dim", "badge-neutral");
@@ -1582,6 +1621,8 @@
         applyHiddenCardsToDom();
         const card = cardEl || document.querySelector(`[data-monitor-key="${CSS.escape ? CSS.escape(key) : key}"]`);
         if (card) {
+            const disclosure = card.closest?.("#monitor-gpu-help");
+            if (disclosure) disclosure.open = true;
             const target = card.querySelector(".card-title") || card.querySelector(".monitor-hide-btn") || card;
             if (target && typeof target.focus === "function") {
                 if (!target.hasAttribute || !target.hasAttribute("tabindex")) {
@@ -1593,6 +1634,8 @@
     }
 
     function showAllCards() {
+        const disclosure = byId("monitor-gpu-help");
+        if (disclosure?.querySelector(".card.hidden")) disclosure.open = true;
         hiddenCards = new Map();
         persistHiddenCards();
         applyHiddenCardsToDom();
@@ -1850,6 +1893,11 @@
         const recheckBtn = byId("btn-monitor-recheck");
         if (recheckBtn) recheckBtn.addEventListener("click", recheck);
 
+        for (const [id, tab] of [["btn-monitor-configure", "configure"], ["btn-monitor-quick-launch", "quick-launch"], ["btn-monitor-api", "api"]]) {
+            byId(id)?.addEventListener("click", () => deps.switchTab(tab));
+        }
+        byId("btn-monitor-review")?.addEventListener("click", () => deps.reviewLaunchChanges());
+
         const resetBtn = byId("btn-reset-inference");
         if (resetBtn) {
             resetBtn.addEventListener("click", () => {
@@ -1903,6 +1951,7 @@
         appendOutputLine,
         clearTerminal,
         updateProcessHeader,
+        renderRuntime,
         renderInferenceSnapshot,
         // Shared stats helpers used by app.js's single poller:
         createInferenceStats,

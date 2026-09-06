@@ -23,7 +23,7 @@
     }
 
     function copyRuntime(runtime) {
-        return runtime && typeof runtime === "object" ? Object.assign({}, runtime) : null;
+        return runtime && typeof runtime === "object" ? JSON.parse(JSON.stringify(runtime)) : null;
     }
 
     function copySnapshot(value = snapshot) {
@@ -70,7 +70,9 @@
         const aKeys = Object.keys(a);
         const bKeys = Object.keys(b);
         if (aKeys.length !== bKeys.length) return false;
-        return aKeys.every((key) => a[key] === b[key]);
+        return aKeys.every((key) => key === "launch_settings"
+            ? JSON.stringify(a[key]) === JSON.stringify(b[key])
+            : a[key] === b[key]);
     }
 
     function patchChangesState(patch) {
@@ -391,6 +393,7 @@
             }
             const launchBody = { tool: request.tool, args: request.args };
             if (request.launch_context !== undefined) launchBody.launch_context = request.launch_context;
+            if (request.launch_settings !== undefined) launchBody.launch_settings = request.launch_settings;
             launchResult = await deps.fetchJson("/api/launch", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -568,6 +571,15 @@
         }
         if (!isCurrent(id)) return result(false, { cancelled: true });
         const activeRuntime = runtimeFromStatus(status);
+        if (options.expectedGeneration !== undefined && (
+            !statusIsRunning(status)
+            || runtimeGeneration(activeRuntime) !== Number(options.expectedGeneration)
+        )) {
+            const message = "The running process changed before restart. Review the current process and try again.";
+            finishTransition(id, { error: message });
+            await callOptionalHook(options, "onFailed", message, getSnapshot(), status);
+            return result(false, { error: message, conflict: true, status });
+        }
         if (statusIsRunning(status) && activeRuntime && activeRuntime.tool !== "llama-server") {
             const message = `Cannot switch models while ${activeRuntime.tool} is running.`;
             finishTransition(id, { activeRuntime, ready: false, error: message });

@@ -321,19 +321,6 @@
         if (container) container.scrollTop = container.scrollHeight;
     }
 
-    function finalizeChatReasoningMarkdown(bubble) {
-        const details = getChatReasoningBlock(bubble);
-        if (!details) return;
-        const rawText = details.dataset.rawText || "";
-        if (!rawText.trim()) {
-            details.remove();
-            return;
-        }
-        setChatReasoningContent(bubble, rawText);
-        const container = document.getElementById("chat-messages");
-        if (container) container.scrollTop = container.scrollHeight;
-    }
-
     function renderChatMessage(role, content, options = {}) {
         const container = document.getElementById("chat-messages");
         const empty = document.getElementById("chat-empty");
@@ -463,16 +450,6 @@
         container.scrollTop = container.scrollHeight;
     }
 
-    function finalizeChatStreamMarkdown(bubble) {
-        if (!bubble) return;
-        const rawText = bubble.dataset.rawText || "";
-        bubble.innerHTML = renderMarkdown(rawText);
-        installChatCodeCopyButtons(bubble, rawText);
-        delete bubble.dataset.streamingTextInitialized;
-        const container = document.getElementById("chat-messages");
-        container.scrollTop = container.scrollHeight;
-    }
-
     window.LlamaGui.chatRendering = {
         renderMarkdown,
         renderChatMessage,
@@ -481,9 +458,7 @@
         renderChatTypingIndicator,
         removeChatTypingIndicator,
         appendChatStreamToken,
-        finalizeChatStreamMarkdown,
         appendChatReasoningStreamToken,
-        finalizeChatReasoningMarkdown,
         setChatReasoningContent,
         splitReasoningFromContent,
         installChatCodeCopyButtons,

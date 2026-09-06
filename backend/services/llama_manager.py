@@ -914,7 +914,7 @@ def extract_archive_preserve_paths(
     raise ValueError(f"Unsupported archive format: {archive_path.name}")
 
 
-def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> None:
+def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> Optional[pathlib.Path]:
     """Move ``staged`` onto ``target``, keeping the previous copy until it lands.
 
     Both paths are siblings so this is a rename rather than a copy, which matters
@@ -923,7 +923,8 @@ def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> No
     """
     target.parent.mkdir(parents=True, exist_ok=True)
     previous = target.with_name(target.name + ".old")
-    shutil.rmtree(previous, ignore_errors=True)
+    if previous.exists():
+        shutil.rmtree(previous)
 
     had_previous = target.exists()
     if had_previous:
@@ -934,7 +935,8 @@ def _swap_directory_into_place(staged: pathlib.Path, target: pathlib.Path) -> No
         if had_previous and not target.exists():
             os.replace(previous, target)
         raise
-    shutil.rmtree(previous, ignore_errors=True)
+    # The caller owns this backup until the whole installation is committed.
+    return previous if had_previous else None
 
 
 def ensure_installed_tool_executables(ctx: AppContext) -> list[str]:
@@ -1028,6 +1030,8 @@ def install_release(
     staged_grammars = ctx.paths.llama_grammars.with_name(
         ctx.paths.llama_grammars.name + ".new"
     )
+    swapped = []
+    committed = False
     try:
         bin_archive = tmpdir / bin_filename
         set_download_progress(ctx, message=f"Downloading {bin_filename}...")
@@ -1073,8 +1077,9 @@ def install_release(
             for extra_archive in extra_archives:
                 extract_archive_flat(extra_archive, staged_bin, staged_grammars)
 
-        _swap_directory_into_place(staged_bin, ctx.paths.llama_bin)
-        _swap_directory_into_place(staged_grammars, ctx.paths.llama_grammars)
+        for staged, target in ((staged_bin, ctx.paths.llama_bin), (staged_grammars, ctx.paths.llama_grammars)):
+            previous = _swap_directory_into_place(staged, target)
+            swapped.append((target, previous))
 
         ensure_installed_tool_executables(ctx)
 
@@ -1094,6 +1099,7 @@ def install_release(
                 }
             )
             ctx.services.save_config(config_data)
+        committed = True
         ctx.state.clear_runtime_health_cache()
         set_download_progress(
             ctx, status="done", message=f"Installed {tag} ({backend})"
@@ -1105,8 +1111,19 @@ def install_release(
         set_download_progress(ctx, status="error", message="Download failed unexpectedly.")
         return False
     finally:
+        for target, previous in reversed(swapped):
+            try:
+                if committed:
+                    if previous:
+                        shutil.rmtree(previous)
+                else:
+                    shutil.rmtree(target)
+                    if previous:
+                        os.replace(previous, target)
+            except OSError as exc:
+                # Keep any remaining backup available for manual recovery.
+                print(f"[llama_manager] install cleanup/rollback failed for {target}: {exc}", file=sys.stderr)
         shutil.rmtree(tmpdir, ignore_errors=True)
-        # Leftovers only exist if extraction or the swap failed; the live
-        # directories are untouched in that case.
+        # Remove any staging directories left by a failed extraction or swap.
         shutil.rmtree(staged_bin, ignore_errors=True)
         shutil.rmtree(staged_grammars, ignore_errors=True)

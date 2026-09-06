@@ -37,7 +37,8 @@ def launch(request, response, ctx):
     if not isinstance(args, list):
         response.error("args must be an array", 400)
         return
-    result = process_manager.launch_process(ctx, tool, args, launch_context)
+    launch_settings = body.get("launch_settings")
+    result = process_manager.launch_process(ctx, tool, args, launch_context, launch_settings)
     if "error" in result:
         response.error(result.get("error", "Launch failed"), 400)
     else:
