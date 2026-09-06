@@ -416,7 +416,12 @@ async function verifyQuickLaunchPolish(page) {
     }
     if (await page.locator("#model-switch-toggle").getAttribute("aria-expanded") === "true") await page.click("#model-switch-toggle");
     await page.locator(".quick-saved-preset").first().click();
-    await page.waitForFunction(() => document.querySelector(".quick-saved-preset")?.getAttribute("aria-pressed") === "true");
+    // The preset can already match before its async reload completes. Wait for
+    // the load to finish before editing, or its response can overwrite the edit.
+    await page.waitForFunction(() => {
+        const preset = document.querySelector(".quick-saved-preset");
+        return preset && !preset.disabled && preset.getAttribute("aria-pressed") === "true";
+    });
     assert.equal(await page.inputValue("#quick-model-select"), "smoke-model.gguf");
     assert.equal(await page.textContent("#btn-quick-launch-label"), "Launch server");
     await page.fill("#quick-temperature-input", "0.43");
