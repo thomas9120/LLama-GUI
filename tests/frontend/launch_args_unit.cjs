@@ -9,6 +9,28 @@ const context = {
     console,
 };
 
+// The exported speculative helpers must also work without the browser's globals.
+{
+    const standalone = { window: {} };
+    vm.createContext(standalone);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/flag-core.js"), "utf8"), standalone);
+    const core = standalone.window.LlamaGui.flagCore;
+    assert.equal(core.getCombinedSpeculativeType({ ngram_mod: true }), "ngram-mod");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple: true }), "ngram-simple");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple: " ngram-simple " }), "ngram-simple");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple_size_n: 8, ngram_simple_size_m: 16 }), "");
+    const normalized = core.normalizeSpeculativeFlagValues({
+        spec_type: "draft-mtp,ngram-simple,ngram-simple",
+        ngram_simple: " ngram-simple ",
+    });
+    assert.equal(normalized.ngram_simple, true);
+    assert.equal(normalized.spec_type, "draft-mtp");
+    assert.equal(core.getCombinedSpeculativeType(normalized), "draft-mtp,ngram-simple");
+    const disabled = core.normalizeSpeculativeFlagValues({ spec_type: "ngram-simple", ngram_simple: false });
+    assert.equal(disabled.ngram_simple, false);
+    assert.equal(core.getCombinedSpeculativeType(disabled), "");
+}
+
 context.window.window = context.window;
 vm.createContext(context);
 

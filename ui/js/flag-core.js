@@ -60,6 +60,15 @@
         return raw.split(",").map(value => value.trim()).filter(Boolean);
     }
 
+    function isNgramSimpleValue(value) {
+        return value === true || String(value || "").trim() === "ngram-simple";
+    }
+
+    function isNgramSimpleEnabled(values) {
+        const cfg = values || {};
+        return isNgramSimpleValue(cfg.ngram_simple) || getSpeculativeTypeParts(cfg).includes("ngram-simple");
+    }
+
     function isNgramModValue(value) {
         return value === true || String(value || "").trim() === "ngram-mod";
     }
@@ -124,8 +133,7 @@
             normalized.ngram_map_k4v = true;
         }
         if (Object.prototype.hasOwnProperty.call(source, "ngram_simple")) {
-            normalized.ngram_simple = source.ngram_simple === true
-                || String(source.ngram_simple || "").trim() === "ngram-simple";
+            normalized.ngram_simple = isNgramSimpleValue(source.ngram_simple);
         } else if (specTypes.includes("ngram-simple")) {
             normalized.ngram_simple = true;
         }

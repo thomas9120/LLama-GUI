@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-07
 
+- Fixed standalone speculative-type helpers in flag-core.js by keeping Ngram Simple detection local, with regression coverage for string values, disabled presets, and tuning-only settings.
 - Added opt-in Ngram Simple controls in Configure with match/draft sizes, shared command and preset support, and guidance explaining its fallback relationship with Ngram Mod. Quick Launch has no new controls.
 
 ## 2026-09-06
