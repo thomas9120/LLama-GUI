@@ -4,6 +4,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-07
 
+- Simplified custom-slot launch diagnostics and GPU vendor hints, with explicit Custom 02 telemetry coverage and exact backend query matching in browser checks.
+- Added two fixed custom llama.cpp slots: Custom (`llama/custom/`) and Custom 02 (`llama/custom-02/`). Activation validates the selected slot, preserves the other build and the remembered official installation, and keeps models/presets shared. Launch/runtime checks, installed status, and Open llama.cpp follow the active slot; official cleanup preserves both custom builds and their active selection.
 - Added Configure's Reset to defaults button with a confirmation dialog. It restores shared configuration defaults and clears Custom Launch Args while keeping the selected model/tool, saved presets, chats, and running process.
 - Fixed legacy Preserve Reasoning values in preset summaries and searches: unchecked presets display Auto and no longer count as non-default overrides.
 - Replaced Preserve Reasoning's checkbox with Auto / Enabled / Disabled, including explicit `--no-reasoning-preserve` support. Auto inherits the binary default; legacy unchecked presets remain Auto, preserving their launch behavior. Added migration, command-preview, and browser coverage.

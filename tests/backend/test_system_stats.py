@@ -972,7 +972,7 @@ class SetupStateTests(unittest.TestCase):
         self.assertEqual(svc.provider_hints("lemonade-rocm-10.0"), (False, True))
         self.assertEqual(svc.provider_hints("lemonade-rocm-gfx1151"), (False, True))
         # No speculative hints from Vulkan/CPU/Metal/custom backends.
-        for backend in ("vulkan", "cpu", "metal", "custom", "sycl", "openvino", None):
+        for backend in ("vulkan", "cpu", "metal", "custom", "custom-02", "sycl", "openvino", None):
             self.assertEqual(svc.provider_hints(backend), (False, False), backend)
 
     def test_nvidia_missing_with_cuda_evidence_is_setup_required(self):

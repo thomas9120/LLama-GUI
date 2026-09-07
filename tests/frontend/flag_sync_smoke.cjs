@@ -1185,6 +1185,7 @@ async function runScenario(browser, port, verify) {
         const pageErrors = [];
         const releaseRequests = [];
         const activateCustomRequests = [];
+        let custom02Ready = false;
         const presetSaveBodies = [];
         const modelsDirRequests = [];
         let statusRunning = false;
@@ -1470,10 +1471,13 @@ async function runScenario(browser, port, verify) {
                         active_runtime: statusActiveRuntime,
                         external_chat_target: externalChatTarget,
                         backend: installedBackend,
-                        tag: installedBackend === "custom" ? "custom" : "smoke",
+                        version: installedBackend.startsWith("custom") ? "custom" : "smoke",
+                        tag: installedBackend.startsWith("custom") ? "custom" : "smoke",
+                        official_install: { backend: "cpu", tag: "smoke", version: "smoke", files_present: true },
                         available_backends: [
                             { id: "cpu", label: "CPU" },
-                            { id: "custom", label: "Custom (User-Provided)" },
+                            { id: "custom", label: "Custom", custom: true, bin_dir: "llama/custom/bin/" },
+                            { id: "custom-02", label: "Custom 02", custom: true, bin_dir: "llama/custom-02/bin/" },
                         ],
                         executables: {
                             "llama-cli": true,
@@ -1527,8 +1531,15 @@ async function runScenario(browser, port, verify) {
                 return;
             }
             if (pathName === "/api/activate-custom") {
-                activateCustomRequests.push(JSON.parse(route.request().postData() || "{}"));
-                installedBackend = "custom";
+                const requested = JSON.parse(route.request().postData() || "{}");
+                activateCustomRequests.push(requested);
+                if (requested.backend === "custom-02" && !custom02Ready) {
+                    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+                        ok: false, missing_required: ["llama-server"],
+                    }) });
+                    return;
+                }
+                installedBackend = requested.backend || "custom";
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
@@ -1539,6 +1550,15 @@ async function runScenario(browser, port, verify) {
                         missing_required: [],
                     }),
                 });
+                return;
+            }
+            if (pathName === "/api/install") {
+                const requested = JSON.parse(route.request().postData() || "{}");
+                assert.equal(requested.activate_existing, true);
+                installedBackend = requested.backend;
+                await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+                    ok: true, tag: "smoke", backend: installedBackend,
+                }) });
                 return;
             }
             if (pathName === "/api/remote-tunnel/status") {
@@ -3018,16 +3038,43 @@ async function runScenario(browser, port, verify) {
 
         await selectSection(page, "install");
         pageErrors.length = 0;
-        const customReleaseCountBefore = releaseRequests.filter((search) => search.includes("backend=custom")).length;
+        const countCustomReleaseRequests = () => releaseRequests.filter((search) =>
+            ["custom", "custom-02"].includes(new URLSearchParams(search).get("backend"))).length;
+        const customReleaseCountBefore = countCustomReleaseRequests();
         await page.selectOption("#backend-select", "custom");
         await page.waitForFunction(() => document.querySelector("#custom-backend-info")?.offsetParent !== null);
         await page.waitForFunction(() => document.querySelector("#btn-install")?.textContent === "Activate Custom");
         await page.waitForTimeout(250);
-        assert.equal(releaseRequests.filter((search) => search.includes("backend=custom")).length, customReleaseCountBefore);
+        assert.equal(countCustomReleaseRequests(), customReleaseCountBefore);
         await page.click("#btn-install");
         await page.waitForFunction(() => document.querySelector("#install-status")?.textContent.includes("Custom backend activated"));
         assert.equal(activateCustomRequests.length, 1);
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
+
+        const flagsBeforeSwitch = await page.evaluate(() => JSON.stringify(window.LlamaGui.flagCore.getFlagValues()));
+        await page.selectOption("#backend-select", "custom-02");
+        await page.waitForFunction(() => document.querySelector("#custom-backend-folder")?.textContent === "llama/custom-02/bin/");
+        assert.equal(await page.locator("#installed-backend-summary").textContent(), "Installed backend: Custom");
+        await page.click("#btn-install");
+        await page.waitForFunction(() => document.querySelector("#install-status")?.textContent.includes("Custom 02 needs llama-cli and llama-server"));
+        assert.equal(installedBackend, "custom");
+        assert.equal(await page.locator("#btn-update").isDisabled(), true);
+        custom02Ready = true;
+        await page.click("#btn-install");
+        await page.waitForFunction(() => document.querySelector("#installed-backend-summary")?.textContent === "Installed backend: Custom 02");
+        assert.equal(await page.locator("#version-badge").textContent(), "Custom 02");
+        assert.match(await page.locator("#installed-info").textContent(), /llama\/custom-02\/bin\//);
+        assert.deepEqual(activateCustomRequests.at(-1), { backend: "custom-02" });
+        assert.equal(countCustomReleaseRequests(), customReleaseCountBefore);
+        await page.selectOption("#backend-select", "cpu");
+        await page.waitForFunction(() => document.querySelector("#btn-install")?.textContent === "Activate Existing");
+        await page.click("#btn-install");
+        await page.waitForFunction(() => document.querySelector("#installed-backend-summary")?.textContent === "Installed backend: CPU");
+        await page.selectOption("#backend-select", "custom");
+        await page.click("#btn-install");
+        await page.waitForFunction(() => document.querySelector("#installed-backend-summary")?.textContent === "Installed backend: Custom");
+        assert.equal(await page.evaluate(() => JSON.stringify(window.LlamaGui.flagCore.getFlagValues())), flagsBeforeSwitch,
+            "switching builds must not change shared model/preset flags");
 
         await selectSection(page, "quick-launch");
         await page.setViewportSize({ width: 1346, height: 674 });

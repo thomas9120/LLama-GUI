@@ -1125,7 +1125,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/benchmark/wikitext2</td><td>Ensure the WikiText-2 raw test file</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/install</td><td>Install a llama.cpp release</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/update</td><td>Update the installed release</td></tr>
-<tr><td><span class="verb post">POST</span></td><td class="mono">/api/activate-custom</td><td>Activate a user-supplied build in <code>llama/custom/</code></td></tr>
+<tr><td><span class="verb post">POST</span></td><td class="mono">/api/activate-custom</td><td>Activate a user-supplied slot: optional <code>backend</code> is <code>custom</code> (default) or <code>custom-02</code>, using the matching <code>llama/</code> subfolder</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/repo-files</td><td>List GGUF files in a HF repo</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download</td><td>Start a background model download</td></tr>
 <tr><td><span class="verb post">POST</span></td><td class="mono">/api/hf/download-cancel</td><td>Cancel the in-progress download</td></tr>
@@ -1181,7 +1181,7 @@ flagCore.setFlagValue("temperature", 0.5);
         <tr><td class="mono">config.json</td><td>Installed version, active backend, release tag, optional active model root, remembered external target <em>(address only — never a key)</em></td></tr>
         <tr><td class="mono">presets/*.json</td><td>Saved launch configurations, plus <code>.preset-created-times</code></td></tr>
         <tr><td class="mono">models/</td><td>Default GGUF library and application-managed benchmark data; a custom GGUF root may be selected</td></tr>
-        <tr><td class="mono">llama/bin/</td><td>Installed binaries; <code>llama/custom/</code> for a user-supplied build</td></tr>
+        <tr><td class="mono">llama/bin/</td><td>Official binaries; user-supplied slots use <code>llama/custom/bin/</code> (Custom) and <code>llama/custom-02/bin/</code> (Custom 02), each with a sibling <code>grammars/</code> directory</td></tr>
         <tr><td class="mono">tools/cloudflared/</td><td>Auto-downloaded tunnel binary</td></tr>
         </tbody>
         </table>

@@ -42,8 +42,8 @@ function candidateExecutables(toolName) {
             console.warn(`Could not read installed backend selection: ${error.message}`);
         }
     }
-    const installedDirectory = backend === "custom"
-        ? path.join(ROOT, "llama", "custom", "bin") : path.join(ROOT, "llama", "bin");
+    const installedDirectory = ["custom", "custom-02"].includes(backend)
+        ? path.join(ROOT, "llama", backend, "bin") : path.join(ROOT, "llama", "bin");
     const dirs = [
         installedDirectory,
         path.join(ROOT, "llama"),

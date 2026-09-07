@@ -15,6 +15,8 @@ from backend.config import (
     GUI_HOST,
     GUI_PORT,
     LLAMA_BIN_DIR,
+    # Legacy Custom paths remain exported for compatibility. Custom 02 paths
+    # are derived by llama_manager's backend path helpers.
     LLAMA_CUSTOM_BIN_DIR,
     LLAMA_CUSTOM_GRAMMARS_DIR,
     LLAMA_GRAMMARS_DIR,
@@ -183,14 +185,12 @@ def get_tool_filename(tool):
 
 def find_tool_executable(tool):
     cfg = load_config()
-    if cfg.get("backend") == "custom":
-        return LLAMA_CUSTOM_BIN_DIR / get_tool_filename(tool)
-    return LLAMA_BIN_DIR / get_tool_filename(tool)
+    return llama_manager_service.get_backend_bin_dir(APP_CONTEXT, cfg.get("backend")) / get_tool_filename(tool)
 
 
 def get_runtime_files():
     cfg = load_config()
-    search_dir = LLAMA_CUSTOM_BIN_DIR if cfg.get("backend") == "custom" else LLAMA_BIN_DIR
+    search_dir = llama_manager_service.get_backend_bin_dir(APP_CONTEXT, cfg.get("backend"))
     if not search_dir.exists():
         return []
     runtime_files = []
@@ -996,8 +996,10 @@ def main():
         PRESETS_DIR,
         LLAMA_BIN_DIR,
         LLAMA_GRAMMARS_DIR,
-        LLAMA_CUSTOM_BIN_DIR,
-        LLAMA_CUSTOM_GRAMMARS_DIR,
+        *(llama_manager_service.get_backend_bin_dir(APP_CONTEXT, backend)
+          for backend in llama_manager_service.CUSTOM_BACKEND_SPECS),
+        *(llama_manager_service.get_backend_grammars_dir(APP_CONTEXT, backend)
+          for backend in llama_manager_service.CUSTOM_BACKEND_SPECS),
     ]:
         d.mkdir(parents=True, exist_ok=True)
 

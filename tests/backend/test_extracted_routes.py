@@ -4848,7 +4848,7 @@ class InstallRouteTests(unittest.TestCase):
             )
         self.assertEqual(response.status, 200)
         self.assertEqual(response.payload, {"ok": True})
-        activate.assert_called_once_with(self.ctx)
+        activate.assert_called_once_with(self.ctx, "custom")
         self.assertFalse(self.ctx.state.install_in_progress)
 
     def test_activate_custom_releases_install_slot_on_failure(self):

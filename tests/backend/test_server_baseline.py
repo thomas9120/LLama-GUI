@@ -828,10 +828,12 @@ class ReleaseManifestTests(unittest.TestCase):
         unix_installer = (root / "install.sh").read_text(encoding="utf-8")
         release_script = (root / "release.ps1").read_text(encoding="utf-8")
 
-        for directory in ("llama\\custom\\bin", "llama\\custom\\grammars"):
+        for directory in ("llama\\custom\\bin", "llama\\custom\\grammars",
+                          "llama\\custom-02\\bin", "llama\\custom-02\\grammars"):
             self.assertIn(directory, windows_installer)
             self.assertIn(f'"{directory}"', release_script)
         self.assertIn("mkdir -p llama/custom/bin llama/custom/grammars", unix_installer)
+        self.assertIn("mkdir -p llama/custom-02/bin llama/custom-02/grammars", unix_installer)
 
     def test_linux_installer_warns_when_optional_tk_is_missing(self):
         root, _items = self._release_items()

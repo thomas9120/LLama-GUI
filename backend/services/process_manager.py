@@ -22,6 +22,7 @@ from typing import Any, Iterable, Mapping, Optional
 from .. import config
 from ..context import AppContext
 from ..http import open_pinned_local_request
+from . import llama_manager
 from .subprocess_utils import get_no_window_creationflags
 
 
@@ -492,7 +493,7 @@ def _load_config_safe(ctx: AppContext) -> dict[str, Any]:
 def _fit_params_executable(ctx: AppContext) -> Any:
     suffix = getattr(ctx.services, "binary_suffix", "") or ""
     cfg = _load_config_safe(ctx)
-    bin_dir = ctx.paths.llama_custom_bin if cfg.get("backend") == "custom" else ctx.paths.llama_bin
+    bin_dir = llama_manager.get_backend_bin_dir(ctx, cfg.get("backend"))
     return bin_dir / f"llama-fit-params{suffix}"
 
 
@@ -1036,7 +1037,7 @@ def get_active_llama_authorization(ctx: AppContext, fallback: str = "") -> str:
 def _build_process_env(ctx: AppContext) -> dict[str, str]:
     env = os.environ.copy()
     cfg = _load_config_safe(ctx)
-    bin_dir = ctx.paths.llama_custom_bin if cfg.get("backend") == "custom" else ctx.paths.llama_bin
+    bin_dir = llama_manager.get_backend_bin_dir(ctx, cfg.get("backend"))
     runtime_paths = [str(bin_dir)]
     existing_path = env.get("PATH", "")
     env["PATH"] = os.pathsep.join(runtime_paths + ([existing_path] if existing_path else []))
@@ -1125,10 +1126,10 @@ def _validate_launch_environment(
     if current_platform == "unknown":
         current_platform = sys.platform
     if current_platform != "win32" and not os.access(exe_path, os.X_OK):
-        cfg = _load_config_safe(ctx)
+        backend = _load_config_safe(ctx).get("backend")
         recovery = (
-            f"Run chmod +x on llama/custom/bin/{exe_name}."
-            if cfg.get("backend") == "custom"
+            f"Run chmod +x on {llama_manager.custom_backend_bin_label(backend)}{exe_name}."
+            if llama_manager.is_custom_backend(backend)
             else "Use Repair Install to restore executable permissions."
         )
         return None, f"{exe_name} is not executable. {recovery}"
@@ -1140,10 +1141,10 @@ def _validate_launch_environment(
 
     missing = ", ".join(str(name) for name in missing_runtime_files)
     plural = "libraries" if len(missing_runtime_files) != 1 else "library"
-    cfg = _load_config_safe(ctx)
+    backend = _load_config_safe(ctx).get("backend")
     recovery = (
-        "Add the missing files to llama/custom/bin/."
-        if cfg.get("backend") == "custom"
+        f"Add the missing files to {llama_manager.custom_backend_bin_label(backend)}."
+        if llama_manager.is_custom_backend(backend)
         else (
             "Use Repair Install, then verify the matching Vulkan/ROCm driver runtime is installed."
             if current_platform.startswith("linux")
@@ -1587,7 +1588,8 @@ def remove_llama_files(ctx: AppContext) -> int:
 
     with ctx.state.config_lock:
         config_data = _load_config_safe(ctx)
-        config_data.update({"version": None, "backend": None, "tag": None})
+        if not llama_manager.is_custom_backend(config_data.get("backend")):
+            config_data.update({"version": None, "backend": None, "tag": None})
         config_data.pop("official_install", None)
         ctx.services.save_config(config_data)
     ctx.state.clear_runtime_health_cache()

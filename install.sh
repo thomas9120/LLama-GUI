@@ -50,6 +50,7 @@ echo "Installing Python dependencies from requirements.txt..."
 "$VENV_PYTHON" -m pip install -r requirements.txt
 
 mkdir -p llama/custom/bin llama/custom/grammars
+mkdir -p llama/custom-02/bin llama/custom-02/grammars
 
 echo "Creating application and desktop launchers..."
 if ! "$VENV_PYTHON" "$SCRIPT_DIR/scripts/create_unix_shortcuts.py"; then

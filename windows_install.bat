@@ -51,6 +51,10 @@ if not exist "llama\custom\bin" mkdir "llama\custom\bin"
 if errorlevel 1 goto :install_error
 if not exist "llama\custom\grammars" mkdir "llama\custom\grammars"
 if errorlevel 1 goto :install_error
+if not exist "llama\custom-02\bin" mkdir "llama\custom-02\bin"
+if errorlevel 1 goto :install_error
+if not exist "llama\custom-02\grammars" mkdir "llama\custom-02\grammars"
+if errorlevel 1 goto :install_error
 
 where powershell >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
