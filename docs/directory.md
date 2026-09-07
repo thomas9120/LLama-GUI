@@ -945,6 +945,7 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Empty results show "No configuration options match your search."
 - Escape key or clear button resets the search and restores the pre-search submenu state. Categories opened by the search stay open.
 - "Expand All" opens all categories and submenus. "Collapse All" closes them.
+- "Reset to defaults…" opens a confirmation dialog and replaces shared flag values with the app defaults, clearing Custom Launch Args. It keeps the selected model/tool, saved presets, chats, and active runtime; Cancel or Escape leaves settings intact.
 - Individual categories remember their open/closed state via `openCategories` Set; submenus via `openSubmenus`, keyed `"<categoryId>::<submenuName>"`.
 
 ---

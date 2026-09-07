@@ -285,6 +285,79 @@ async function verifyConfigureComparison(page) {
     assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
 }
 
+async function verifyConfigureReset(page) {
+    await selectSection(page, "configure");
+    await page.evaluate(() => refreshModels());
+    await page.selectOption("#model-select", "smoke-model.gguf");
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
+        ctx_size: 8192, temperature: 0.37, port: 9091, gpu_layers: 7,
+        chat_template: "chatml", custom_args: '--threads "unfinished',
+    }));
+    const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
+    const runtime = { generation: 401, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 9091, launch_settings: baseline };
+    const status = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...status, running: true, active_process_tool: "llama-server", active_runtime: runtime } }));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 401 } }));
+    await page.evaluate(activeRuntime => processLifecycle.restore({ running: true, active_runtime: activeRuntime }, {
+        startOutput: () => {}, startStats: () => {}, postReady: () => {},
+    }), runtime);
+    await page.selectOption("#tool-select", "llama-cli");
+    const original = await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues());
+    const savedPresets = await page.evaluate(() => fetchJson("/api/presets"));
+    const history = JSON.stringify([{ id: "reset-history", title: "Keep this chat", messages: [] }]);
+    await page.evaluate(value => localStorage.setItem("llama_gui_conversations", value), history);
+    const writes = [];
+    page.on("request", request => {
+        if (request.method() !== "GET" && /\/api\/(launch|stop|presets|shutdown|restart)(?:[/?]|$)/.test(request.url())) writes.push(request.url());
+    });
+    const button = page.locator("#btn-config-reset");
+    const dialog = page.getByRole("dialog", { name: "Reset configuration to defaults?", exact: true });
+    for (const dismiss of ["cancel", "escape", "enter"]) {
+        await button.click();
+        await dialog.waitFor({ state: "visible" });
+        assert.equal(await dialog.locator("button[value=cancel]").evaluate(el => el === document.activeElement), true);
+        if (dismiss === "cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        else await page.keyboard.press(dismiss === "escape" ? "Escape" : "Enter");
+        await dialog.waitFor({ state: "hidden" });
+        assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues()), original, "dismissing leaves every setting intact");
+        assert.equal(await button.evaluate(el => el === document.activeElement), true, "dismissal restores focus to Reset");
+    }
+    await button.click();
+    await dialog.getByRole("button", { name: "Reset to defaults", exact: true }).click();
+    await page.waitForFunction(() => !window.LlamaGui.flagCore.getFlagValues().custom_args);
+    const defaults = await page.evaluate(() => getDefaultValues());
+    assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues()), defaults, "reset replaces all overrides, including hidden flags and custom args");
+    assert.equal(await page.inputValue("#tool-select"), "llama-cli");
+    assert.equal(await page.inputValue("#model-select"), "smoke-model.gguf");
+    assert.equal(await page.inputValue("#custom-launch-args"), "");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /Cannot launch|unfinished|--threads|--chat-template/);
+    assert.match(await page.textContent("#command-preview-text"), /smoke-model\.gguf/);
+    assert.equal(await page.inputValue("#flag-ctx_size"), String(defaults.ctx_size));
+    assert.equal(await page.inputValue("#quick-temperature-input"), String(defaults.temperature));
+    assert.equal(await page.inputValue("#chat-slider-temp"), String(defaults.temperature));
+    assert.equal(await page.inputValue("#quick-port"), String(defaults.port));
+    assert.equal(await page.evaluate(() => localStorage.getItem("llama_gui_conversations")), history);
+    assert.deepEqual(await page.evaluate(() => fetchJson("/api/presets")), savedPresets);
+    assert.deepEqual(await page.evaluate(() => processLifecycle.getSnapshot().activeRuntime), runtime);
+    await page.selectOption("#tool-select", "llama-server");
+    assert.match(await page.textContent("#config-change-count"), /changed since launch/);
+    await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("temperature", 0.22));
+    const viewport = page.viewportSize();
+    for (const width of [1440, 900, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await button.click();
+        assert.equal(await page.locator(".config-controls, #config-reset-dialog").evaluateAll(elements => elements.every(el => {
+            const bounds = el.getBoundingClientRect();
+            return bounds.left >= 0 && bounds.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1;
+        })), true, `reset toolbar and dialog fit at ${width}px`);
+        await page.keyboard.press("Escape");
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().temperature), 0.22, "Escape after a previous reset must not reuse its confirmation");
+    }
+    await page.setViewportSize(viewport);
+    assert.deepEqual(writes, [], "reset never writes presets or launches/stops a process");
+}
+
 async function verifyPresetPolish(page) {
     const entries = [
         { name: "Daily server", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4, hf_token: "hidden-hf-token", custom_args: "--alias daily" } } },
@@ -3486,6 +3559,7 @@ after(async () => {
 for (const [name, verify] of [
     ["shared controls, chat, downloads and model switcher", null],
     ["configure restart", verifyConfigureRestart],
+    ["configure reset to defaults", verifyConfigureReset],
     ["quick launch presentation", verifyQuickLaunchPolish],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],

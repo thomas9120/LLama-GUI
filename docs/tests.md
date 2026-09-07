@@ -56,7 +56,7 @@ npm run test:frontend
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
-The browser suite has eight named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
+The browser suite has nine named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
 
 ```powershell
 node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smoke.cjs
@@ -128,6 +128,8 @@ Configure presentation coverage checks accessible setting labels and label-to-in
 `launch_args_unit.cjs` also covers scrubbed launch-input capture, explicit unset fields, normalized comparison values, and unavailable/partial baselines. `process_lifecycle_unit.cjs` checks forwarding and isolation of nested launch snapshots. Backend launch tests verify metadata validation, secret removal, deep-copy isolation, and snapshot removal after process exit.
 
 Configure restart coverage in `flag_sync_smoke.cjs` checks parser/preflight failures before stop, refused-stop handling, duplicate-click prevention, launch-before-readiness ordering, preservation of edits made during validation, and local-server-only visibility. `process_lifecycle_unit.cjs` verifies restart cancellation when the original process has exited or been replaced during preflight.
+
+Configure reset coverage checks confirmation, Cancel/Enter/Escape dismissal and focus restoration, clearing invalid Custom Launch Args, defaults synchronized across Configure/Quick Launch/Chat, preservation of the selected model/tool, presets, chats and active runtime, and toolbar/dialog containment at 390/900/1440px.
 
 Quick Launch layout coverage checks favorite/recent shortcut ordering and filtering, matching/modified preset states, safe long names, empty/error libraries, direct temperature/Top P/port synchronization, keyboard disclosures, runtime versus pending identity, tool-aware action labels, download access, desktop action visibility, and narrow-screen containment. Existing sampler-management and custom context/GPU tests continue to exercise the retained controls.
 
