@@ -1781,6 +1781,7 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 .config-controls {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
@@ -1808,6 +1809,16 @@ input[type="range"].sampler-range::-moz-range-thumb {
 
 .config-controls .btn:hover { transform: translateY(-1px); }
 .config-controls .btn:hover .ctrl-icon { transform: translateX(2px); }
+
+dialog.config-reset-dialog {
+    margin: auto;
+    width: min(460px, calc(100% - 32px));
+    max-height: calc(100% - 32px);
+    overflow: auto;
+    color: var(--fg);
+}
+
+.config-reset-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
 
 /* Accordion */
 .config-runtime {

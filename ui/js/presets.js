@@ -258,6 +258,7 @@ function comparePresetToCurrent(data, currentData) {
 }
 
 function formatSavedPresetValue(id, value) {
+    value = getPresetFlagCore().normalizeStoredFlagValue(id, value);
     if (value === null || value === undefined || value === "") return "Not set";
     const definition = (typeof FLAGS !== "undefined" ? FLAGS : []).find(flag => flag.id === id);
     if (definition?.sensitive || SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "custom_args") return "Set · value hidden";
@@ -733,6 +734,7 @@ function presetValuesEqual(left, right) {
 
 function getNonDefaultPresetFlagIds(presetData) {
     const flags = (presetData && presetData.flags) || {};
+    const core = getPresetFlagCore();
     const definitions = Array.isArray(window.FLAGS)
         ? window.FLAGS
         : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
@@ -742,7 +744,7 @@ function getNonDefaultPresetFlagIds(presetData) {
             .map((flag) => [flag.id, flag.default])
     );
     return Object.keys(flags).filter((flagId) => (
-        !defaults.has(flagId) || !presetValuesEqual(flags[flagId], defaults.get(flagId))
+        !defaults.has(flagId) || !presetValuesEqual(core.normalizeStoredFlagValue(flagId, flags[flagId]), defaults.get(flagId))
     ));
 }
 

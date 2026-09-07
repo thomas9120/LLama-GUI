@@ -89,6 +89,17 @@
 
         document.getElementById("btn-clear-search").addEventListener("click", clearSearch);
 
+        const resetDialog = document.getElementById("config-reset-dialog");
+        document.getElementById("btn-config-reset").addEventListener("click", () => {
+            resetDialog.returnValue = "cancel";
+            resetDialog.showModal();
+        });
+        resetDialog.addEventListener("close", () => {
+            if (resetDialog.returnValue !== "reset") return;
+            getFlagCore().applyFlagValues({});
+            dependencies.showToast("Configuration reset to defaults.", "success");
+        });
+
         document.getElementById("btn-configure-hf-download").addEventListener("click", () => {
             dependencies.switchTab("quick-launch");
             const repoInput = document.getElementById("hf-repo-input");

@@ -22,6 +22,17 @@
         return Array.isArray(value) ? [...value] : value;
     }
 
+    function normalizeReasoningPreserveValue(value) {
+        // The old unchecked checkbox omitted the flag; it did not disable it.
+        if (value === true) return "enabled";
+        if (value === false || value === undefined || value === null || value === "") return "auto";
+        return value;
+    }
+
+    function normalizeStoredFlagValue(flagId, value) {
+        return flagId === "reasoning_preserve" ? normalizeReasoningPreserveValue(value) : cloneFlagValue(value);
+    }
+
     function isValidGpuLayersValue(val) {
         if (val === undefined || val === null || val === "") return false;
         const s = String(val).trim();
@@ -42,7 +53,7 @@
     function replaceFlagValues(values) {
         flagValues = {};
         for (const [key, value] of Object.entries(values || {})) {
-            flagValues[key] = cloneFlagValue(value);
+            flagValues[key] = normalizeStoredFlagValue(key, value);
         }
         return flagValues;
     }
@@ -58,6 +69,15 @@
     function getSpeculativeTypeParts(values) {
         const raw = String((values || {}).spec_type || "none").trim();
         return raw.split(",").map(value => value.trim()).filter(Boolean);
+    }
+
+    function isNgramSimpleValue(value) {
+        return value === true || String(value || "").trim() === "ngram-simple";
+    }
+
+    function isNgramSimpleEnabled(values) {
+        const cfg = values || {};
+        return isNgramSimpleValue(cfg.ngram_simple) || getSpeculativeTypeParts(cfg).includes("ngram-simple");
     }
 
     function isNgramModValue(value) {
@@ -87,6 +107,7 @@
             draftType,
             isNgramModEnabled(values) ? "ngram-mod" : "",
             isNgramMapK4vEnabled(values) ? "ngram-map-k4v" : "",
+            isNgramSimpleEnabled(values) ? "ngram-simple" : "",
         ]
             .filter(Boolean)
             .join(",");
@@ -122,8 +143,13 @@
             // working while moving the UI to the independent shared control.
             normalized.ngram_map_k4v = true;
         }
-        if (specTypes.includes("ngram-mod") || specTypes.includes("ngram-map-k4v")) {
-            const withoutNgram = specTypes.filter(type => type !== "ngram-mod" && type !== "ngram-map-k4v");
+        if (Object.prototype.hasOwnProperty.call(source, "ngram_simple")) {
+            normalized.ngram_simple = isNgramSimpleValue(source.ngram_simple);
+        } else if (specTypes.includes("ngram-simple")) {
+            normalized.ngram_simple = true;
+        }
+        if (specTypes.includes("ngram-mod") || specTypes.includes("ngram-map-k4v") || specTypes.includes("ngram-simple")) {
+            const withoutNgram = specTypes.filter(type => type !== "ngram-mod" && type !== "ngram-map-k4v" && type !== "ngram-simple");
             normalized.spec_type = withoutNgram.join(",") || "none";
         }
         return normalized;
@@ -136,7 +162,7 @@
         };
         const cloned = {};
         for (const [key, value] of Object.entries(effective)) {
-            cloned[key] = cloneFlagValue(value);
+            cloned[key] = normalizeStoredFlagValue(key, value);
         }
         return cloned;
     }
@@ -146,7 +172,7 @@
             if (value === undefined) {
                 delete flagValues[flagId];
             } else {
-                flagValues[flagId] = cloneFlagValue(value);
+                flagValues[flagId] = normalizeStoredFlagValue(flagId, value);
             }
         }
         return flagValues;
@@ -533,7 +559,7 @@
 
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
-            if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") continue;
+            if (f.id === "ngram_mod" || f.id === "ngram_map_k4v" || f.id === "ngram_simple") continue;
             if (values.fit === "off" && (f.id === "fit_target" || f.id === "fit_ctx")) continue;
             if (f.id === "kv_unified_per_slot" && values.kv_unified === "disabled") continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;
@@ -557,6 +583,13 @@
                         args.push(["--chat-template-kwargs", JSON.stringify(kwargs)]);
                     }
                 }
+                continue;
+            }
+            if (f.id === "reasoning_preserve") {
+                const mode = normalizeReasoningPreserveValue(val);
+                if (mode === "enabled") args.push([f.flag]);
+                else if (mode === "disabled") args.push([f.false_flag]);
+                else if (mode !== "auto") warnings.push(`Unsupported ${f.label || f.id} value "${mode}" — omitted.`);
                 continue;
             }
             if (f.id === "preserve_thinking") {
@@ -697,6 +730,7 @@
     }
 
     function normalizeComparisonValue(flag, value) {
+        if (flag.id === "reasoning_preserve") return normalizeReasoningPreserveValue(value);
         if (flag.type === "bool") return value === true;
         if (flag.type === "multi_enum") return [...normalizeMultiEnumValue(value)].sort();
         if (flag.type === "text_list") {
@@ -766,6 +800,7 @@
         setSelectedModelValue,
         getFlagValues: collectFlagValues,
         replaceFlagValues,
+        normalizeStoredFlagValue,
         buildEffectiveFlagValues,
         normalizeSpeculativeFlagValues,
         getCombinedSpeculativeType,

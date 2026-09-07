@@ -23,6 +23,13 @@ function getSpeculativeTypeParts(values) {
     return raw.split(",").map(value => value.trim()).filter(Boolean);
 }
 
+function isNgramSimpleEnabled(values) {
+    const cfg = values || {};
+    return cfg.ngram_simple === true
+        || String(cfg.ngram_simple || "").trim() === "ngram-simple"
+        || getSpeculativeTypeParts(cfg).includes("ngram-simple");
+}
+
 function isNgramModEnabled(values) {
     const cfg = values || {};
     const explicit = cfg.ngram_mod !== undefined ? cfg.ngram_mod : cfg.spec_ngram_mod;
@@ -48,6 +55,7 @@ function isSpeculativeDecodingEnabled(values) {
         || specTypes.some(type => type !== "none")
         || isNgramModEnabled(cfg)
         || isNgramMapK4vEnabled(cfg)
+        || isNgramSimpleEnabled(cfg)
     );
 }
 
@@ -64,11 +72,15 @@ function shouldOmitSpeculativeFlag(f, values) {
 
     if (f.id === "spec_type") {
         const specTypes = getSpeculativeTypeParts(values)
-            .filter(type => type !== "none" && type !== "ngram-mod" && type !== "ngram-map-k4v");
-        return specTypes.length === 0 && !isNgramModEnabled(values) && !isNgramMapK4vEnabled(values);
+            .filter(type => type !== "none" && type !== "ngram-mod" && type !== "ngram-map-k4v" && type !== "ngram-simple");
+        return specTypes.length === 0 && !isNgramModEnabled(values) && !isNgramMapK4vEnabled(values) && !isNgramSimpleEnabled(values);
     }
 
-    if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") return true;
+    if (f.id === "ngram_mod" || f.id === "ngram_map_k4v" || f.id === "ngram_simple") return true;
+
+    if (f.id === "ngram_simple_size_n" || f.id === "ngram_simple_size_m") {
+        return !isNgramSimpleEnabled(values);
+    }
 
     if (new Set(["ngram_mod_n_match", "ngram_mod_n_min", "ngram_mod_n_max"]).has(f.id)) {
         return !isNgramModEnabled(values);

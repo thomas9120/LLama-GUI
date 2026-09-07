@@ -9,6 +9,28 @@ const context = {
     console,
 };
 
+// The exported speculative helpers must also work without the browser's globals.
+{
+    const standalone = { window: {} };
+    vm.createContext(standalone);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/flag-core.js"), "utf8"), standalone);
+    const core = standalone.window.LlamaGui.flagCore;
+    assert.equal(core.getCombinedSpeculativeType({ ngram_mod: true }), "ngram-mod");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple: true }), "ngram-simple");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple: " ngram-simple " }), "ngram-simple");
+    assert.equal(core.getCombinedSpeculativeType({ ngram_simple_size_n: 8, ngram_simple_size_m: 16 }), "");
+    const normalized = core.normalizeSpeculativeFlagValues({
+        spec_type: "draft-mtp,ngram-simple,ngram-simple",
+        ngram_simple: " ngram-simple ",
+    });
+    assert.equal(normalized.ngram_simple, true);
+    assert.equal(normalized.spec_type, "draft-mtp");
+    assert.equal(core.getCombinedSpeculativeType(normalized), "draft-mtp,ngram-simple");
+    const disabled = core.normalizeSpeculativeFlagValues({ spec_type: "ngram-simple", ngram_simple: false });
+    assert.equal(disabled.ngram_simple, false);
+    assert.equal(core.getCombinedSpeculativeType(disabled), "");
+}
+
 context.window.window = context.window;
 vm.createContext(context);
 
@@ -435,6 +457,45 @@ function launchResult() {
 }
 
 {
+    const core = context.window.LlamaGui.flagCore;
+    for (const [value, mode, expected] of [
+        [undefined, "auto", []], [null, "auto", []], ["", "auto", []],
+        [false, "auto", []], [true, "enabled", ["--reasoning-preserve"]],
+        ["auto", "auto", []], ["enabled", "enabled", ["--reasoning-preserve"]],
+        ["disabled", "disabled", ["--no-reasoning-preserve"]],
+    ]) {
+        const flags = value === undefined ? {} : { reasoning_preserve: value };
+        const original = JSON.stringify(flags);
+        assert.equal(core.buildEffectiveFlagValues(flags).reasoning_preserve, mode);
+        core.applyFlagValues(flags);
+        assert.equal(core.getFlagValues().reasoning_preserve, mode);
+        if (value !== undefined) {
+            core.replaceFlagValues(flags);
+            assert.equal(core.getFlagValues().reasoning_preserve, mode);
+            core.setFlagValue("reasoning_preserve", value);
+            assert.equal(core.getFlagValues().reasoning_preserve, mode);
+        }
+        for (const tool of ["llama-server", "llama-cli"]) {
+            const result = core.buildLaunchArgs({ tool, flags });
+            assert.equal(result.error, null);
+            assert.deepEqual(Array.from(result.args.flat()), expected, `${tool}: ${JSON.stringify(value)}`);
+        }
+        const comparison = core.compareLaunchSettings({
+            tool: "llama-server", launch_settings: { flags: { reasoning_preserve: value } },
+        });
+        assert.equal(comparison.changes.length, 0, "legacy runtime values compare with their migrated mode");
+        assert.equal(JSON.stringify(flags), original, "normalization must not mutate its input");
+    }
+    core.setFlagValue("reasoning_preserve", "disabled");
+    assert.equal(core.compareLaunchSettings({
+        tool: "llama-server", launch_settings: { flags: { reasoning_preserve: false } },
+    }).changes.length, 1, "explicit Disabled differs from the legacy unchecked state");
+    const invalid = core.buildLaunchArgs({ tool: "llama-server", flags: { reasoning_preserve: "invalid" } });
+    assert.equal(invalid.args.length, 0);
+    assert.equal(invalid.warnings.length, 1);
+}
+
+{
     // Legacy binaries (pre-b10434 installs, custom backends, unknown tags)
     // keep the single merged --chat-template-kwargs object.
     vm.runInContext(`
@@ -580,6 +641,7 @@ function launchResult() {
         window.LlamaGui.flagCore.setMultipleFlagValues({
             spec_type: "draft-eagle3",
             ngram_mod: true,
+            ngram_simple: true,
             ngram_mod_n_match: 24,
             ngram_mod_n_min: 48,
             ngram_mod_n_max: 64,
@@ -592,7 +654,7 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.equal(args.filter((arg) => arg === "--spec-type").length, 1);
     assert.ok(
-        args.includes("draft-eagle3,ngram-mod,ngram-map-k4v"),
+        args.includes("draft-eagle3,ngram-mod,ngram-map-k4v,ngram-simple"),
         "draft and ngram methods must share one --spec-type value"
     );
     assert.ok(args.includes("--spec-ngram-mod-n-match") && args.includes("24"));
@@ -621,6 +683,9 @@ function launchResult() {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setMultipleFlagValues({
+            ngram_simple: false,
+            ngram_simple_size_n: 8,
+            ngram_simple_size_m: 16,
             ngram_mod: false,
             ngram_mod_n_match: 12,
             ngram_mod_n_min: 48,
@@ -634,6 +699,8 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.ok(!args.includes("--spec-type"), "disabled ngram-mod must not emit --spec-type");
     for (const flag of [
+        "--spec-ngram-simple-size-n",
+        "--spec-ngram-simple-size-m",
         "--spec-ngram-mod-n-match",
         "--spec-ngram-mod-n-min",
         "--spec-ngram-mod-n-max",
@@ -644,6 +711,39 @@ function launchResult() {
         assert.ok(!args.includes(flag), `${flag} must be inert while its ngram mode is disabled`);
     }
 }
+
+for (const tool of ["llama-server", "llama-cli"]) {
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue(${JSON.stringify(tool)});
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("ngram_simple", true);
+    `, context);
+    let args = flatLaunchArgs();
+    assert.equal(args.filter(arg => arg === "--spec-type").length, 1);
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-simple");
+    assert.ok(!args.includes("--spec-ngram-simple-size-n"), "blank match size uses the binary default");
+    assert.ok(!args.includes("--spec-ngram-simple-size-m"), "blank draft size uses the binary default");
+    assert.ok(!args.includes("--spec-draft-n-max"), "Simple does not need draft-model tuning");
+    vm.runInContext(`window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple_size_n: 8, ngram_simple_size_m: 16,
+    })`, context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-n") + 1], "8");
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-m") + 1], "16");
+    vm.runInContext(`window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple: false, ngram_mod: true,
+    })`, context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-mod");
+    assert.ok(!args.includes("--spec-ngram-simple-size-n"), "Simple tuning stays inert even with another speculator active");
+    assert.ok(!args.includes("--spec-ngram-simple-size-m"));
+    vm.runInContext('window.LlamaGui.flagCore.setFlagValue("ngram_simple", true)', context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-n") + 1], "8", "toggling preserves match size");
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-m") + 1], "16", "toggling preserves draft size");
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-mod,ngram-simple", "upstream permits Simple plus Mod");
+}
+vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', context);
 
 {
     vm.runInContext(`
@@ -1005,6 +1105,56 @@ function launchResult() {
         10,
         "legacy map tuning values should survive preset migration"
     );
+
+    const simplePreset = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server", model: "",
+        flags: { spec_type: "draft-mtp,ngram-simple,ngram-mod,ngram-simple", ngram_simple_size_n: 8, ngram_simple_size_m: 16 },
+    })`, context);
+    assert.equal(simplePreset.flags.spec_type, "draft-mtp");
+    assert.equal(simplePreset.flags.ngram_simple, true);
+    assert.equal(simplePreset.flags.ngram_mod, true);
+    vm.runInContext(`window.LlamaGui.presets.applyPresetData(${JSON.stringify(simplePreset)})`, context);
+    const simpleArgs = Array.from(flatLaunchArgs());
+    assert.equal(simpleArgs.filter(arg => arg === "--spec-type").length, 1);
+    assert.equal(simpleArgs[simpleArgs.indexOf("--spec-type") + 1], "draft-mtp,ngram-mod,ngram-simple");
+    const savedSimple = vm.runInContext("buildCurrentPresetData()", context);
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.presets.applyPresetData(${JSON.stringify(savedSimple)});
+    `, context);
+    assert.deepEqual(Array.from(flatLaunchArgs()), simpleArgs, "Simple survives preset save and reload");
+    const disabledSimple = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server", model: "",
+        flags: { spec_type: "ngram-simple", ngram_simple: false, ngram_simple_size_n: 8 },
+    })`, context);
+    assert.equal(disabledSimple.flags.ngram_simple, false, "explicit toggle wins over an imported spec_type");
+    assert.equal(disabledSimple.flags.spec_type, "none");
+    assert.equal(disabledSimple.flags.ngram_simple_size_n, 8);
+
+    for (const [value, mode] of [
+        [undefined, "auto"], [false, "auto"], [true, "enabled"],
+        ["auto", "auto"], ["enabled", "enabled"], ["disabled", "disabled"],
+    ]) {
+        const preset = { tool: "llama-server", model: "", flags: value === undefined ? {} : { reasoning_preserve: value } };
+        const original = JSON.stringify(preset);
+        const prepared = context.window.LlamaGui.presets.preparePresetLaunchState(preset);
+        assert.equal(prepared.flags.reasoning_preserve, mode, "preset and model-switch launch preparation migrates legacy booleans");
+        assert.equal(context.window.LlamaGui.presets.formatSavedPresetValue("reasoning_preserve", value),
+            { auto: "Auto", enabled: "Enabled", disabled: "Disabled" }[mode],
+            "preset summaries use the same mode as launch preparation");
+        const overrides = vm.runInContext(`getNonDefaultPresetFlagIds(${JSON.stringify(preset)})`, context);
+        assert.deepEqual(Array.from(overrides), mode === "auto" ? [] : ["reasoning_preserve"],
+            "legacy Auto presets are excluded from override counts and flag searches");
+        context.window.LlamaGui.presets.applyPresetData(preset);
+        const before = Array.from(flatLaunchArgs());
+        const saved = vm.runInContext("buildCurrentPresetData()", context);
+        assert.equal(saved.flags.reasoning_preserve, mode, "saved presets use canonical enum values");
+        context.window.LlamaGui.flagCore.applyFlagValues({});
+        context.window.LlamaGui.presets.applyPresetData(JSON.parse(JSON.stringify(saved)));
+        assert.equal(context.window.LlamaGui.flagCore.getFlagValues().reasoning_preserve, mode);
+        assert.deepEqual(Array.from(flatLaunchArgs()), before, "reasoning preservation survives preset save/reload");
+        assert.equal(JSON.stringify(preset), original);
+    }
 }
 
 console.log("load-mode preset round-trip tests passed");

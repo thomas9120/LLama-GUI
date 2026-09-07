@@ -843,6 +843,14 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 - Grouping is presentation-only. Sampler presets still read and write every sampling flag (`sampler-presets.js` selects by `category === "sampling"`), and rows inside a collapsed submenu are still present in the DOM, so preset apply/save works without expanding anything.
 - `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
 
+### Ngram Simple
+
+Configure's Speculative Decoding category includes an opt-in **Ngram Simple** submenu with `--spec-ngram-simple-size-n` (match tokens, upstream default 12) and `--spec-ngram-simple-size-m` (maximum draft tokens, upstream default 48). Blank tuning values use the binary's defaults; disabled tuning values remain saved but are not emitted. There are no Ngram Simple controls in Quick Launch.
+
+The shared `ngram_simple` boolean joins existing speculative methods in one `--spec-type` argument. Presets importing `ngram-simple` inside `spec_type` normalize to the independent toggle. Both Simple and Mod describe upstream's fallback behavior: Simple is tried first, and Mod can be used when Simple produces no draft, not when a proposed draft is rejected. Other enabled methods follow upstream priority; CLI list order does not set priority. Compare each method individually before combining them.
+
+Upstream's `--spec-ngram-simple-min-hits` is deliberately not exposed: the current simple draft implementation consumes only the lookup and draft sizes. Sources checked 2026-09-07: [ngram-map.cpp](https://github.com/ggml-org/llama.cpp/blob/master/common/ngram-map.cpp) and [speculative.cpp](https://github.com/ggml-org/llama.cpp/blob/master/common/speculative.cpp).
+
 ### Model Load Mode
 
 The Context & Memory category exposes `--load-mode` with llama.cpp's `none`, `mmap`, `mlock`, and `dio` modes. The deprecated mmap, mlock, and Direct I/O controls remain available for older builds. When an explicit load mode is selected, command generation suppresses those overlapping legacy arguments so only `--load-mode` is emitted.
@@ -893,11 +901,13 @@ When a high-risk tool is selected, a warning message appears.
 Flags for reasoning/thinking models:
 - `-rea` (enum: auto/on/off): Enable or disable reasoning/thinking mode.
 - `--reasoning-budget` (int): Token budget for thinking (-1 = unlimited, 0 = off).
-- `--reasoning-preserve` (bool): Preserve reasoning traces across the full chat history when the selected template supports llama.cpp's preserve-reasoning capability.
+- Preserve Reasoning (enum): Auto omits both flags and inherits the binary default; current llama.cpp enables preservation for templates with `supports_preserve_reasoning` capability. Enabled emits `--reasoning-preserve`; Disabled emits `--no-reasoning-preserve`. Preservation requires a compatible template and can increase context and token usage. Older binaries retain their own default in Auto.
 - **Default Reasoning Effort** (enum: Auto/Low/Medium/High/XHigh): Server-wide template default for Chat, API clients, and external harnesses. Auto omits the flag; other values emit the native `--reasoning-effort` flag on llama.cpp b10434+ (gated by the installed build tag from `/api/status`; the custom backend and older installs stay on the legacy path). Per-request `reasoning_effort` overrides the launch default.
 - `--chat-template-kwargs` (bool, flag: `preserve_thinking`): Legacy compatibility path. When enabled, passes `{"preserve_thinking":true}` to the chat template engine.
 
-If `reasoning_preserve` is true, the launch arg is `--reasoning-preserve`. On pre-b10434 binaries (and the custom backend), legacy `preserve_thinking` and Default Reasoning Effort share one merged `--chat-template-kwargs` JSON object when both are enabled, because those builds reject the native flag; on b10434+ each emits its own flag.
+Legacy `reasoning_preserve` preset values migrate without changing launch behavior: `true` becomes `enabled`; `false` or a missing value becomes `auto`, never an explicit disable. New presets store `auto`, `enabled`, or `disabled`. The positive/negative flags and default were verified against upstream [common/arg.cpp](https://github.com/ggml-org/llama.cpp/blob/master/common/arg.cpp) on 2026-09-07.
+
+On pre-b10434 binaries (and the custom backend), legacy `preserve_thinking` and Default Reasoning Effort share one merged `--chat-template-kwargs` JSON object when both are enabled, because those builds reject the native flag; on b10434+ each emits its own flag.
 
 The Chat settings sidebar also provides a per-conversation **Reasoning Effort** selector: Auto, Off, Low, Medium, High, or XHigh. Auto omits request overrides. Off sends top-level `reasoning_effort=none` plus matching `enable_thinking=false` / `reasoning_effort=none` template kwargs; the effort levels send top-level `reasoning_effort` (native since llama.cpp b10434, where it takes final precedence over the server default) together with the `enable_thinking=true` / `reasoning_effort` `chat_template_kwargs` fallback for older builds, allowing compatible model-provided Jinja templates to apply their native reasoning controls without mapping them to llama.cpp token budgets. When the running server reports `chat_template_caps.supports_reasoning_effort: false` on `/props` (proxied as `GET /api/llama/props`), the selector shows an explanatory hint; the control stays enabled because the capability is boolean-only and cannot say which levels a given model accepts. Stored assistant reasoning is returned as `reasoning_content` on later turns, including when web-search context is injected, so templates with preserved-thinking support receive the complete trace.
 
@@ -935,6 +945,7 @@ The Configure tab has a search input that filters visible flags in real-time.
 - Empty results show "No configuration options match your search."
 - Escape key or clear button resets the search and restores the pre-search submenu state. Categories opened by the search stay open.
 - "Expand All" opens all categories and submenus. "Collapse All" closes them.
+- "Reset to defaults…" opens a confirmation dialog and replaces shared flag values with the app defaults, clearing Custom Launch Args. It keeps the selected model/tool, saved presets, chats, and active runtime; Cancel or Escape leaves settings intact.
 - Individual categories remember their open/closed state via `openCategories` Set; submenus via `openSubmenus`, keyed `"<categoryId>::<submenuName>"`.
 
 ---

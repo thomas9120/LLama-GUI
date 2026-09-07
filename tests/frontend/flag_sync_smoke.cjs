@@ -150,6 +150,76 @@ async function verifyConfigurePresentation(page) {
     await page.setViewportSize(viewport);
 }
 
+async function verifyReasoningPreserve(page) {
+    await page.fill("#config-search", "preserve reasoning");
+    const selector = "#flag-reasoning_preserve";
+    await page.waitForSelector(selector, { state: "visible" });
+    assert.equal(await page.inputValue(selector), "auto");
+    assert.match(await page.locator('.flag-row[data-flag-id="reasoning_preserve"] .flag-desc').textContent(), /Auto follows the binary default.*compatible templates.*more context/);
+    assert.deepEqual(await page.locator(`${selector} option`).allTextContents(), ["Auto", "Enabled", "Disabled"]);
+    for (const mode of ["enabled", "disabled", "auto"]) {
+        await page.selectOption(selector, mode);
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().reasoning_preserve), mode);
+        const command = await page.textContent("#command-preview-text");
+        assert.equal(/(?:^| )--reasoning-preserve(?: |$)/.test(command), mode === "enabled");
+        assert.equal(/(?:^| )--no-reasoning-preserve(?: |$)/.test(command), mode === "disabled");
+        await page.fill("#config-search", "context");
+        await page.fill("#config-search", "preserve reasoning");
+        assert.equal(await page.inputValue(selector), mode, "rebuilding Configure preserves the selected mode");
+    }
+    for (const [legacy, mode] of [[true, "enabled"], [false, "auto"]]) {
+        await page.evaluate(value => {
+            const core = window.LlamaGui.flagCore;
+            core.applyFlagValues({ ...core.getFlagValues(), reasoning_preserve: value });
+        }, legacy);
+        assert.equal(await page.inputValue(selector), mode, "legacy preset values restore the correct dropdown option");
+    }
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--(?:no-)?reasoning-preserve/);
+    await page.fill("#config-search", "");
+}
+
+async function verifyNgramSimple(page) {
+    await selectSection(page, "configure");
+    await page.fill("#config-search", "ngram");
+    const toggle = page.locator("#flag-ngram_simple");
+    await toggle.waitFor({ state: "visible" });
+    assert.equal(await toggle.isChecked(), false);
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_n"), "");
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_m"), "");
+    for (const id of ["ngram_simple", "ngram_mod"]) {
+        const guidance = page.locator(`.flag-row[data-flag-id="${id}"] .flag-desc`);
+        assert.equal(await guidance.isVisible(), true);
+        assert.match(await guidance.textContent(), /individually first.*Simple is tried first.*fallback/);
+    }
+    await page.fill("#flag-ngram_simple_size_n", "8");
+    await page.fill("#flag-ngram_simple_size_m", "16");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--spec-ngram-simple/);
+    await toggle.check();
+    assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().ngram_simple), true);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-type ngram-simple(?: |$)/);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-n 8/);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-m 16/);
+    await page.check("#flag-ngram_mod");
+    let command = await page.textContent("#command-preview-text");
+    assert.equal((command.match(/--spec-type /g) || []).length, 1);
+    assert.match(command, /ngram-mod,ngram-simple/);
+    await toggle.uncheck();
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_n"), "8");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--spec-ngram-simple/);
+    await toggle.check();
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-m 16/);
+    // Rebuilding Configure from search must preserve shared values and toggles.
+    await page.fill("#config-search", "context");
+    await page.fill("#config-search", "ngram simple");
+    assert.equal(await toggle.isChecked(), true);
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_m"), "16");
+    assert.equal(await page.locator('#section-quick-launch input[id*="ngram_simple"]').count(), 0);
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple: false, ngram_mod: false, ngram_simple_size_n: undefined, ngram_simple_size_m: undefined,
+    }));
+    await page.fill("#config-search", "");
+}
+
 async function verifyConfigureComparison(page) {
     await selectSection(page, "configure");
     await page.fill("#config-search", "context & memory");
@@ -213,6 +283,79 @@ async function verifyConfigureComparison(page) {
     assert.match(await page.textContent("#config-comparison-note"), /Select llama-server/);
     await page.evaluate(() => window.LlamaGui.flagCore.setCurrentTool("llama-server"));
     assert.equal(await page.textContent("#config-change-count"), "Settings match launch");
+}
+
+async function verifyConfigureReset(page) {
+    await selectSection(page, "configure");
+    await page.evaluate(() => refreshModels());
+    await page.selectOption("#model-select", "smoke-model.gguf");
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
+        ctx_size: 8192, temperature: 0.37, port: 9091, gpu_layers: 7,
+        chat_template: "chatml", custom_args: '--threads "unfinished',
+    }));
+    const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
+    const runtime = { generation: 401, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 9091, launch_settings: baseline };
+    const status = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...status, running: true, active_process_tool: "llama-server", active_runtime: runtime } }));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 401 } }));
+    await page.evaluate(activeRuntime => processLifecycle.restore({ running: true, active_runtime: activeRuntime }, {
+        startOutput: () => {}, startStats: () => {}, postReady: () => {},
+    }), runtime);
+    await page.selectOption("#tool-select", "llama-cli");
+    const original = await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues());
+    const savedPresets = await page.evaluate(() => fetchJson("/api/presets"));
+    const history = JSON.stringify([{ id: "reset-history", title: "Keep this chat", messages: [] }]);
+    await page.evaluate(value => localStorage.setItem("llama_gui_conversations", value), history);
+    const writes = [];
+    page.on("request", request => {
+        if (request.method() !== "GET" && /\/api\/(launch|stop|presets|shutdown|restart)(?:[/?]|$)/.test(request.url())) writes.push(request.url());
+    });
+    const button = page.locator("#btn-config-reset");
+    const dialog = page.getByRole("dialog", { name: "Reset configuration to defaults?", exact: true });
+    for (const dismiss of ["cancel", "escape", "enter"]) {
+        await button.click();
+        await dialog.waitFor({ state: "visible" });
+        assert.equal(await dialog.locator("button[value=cancel]").evaluate(el => el === document.activeElement), true);
+        if (dismiss === "cancel") await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+        else await page.keyboard.press(dismiss === "escape" ? "Escape" : "Enter");
+        await dialog.waitFor({ state: "hidden" });
+        assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues()), original, "dismissing leaves every setting intact");
+        assert.equal(await button.evaluate(el => el === document.activeElement), true, "dismissal restores focus to Reset");
+    }
+    await button.click();
+    await dialog.getByRole("button", { name: "Reset to defaults", exact: true }).click();
+    await page.waitForFunction(() => !window.LlamaGui.flagCore.getFlagValues().custom_args);
+    const defaults = await page.evaluate(() => getDefaultValues());
+    assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues()), defaults, "reset replaces all overrides, including hidden flags and custom args");
+    assert.equal(await page.inputValue("#tool-select"), "llama-cli");
+    assert.equal(await page.inputValue("#model-select"), "smoke-model.gguf");
+    assert.equal(await page.inputValue("#custom-launch-args"), "");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /Cannot launch|unfinished|--threads|--chat-template/);
+    assert.match(await page.textContent("#command-preview-text"), /smoke-model\.gguf/);
+    assert.equal(await page.inputValue("#flag-ctx_size"), String(defaults.ctx_size));
+    assert.equal(await page.inputValue("#quick-temperature-input"), String(defaults.temperature));
+    assert.equal(await page.inputValue("#chat-slider-temp"), String(defaults.temperature));
+    assert.equal(await page.inputValue("#quick-port"), String(defaults.port));
+    assert.equal(await page.evaluate(() => localStorage.getItem("llama_gui_conversations")), history);
+    assert.deepEqual(await page.evaluate(() => fetchJson("/api/presets")), savedPresets);
+    assert.deepEqual(await page.evaluate(() => processLifecycle.getSnapshot().activeRuntime), runtime);
+    await page.selectOption("#tool-select", "llama-server");
+    assert.match(await page.textContent("#config-change-count"), /changed since launch/);
+    await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("temperature", 0.22));
+    const viewport = page.viewportSize();
+    for (const width of [1440, 900, 390]) {
+        await page.setViewportSize({ width, height: 844 });
+        await button.click();
+        assert.equal(await page.locator(".config-controls, #config-reset-dialog").evaluateAll(elements => elements.every(el => {
+            const bounds = el.getBoundingClientRect();
+            return bounds.left >= 0 && bounds.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1;
+        })), true, `reset toolbar and dialog fit at ${width}px`);
+        await page.keyboard.press("Escape");
+        await dialog.waitFor({ state: "hidden" });
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().temperature), 0.22, "Escape after a previous reset must not reuse its confirmation");
+    }
+    await page.setViewportSize(viewport);
+    assert.deepEqual(writes, [], "reset never writes presets or launches/stops a process");
 }
 
 async function verifyPresetPolish(page) {
@@ -1642,6 +1785,8 @@ async function runScenario(browser, port, verify) {
 
         await selectSection(page, "configure");
         await verifyConfigurePresentation(page);
+        await verifyNgramSimple(page);
+        await verifyReasoningPreserve(page);
 
         // Typed one key at a time on purpose. Every keystroke writes flag state,
         // which loops back into restoreFlagInputs(); when that rewrote el.value
@@ -3414,6 +3559,7 @@ after(async () => {
 for (const [name, verify] of [
     ["shared controls, chat, downloads and model switcher", null],
     ["configure restart", verifyConfigureRestart],
+    ["configure reset to defaults", verifyConfigureReset],
     ["quick launch presentation", verifyQuickLaunchPolish],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
