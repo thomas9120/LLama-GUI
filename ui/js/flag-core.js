@@ -87,6 +87,7 @@
             draftType,
             isNgramModEnabled(values) ? "ngram-mod" : "",
             isNgramMapK4vEnabled(values) ? "ngram-map-k4v" : "",
+            isNgramSimpleEnabled(values) ? "ngram-simple" : "",
         ]
             .filter(Boolean)
             .join(",");
@@ -122,8 +123,14 @@
             // working while moving the UI to the independent shared control.
             normalized.ngram_map_k4v = true;
         }
-        if (specTypes.includes("ngram-mod") || specTypes.includes("ngram-map-k4v")) {
-            const withoutNgram = specTypes.filter(type => type !== "ngram-mod" && type !== "ngram-map-k4v");
+        if (Object.prototype.hasOwnProperty.call(source, "ngram_simple")) {
+            normalized.ngram_simple = source.ngram_simple === true
+                || String(source.ngram_simple || "").trim() === "ngram-simple";
+        } else if (specTypes.includes("ngram-simple")) {
+            normalized.ngram_simple = true;
+        }
+        if (specTypes.includes("ngram-mod") || specTypes.includes("ngram-map-k4v") || specTypes.includes("ngram-simple")) {
+            const withoutNgram = specTypes.filter(type => type !== "ngram-mod" && type !== "ngram-map-k4v" && type !== "ngram-simple");
             normalized.spec_type = withoutNgram.join(",") || "none";
         }
         return normalized;
@@ -533,7 +540,7 @@
 
         for (const f of getFlags()) {
             if (f.tool !== "both" && f.tool !== toolBase) continue;
-            if (f.id === "ngram_mod" || f.id === "ngram_map_k4v") continue;
+            if (f.id === "ngram_mod" || f.id === "ngram_map_k4v" || f.id === "ngram_simple") continue;
             if (values.fit === "off" && (f.id === "fit_target" || f.id === "fit_ctx")) continue;
             if (f.id === "kv_unified_per_slot" && values.kv_unified === "disabled") continue;
             if (typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(f, values)) continue;

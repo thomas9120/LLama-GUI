@@ -843,6 +843,14 @@ Defined in `BUILTIN_SAMPLER_PRESETS` in `ui/js/app-data.js` and managed by `ui/j
 - Grouping is presentation-only. Sampler presets still read and write every sampling flag (`sampler-presets.js` selects by `category === "sampling"`), and rows inside a collapsed submenu are still present in the DOM, so preset apply/save works without expanding anything.
 - `dry_sequence_breakers` uses a repeatable text list because llama.cpp requires one `--dry-sequence-breaker` argument per breaker.
 
+### Ngram Simple
+
+Configure's Speculative Decoding category includes an opt-in **Ngram Simple** submenu with `--spec-ngram-simple-size-n` (match tokens, upstream default 12) and `--spec-ngram-simple-size-m` (maximum draft tokens, upstream default 48). Blank tuning values use the binary's defaults; disabled tuning values remain saved but are not emitted. There are no Ngram Simple controls in Quick Launch.
+
+The shared `ngram_simple` boolean joins existing speculative methods in one `--spec-type` argument. Presets importing `ngram-simple` inside `spec_type` normalize to the independent toggle. Both Simple and Mod describe upstream's fallback behavior: Simple is tried first, and Mod can be used when Simple produces no draft, not when a proposed draft is rejected. Other enabled methods follow upstream priority; CLI list order does not set priority. Compare each method individually before combining them.
+
+Upstream's `--spec-ngram-simple-min-hits` is deliberately not exposed: the current simple draft implementation consumes only the lookup and draft sizes. Sources checked 2026-09-07: [ngram-map.cpp](https://github.com/ggml-org/llama.cpp/blob/master/common/ngram-map.cpp) and [speculative.cpp](https://github.com/ggml-org/llama.cpp/blob/master/common/speculative.cpp).
+
 ### Model Load Mode
 
 The Context & Memory category exposes `--load-mode` with llama.cpp's `none`, `mmap`, `mlock`, and `dio` modes. The deprecated mmap, mlock, and Direct I/O controls remain available for older builds. When an explicit load mode is selected, command generation suppresses those overlapping legacy arguments so only `--load-mode` is emitted.

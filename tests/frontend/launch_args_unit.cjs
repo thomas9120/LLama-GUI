@@ -580,6 +580,7 @@ function launchResult() {
         window.LlamaGui.flagCore.setMultipleFlagValues({
             spec_type: "draft-eagle3",
             ngram_mod: true,
+            ngram_simple: true,
             ngram_mod_n_match: 24,
             ngram_mod_n_min: 48,
             ngram_mod_n_max: 64,
@@ -592,7 +593,7 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.equal(args.filter((arg) => arg === "--spec-type").length, 1);
     assert.ok(
-        args.includes("draft-eagle3,ngram-mod,ngram-map-k4v"),
+        args.includes("draft-eagle3,ngram-mod,ngram-map-k4v,ngram-simple"),
         "draft and ngram methods must share one --spec-type value"
     );
     assert.ok(args.includes("--spec-ngram-mod-n-match") && args.includes("24"));
@@ -621,6 +622,9 @@ function launchResult() {
     vm.runInContext(`
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
         window.LlamaGui.flagCore.setMultipleFlagValues({
+            ngram_simple: false,
+            ngram_simple_size_n: 8,
+            ngram_simple_size_m: 16,
             ngram_mod: false,
             ngram_mod_n_match: 12,
             ngram_mod_n_min: 48,
@@ -634,6 +638,8 @@ function launchResult() {
     const args = flatLaunchArgs();
     assert.ok(!args.includes("--spec-type"), "disabled ngram-mod must not emit --spec-type");
     for (const flag of [
+        "--spec-ngram-simple-size-n",
+        "--spec-ngram-simple-size-m",
         "--spec-ngram-mod-n-match",
         "--spec-ngram-mod-n-min",
         "--spec-ngram-mod-n-max",
@@ -644,6 +650,39 @@ function launchResult() {
         assert.ok(!args.includes(flag), `${flag} must be inert while its ngram mode is disabled`);
     }
 }
+
+for (const tool of ["llama-server", "llama-cli"]) {
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setCurrentToolValue(${JSON.stringify(tool)});
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("ngram_simple", true);
+    `, context);
+    let args = flatLaunchArgs();
+    assert.equal(args.filter(arg => arg === "--spec-type").length, 1);
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-simple");
+    assert.ok(!args.includes("--spec-ngram-simple-size-n"), "blank match size uses the binary default");
+    assert.ok(!args.includes("--spec-ngram-simple-size-m"), "blank draft size uses the binary default");
+    assert.ok(!args.includes("--spec-draft-n-max"), "Simple does not need draft-model tuning");
+    vm.runInContext(`window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple_size_n: 8, ngram_simple_size_m: 16,
+    })`, context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-n") + 1], "8");
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-m") + 1], "16");
+    vm.runInContext(`window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple: false, ngram_mod: true,
+    })`, context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-mod");
+    assert.ok(!args.includes("--spec-ngram-simple-size-n"), "Simple tuning stays inert even with another speculator active");
+    assert.ok(!args.includes("--spec-ngram-simple-size-m"));
+    vm.runInContext('window.LlamaGui.flagCore.setFlagValue("ngram_simple", true)', context);
+    args = flatLaunchArgs();
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-n") + 1], "8", "toggling preserves match size");
+    assert.equal(args[args.indexOf("--spec-ngram-simple-size-m") + 1], "16", "toggling preserves draft size");
+    assert.equal(args[args.indexOf("--spec-type") + 1], "ngram-mod,ngram-simple", "upstream permits Simple plus Mod");
+}
+vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', context);
 
 {
     vm.runInContext(`
@@ -1005,6 +1044,31 @@ function launchResult() {
         10,
         "legacy map tuning values should survive preset migration"
     );
+
+    const simplePreset = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server", model: "",
+        flags: { spec_type: "draft-mtp,ngram-simple,ngram-mod,ngram-simple", ngram_simple_size_n: 8, ngram_simple_size_m: 16 },
+    })`, context);
+    assert.equal(simplePreset.flags.spec_type, "draft-mtp");
+    assert.equal(simplePreset.flags.ngram_simple, true);
+    assert.equal(simplePreset.flags.ngram_mod, true);
+    vm.runInContext(`window.LlamaGui.presets.applyPresetData(${JSON.stringify(simplePreset)})`, context);
+    const simpleArgs = Array.from(flatLaunchArgs());
+    assert.equal(simpleArgs.filter(arg => arg === "--spec-type").length, 1);
+    assert.equal(simpleArgs[simpleArgs.indexOf("--spec-type") + 1], "draft-mtp,ngram-mod,ngram-simple");
+    const savedSimple = vm.runInContext("buildCurrentPresetData()", context);
+    vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.presets.applyPresetData(${JSON.stringify(savedSimple)});
+    `, context);
+    assert.deepEqual(Array.from(flatLaunchArgs()), simpleArgs, "Simple survives preset save and reload");
+    const disabledSimple = vm.runInContext(`window.LlamaGui.presets.preparePresetLaunchState({
+        tool: "llama-server", model: "",
+        flags: { spec_type: "ngram-simple", ngram_simple: false, ngram_simple_size_n: 8 },
+    })`, context);
+    assert.equal(disabledSimple.flags.ngram_simple, false, "explicit toggle wins over an imported spec_type");
+    assert.equal(disabledSimple.flags.spec_type, "none");
+    assert.equal(disabledSimple.flags.ngram_simple_size_n, 8);
 }
 
 console.log("load-mode preset round-trip tests passed");

@@ -150,6 +150,48 @@ async function verifyConfigurePresentation(page) {
     await page.setViewportSize(viewport);
 }
 
+async function verifyNgramSimple(page) {
+    await selectSection(page, "configure");
+    await page.fill("#config-search", "ngram");
+    const toggle = page.locator("#flag-ngram_simple");
+    await toggle.waitFor({ state: "visible" });
+    assert.equal(await toggle.isChecked(), false);
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_n"), "");
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_m"), "");
+    for (const id of ["ngram_simple", "ngram_mod"]) {
+        const guidance = page.locator(`.flag-row[data-flag-id="${id}"] .flag-desc`);
+        assert.equal(await guidance.isVisible(), true);
+        assert.match(await guidance.textContent(), /individually first.*Simple is tried first.*fallback/);
+    }
+    await page.fill("#flag-ngram_simple_size_n", "8");
+    await page.fill("#flag-ngram_simple_size_m", "16");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--spec-ngram-simple/);
+    await toggle.check();
+    assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().ngram_simple), true);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-type ngram-simple(?: |$)/);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-n 8/);
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-m 16/);
+    await page.check("#flag-ngram_mod");
+    let command = await page.textContent("#command-preview-text");
+    assert.equal((command.match(/--spec-type /g) || []).length, 1);
+    assert.match(command, /ngram-mod,ngram-simple/);
+    await toggle.uncheck();
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_n"), "8");
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--spec-ngram-simple/);
+    await toggle.check();
+    assert.match(await page.textContent("#command-preview-text"), /--spec-ngram-simple-size-m 16/);
+    // Rebuilding Configure from search must preserve shared values and toggles.
+    await page.fill("#config-search", "context");
+    await page.fill("#config-search", "ngram simple");
+    assert.equal(await toggle.isChecked(), true);
+    assert.equal(await page.inputValue("#flag-ngram_simple_size_m"), "16");
+    assert.equal(await page.locator('#section-quick-launch input[id*="ngram_simple"]').count(), 0);
+    await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
+        ngram_simple: false, ngram_mod: false, ngram_simple_size_n: undefined, ngram_simple_size_m: undefined,
+    }));
+    await page.fill("#config-search", "");
+}
+
 async function verifyConfigureComparison(page) {
     await selectSection(page, "configure");
     await page.fill("#config-search", "context & memory");
@@ -1642,6 +1684,7 @@ async function runScenario(browser, port, verify) {
 
         await selectSection(page, "configure");
         await verifyConfigurePresentation(page);
+        await verifyNgramSimple(page);
 
         // Typed one key at a time on purpose. Every keystroke writes flag state,
         // which loops back into restoreFlagInputs(); when that rewrote el.value

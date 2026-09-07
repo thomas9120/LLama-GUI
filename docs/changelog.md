@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-07
+
+- Added opt-in Ngram Simple controls in Configure with match/draft sizes, shared command and preset support, and guidance explaining its fallback relationship with Ngram Mod. Quick Launch has no new controls.
+
 ## 2026-09-06
 
 - Fixed the interrupted web-response test fixture for Python 3.9's `readinto()` path while preserving its cleanup and error-sanitization checks.
