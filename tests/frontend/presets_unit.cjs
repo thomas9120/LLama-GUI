@@ -260,6 +260,7 @@ function createStoredContext(initialStorage = {}) {
     favoritesContext.window = favoritesContext;
     favoritesContext.window.LlamaGui = {};
     vm.createContext(favoritesContext);
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), favoritesContext);
     vm.runInContext(source, favoritesContext, { filename: "presets.js" });
     return favoritesContext;
 }

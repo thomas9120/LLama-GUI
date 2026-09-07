@@ -457,6 +457,45 @@ function launchResult() {
 }
 
 {
+    const core = context.window.LlamaGui.flagCore;
+    for (const [value, mode, expected] of [
+        [undefined, "auto", []], [null, "auto", []], ["", "auto", []],
+        [false, "auto", []], [true, "enabled", ["--reasoning-preserve"]],
+        ["auto", "auto", []], ["enabled", "enabled", ["--reasoning-preserve"]],
+        ["disabled", "disabled", ["--no-reasoning-preserve"]],
+    ]) {
+        const flags = value === undefined ? {} : { reasoning_preserve: value };
+        const original = JSON.stringify(flags);
+        assert.equal(core.buildEffectiveFlagValues(flags).reasoning_preserve, mode);
+        core.applyFlagValues(flags);
+        assert.equal(core.getFlagValues().reasoning_preserve, mode);
+        if (value !== undefined) {
+            core.replaceFlagValues(flags);
+            assert.equal(core.getFlagValues().reasoning_preserve, mode);
+            core.setFlagValue("reasoning_preserve", value);
+            assert.equal(core.getFlagValues().reasoning_preserve, mode);
+        }
+        for (const tool of ["llama-server", "llama-cli"]) {
+            const result = core.buildLaunchArgs({ tool, flags });
+            assert.equal(result.error, null);
+            assert.deepEqual(Array.from(result.args.flat()), expected, `${tool}: ${JSON.stringify(value)}`);
+        }
+        const comparison = core.compareLaunchSettings({
+            tool: "llama-server", launch_settings: { flags: { reasoning_preserve: value } },
+        });
+        assert.equal(comparison.changes.length, 0, "legacy runtime values compare with their migrated mode");
+        assert.equal(JSON.stringify(flags), original, "normalization must not mutate its input");
+    }
+    core.setFlagValue("reasoning_preserve", "disabled");
+    assert.equal(core.compareLaunchSettings({
+        tool: "llama-server", launch_settings: { flags: { reasoning_preserve: false } },
+    }).changes.length, 1, "explicit Disabled differs from the legacy unchecked state");
+    const invalid = core.buildLaunchArgs({ tool: "llama-server", flags: { reasoning_preserve: "invalid" } });
+    assert.equal(invalid.args.length, 0);
+    assert.equal(invalid.warnings.length, 1);
+}
+
+{
     // Legacy binaries (pre-b10434 installs, custom backends, unknown tags)
     // keep the single merged --chat-template-kwargs object.
     vm.runInContext(`
@@ -1091,6 +1130,31 @@ vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', 
     assert.equal(disabledSimple.flags.ngram_simple, false, "explicit toggle wins over an imported spec_type");
     assert.equal(disabledSimple.flags.spec_type, "none");
     assert.equal(disabledSimple.flags.ngram_simple_size_n, 8);
+
+    for (const [value, mode] of [
+        [undefined, "auto"], [false, "auto"], [true, "enabled"],
+        ["auto", "auto"], ["enabled", "enabled"], ["disabled", "disabled"],
+    ]) {
+        const preset = { tool: "llama-server", model: "", flags: value === undefined ? {} : { reasoning_preserve: value } };
+        const original = JSON.stringify(preset);
+        const prepared = context.window.LlamaGui.presets.preparePresetLaunchState(preset);
+        assert.equal(prepared.flags.reasoning_preserve, mode, "preset and model-switch launch preparation migrates legacy booleans");
+        assert.equal(context.window.LlamaGui.presets.formatSavedPresetValue("reasoning_preserve", value),
+            { auto: "Auto", enabled: "Enabled", disabled: "Disabled" }[mode],
+            "preset summaries use the same mode as launch preparation");
+        const overrides = vm.runInContext(`getNonDefaultPresetFlagIds(${JSON.stringify(preset)})`, context);
+        assert.deepEqual(Array.from(overrides), mode === "auto" ? [] : ["reasoning_preserve"],
+            "legacy Auto presets are excluded from override counts and flag searches");
+        context.window.LlamaGui.presets.applyPresetData(preset);
+        const before = Array.from(flatLaunchArgs());
+        const saved = vm.runInContext("buildCurrentPresetData()", context);
+        assert.equal(saved.flags.reasoning_preserve, mode, "saved presets use canonical enum values");
+        context.window.LlamaGui.flagCore.applyFlagValues({});
+        context.window.LlamaGui.presets.applyPresetData(JSON.parse(JSON.stringify(saved)));
+        assert.equal(context.window.LlamaGui.flagCore.getFlagValues().reasoning_preserve, mode);
+        assert.deepEqual(Array.from(flatLaunchArgs()), before, "reasoning preservation survives preset save/reload");
+        assert.equal(JSON.stringify(preset), original);
+    }
 }
 
 console.log("load-mode preset round-trip tests passed");

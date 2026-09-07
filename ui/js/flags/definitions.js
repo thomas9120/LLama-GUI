@@ -1153,12 +1153,19 @@ const FLAGS = [
 	{
 		id: "reasoning_preserve",
 		flag: "--reasoning-preserve",
+		false_flag: "--no-reasoning-preserve",
 		category: "conversation",
-		type: "bool",
+		type: "enum",
 		label: "Preserve Reasoning",
-		desc: "Preserve reasoning traces across the full chat history when the selected template supports it. Recommended for templates with llama.cpp preserve-reasoning capability.",
+		short_desc: "Auto follows the binary default (enabled for compatible templates in current llama.cpp). Preserving reasoning can use more context.",
+		desc: "Preserve reasoning traces across the full chat history. Auto leaves the binary default unchanged; current llama.cpp enables preservation for templates with supports_preserve_reasoning capability. Enabled and Disabled explicitly override that default. Requires a compatible template and can increase context and token usage.",
 		tool: "both",
-		default: false,
+		default: "auto",
+		options: [
+			{ value: "auto", label: "Auto" },
+			{ value: "enabled", label: "Enabled" },
+			{ value: "disabled", label: "Disabled" },
+		],
 	},
 	{
 		id: "chat_template_reasoning_effort",

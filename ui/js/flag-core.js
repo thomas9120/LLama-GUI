@@ -22,6 +22,17 @@
         return Array.isArray(value) ? [...value] : value;
     }
 
+    function normalizeReasoningPreserveValue(value) {
+        // The old unchecked checkbox omitted the flag; it did not disable it.
+        if (value === true) return "enabled";
+        if (value === false || value === undefined || value === null || value === "") return "auto";
+        return value;
+    }
+
+    function normalizeStoredFlagValue(flagId, value) {
+        return flagId === "reasoning_preserve" ? normalizeReasoningPreserveValue(value) : cloneFlagValue(value);
+    }
+
     function isValidGpuLayersValue(val) {
         if (val === undefined || val === null || val === "") return false;
         const s = String(val).trim();
@@ -42,7 +53,7 @@
     function replaceFlagValues(values) {
         flagValues = {};
         for (const [key, value] of Object.entries(values || {})) {
-            flagValues[key] = cloneFlagValue(value);
+            flagValues[key] = normalizeStoredFlagValue(key, value);
         }
         return flagValues;
     }
@@ -151,7 +162,7 @@
         };
         const cloned = {};
         for (const [key, value] of Object.entries(effective)) {
-            cloned[key] = cloneFlagValue(value);
+            cloned[key] = normalizeStoredFlagValue(key, value);
         }
         return cloned;
     }
@@ -161,7 +172,7 @@
             if (value === undefined) {
                 delete flagValues[flagId];
             } else {
-                flagValues[flagId] = cloneFlagValue(value);
+                flagValues[flagId] = normalizeStoredFlagValue(flagId, value);
             }
         }
         return flagValues;
@@ -574,6 +585,13 @@
                 }
                 continue;
             }
+            if (f.id === "reasoning_preserve") {
+                const mode = normalizeReasoningPreserveValue(val);
+                if (mode === "enabled") args.push([f.flag]);
+                else if (mode === "disabled") args.push([f.false_flag]);
+                else if (mode !== "auto") warnings.push(`Unsupported ${f.label || f.id} value "${mode}" — omitted.`);
+                continue;
+            }
             if (f.id === "preserve_thinking") {
                 // On the legacy path with a non-auto effort, preserve_thinking
                 // is merged into the single kwargs object emitted above.
@@ -712,6 +730,7 @@
     }
 
     function normalizeComparisonValue(flag, value) {
+        if (flag.id === "reasoning_preserve") return normalizeReasoningPreserveValue(value);
         if (flag.type === "bool") return value === true;
         if (flag.type === "multi_enum") return [...normalizeMultiEnumValue(value)].sort();
         if (flag.type === "text_list") {
@@ -781,6 +800,7 @@
         setSelectedModelValue,
         getFlagValues: collectFlagValues,
         replaceFlagValues,
+        normalizeStoredFlagValue,
         buildEffectiveFlagValues,
         normalizeSpeculativeFlagValues,
         getCombinedSpeculativeType,

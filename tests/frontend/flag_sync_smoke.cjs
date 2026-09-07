@@ -150,6 +150,34 @@ async function verifyConfigurePresentation(page) {
     await page.setViewportSize(viewport);
 }
 
+async function verifyReasoningPreserve(page) {
+    await page.fill("#config-search", "preserve reasoning");
+    const selector = "#flag-reasoning_preserve";
+    await page.waitForSelector(selector, { state: "visible" });
+    assert.equal(await page.inputValue(selector), "auto");
+    assert.match(await page.locator('.flag-row[data-flag-id="reasoning_preserve"] .flag-desc').textContent(), /Auto follows the binary default.*compatible templates.*more context/);
+    assert.deepEqual(await page.locator(`${selector} option`).allTextContents(), ["Auto", "Enabled", "Disabled"]);
+    for (const mode of ["enabled", "disabled", "auto"]) {
+        await page.selectOption(selector, mode);
+        assert.equal(await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().reasoning_preserve), mode);
+        const command = await page.textContent("#command-preview-text");
+        assert.equal(/(?:^| )--reasoning-preserve(?: |$)/.test(command), mode === "enabled");
+        assert.equal(/(?:^| )--no-reasoning-preserve(?: |$)/.test(command), mode === "disabled");
+        await page.fill("#config-search", "context");
+        await page.fill("#config-search", "preserve reasoning");
+        assert.equal(await page.inputValue(selector), mode, "rebuilding Configure preserves the selected mode");
+    }
+    for (const [legacy, mode] of [[true, "enabled"], [false, "auto"]]) {
+        await page.evaluate(value => {
+            const core = window.LlamaGui.flagCore;
+            core.applyFlagValues({ ...core.getFlagValues(), reasoning_preserve: value });
+        }, legacy);
+        assert.equal(await page.inputValue(selector), mode, "legacy preset values restore the correct dropdown option");
+    }
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--(?:no-)?reasoning-preserve/);
+    await page.fill("#config-search", "");
+}
+
 async function verifyNgramSimple(page) {
     await selectSection(page, "configure");
     await page.fill("#config-search", "ngram");
@@ -1685,6 +1713,7 @@ async function runScenario(browser, port, verify) {
         await selectSection(page, "configure");
         await verifyConfigurePresentation(page);
         await verifyNgramSimple(page);
+        await verifyReasoningPreserve(page);
 
         // Typed one key at a time on purpose. Every keystroke writes flag state,
         // which loops back into restoreFlagInputs(); when that rewrote el.value
