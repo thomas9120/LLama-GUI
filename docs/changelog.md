@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-08
+
+- Corrected the `-cram` label and help text to describe host-RAM prompt caching for reuse, clarifying that it does not increase the context window or limit VRAM.
+
 ## 2026-09-07
 
 - Simplified custom-slot launch diagnostics and GPU vendor hints, with explicit Custom 02 telemetry coverage and exact backend query matching in browser checks.
