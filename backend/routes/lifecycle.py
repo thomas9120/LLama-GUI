@@ -5,6 +5,7 @@ import sys
 from ..http import sanitize_error
 from ..services import lifecycle as lifecycle_service
 from ..services import model_dir
+from ..services import llama_manager
 
 
 def post_shutdown(request, response, ctx):
@@ -25,7 +26,9 @@ def post_open_folder(request, response, ctx):
         return
     try:
         if folder == "llama":
-            target = ctx.paths.llama
+            backend = ctx.services.load_config().get("backend")
+            target = (llama_manager.get_backend_bin_dir(ctx, backend).parent
+                      if llama_manager.is_custom_backend(backend) else ctx.paths.llama)
             target.mkdir(parents=True, exist_ok=True)
         else:
             target = model_dir.get_models_dir(ctx)

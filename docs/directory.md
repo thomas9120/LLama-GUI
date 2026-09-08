@@ -87,7 +87,7 @@
 | `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
-| `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` |
+| `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` (optional `backend`: `custom` or `custom-02`; omitted defaults to `custom`) |
 | `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots`, `GET /api/llama/props` — Prometheus proxy and template-capability props |
 | `models.py` | `GET /api/models` — list GGUF files recursively as names relative to the active model root |
 | `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |
@@ -743,6 +743,18 @@ Frontend tunnel controls, status rendering, URL rendering, copy wiring, start/st
 - Tunnel URL is added to allowed CORS origins for API requests.
 
 ---
+
+## Custom llama.cpp Slots
+
+Install & Update offers two fixed user-provided builds: **Custom** uses `llama/custom/bin/`, and **Custom 02** uses `llama/custom-02/bin/`. Each has a sibling `grammars/` folder. Installers, release packaging, and app startup create both layouts. Existing `backend: "custom"` configurations remain compatible.
+
+`CUSTOM_BACKEND_SPECS` and the path helpers in `backend/services/llama_manager.py` own slot identity and directory routing. `GET /api/status` supplies each slot's `id`, `label`, `custom: true`, and `bin_dir` in `available_backends`; the frontend reads this metadata for controls, paths, and update restrictions. Models and presets remain shared; selecting or loading a preset never activates a different build, and explicit grammar-file paths remain unchanged.
+
+Selecting a dropdown entry is a pending choice. **Activate Custom** sends `POST /api/activate-custom` with `{ "backend": "custom-02" }` (or `custom`). The route validates the slot, holds the existing install/launch interlock, and checks its required `llama-cli` / `llama-server` files and applicable runtime dependencies before saving config. Benchmark tools are optional. Failed validation leaves the active backend unchanged. Runtime inspection retains its existing platform limits, including no Windows dependency inspection; activation is not an inference test.
+
+Both slots retain `tag` / `version: "custom"` for existing flag-compatibility behavior; `backend` records the actual slot and survives restarts. Switching does not copy/delete files or borrow tools from another slot. Executable lookup, memory estimation, runtime library search paths, and validation use the selected directory. Activation clears runtime-health caches and preserves the remembered official installation so **Activate Existing** can switch back without downloading.
+
+**Open llama.cpp** opens the active Custom slot's root (containing `bin` and `grammars`), or the main `llama/` directory for official builds. Official update and repair paths exclude both slots. **Remove llama.cpp Files** only removes official runtime directories and metadata; it preserves both custom directories and an active custom selection. The GitHub release importer remains deferred.
 
 ## Auto-Update System
 

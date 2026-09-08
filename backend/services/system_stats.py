@@ -1399,12 +1399,10 @@ def probe_amd(platform_name):
 def provider_hints(backend_name):
     """``(nvidia, amd)`` hints from the installed backend only.
 
-    ``cuda`` implies NVIDIA; ``hip``/``rocm``/Lemonade imply AMD. Vulkan and
-    CPU backends imply no vendor, so no speculative setup rows are emitted.
+    ``cuda`` implies NVIDIA; ``hip``/``rocm``/Lemonade imply AMD. Other
+    backends, including both custom slots, imply no vendor or setup rows.
     """
     backend = str(backend_name or "").strip().lower()
-    if backend == "custom":
-        return False, False
     nvidia = backend.startswith("cuda")
     amd = (
         backend == "hip"

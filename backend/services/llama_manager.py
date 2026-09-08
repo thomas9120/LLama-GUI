@@ -40,7 +40,34 @@ LEMONADE_ROCM_REPO_API = (
 LEMONADE_STABLE_ROCM_REPO_API = (
     "https://api.github.com/repos/lemonade-sdk/llama.cpp/releases"
 )
-CUSTOM_BACKEND_SPEC = {"label": "Custom (User-Provided)"}
+CUSTOM_BACKEND_SPECS = {
+    "custom": {"label": "Custom", "folder": "custom"},
+    "custom-02": {"label": "Custom 02", "folder": "custom-02"},
+}
+
+
+def is_custom_backend(backend: Any) -> bool:
+    return isinstance(backend, str) and backend in CUSTOM_BACKEND_SPECS
+
+
+def get_backend_bin_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
+    if backend == "custom":
+        return ctx.paths.llama_custom_bin
+    if is_custom_backend(backend):
+        return ctx.paths.llama / CUSTOM_BACKEND_SPECS[backend]["folder"] / "bin"
+    return ctx.paths.llama_bin
+
+
+def get_backend_grammars_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
+    if backend == "custom":
+        return ctx.paths.llama_custom_grammars
+    if is_custom_backend(backend):
+        return get_backend_bin_dir(ctx, backend).parent / "grammars"
+    return ctx.paths.llama_grammars
+
+
+def custom_backend_bin_label(backend: str) -> str:
+    return f"llama/{CUSTOM_BACKEND_SPECS[backend]['folder']}/bin/"
 
 # (gpu_target, family label) for every target upstream publishes.
 LEMONADE_ROCM_TARGETS = [
@@ -83,7 +110,9 @@ def resolve_repo_api(spec: Mapping[str, Any], ctx: AppContext) -> str:
 
 def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, Any]:
     def with_custom(specs: dict[str, Any]) -> dict[str, Any]:
-        return {**specs, "custom": dict(CUSTOM_BACKEND_SPEC)}
+        return {**specs, **{
+            key: {"label": spec["label"]} for key, spec in CUSTOM_BACKEND_SPECS.items()
+        }}
 
     if current_platform == "win32":
         if current_arch == "arm64":
@@ -426,11 +455,7 @@ def _validate_runtime_dependencies_uncached(
     current_platform = ctx.services.current_platform or sys.platform
     if current_platform == "unknown":
         current_platform = sys.platform
-    runtime_dir = (
-        ctx.paths.llama_custom_bin
-        if cfg.get("backend") == "custom"
-        else ctx.paths.llama_bin
-    )
+    runtime_dir = get_backend_bin_dir(ctx, cfg.get("backend"))
 
     for tool in tool_names:
         exe_path = ctx.services.find_tool_executable(tool)
@@ -484,10 +509,13 @@ def _validate_runtime_dependencies_uncached(
     }
 
 
-def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
+def activate_custom_backend(ctx: AppContext, backend: str = "custom") -> dict[str, Any]:
+    if not is_custom_backend(backend):
+        return {"ok": False, "error": "Unsupported custom backend"}
     try:
-        ctx.paths.llama_custom_bin.mkdir(parents=True, exist_ok=True)
-        ctx.paths.llama_custom_grammars.mkdir(parents=True, exist_ok=True)
+        bin_dir = get_backend_bin_dir(ctx, backend)
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        get_backend_grammars_dir(ctx, backend).mkdir(parents=True, exist_ok=True)
 
         required = {
             ctx.services.get_tool_filename("llama-cli"),
@@ -500,8 +528,8 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
         not_executable: list[str] = []
         for tool in ctx.services.llama_tools:
             exe_name = ctx.services.get_tool_filename(tool)
-            exe_path = ctx.paths.llama_custom_bin / exe_name
-            if exe_path.exists():
+            exe_path = bin_dir / exe_name
+            if exe_path.is_file():
                 found.append(exe_name)
                 if exe_name in required and require_executable and not os.access(exe_path, os.X_OK):
                     not_executable.append(exe_name)
@@ -518,7 +546,7 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
                 "not_executable": sorted(not_executable),
             }
 
-        runtime_health = _validate_custom_runtime_dependencies(ctx, required)
+        runtime_health = _validate_custom_runtime_dependencies(ctx, required, backend)
         if not runtime_health.get("ok", True):
             return {
                 "ok": False,
@@ -532,14 +560,14 @@ def activate_custom_backend(ctx: AppContext) -> dict[str, Any]:
 
         with ctx.state.config_lock:
             cfg = dict(ctx.services.load_config())
-            if cfg.get("backend") and cfg.get("backend") != "custom" and cfg.get("tag"):
+            if cfg.get("backend") and not is_custom_backend(cfg.get("backend")) and cfg.get("tag"):
                 cfg["official_install"] = {
                     "backend": cfg["backend"],
                     "tag": cfg["tag"],
                     "version": cfg.get("version") or cfg["tag"],
                 }
             cfg["version"] = "custom"
-            cfg["backend"] = "custom"
+            cfg["backend"] = backend
             cfg["tag"] = "custom"
             ctx.services.save_config(cfg)
         ctx.state.clear_runtime_health_cache()
@@ -566,7 +594,7 @@ def get_official_install_status(
     backend = stored.get("backend")
     tag = stored.get("tag")
     version = stored.get("version")
-    if cfg.get("backend") and cfg.get("backend") != "custom" and cfg.get("tag"):
+    if cfg.get("backend") and not is_custom_backend(cfg.get("backend")) and cfg.get("tag"):
         backend = cfg.get("backend")
         tag = cfg.get("tag")
         version = cfg.get("version") or tag
@@ -651,8 +679,9 @@ def activate_official_backend(ctx: AppContext, backend: str) -> dict[str, Any]:
 
 
 def _validate_custom_runtime_dependencies(
-    ctx: AppContext, executable_names: Iterable[str]
+    ctx: AppContext, executable_names: Iterable[str], backend: str = "custom"
 ) -> dict[str, Any]:
+    bin_dir = get_backend_bin_dir(ctx, backend)
     current_platform = ctx.services.current_platform or sys.platform
     if current_platform == "unknown":
         current_platform = sys.platform
@@ -671,13 +700,13 @@ def _validate_custom_runtime_dependencies(
     unchecked_runtime_files: list[str] = []
 
     for exe_name in executable_names:
-        exe_path = ctx.paths.llama_custom_bin / exe_name
+        exe_path = bin_dir / exe_name
         try:
             if current_platform == "darwin":
                 required.update(get_macos_rpath_libraries(exe_path))
             else:
                 required.update(
-                    get_linux_missing_libraries(exe_path, ctx.paths.llama_custom_bin)
+                    get_linux_missing_libraries(exe_path, bin_dir)
                 )
             checked_tools.append(exe_name)
         except (
@@ -689,11 +718,11 @@ def _validate_custom_runtime_dependencies(
             unchecked_tools.append(exe_name)
 
     if current_platform.startswith("linux"):
-        for library_path in get_linux_runtime_probe_files(ctx.paths.llama_custom_bin):
+        for library_path in get_linux_runtime_probe_files(bin_dir):
             try:
                 required.update(
                     get_linux_missing_libraries(
-                        library_path, ctx.paths.llama_custom_bin
+                        library_path, bin_dir
                     )
                 )
                 checked_runtime_files.append(library_path.name)
@@ -709,7 +738,7 @@ def _validate_custom_runtime_dependencies(
         sorted(
             name
             for name in required
-            if not (ctx.paths.llama_custom_bin / name).exists()
+            if not (bin_dir / name).exists()
         )
         if current_platform == "darwin"
         else sorted(required)

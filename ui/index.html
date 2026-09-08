@@ -241,12 +241,13 @@
 
                     <div id="custom-backend-info" style="display:none;">
                         <div class="status-box info">
-                            <strong>Custom Backend Setup:</strong><br>
+                            <strong id="custom-backend-title">Custom Setup:</strong><br>
                             Place your pre-compiled llama.cpp binaries in:<br>
-                            <code>llama/custom/bin/</code><br><br>
+                            <code id="custom-backend-folder">llama/custom/bin/</code><br><br>
                             Expected executables: <code>llama-server</code>, <code>llama-cli</code>, <code>llama-bench</code>, <code>llama-perplexity</code><br>
                             Runtime libraries (.dll, .so, .dylib) should also be placed in the same directory.<br><br>
-                            Click "Activate Custom" below once your binaries are in place.
+                            Stop the running llama.cpp process, then click "Activate Custom" once your binaries are in place.
+                            Switching slots keeps both builds and uses the same models and presets.
                         </div>
                     </div>
 

@@ -83,6 +83,9 @@ const elements = new Map();
     "btn-update",
     "release-group",
     "custom-backend-info",
+    "custom-backend-folder",
+    "custom-backend-title",
+    "install-status",
     "app-update-status",
     "app-update-channel",
     "btn-update-app",
@@ -149,7 +152,8 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     const availableBackends = [
         { id: "cpu", label: "CPU" },
         { id: "vulkan", label: "Vulkan" },
-        { id: "custom", label: "Custom (User-Provided)" },
+        { id: "custom", label: "Custom", custom: true, bin_dir: "llama/custom/bin/" },
+        { id: "custom-02", label: "Custom 02", custom: true, bin_dir: "llama/custom-02/bin/" },
     ];
     const cpuStatus = {
         installed: true,
@@ -236,6 +240,51 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         "install target should remain on the newly installed backend once status catches up"
     );
     assert.equal(elements.get("btn-update").disabled, false);
+
+    // The server supplies the slot identity and path; pending selections must not
+    // change the active-build summary, even while activation is in flight.
+    let savedStatus = customStatus;
+    let completeActivation;
+    const slotRequests = [];
+    context.fetch = async (url, options) => {
+        if (url === "/api/status") return { ok: true, json: async () => savedStatus };
+        if (url === "/api/activate-custom") {
+            slotRequests.push(JSON.parse(options.body));
+            return new Promise(resolve => { completeActivation = payload => resolve({ ok: true, json: async () => payload }); });
+        }
+        assert.fail("Unexpected request while selecting Custom: " + url);
+    };
+    await context.checkStatus();
+    backendSelect.value = "custom-02";
+    context.onBackendChange();
+    await context.checkStatus();
+    assert.equal(elements.get("custom-backend-folder").textContent, "llama/custom-02/bin/");
+    assert.equal(elements.get("custom-backend-title").textContent, "Custom 02 Setup:");
+    assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom");
+    assert.equal(elements.get("btn-update").disabled, true);
+    assert.equal(elements.get("release-group").style.display, "none");
+    let activating = context.installRelease();
+    await context.installRelease();
+    assert.deepEqual(slotRequests, [{ backend: "custom-02" }], "duplicate activation is ignored");
+    await context.checkStatus();
+    assert.equal(elements.get("btn-install").disabled, true, "polling must not unlock an activation in flight");
+    completeActivation({ ok: false, missing_required: ["llama-server"] });
+    await activating;
+    assert.match(elements.get("install-status").textContent, /custom-02\/bin\/.*llama-server/);
+    assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom");
+    assert.equal(elements.get("btn-update").disabled, true, "failure must keep custom update restrictions");
+    activating = context.installRelease();
+    savedStatus = { ...customStatus, backend: "custom-02" };
+    completeActivation({ ok: true, found: ["llama-cli", "llama-server"], missing: ["llama-bench"] });
+    await activating;
+    assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom 02");
+    assert.equal(elements.get("version-badge").textContent, "Custom 02");
+    assert.equal(elements.get("btn-update").disabled, true);
+    assert.equal(context.canActivateOfficialBackend(savedStatus, "custom"), false);
+    assert.equal(context.canActivateOfficialBackend(savedStatus, "vulkan"), true);
+    context.updateStatusUI({ ...savedStatus, installed: false, config_stale: true });
+    assert.equal(elements.get("btn-repair").disabled, true);
+    assert.ok(elements.get("installed-info").children.some(child => /custom-02\/bin/.test(child.textContent)));
 
     const pending = new Map();
     context.fetch = async (url, options) => {

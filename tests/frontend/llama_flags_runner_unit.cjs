@@ -81,5 +81,9 @@ const custom = ["/repo/llama/custom/bin/llama-server", "/repo/llama/custom/bin/l
 const selected = run({ config: { backend: "custom" }, files: [...custom, ...both], env: { PATH: "/pin" } });
 assert.equal(selected.exitCode, 0);
 assert.deepEqual(selected.calls, custom);
+const custom02 = ["/repo/llama/custom-02/bin/llama-server", "/repo/llama/custom-02/bin/llama-cli"];
+const selected02 = run({ config: { backend: "custom-02" }, files: [...custom02, ...custom, ...both], env: { PATH: "/pin" } });
+assert.equal(selected02.exitCode, 0);
+assert.deepEqual(selected02.calls, custom02, "the second slot must take precedence over the first and PATH");
 assert.equal(run({ files: both, env: { LLAMA_CPP_BIN_DIR: "/pin" } }).exitCode, 0);
 console.log("llama flag runner selection, strict failures and compatibility checks passed");

@@ -27,7 +27,7 @@ def get_releases(request, response, ctx):
         spec = None
         query = urllib.parse.parse_qs(request.query or "")
         backend = (query.get("backend") or [""])[0].strip()
-        if backend == "custom":
+        if llama_manager.is_custom_backend(backend):
             response.json([])
             return
         if backend:
@@ -75,7 +75,7 @@ def start_install(request, response, ctx):
     if not backend or (not activate_existing and not tag):
         response.error("tag and backend required", 400)
         return
-    if backend == "custom":
+    if llama_manager.is_custom_backend(backend):
         response.error("Use /api/activate-custom to set up the custom backend", 400)
         return
     if backend not in ctx.services.backend_specs:
@@ -127,7 +127,7 @@ def start_update(request, response, ctx):
     if not tag or not backend:
         response.error("Nothing installed to update", 400)
         return
-    if backend == "custom":
+    if llama_manager.is_custom_backend(backend):
         response.error("Cannot auto-update a custom backend installation", 400)
         return
     if backend not in ctx.services.backend_specs:
@@ -185,13 +185,17 @@ def start_update(request, response, ctx):
 
 
 def activate_custom(request, response, ctx):
+    backend = (request.body or {}).get("backend", "custom")
+    if not llama_manager.is_custom_backend(backend):
+        response.error("Unsupported custom backend", 400)
+        return
     try:
         claim_error = _claim_install_slot(ctx)
         if claim_error is not None:
             response.error(*claim_error)
             return
         try:
-            result = llama_manager.activate_custom_backend(ctx)
+            result = llama_manager.activate_custom_backend(ctx, backend)
             response.json(result)
         finally:
             process_manager.release_install_slot(ctx)

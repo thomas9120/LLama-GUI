@@ -68,7 +68,11 @@ def get_status(request, response, ctx):
                 "arch": services.current_arch,
                 "executable_suffix": services.binary_suffix,
                 "available_backends": [
-                    {"id": key, "label": spec["label"]}
+                    {
+                        "id": key, "label": spec["label"],
+                        **({"custom": True, "bin_dir": llama_manager.custom_backend_bin_label(key)}
+                           if llama_manager.is_custom_backend(key) else {}),
+                    }
                     for key, spec in backend_specs.items()
                 ],
             }

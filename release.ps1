@@ -87,6 +87,8 @@ $placeholderDirs = @(
     "llama\bin",
     "llama\custom\bin",
     "llama\custom\grammars",
+    "llama\custom-02\bin",
+    "llama\custom-02\grammars",
     "llama\dll",
     "llama\grammars",
     "models",

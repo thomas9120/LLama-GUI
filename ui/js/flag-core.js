@@ -531,8 +531,8 @@
 
     // Gate for llama.cpp b10434+, where --reasoning-effort became a native
     // launch flag (upstream PR 26941). The tag comes from /api/status
-    // (config.json "tag"): installed releases are "bNNNNN", the custom
-    // backend is "custom". Anything unrecognized stays on the legacy
+    // (config.json "version"): official releases use "bNNNNN"; both custom
+    // slots use "custom". Anything unrecognized stays on the legacy
     // --chat-template-kwargs path, which every build accepts.
     function setBinaryTag(tag) {
         binaryTag = String(tag || "");

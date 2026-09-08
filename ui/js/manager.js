@@ -14,6 +14,7 @@ let latestStatus = null;
 let lastInstalledInfoRenderKey = "";
 let latestAppUpdateStatus = null;
 let pendingInstallBackendId = null;
+let customActivationInProgress = false;
 let modelDirChangeInProgress = false;
 let modelDirOperationError = "";
 
@@ -40,6 +41,16 @@ function backendLabelFromStatus(status, backendId) {
     return match && match.label ? match.label : (id || "None");
 }
 
+function isCustomBackend(backendId, status = latestStatus) {
+    return backendId === "custom" || backendOptionsFromStatus(status)
+        .some((backend) => backend.id === backendId && backend.custom === true);
+}
+
+function customBackendFolder(backendId, status = latestStatus) {
+    const backend = backendOptionsFromStatus(status).find((entry) => entry.id === backendId);
+    return backend && backend.bin_dir ? backend.bin_dir : "llama/custom/bin/";
+}
+
 function installedBackendIdFromStatus(status) {
     return normalizeBackendId(status && status.backend);
 }
@@ -50,9 +61,9 @@ function canActivateOfficialBackend(status, backendId) {
     const recordedBackend = normalizeBackendId(official && official.backend);
     return Boolean(
         status
-        && status.backend === "custom"
+        && isCustomBackend(status.backend, status)
         && target
-        && target !== "custom"
+        && !isCustomBackend(target, status)
         && official
         && official.files_present
         && (!recordedBackend || recordedBackend === target)
@@ -131,7 +142,7 @@ function syncInstallActionButtons(status, selectedInstallBackend) {
     const installedBackend = installedBackendIdFromStatus(status);
     const hasInstalledBackend = Boolean(status && status.installed && installedBackend);
     const hasStaleBackendConfig = Boolean(status && status.config_stale && installedBackend);
-    const customTargetSelected = installTarget === "custom";
+    const customTargetSelected = isCustomBackend(installTarget, status);
     const canActivateExisting = canActivateOfficialBackend(status, installTarget);
 
     if (installBtn && !customTargetSelected) {
@@ -142,17 +153,17 @@ function syncInstallActionButtons(status, selectedInstallBackend) {
     }
 
     if (updateBtn) {
-        const canUpdate = !customTargetSelected && hasInstalledBackend && installedBackend !== "custom";
+        const canUpdate = !customTargetSelected && hasInstalledBackend && !isCustomBackend(installedBackend, status);
         updateBtn.disabled = !canUpdate;
         updateBtn.title = canUpdate
             ? "Check the installed backend for updates"
-            : customTargetSelected || installedBackend === "custom"
+            : customTargetSelected || isCustomBackend(installedBackend, status)
                 ? "Custom backend installations are managed manually"
                 : "Install llama.cpp before checking for updates";
     }
 
     if (repairBtn) {
-        const canRepair = !customTargetSelected && hasStaleBackendConfig && installedBackend !== "custom";
+        const canRepair = !customTargetSelected && hasStaleBackendConfig && !isCustomBackend(installedBackend, status);
         repairBtn.classList.toggle("hidden", !canRepair && !customTargetSelected);
         repairBtn.disabled = !canRepair;
         repairBtn.title = customTargetSelected
@@ -188,21 +199,29 @@ function selectedBackendId() {
     return sel ? String(sel.value || "") : "";
 }
 
-function showCustomBackendControls() {
+function showCustomBackendControls(backend = selectedBackendId(), status = latestStatus) {
     releaseFetchRequestId += 1;
     cachedReleases = null;
-    releasesBackend = "custom";
+    releasesBackend = backend;
     releasesBackendInFlight = null;
 
     const sel = document.getElementById("release-select");
     if (sel) {
-        sel.innerHTML = '<option value="custom">Custom (User-Provided)</option>';
+        sel.textContent = "";
+        const option = document.createElement("option");
+        option.value = backend;
+        option.textContent = backendLabelFromStatus(status, backend);
+        sel.appendChild(option);
         sel.disabled = true;
     }
     const releaseGroup = document.getElementById("release-group");
     if (releaseGroup) releaseGroup.style.display = "none";
     const customInfo = document.getElementById("custom-backend-info");
     if (customInfo) customInfo.style.display = "";
+    const folder = document.getElementById("custom-backend-folder");
+    if (folder) folder.textContent = customBackendFolder(backend, status);
+    const title = document.getElementById("custom-backend-title");
+    if (title) title.textContent = backendLabelFromStatus(status, backend) + " Setup:";
     const installBtn = document.getElementById("btn-install");
     if (installBtn) {
         installBtn.textContent = "Activate Custom";
@@ -234,7 +253,7 @@ function onBackendChange() {
     const backend = selectedBackendId();
     const installedBackend = installedBackendIdFromStatus(latestStatus);
     pendingInstallBackendId = backend && backend !== installedBackend ? backend : null;
-    if (backend === "custom") {
+    if (isCustomBackend(backend)) {
         showCustomBackendControls();
         syncInstallActionButtons(latestStatus, backend);
         return;
@@ -245,34 +264,47 @@ function onBackendChange() {
 }
 
 async function activateCustomBackend() {
+    if (customActivationInProgress) return;
+    customActivationInProgress = true;
+    const backend = selectedBackendId();
+    const label = backendLabelFromStatus(latestStatus, backend);
+    const folder = customBackendFolder(backend);
     setInstallButtonsDisabled(true);
-    showStatus("info", "Checking custom binaries...");
+    showStatus("info", `Checking ${label} binaries...`);
     try {
-        const result = await fetchJson("/api/activate-custom", { method: "POST" });
+        const result = await fetchJson("/api/activate-custom", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ backend }),
+        });
         if (result.ok) {
             const foundList = (result.found || []).join(", ");
             const missingList = (result.missing || []).join(", ");
-            let msg = "Custom backend activated. Found: " + (foundList || "none") + ".";
+            let msg = label + " backend activated. Found: " + (foundList || "none") + ".";
             if (missingList) msg += " Missing: " + missingList + ".";
             showStatus("success", msg);
-            checkStatus();
+            await checkStatus();
         } else {
             const missingRequired = (result.missing_required || []).join(", ");
             const notExecutable = (result.not_executable || []).join(", ");
             const missingRuntime = (result.missing_runtime_files || []).join(", ");
-            if (missingRuntime) {
-                showStatus("error", "Custom backend is missing runtime libraries in llama/custom/bin/: " + missingRuntime + ".");
+            if (result.error) {
+                showStatus("error", result.error);
+            } else if (missingRuntime) {
+                showStatus("error", `${label} is missing runtime libraries in ${folder}: ${missingRuntime}.`);
             } else if (notExecutable) {
-                showStatus("error", "Custom backend tools must be executable: " + notExecutable + ".");
+                showStatus("error", `${label} tools must be executable in ${folder}: ${notExecutable}.`);
             } else {
                 const missingList = missingRequired || (result.missing || []).join(", ");
-                showStatus("error", "Custom backend needs llama-cli and llama-server in llama/custom/bin/. Missing: " + (missingList || "required tools") + ".");
+                showStatus("error", `${label} needs llama-cli and llama-server in ${folder}. Missing: ${missingList || "required tools"}.`);
             }
         }
     } catch (e) {
-        showStatus("error", "Failed to activate custom backend: " + e.message);
+        showStatus("error", `Failed to activate ${label}: ${e.message}`);
     } finally {
+        customActivationInProgress = false;
         setInstallButtonsDisabled(false);
+        syncInstallActionButtons(latestStatus, selectedBackendId());
     }
 }
 
@@ -415,12 +447,13 @@ function updateStatusUI(status) {
     installBtn.disabled = !status.available_backends || status.available_backends.length === 0;
 
     const activeBackend = backendSelect ? backendSelect.value || "" : "";
-    if (activeBackend === "custom") {
-        showCustomBackendControls();
+    if (isCustomBackend(activeBackend, status)) {
+        showCustomBackendControls(activeBackend, status);
     } else {
         showOfficialBackendControls();
     }
     syncInstallActionButtons(status, activeBackend);
+    if (customActivationInProgress) setInstallButtonsDisabled(true);
 
     if (backendSelect) {
         const targetBackend = activeBackend;
@@ -437,7 +470,9 @@ function updateStatusUI(status) {
     }
 
     if (status.installed) {
-        badge.textContent = status.version + " (" + status.backend + ")";
+        badge.textContent = isCustomBackend(status.backend, status)
+            ? backendLabelFromStatus(status, status.backend)
+            : status.version + " (" + status.backend + ")";
         badge.className = "badge badge-green";
     } else if (status.config_stale) {
         badge.textContent = "Install Incomplete";
@@ -469,7 +504,10 @@ function updateStatusUI(status) {
 
     if (status.installed) {
         appendRow("Version", String(status.version));
-        appendRow("Backend", String(status.backend));
+        appendRow("Backend", backendLabelFromStatus(status, status.backend));
+        if (isCustomBackend(status.backend, status)) {
+            appendRow("Folder", customBackendFolder(status.backend, status));
+        }
 
         const tools = Object.entries(status.executables || {});
         const isCoreTool = name => /^llama-(cli|server)(\.|$)/.test(String(name));
@@ -533,15 +571,18 @@ function updateStatusUI(status) {
 
         const hint = document.createElement("div");
         hint.className = "installed-info-hint";
-        hint.textContent = status.backend === "custom"
-            ? "Add llama-cli and llama-server to llama/custom/bin/, then click Activate Custom again."
+        hint.textContent = isCustomBackend(status.backend, status)
+            ? `Check the required tools and runtime libraries in ${customBackendFolder(status.backend, status)}, then click Activate Custom again.`
             : status.platform === "linux" && missingRuntimeFiles.length > 0
                 ? "Click Repair Install first. If the same libraries remain missing, install or update the Vulkan/ROCm driver runtime for this system."
                 : "Click Repair Install to reinstall the configured version/backend and restore binaries.";
         info.appendChild(hint);
 
         appendRow("Version (config)", String(status.version));
-        appendRow("Backend (config)", String(status.backend));
+        appendRow("Backend (config)", backendLabelFromStatus(status, status.backend));
+        if (isCustomBackend(status.backend, status)) {
+            appendRow("Folder", customBackendFolder(status.backend, status));
+        }
     } else {
         const empty = document.createElement("div");
         empty.className = "empty-state";
@@ -564,7 +605,7 @@ function updateStatusUI(status) {
 
 async function installRelease() {
     const backendEl = document.getElementById("backend-select");
-    if (backendEl && backendEl.value === "custom") {
+    if (backendEl && isCustomBackend(backendEl.value)) {
         return activateCustomBackend();
     }
     const backend = backendEl ? backendEl.value : "";
@@ -610,7 +651,7 @@ async function removeLlamaFiles() {
 
     const ok = await confirmAction(
         "Remove llama.cpp Files",
-        "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear install metadata? Models and presets will be kept.",
+        "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear official install metadata? Both Custom slots, models, and presets will be kept.",
         "Remove"
     );
     if (!ok) return;
