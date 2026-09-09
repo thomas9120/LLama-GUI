@@ -729,22 +729,24 @@ function presetValuesEqual(left, right) {
             && left.length === right.length
             && left.every((value, index) => presetValuesEqual(value, right[index]));
     }
+    // Number controls can save strings. Do not coerce blanks or booleans to zero.
+    if (typeof right === "number" && typeof left === "string" && left.trim() !== "") {
+        return Number.isFinite(right) && Number(left) === right;
+    }
     return left === right;
 }
 
 function getNonDefaultPresetFlagIds(presetData) {
     const flags = (presetData && presetData.flags) || {};
     const core = getPresetFlagCore();
-    const definitions = Array.isArray(window.FLAGS)
-        ? window.FLAGS
-        : (typeof FLAGS !== "undefined" && Array.isArray(FLAGS) ? FLAGS : []);
     const defaults = new Map(
-        definitions
+        getPresetFlagDefinitions()
             .filter((flag) => flag && flag.id && Object.prototype.hasOwnProperty.call(flag, "default"))
             .map((flag) => [flag.id, flag.default])
     );
     return Object.keys(flags).filter((flagId) => (
-        !defaults.has(flagId) || !presetValuesEqual(core.normalizeStoredFlagValue(flagId, flags[flagId]), defaults.get(flagId))
+        !SENSITIVE_PRESET_FLAG_IDS.has(flagId) && flagId !== "ctx_size_draft"
+        && (!defaults.has(flagId) || !presetValuesEqual(core.normalizeStoredFlagValue(flagId, flags[flagId]), defaults.get(flagId)))
     ));
 }
 
@@ -1183,16 +1185,41 @@ function renderPresetDetailPanel() {
     settings.className = "preset-saved-settings";
     const settingsLabel = document.createElement("summary");
     settingsLabel.textContent = `All saved settings · ${entry.overrideCount} non-default overrides`;
-    const values = document.createElement("dl");
-    values.className = "preset-saved-values";
+    const values = document.createElement("table");
+    values.className = "preset-comparison-table preset-saved-values";
+    const caption = document.createElement("caption");
+    caption.textContent = "GUI defaults are shown only where saved values differ. Blank cells match the current GUI default.";
+    const head = document.createElement("thead");
+    const headings = document.createElement("tr");
+    for (const title of ["Setting", "Saved value", "GUI default"]) {
+        const heading = document.createElement("th");
+        heading.scope = "col";
+        heading.textContent = title;
+        headings.appendChild(heading);
+    }
+    head.appendChild(headings);
+    const body = document.createElement("tbody");
+    const definitions = new Map(getPresetFlagDefinitions().map(flag => [flag.id, flag]));
+    const overrides = new Set(entry.overrideFlagIds);
     for (const [id, value] of Object.entries(entry.data.flags)) {
         if (SENSITIVE_PRESET_FLAG_IDS.has(id) || id === "ctx_size_draft") continue;
-        const label = document.createElement("dt");
+        const row = document.createElement("tr");
+        const label = document.createElement("th");
+        label.scope = "row";
         label.textContent = getPresetFlagLabel(id);
-        const text = document.createElement("dd");
+        const text = document.createElement("td");
         text.textContent = formatSavedPresetValue(id, value);
-        values.append(label, text);
+        const defaultText = document.createElement("td");
+        if (overrides.has(id)) {
+            const definition = definitions.get(id);
+            defaultText.textContent = definition && Object.prototype.hasOwnProperty.call(definition, "default")
+                ? formatSavedPresetValue(id, definition.default)
+                : "Unavailable";
+        }
+        row.append(label, text, defaultText);
+        body.appendChild(row);
     }
+    values.append(caption, head, body);
     settings.append(settingsLabel, values);
     const settingsNote = document.createElement("p");
     settingsNote.className = "help-text";

@@ -3162,10 +3162,6 @@ dialog.config-reset-dialog {
 .preset-saved-settings > summary:focus-visible,
 .preset-review > summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
 .preset-saved-settings { border-top: 1px solid var(--border); padding-top: var(--space-3); margin-top: var(--space-4); }
-.preset-saved-values { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); font-size: 12px; margin-top: var(--space-3); }
-.preset-saved-values dt, .preset-saved-values dd { padding: var(--space-2) 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
-.preset-saved-values dt { color: var(--fg-muted); padding-right: var(--space-3); }
-.preset-saved-values dd { margin: 0; font-family: var(--mono); }
 .preset-detail-subtitle + .preset-warning,
 .preset-detail-subtitle + .preset-detail-note { margin-top: var(--space-3); }
 .preset-detail-stats .preset-stat-value { font-size: 13px; overflow-wrap: anywhere; }
@@ -3184,6 +3180,10 @@ dialog.config-reset-dialog {
 .preset-comparison-table th, .preset-comparison-table td { text-align: left; padding: var(--space-2); border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
 .preset-comparison-table th { color: var(--fg-muted); background: var(--bg-raised); position: sticky; top: 0; }
 .preset-comparison-table td:not(:first-child) { font-family: var(--mono); }
+.preset-saved-values { margin-top: var(--space-3); }
+.preset-saved-values th:first-child { width: 50%; }
+.preset-saved-values tbody th { font-weight: 400; background: none; position: static; }
+.preset-saved-values caption { caption-side: bottom; text-align: left; color: var(--fg-muted); padding-top: var(--space-2); }
 dialog.preset-update-dialog { margin: auto; width: min(720px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; color: var(--fg); }
 .preset-update-dialog h3 { overflow-wrap: anywhere; }
 .preset-update-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
@@ -4527,6 +4527,7 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     .preset-checkbox,
     .preset-row-load { opacity: 1; }
     .preset-detail-actions .btn { flex: 1 1 45%; }
+    .preset-saved-values th:first-child { width: auto; }
     .modal-dialog .form-row { justify-content: stretch; }
     .stats-bar { gap: 8px; padding: 6px 12px; font-size: 11px; overflow-x: auto; }
     .page-header { flex-direction: column; align-items: flex-start; }

@@ -868,12 +868,33 @@ function createSearchContext() {
 }
 
 const searchContext = createSearchContext();
+for (const [flags, expected] of [
+    [{ batch_size: 1024, ubatch_size: "512" }, ["batch_size"]],
+    [{ batch_size: "2048", temperature: "0.8", dry_multiplier: "0" }, []],
+    [{ batch_size: "2048.0", temperature: "8e-1", dry_multiplier: 0 }, []],
+    [{ batch_size: "1024", temperature: "0.7" }, ["batch_size", "temperature"]],
+    [{ dry_multiplier: "" }, ["dry_multiplier"]],
+    [{ dry_multiplier: " " }, ["dry_multiplier"]],
+    [{ dry_multiplier: null }, ["dry_multiplier"]],
+    [{ dry_multiplier: false }, ["dry_multiplier"]],
+    [{ dry_multiplier: "invalid" }, ["dry_multiplier"]],
+    [{ mlock: false, reasoning_preserve: false }, []],
+    [{ mlock: true, reasoning_preserve: true }, ["mlock", "reasoning_preserve"]],
+    [{ api_key: "secret", hf_token: "secret", ctx_size_draft: 99 }, []],
+    [{ unknown_legacy_flag: 5 }, ["unknown_legacy_flag"]],
+]) {
+    searchContext.__comparisonPreset = { flags };
+    const original = JSON.stringify(flags);
+    const ids = vm.runInContext("getNonDefaultPresetFlagIds(__comparisonPreset)", searchContext);
+    assert.deepEqual(Array.from(ids), expected, `default comparison for ${original}`);
+    assert.equal(JSON.stringify(flags), original, "comparison must not rewrite saved values");
+}
 searchContext.__presets = [
     { name: "long-context", data: { model: "a.gguf", flags: { ctx_size: 200000 } } },
     { name: "speculative", data: { model: "b.gguf", flags: { draft_max: 24 } } },
     { name: "gpu-tuned", data: { model: "c.gguf", flags: { flash_attn: "on" } } },
     // Carries ctx_size at its shipping default, so it must not match "ctx".
-    { name: "plain", data: { model: "d.gguf", flags: { ctx_size: 64000 } } },
+    { name: "plain", data: { model: "d.gguf", flags: { ctx_size: "64000" } } },
 ];
 assert.equal(
     searchContext.window.LlamaGui.presets.getPresetLibrarySummary === undefined,
