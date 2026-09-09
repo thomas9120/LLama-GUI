@@ -143,6 +143,8 @@ Secondary-screen coverage checks Chat panel defaults and remembered choices acro
 
 When asserting against the Presets list, read the rendered order and visibility out of the DOM rather than assuming them. Groups sort by label, so they do not appear in the order a fixture declares them, and rows inside a collapsed group are in the DOM but `display: none`. Both have already caused false failures that looked like navigation bugs.
 
+The responsive Chat scenario also opens Context across focus modes and panel combinations, checking that it reserves space above the composer, keeps Send hit-testable, and toggles closed.
+
 Use fast Node tests for focused debugging. Use the Playwright smoke test when a change affects real DOM wiring, mirrored controls, tab sync, command preview rendering, or launch blocking behavior.
 
 ## Backend Tests

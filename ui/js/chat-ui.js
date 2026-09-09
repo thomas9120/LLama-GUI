@@ -583,7 +583,7 @@
             if (action) action.hidden = !chatCompactions.length;
         }
         const trigger = document.getElementById("btn-chat-tools");
-        if (trigger) trigger.title = compactionController ? "Compacting conversation — open to cancel" : "Chat tools";
+        if (trigger) trigger.title = compactionController ? "Compacting conversation — open to cancel" : "Context usage and compaction";
     }
 
     function renderCompactionMarker() {

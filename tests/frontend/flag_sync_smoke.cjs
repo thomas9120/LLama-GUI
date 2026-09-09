@@ -1169,8 +1169,9 @@ async function verifyChatResponsiveLayout(page) {
         const historyList = read("#chat-history-list");
         const settings = read("#chat-sidebar");
         const messages = read("#chat-messages");
+        const context = read("#chat-tools");
         return {
-            layout, main, composer, history, historyList, settings, messages,
+            layout, main, composer, history, historyList, settings, messages, context,
             intersections: {
                 historyMain: intersects(history, main),
                 settingsMain: intersects(settings, main),
@@ -1218,6 +1219,24 @@ async function verifyChatResponsiveLayout(page) {
                 assert.ok(layout.messages.clientHeight >= 80,
                     `both-open stacked layout reserves at least 80px of transcript space at ${viewport.width}px (received ${layout.messages.clientHeight}px)`);
             }
+            await page.getByRole("button", { name: "Context", exact: true }).click();
+            await page.locator("#chat-context-details summary").press("Enter");
+            const expanded = await readLayout();
+            assert.ok(expanded.context.height > 30 && expanded.context.bottom <= expanded.composer.top,
+                `expanded Context stays above the composer at ${viewport.width}px (${state})`);
+            assert.ok(expanded.messages.bottom <= expanded.context.top + 1 && expanded.messages.clientHeight > 0,
+                `expanded Context reserves space below the transcript at ${viewport.width}px (${state})`);
+            assert.ok(Math.abs(expanded.composer.height - layout.composer.height) <= 1
+                && Math.abs((expanded.main.bottom - expanded.composer.bottom) - (layout.main.bottom - layout.composer.bottom)) <= 1,
+                "opening Context keeps the composer anchored at the bottom of Chat");
+            await page.locator("#btn-chat-send").scrollIntoViewIfNeeded();
+            assert.equal(await page.locator("#btn-chat-send").evaluate(send => {
+                const rect = send.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return hit === send || send.contains(hit);
+            }), true, `Context does not cover Send at ${viewport.width}px (${state})`);
+            await page.getByRole("button", { name: "Context", exact: true }).click();
+            assert.equal(await page.locator("#chat-tools").isVisible(), false, "Context toggles closed");
         }
     }
 
@@ -2878,7 +2897,7 @@ async function runScenario(browser, port, verify) {
         await page.click("#btn-chat-tools");
         await page.keyboard.press("Shift+Tab");
         await page.keyboard.press("Shift+Tab");
-        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing past the trigger dismisses tools");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing outside Context dismisses the panel");
         await page.click("#btn-chat-tools");
         await page.locator("#chat-messages").click({ position: { x: 5, y: 5 } });
         assert.equal(await page.locator("#chat-tools").isVisible(), false, "outside clicks dismiss tools");
@@ -2916,7 +2935,7 @@ async function runScenario(browser, port, verify) {
         assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
         assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
 
-        // Context and compaction are reached through the composer tools menu;
+        // Context and compaction are reached through the composer's Context panel;
         // both it and the summary stay collapsed until requested.
         contextResponseMode = "compaction";
         await page.click("#btn-chat-new");

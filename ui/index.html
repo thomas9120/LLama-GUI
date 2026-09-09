@@ -1145,6 +1145,21 @@
                         </div>
                     </div>
                     <button class="btn btn-sm btn-ghost chat-jump-latest" id="btn-chat-jump-latest" type="button" hidden aria-controls="chat-messages" title="Jump to the newest message">Jump to latest</button>
+                    <div id="chat-tools" class="chat-tools" role="group" aria-label="Conversation context" hidden>
+                        <details id="chat-context-details">
+                            <summary>Context usage</summary>
+                            <div class="chat-context">
+                                <div id="chat-context-bar" class="chat-context-bar" role="progressbar" aria-label="Chat context including reply reserve" aria-valuemin="0" aria-valuemax="100" hidden>
+                                    <span id="chat-context-prompt"></span><span id="chat-context-reserve"></span>
+                                </div>
+                                <div id="chat-context-label" role="status" aria-live="polite">Start or connect to a server to measure context.</div>
+                            </div>
+                        </details>
+                        <button id="btn-chat-compact" type="button" class="btn btn-xs" disabled>Compact conversation</button>
+                        <button id="btn-chat-view-summary" type="button" class="btn btn-xs" hidden>View summary</button>
+                        <button id="btn-chat-tools-undo-compaction" type="button" class="btn btn-xs" hidden>Undo compaction</button>
+                        <div id="chat-compaction-status" role="status" aria-live="polite" hidden></div>
+                    </div>
                     <div class="chat-input-area">
                         <div id="chat-context-warning" class="chat-context-warning" role="status" hidden>
                             <span id="chat-context-warning-text"></span>
@@ -1178,22 +1193,7 @@
                                 <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 Regenerate
                             </button>
-                            <button class="btn btn-xs" id="btn-chat-tools" type="button" aria-label="Chat tools" title="Chat tools" aria-expanded="false" aria-controls="chat-tools">⋯</button>
-                            <div id="chat-tools" class="chat-tools" role="group" aria-label="Chat tools" hidden>
-                                <details id="chat-context-details">
-                                    <summary>Context usage</summary>
-                                    <div class="chat-context">
-                                        <div id="chat-context-bar" class="chat-context-bar" role="progressbar" aria-label="Chat context including reply reserve" aria-valuemin="0" aria-valuemax="100" hidden>
-                                            <span id="chat-context-prompt"></span><span id="chat-context-reserve"></span>
-                                        </div>
-                                        <div id="chat-context-label" role="status" aria-live="polite">Start or connect to a server to measure context.</div>
-                                    </div>
-                                </details>
-                                <button id="btn-chat-compact" type="button" class="btn btn-xs" disabled>Compact conversation</button>
-                                <button id="btn-chat-view-summary" type="button" class="btn btn-xs" hidden>View summary</button>
-                                <button id="btn-chat-tools-undo-compaction" type="button" class="btn btn-xs" hidden>Undo compaction</button>
-                                <div id="chat-compaction-status" role="status" aria-live="polite" hidden></div>
-                            </div>
+                            <button class="btn btn-xs" id="btn-chat-tools" type="button" title="Context usage and compaction" aria-expanded="false" aria-controls="chat-tools">Context</button>
                             <span class="chat-input-hint"><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line</span>
                         </div>
                     </div>

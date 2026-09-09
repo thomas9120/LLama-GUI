@@ -4029,11 +4029,22 @@ body.chat-focus-mode .stats-bar { left: 0; }
     line-height: 1.4;
 }
 
-.chat-tools { position: absolute; z-index: 10; right: 0; bottom: calc(100% + var(--space-2)); width: min(320px, 100%); max-height: min(400px, 60vh); overflow-y: auto; padding: var(--space-2); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-elevated); box-shadow: var(--shadow-md); }
-.chat-tools > .btn, .chat-tools summary { width: 100%; padding: var(--space-2); text-align: left; justify-content: flex-start; font-size: 12px; }
+.chat-tools {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: min(240px, 35%);
+    overflow-y: auto;
+    margin: 0 var(--space-4) var(--space-2);
+    padding: var(--space-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+}
+.chat-tools > .btn, .chat-tools summary { padding: var(--space-2); text-align: left; justify-content: flex-start; font-size: 12px; }
 .chat-tools summary { cursor: pointer; border-radius: var(--radius-sm); }
 .chat-tools summary:hover { background: var(--bg-raised); }
 .chat-tools > .btn { margin-top: var(--space-1); }
+#btn-chat-tools[aria-expanded="true"] { color: var(--accent-text); border-color: var(--accent-border); background: var(--accent-subtle); }
 .chat-auto-compact-setting {
     display: flex;
     align-items: flex-start;
@@ -4122,7 +4133,6 @@ textarea.chat-input:disabled {
 }
 
 .chat-input-actions {
-    position: relative;
     display: flex;
     gap: 6px;
     margin-top: 6px;
@@ -4738,6 +4748,14 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
         > .chat-main {
         flex: 1 1 var(--chat-stacked-main-min-height);
         min-height: var(--chat-stacked-main-min-height);
+    }
+    .chat-layout:has(.chat-tools:not([hidden])) {
+        height: auto;
+        overflow: visible;
+    }
+    .chat-layout:has(.chat-tools:not([hidden])) > .chat-main {
+        flex: 1 1 420px;
+        min-height: 420px;
     }
     .benchmark-layout { grid-template-columns: 1fr; }
     .benchmark-side { position: static; }
