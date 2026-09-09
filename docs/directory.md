@@ -230,7 +230,7 @@ The sidebar runtime disclosure shows lifecycle state and active model, with laun
 
 - Monitor's active-runtime summary reads lifecycle identity and `flagCore.compareLaunchSettings()`, with Open Configure and focused launch-change review. System telemetry is explicitly scoped to this machine and kept separate from inference activity. Vendor probe setup/state cards sit in a native disclosure with Recheck; hardware/inference card visibility and order preferences remain intact. Inference availability notes distinguish loading, non-server tools, and independently unavailable metrics/slots. Empty idle output is hidden, while retained logs are labeled **Last run output**. Changing an inference target invalidates the previous polling epoch before setting the new baseline, including external reconnects to the same address.
 
-- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
+- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At wide widths, expanded panels participate in the normal layout beside Chat; at narrow widths they stack without covering the transcript or composer, and the panel contents retain their own scrolling. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
 - API endpoints render as responsive list rows with full URLs and individually labeled Copy buttons. Client examples are native disclosures; cURL starts open and `updateEndpoints()` preserves expanded examples when their content changes. External-server and tunnel controls are separate disclosures whose status badges remain visible while closed. Tunnel warnings remain beside the actions. Endpoint/auth resolution and connection behavior are unchanged.
 - Install & Update keeps required launch tools visible and groups optional tools under an installed-count disclosure. Missing optional tools use neutral status text; missing required binaries/runtime libraries retain repair guidance. `updateStatusUI()` skips rebuilding installation details when only runtime status changes, preserving disclosure focus. **Restart Llama GUI** uses the existing restart/confirmation path.
 
@@ -657,9 +657,9 @@ When the web search toggle is enabled:
 ### Conversation History
 
 - Conversations are stored in `localStorage` under `llama_gui_conversations`.
-- Each conversation has an id, title (derived from first user message), messages array, system prompt, and timestamp.
-- Sidebar shows recent conversations with preview text and relative timestamps.
-- Features: new chat, undo last message, regenerate last response, delete individual/all conversations, collapse sidebar.
+- Each conversation has an id, title (initially derived from the first user message and preserved after a manual rename), messages array, compaction stack, system prompt, reasoning setting, and timestamp.
+- The collapsed-by-default history panel shows recent conversations with search, preview text, relative timestamps, rename, JSON export, and visible 50-conversation retention status.
+- Features include new chat, undo last message, regenerate/retry with answer versions, Edit and resend with a saved recoverable tail, and recoverable individual/bulk deletion. Restoring into a full history moves the oldest saved conversation into the recoverable store instead of silently dropping it.
 - User turns are saved before requests start. Completed, stopped, failed, and output-limited answers retain their status; interrupted content and saved source chips are restored when reopening history.
 - Regeneration sends the existing user turn without its previous answer. The previous answer stays selected until a completed replacement arrives; failed/stopped attempts are retained as answer versions. The latest assistant turn offers previous/next answer navigation and Retry after an unsuccessful or limited attempt. Only the selected answer content/reasoning is sent to the model; version and error metadata remain local.
 
@@ -673,7 +673,7 @@ When the web search toggle is enabled:
 
 ### Sampler Sliders
 
-Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, and max-tokens. Changes write through `window.LlamaGui.flagCore.setFlagValue()` and sync with Configure/Quick Launch.
+The collapsed-by-default Chat settings panel has sliders plus exact numeric inputs for temperature, top-p, top-k, min-p, repeat-penalty, and max-tokens. Advanced samplers start collapsed. Numeric values write through `window.LlamaGui.flagCore.setFlagValue()` and stay exact in shared state and requests even when the visual slider is clamped; Configure, Quick Launch, and command preview receive the same state.
 
 ---
 
@@ -972,7 +972,7 @@ The composer previews the selected conversation, current system instructions and
 
 An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
 
-The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Optional automatic compaction is off by default; when enabled, Send obtains a fresh count for the exact pending request, summarizes at most once when near or over capacity, remeasures, and pauses safely if summary generation or the follow-up count fails. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
 
 Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
 
@@ -981,6 +981,8 @@ Upstream behavior checked against [server-context.cpp](https://github.com/ggml-o
 ## Manual chat compaction
 
 `Compact conversation` lives in the composer’s ⋯ tools menu and is enabled when older messages exist beyond the last two user turns. It becomes Cancel during summarization, with progress and recovery details inside the popup. After compaction, the menu offers View summary (opens the transcript marker) and Undo compaction. The collapsed marker also retains its Undo action.
+
+The same menu contains the opt-in automatic-compaction toggle. Manual and automatic compaction share the same reversible summary records and transcript-preservation rules.
 
 `chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
 

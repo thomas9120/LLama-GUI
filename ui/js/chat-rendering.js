@@ -200,9 +200,54 @@
     }
 
     function copyTextToClipboard(text) {
-        if (typeof navigator === "undefined") return;
-        if (!navigator.clipboard || typeof navigator.clipboard.writeText !== "function") return;
-        navigator.clipboard.writeText(text).catch((e) => console.debug("Clipboard write failed", e));
+        if (typeof navigator === "undefined"
+            || !navigator.clipboard || typeof navigator.clipboard.writeText !== "function") {
+            return Promise.resolve(false);
+        }
+        try {
+            return Promise.resolve(navigator.clipboard.writeText(String(text ?? "")))
+                .then(() => true)
+                .catch((e) => {
+                    console.warn("Clipboard write failed", e);
+                    return false;
+                });
+        } catch (e) {
+            console.warn("Clipboard write failed", e);
+            return Promise.resolve(false);
+        }
+    }
+
+    function resolveChatMessagesContainer(container) {
+        if (container && typeof container === "object") return container;
+        return document.getElementById(container || "chat-messages");
+    }
+
+    function isChatNearBottom(container, threshold = 80) {
+        const target = resolveChatMessagesContainer(container);
+        if (!target) return true;
+        const scrollHeight = Number(target.scrollHeight);
+        const clientHeight = Number(target.clientHeight);
+        const scrollTop = Number(target.scrollTop);
+        // Detached test fixtures and a newly laid out empty transcript have no
+        // useful geometry yet; follow their first render by default.
+        if (![scrollHeight, clientHeight, scrollTop].every(Number.isFinite)) return true;
+        if (scrollHeight <= clientHeight) return true;
+        return scrollHeight - (scrollTop + clientHeight) <= Math.max(0, Number(threshold) || 0);
+    }
+
+    function scrollChatToLatest(container) {
+        const target = resolveChatMessagesContainer(container);
+        if (!target) return false;
+        const scrollHeight = Number(target.scrollHeight);
+        if (Number.isFinite(scrollHeight)) target.scrollTop = scrollHeight;
+        return true;
+    }
+
+    function followChatIfNearBottom(container, threshold = 80) {
+        const target = resolveChatMessagesContainer(container);
+        if (!target || !isChatNearBottom(target, threshold)) return false;
+        scrollChatToLatest(target);
+        return true;
     }
 
     function installChatCodeCopyButtons(bubble, rawText) {
@@ -215,13 +260,52 @@
             button.addEventListener("click", (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                copyTextToClipboard(block.code);
-                button.textContent = "Copied";
+                if (!button.textContent) button.textContent = "Copy";
+                void copyTextToClipboard(block.code).then((copied) => {
+                    button.textContent = copied ? "Copied" : "Copy failed";
+                    window.setTimeout(() => {
+                        button.textContent = "Copy";
+                    }, 1200);
+                });
+            });
+        });
+    }
+
+    function getChatResponseRawText(bubble) {
+        if (!bubble) return "";
+        if (bubble.dataset && bubble.dataset.rawText !== undefined) return String(bubble.dataset.rawText);
+        return String(bubble.textContent || "");
+    }
+
+    function updateChatResponseCopyButton(bubble) {
+        const wrap = getChatMessageContentWrap(bubble);
+        const button = wrap ? wrap.querySelector(".chat-response-copy") : null;
+        if (!button) return;
+        button.disabled = !getChatResponseRawText(bubble).trim();
+    }
+
+    function installChatResponseCopyButton(bubble) {
+        const wrap = getChatMessageContentWrap(bubble);
+        if (!wrap || wrap.querySelector(".chat-response-copy")) return;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn btn-xs chat-response-copy";
+        button.title = "Copy response";
+        button.textContent = "Copy";
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            const text = getChatResponseRawText(bubble);
+            if (!text.trim()) return;
+            void copyTextToClipboard(text).then((copied) => {
+                button.textContent = copied ? "Copied" : "Copy failed";
                 window.setTimeout(() => {
                     button.textContent = "Copy";
                 }, 1200);
             });
         });
+        wrap.appendChild(button);
+        updateChatResponseCopyButton(bubble);
     }
 
     function getChatMessageContentWrap(bubble) {
@@ -308,6 +392,9 @@
         const body = details.querySelector(".chat-reasoning-body");
         if (!body) return;
 
+        const container = document.getElementById("chat-messages");
+        const shouldFollow = isChatNearBottom(container);
+
         const rawText = (details.dataset.rawText || "") + token;
         details.dataset.rawText = rawText;
         updateChatReasoningMeta(details, rawText);
@@ -317,12 +404,12 @@
         } else {
             body.textContent += token;
         }
-        const container = document.getElementById("chat-messages");
-        if (container) container.scrollTop = container.scrollHeight;
+        if (shouldFollow) scrollChatToLatest(container);
     }
 
     function renderChatMessage(role, content, options = {}) {
         const container = document.getElementById("chat-messages");
+        const shouldFollow = isChatNearBottom(container);
         const empty = document.getElementById("chat-empty");
         if (empty) empty.style.display = "none";
 
@@ -349,11 +436,82 @@
         contentWrap.appendChild(bubble);
         msg.appendChild(contentWrap);
         container.appendChild(msg);
+        if (role === "assistant") installChatResponseCopyButton(bubble);
         if (role === "assistant" && options.reasoning) {
             setChatReasoningContent(bubble, options.reasoning);
         }
-        container.scrollTop = container.scrollHeight;
+        if (role === "assistant" && options.metadata) setChatResponseMetadata(bubble, options.metadata);
+        if (shouldFollow) scrollChatToLatest(container);
         return bubble;
+    }
+
+    function getResponseMetadataValue(source, keys) {
+        for (const key of keys) {
+            const value = source && source[key];
+            if (value !== undefined && value !== null && value !== "") return value;
+        }
+        return undefined;
+    }
+
+    function formatResponseNumber(value, suffix = "") {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric)) return String(value) + suffix;
+        return `${numeric.toLocaleString(undefined, { maximumFractionDigits: 2 })}${suffix}`;
+    }
+
+    function formatStopReason(value) {
+        const normalized = String(value || "").trim().toLowerCase();
+        const labels = {
+            stop: "Finished",
+            length: "Output limit reached",
+            content_filter: "Filtered",
+            tool_calls: "Tool call",
+            function_call: "Function call",
+        };
+        if (labels[normalized]) return labels[normalized];
+        return String(value).replace(/[_-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    }
+
+    function setChatResponseMetadata(bubble, metadata) {
+        const wrap = getChatMessageContentWrap(bubble);
+        if (!wrap) return null;
+        const previous = wrap.querySelector(".chat-response-metadata");
+        if (previous) previous.remove();
+
+        const source = metadata && typeof metadata === "object" ? metadata : null;
+        if (!source) return null;
+        const usage = source.usage && typeof source.usage === "object" ? source.usage : null;
+        const promptTokens = getResponseMetadataValue(source, ["prompt_tokens", "promptTokens"])
+            ?? getResponseMetadataValue(usage, ["prompt_tokens", "promptTokens"]);
+        const completionTokens = getResponseMetadataValue(source, ["completion_tokens", "completionTokens"])
+            ?? getResponseMetadataValue(usage, ["completion_tokens", "completionTokens"]);
+        const totalTokens = getResponseMetadataValue(source, ["total_tokens", "totalTokens"])
+            ?? getResponseMetadataValue(usage, ["total_tokens", "totalTokens"]);
+        const speed = getResponseMetadataValue(source, [
+            "tokens_per_second", "tokensPerSecond", "completion_tokens_per_second",
+            "completionTokensPerSecond", "predicted_per_second",
+        ]) ?? getResponseMetadataValue(source.timings, ["predicted_per_second", "predictedPerSecond"]);
+        const stopReason = getResponseMetadataValue(source, ["stop_reason", "stopReason", "finish_reason", "finishReason"]);
+        const fields = [];
+        if (promptTokens !== undefined) fields.push(["Prompt", formatResponseNumber(promptTokens)]);
+        if (completionTokens !== undefined) fields.push(["Completion", formatResponseNumber(completionTokens)]);
+        if (totalTokens !== undefined) fields.push(["Total", formatResponseNumber(totalTokens)]);
+        if (speed !== undefined) fields.push(["Speed", formatResponseNumber(speed, " tok/s")]);
+        if (stopReason !== undefined) fields.push(["Stop", formatStopReason(stopReason)]);
+        if (fields.length === 0) return null;
+
+        const footer = document.createElement("div");
+        footer.className = "chat-response-metadata";
+        footer.setAttribute("role", "status");
+        footer.setAttribute("aria-label", "Response details");
+        for (const [label, value] of fields) {
+            const item = document.createElement("span");
+            item.className = "chat-response-metadata-item";
+            item.textContent = `${label}: ${value}`;
+            footer.appendChild(item);
+        }
+        wrap.appendChild(footer);
+        return footer;
     }
 
     function setChatWebStatus(bubble, text) {
@@ -410,6 +568,7 @@
 
     function renderChatTypingIndicator() {
         const container = document.getElementById("chat-messages");
+        const shouldFollow = isChatNearBottom(container);
         const msg = document.createElement("div");
         msg.className = "chat-message assistant";
         msg.id = "chat-typing-msg";
@@ -430,7 +589,7 @@
         msg.appendChild(avatar);
         msg.appendChild(typing);
         container.appendChild(msg);
-        container.scrollTop = container.scrollHeight;
+        if (shouldFollow) scrollChatToLatest(container);
     }
 
     function removeChatTypingIndicator() {
@@ -439,6 +598,8 @@
     }
 
     function appendChatStreamToken(bubble, token) {
+        const container = document.getElementById("chat-messages");
+        const shouldFollow = isChatNearBottom(container);
         bubble.dataset.rawText = (bubble.dataset.rawText || "") + token;
         if (!bubble.dataset.streamingTextInitialized) {
             bubble.textContent = bubble.dataset.rawText;
@@ -446,8 +607,8 @@
         } else {
             bubble.textContent += token;
         }
-        const container = document.getElementById("chat-messages");
-        container.scrollTop = container.scrollHeight;
+        updateChatResponseCopyButton(bubble);
+        if (shouldFollow) scrollChatToLatest(container);
     }
 
     window.LlamaGui.chatRendering = {
@@ -462,5 +623,10 @@
         setChatReasoningContent,
         splitReasoningFromContent,
         installChatCodeCopyButtons,
+        installChatResponseCopyButton,
+        setChatResponseMetadata,
+        isChatNearBottom,
+        scrollChatToLatest,
+        followChatIfNearBottom,
     };
 })();

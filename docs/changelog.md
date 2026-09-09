@@ -5,6 +5,8 @@ Please give a brief summary of changes made to the program (excluding documentat
 ## 2026-09-09
 
 - Added Saved value and GUI default columns to the Presets tab's saved-settings table, showing defaults only for overrides. Fixed numeric strings matching numeric defaults and excluded credentials and retired draft context from override counts.
+- Added opt-in context-aware auto-compaction, selectable before-edit history copies for recoverable Edit and resend, exact numeric Chat sampler inputs, active model/reasoning indicators, near-bottom streaming follow with Jump to latest, response metadata and Copy integration, and searchable, renameable, exportable, recoverable conversation history with visible retention.
+- Updated Conversations and Settings to use responsive side-by-side or stacked panels that keep the transcript and composer reachable, with Jump to latest staying in normal composer flow.
 
 ## 2026-09-08
 

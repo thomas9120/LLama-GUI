@@ -1082,6 +1082,145 @@ async function verifySecondaryPagePolish(page) {
     await selectSection(page, "quick-launch");
 }
 
+async function verifyChatResponsiveLayout(page) {
+    await page.setViewportSize({ width: 1385, height: 1232 });
+    await page.evaluate(() => {
+        localStorage.removeItem("llama_gui_chat_history_collapsed");
+        localStorage.removeItem("llama_gui_chat_settings_collapsed");
+        const transcript = Array.from({ length: 80 }, (_, index) =>
+            `Layout regression paragraph ${index + 1}: populated transcript content remains readable while panels change size.`
+        ).join("\n\n");
+        localStorage.setItem("llama_gui_conversations", JSON.stringify([{
+            id: "layout-regression",
+            title: "Responsive layout regression",
+            messages: [
+                { role: "user", content: "Check the responsive chat layout." },
+                { role: "assistant", content: transcript, status: "complete" },
+            ],
+            timestamp: Date.now(),
+        }]));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").evaluate((element) => element.click());
+    await page.waitForFunction(() => !document.querySelector("#chat-history-panel")?.classList.contains("collapsed"));
+    await page.locator("#chat-history-list .chat-history-item").first().click();
+    await page.waitForFunction(() => document.querySelectorAll("#chat-messages .chat-message").length >= 2);
+
+    const setPanelState = async (panelId, openId, closeId, open) => {
+        const currentlyOpen = await page.locator(`#${panelId}`).evaluate((element) => !element.classList.contains("collapsed"));
+        if (currentlyOpen !== open) await page.locator(`#${open ? openId : closeId}`).evaluate((element) => element.click());
+        await page.waitForFunction(({ id, expected }) => {
+            const element = document.getElementById(id);
+            return Boolean(element) && !element.classList.contains("collapsed") === expected;
+        }, { id: panelId, expected: open });
+    };
+    const panelStates = {
+        history: ["chat-history-panel", "btn-open-history", "btn-collapse-history"],
+        settings: ["chat-sidebar", "btn-open-sidebar", "btn-collapse-sidebar"],
+    };
+    const readLayout = () => page.evaluate(() => {
+        const read = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return {
+                left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+                width: rect.width, height: rect.height,
+                visible: style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0,
+                clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+            };
+        };
+        const intersects = (left, right) => Boolean(left?.visible && right?.visible
+            && left.left < right.right && left.right > right.left
+            && left.top < right.bottom && left.bottom > right.top);
+        const layout = read("#chat-layout");
+        const main = read(".chat-main");
+        const composer = read(".chat-input-area");
+        const history = read("#chat-history-panel");
+        const historyList = read("#chat-history-list");
+        const settings = read("#chat-sidebar");
+        const messages = read("#chat-messages");
+        return {
+            layout, main, composer, history, historyList, settings, messages,
+            intersections: {
+                historyMain: intersects(history, main),
+                settingsMain: intersects(settings, main),
+                historyComposer: intersects(history, composer),
+                settingsComposer: intersects(settings, composer),
+            },
+            documentHeight: document.documentElement.scrollHeight,
+            viewportHeight: innerHeight,
+        };
+    });
+    const responsiveViewports = [
+        { width: 1385, height: 1232 },
+        { width: 390, height: 844 },
+        { width: 900, height: 720 },
+        { width: 1440, height: 915 },
+    ];
+    for (const viewport of responsiveViewports) {
+        await page.setViewportSize(viewport);
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        for (const state of ["closed", "history", "settings", "both"]) {
+            await setPanelState(...panelStates.history, state === "history" || state === "both");
+            await setPanelState(...panelStates.settings, state === "settings" || state === "both");
+            const layout = await readLayout();
+            assert.equal(layout.main.visible, true, `chat main remains visible at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.historyMain, false, `history does not overlap chat main at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.settingsMain, false, `settings does not overlap chat main at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.historyComposer, false, `history does not overlap composer at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.settingsComposer, false, `settings does not overlap composer at ${viewport.width}px (${state})`);
+            assert.ok(layout.composer.height > 0 && layout.composer.bottom <= layout.main.bottom + 1,
+                `composer stays inside chat main at ${viewport.width}px (${state})`);
+            assert.ok(layout.composer.bottom <= layout.documentHeight + 1,
+                `composer remains reachable in the document at ${viewport.width}px (${state})`);
+            assert.ok(layout.messages.clientHeight > 0 && layout.messages.scrollHeight > layout.messages.clientHeight,
+                `populated transcript remains internally scrollable at ${viewport.width}px (${state})`);
+            if (layout.history.visible) {
+                assert.ok(layout.historyList.clientHeight >= 32,
+                    `visible history keeps a reachable conversation list at ${viewport.width}px (${state})`);
+            }
+            if (state === "both" && (viewport.width === 390 || viewport.width === 900)) {
+                assert.ok(layout.messages.clientHeight >= 80,
+                    `both-open stacked layout reserves at least 80px of transcript space at ${viewport.width}px (received ${layout.messages.clientHeight}px)`);
+            }
+        }
+    }
+
+    for (const width of [1024, 1100]) {
+        await page.setViewportSize({ width, height: 720 });
+        await setPanelState(...panelStates.history, true);
+        await setPanelState(...panelStates.settings, true);
+        await page.evaluate(() => {
+            const messages = document.getElementById("chat-messages");
+            messages.scrollTop = 0;
+            messages.dispatchEvent(new Event("scroll"));
+        });
+        await page.waitForSelector("#btn-chat-jump-latest:not([hidden])");
+        const hitTest = await page.evaluate(() => {
+            const send = document.getElementById("btn-chat-send");
+            const jump = document.getElementById("btn-chat-jump-latest");
+            const sendRect = send.getBoundingClientRect();
+            const jumpRect = jump.getBoundingClientRect();
+            const hit = document.elementFromPoint(sendRect.left + sendRect.width / 2, sendRect.top + sendRect.height / 2);
+            return {
+                sendVisible: sendRect.width > 0 && sendRect.height > 0,
+                jumpVisible: jumpRect.width > 0 && jumpRect.height > 0,
+                sendHit: hit === send || send.contains(hit),
+                separated: sendRect.right <= jumpRect.left || jumpRect.right <= sendRect.left
+                    || sendRect.bottom <= jumpRect.top || jumpRect.bottom <= sendRect.top,
+            };
+        });
+        assert.equal(hitTest.sendVisible, true, `Send remains visible at ${width}px with Jump shown`);
+        assert.equal(hitTest.jumpVisible, true, `Jump remains visible at ${width}px with transcript scrolled away`);
+        assert.equal(hitTest.sendHit, true, `Send remains hit-testable at ${width}px with Jump shown`);
+        assert.equal(hitTest.separated, true, `Jump does not cover Send at ${width}px`);
+    }
+}
+
 async function verifyBenchmarkActions(page) {
     const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
     let runtime = null;
@@ -2331,7 +2470,43 @@ async function runScenario(browser, port, verify) {
         assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
             "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
         ]);
-        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
+        if (await page.locator("#chat-sidebar").evaluate(el => el.classList.contains("collapsed"))) {
+            await page.locator("#btn-open-sidebar").click();
+            await page.waitForFunction(() => !document.querySelector("#chat-sidebar")?.classList.contains("collapsed"));
+        }
+        const advancedSamplers = page.locator(".chat-advanced-samplers");
+        if (!await advancedSamplers.evaluate(el => el.open)) await advancedSamplers.locator(":scope > summary").click();
+        const samplerBeforeExactEntry = await page.evaluate(() => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return { temperature: values.temperature, top_p: values.top_p };
+        });
+        await page.fill("#chat-num-temp", "2.5");
+        await page.dispatchEvent("#chat-num-temp", "change");
+        await page.fill("#chat-num-top-p", "1.5");
+        await page.dispatchEvent("#chat-num-top-p", "change");
+        await page.waitForFunction(() => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return values.temperature === 2.5 && values.top_p === 1.5;
+        });
+        assert.equal(await page.locator("#chat-num-temp").inputValue(), "2.5");
+        assert.equal(await page.locator("#chat-num-top-p").inputValue(), "1.5");
+        assert.equal(await page.locator("#chat-slider-temp").inputValue(), "2",
+            "the temperature slider is a clamped visual proxy for an exact numeric value");
+        assert.equal(await page.locator("#chat-slider-top-p").inputValue(), "1",
+            "the Top-P slider is a clamped visual proxy for an exact numeric value");
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Numeric sampler request");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(chatCompletionBodies.at(-1).temperature, 2.5);
+        assert.equal(chatCompletionBodies.at(-1).top_p, 1.5);
+        await page.evaluate(({ temperature, top_p }) => {
+            window.LlamaGui.flagCore.setMultipleFlagValues({ temperature, top_p });
+        }, samplerBeforeExactEntry);
+        await page.waitForFunction(({ temperature, top_p }) => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return values.temperature === temperature && values.top_p === top_p;
+        }, samplerBeforeExactEntry);
         await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
         await page.fill("#chat-web-search-max-results", "7");
@@ -2479,6 +2654,157 @@ async function runScenario(browser, port, verify) {
         await page.evaluate(() => window.__restoreChatFetch());
 
         await page.click("#btn-chat-new");
+        await page.evaluate(() => {
+            const originalFetch = window.fetch;
+            let controller = null;
+            let closed = false;
+            const encoder = new TextEncoder();
+            const emit = (payload) => {
+                if (!controller || closed) return;
+                const data = typeof payload === "string" ? payload : JSON.stringify(payload);
+                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            };
+            window.__pushStagedChatChunk = emit;
+            window.__finishStagedChatStream = () => {
+                emit("[DONE]");
+                if (controller && !closed) {
+                    closed = true;
+                    controller.close();
+                }
+            };
+            window.__restoreStagedChatFetch = () => {
+                window.fetch = originalFetch;
+                delete window.__pushStagedChatChunk;
+                delete window.__finishStagedChatStream;
+                delete window.__restoreStagedChatFetch;
+            };
+            window.fetch = (url, options = {}) => {
+                if (!String(url).includes("/api/chat/completions")) return originalFetch(url, options);
+                const stream = new ReadableStream({
+                    start(nextController) {
+                        controller = nextController;
+                        closed = false;
+                        emit({ choices: [{ delta: {
+                            content: "First staged response " + "staged-token ".repeat(600),
+                        } }] });
+                        options.signal?.addEventListener("abort", () => {
+                            if (!closed) {
+                                closed = true;
+                                controller.error(new DOMException("Aborted", "AbortError"));
+                            }
+                        }, { once: true });
+                    },
+                });
+                return Promise.resolve(new Response(stream, {
+                    status: 200,
+                    headers: { "Content-Type": "text/event-stream" },
+                }));
+            };
+        });
+        await page.fill("#chat-input", "Staged streaming response");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("First staged response"));
+        const scrolledAway = await page.evaluate(() => {
+            const container = document.getElementById("chat-messages");
+            const maxScroll = container.scrollHeight - container.clientHeight;
+            if (maxScroll <= 80) throw new Error("staged response did not create a scrollable transcript");
+            container.scrollTop = Math.max(0, maxScroll - 240);
+            if (maxScroll - (container.scrollTop + container.clientHeight) <= 80) container.scrollTop = 0;
+            container.dispatchEvent(new Event("scroll"));
+            return {
+                top: container.scrollTop,
+                maxScroll,
+                clientHeight: container.clientHeight,
+            };
+        });
+        assert.ok(scrolledAway.maxScroll - (scrolledAway.top + scrolledAway.clientHeight) > 80,
+            "the staged reader is scrolled away from the latest response");
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { reasoning_content: "Later reasoning chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Later reasoning chunk"));
+        assert.equal(await page.evaluate(() => document.querySelector("#chat-messages").scrollTop), scrolledAway.top,
+            "later reasoning preserves an away-from-bottom reader position");
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { content: "Later content chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Later content chunk"));
+        assert.equal(await page.evaluate(() => document.querySelector("#chat-messages").scrollTop), scrolledAway.top,
+            "later content and reasoning preserve an away-from-bottom reader position");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), true,
+            "Jump to latest stays available while a reader is scrolled away");
+        await page.evaluate(() => {
+            window.__pushStagedChatChunk({ choices: [{ delta: {}, finish_reason: "stop" }] });
+            window.__pushStagedChatChunk({
+                choices: [],
+                usage: { prompt_tokens: 13, completion_tokens: 7, total_tokens: 20 },
+                timings: { predicted_per_second: 12.5 },
+            });
+        });
+        await page.evaluate(() => window.__finishStagedChatStream());
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), true,
+            "Jump to latest remains available after a completed away-from-bottom stream");
+        const stagedMetadata = await page.locator(".chat-response-metadata").last().innerText();
+        assert.match(stagedMetadata, /Prompt: 13/);
+        assert.match(stagedMetadata, /Completion: 7/);
+        assert.match(stagedMetadata, /Total: 20/);
+        assert.match(stagedMetadata, /Speed: 12\.5 tok\/s/);
+        assert.match(stagedMetadata, /Stop: Finished/);
+        assert.doesNotMatch(stagedMetadata, /Stop: stop/i);
+        assert.match(await page.locator(".chat-reasoning-body").last().textContent(), /Later reasoning chunk/);
+
+        await page.locator("#btn-chat-jump-latest").click();
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), false,
+            "Jump to latest resumes follow mode");
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Follow after jump");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("First staged response"));
+        const followScroll = await page.evaluate(() => {
+            const container = document.getElementById("chat-messages");
+            const maxScroll = container.scrollHeight - container.clientHeight;
+            if (maxScroll <= 80) throw new Error("follow response did not create a scrollable transcript");
+            container.scrollTop = 0;
+            container.dispatchEvent(new Event("scroll"));
+            return { top: container.scrollTop, maxScroll, clientHeight: container.clientHeight };
+        });
+        assert.ok(followScroll.maxScroll - (followScroll.top + followScroll.clientHeight) > 80);
+        await page.locator("#btn-chat-jump-latest").click();
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { content: "Final followed chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Final followed chunk"));
+        await page.waitForFunction(() => {
+            const container = document.querySelector("#chat-messages");
+            return container.scrollHeight - (container.scrollTop + container.clientHeight) <= 80;
+        });
+        await page.evaluate(() => window.__finishStagedChatStream());
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), false,
+            "a followed stream finishes at the latest response");
+        await page.evaluate(() => window.__restoreStagedChatFetch());
+
+        if (!await page.locator("#chat-sidebar").evaluate((element) => element.classList.contains("collapsed"))) {
+            await page.click("#btn-collapse-sidebar");
+        }
+        await page.click("#btn-chat-new");
+        chatResponseMode = "ok";
+        await page.fill("#chat-input", "Editable prompt");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        const editAction = page.getByRole("button", { name: "Edit and resend", exact: true });
+        assert.equal(await editAction.count(), 1, "completed user turns expose Edit and resend immediately");
+        await editAction.click();
+        await page.waitForSelector("#confirm-modal:not(.hidden)");
+        await page.click("#confirm-modal-ok");
+        await page.waitForSelector("#chat-edit-status:not([hidden])");
+        assert.match(await page.locator("#chat-edit-status").innerText(), /history copy.*before edit/i);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Editable prompt");
+        await page.click("#chat-edit-status .btn");
+        await page.waitForSelector("#chat-edit-status[hidden]", { state: "attached" });
+
+        await page.click("#btn-chat-new");
         chatResponseMode = "ok";
         await page.fill("#chat-input", "Recovery test");
         await page.click("#btn-chat-send");
@@ -2497,7 +2823,7 @@ async function runScenario(browser, port, verify) {
         await page.getByRole("button", { name: "Previous answer", exact: true }).click();
         chatResponseMode = "ok";
         await page.getByRole("button", { name: "Retry", exact: true }).click();
-        await page.waitForFunction(() => document.querySelector(".chat-response-footer")?.textContent.includes("Answer 3 of 3"));
+        await page.waitForFunction(() => document.querySelector(".chat-message.assistant .chat-response-footer")?.textContent.includes("Answer 3 of 3"));
         assert.equal(await page.locator(".chat-message.user").count(), 1);
         assert.equal(chatCompletionBodies.length, recoveryRequestCount + 2);
         assert.deepEqual(chatCompletionBodies.at(-1).messages, [{ role: "user", content: "Recovery test" }]);
@@ -2536,7 +2862,7 @@ async function runScenario(browser, port, verify) {
         assert.equal(await page.locator("#chat-context-label").isVisible(), true);
         assert.match(await page.locator("#chat-context-label").innerText(), /Includes web results/);
         assert.equal(await page.locator("#chat-context-bar").getAttribute("data-status"), "overflow");
-        assert.equal(await page.locator(".chat-message.user").innerText(), "U\nMeasure my draft");
+        assert.equal(await page.locator(".chat-message.user .chat-bubble").innerText(), "Measure my draft");
         contextResponseMode = "unavailable";
         await page.fill("#chat-input", "Changed draft");
         await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("unavailable"));
@@ -3639,6 +3965,7 @@ for (const [name, verify] of [
     ["quick launch presentation", verifyQuickLaunchPolish],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
+    ["chat responsive layout bounds", verifyChatResponsiveLayout],
     ["monitor runtime presentation", verifyMonitorRuntimePolish],
     ["preset library", verifyPresetPolish],
     ["benchmark actions and recovery", verifyBenchmarkActions],

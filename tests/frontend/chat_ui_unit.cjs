@@ -9,6 +9,7 @@ const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js")
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-ui.js"), "utf8");
 
 const STORAGE_KEY = "llama_gui_conversations";
+const DELETED_STORAGE_KEY = "llama_gui_deleted_conversations";
 const PARTIAL_TOKEN = "partial-token";
 
 // --- DOM stub (adapted from chat_rendering_unit.cjs) ---
@@ -248,6 +249,7 @@ function makeFetch(mode, hooks = {}) {
 function makeContext({
     fetchImpl,
     seedConversations = [],
+    seedDeletedConversations = [],
     flagValues = {},
     status,
     storageMode = "normal",
@@ -257,6 +259,9 @@ function makeContext({
     const storageMap = new Map();
     if (seedConversations.length) {
         storageMap.set(STORAGE_KEY, JSON.stringify(seedConversations));
+    }
+    if (seedDeletedConversations.length) {
+        storageMap.set(DELETED_STORAGE_KEY, JSON.stringify(seedDeletedConversations));
     }
 
     const addElement = (id) => {
@@ -306,7 +311,9 @@ function makeContext({
         }
         : {
             getItem: (key) => (storageMap.has(key) ? storageMap.get(key) : null),
-            setItem: (key, value) => storageMap.set(key, String(value)),
+            setItem: storageMode === "fail-set"
+                ? () => { throw new Error("storage write failed"); }
+                : (key, value) => storageMap.set(key, String(value)),
             removeItem: (key) => storageMap.delete(key),
         };
 
@@ -365,10 +372,12 @@ function makeContext({
     });
 
     const getStoredConversations = () => JSON.parse(storageMap.get(STORAGE_KEY) || "[]");
+    const getStoredDeletedConversations = () => JSON.parse(storageMap.get(DELETED_STORAGE_KEY) || "[]");
     return {
         api,
         elements,
         getStoredConversations,
+        getStoredDeletedConversations,
         setFlagValues: (values) => { mutable.flagValues = values; },
         setStatus: (value) => { mutable.status = value; },
         setLifecycle: (value) => { mutable.lifecycle = value; },
@@ -423,7 +432,7 @@ async function runAbortScenario(action) {
 (async () => {
     // Happy path first: proves the harness itself streams and persists correctly.
     {
-        const { api, getStoredConversations } = makeContext({ fetchImpl: makeFetch("complete") });
+        const { api, elements, getStoredConversations } = makeContext({ fetchImpl: makeFetch("complete") });
         await api._testSendMessage("hello");
         const state = api._testGetState();
         assert.equal(state.chatStreaming, false);
@@ -437,6 +446,9 @@ async function runAbortScenario(action) {
             ["user", "hello"],
             ["assistant", PARTIAL_TOKEN],
         ]);
+        const userBubble = elements.get("chat-messages").querySelectorAll(".chat-message")
+            .find(element => element._classes.has("user"));
+        assert.equal(userBubble.querySelector(".chat-response-action").textContent, "Edit and resend");
     }
 
     // H2: switching to a stored conversation mid-stream must not finalize the
@@ -1366,6 +1378,334 @@ async function runAbortScenario(action) {
         await ctx.api.refreshTemplateCaps();
         assert.equal(requests, 3, "reconnecting the same endpoint must refresh capabilities");
         assert.equal(ctx.elements.get("chat-thinking-effort-cap-hint").textContent, "");
+    }
+
+    // The server may send finish_reason first, then a separate empty-choices
+    // usage/timings event. The client must consume both and save supplied
+    // values without deriving a speed.
+    {
+        const finish = { choices: [{ delta: { content: "metadata answer" }, finish_reason: "stop" }] };
+        const usage = { choices: [], usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }, timings: { predicted_per_second: 7.5 } };
+        const chunk = [finish, usage].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+        let requestBody;
+        const ctx = makeContext({ fetchImpl: makeFetch("complete", { chunk, onRequest: body => { requestBody = body; } }) });
+        await ctx.api._testSendMessage("metadata");
+        assert.deepEqual(requestBody.stream_options, { include_usage: true });
+        const assistant = ctx.getStoredConversations()[0].messages[1];
+        assert.equal(assistant.status, "complete");
+        assert.deepEqual(assistant.metadata, {
+            stop_reason: "stop",
+            usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+            timings: { predicted_per_second: 7.5 },
+        });
+    }
+
+    // Once a reader scrolls away during generation, later content and
+    // reasoning chunks preserve that new position and leave Jump to latest
+    // available after the stream finishes.
+    {
+        let ctx;
+        const fetchImpl = async (_url, _options) => {
+            const container = ctx.elements.get("chat-messages");
+            const encoder = new TextEncoder();
+            let reads = 0;
+            return { ok: true, body: { getReader: () => ({
+                read: async () => {
+                    reads += 1;
+                    if (reads === 1) return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":"one"}}]}\n\n') };
+                    if (reads === 2) {
+                        container.scrollTop = 100;
+                        container._listeners.scroll?.forEach(listener => listener());
+                        return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"thought","content":"two"}}]}\n\n') };
+                    }
+                    if (reads === 3) return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":"three"}}]}\n\n') };
+                    if (reads === 4) return { done: false, value: encoder.encode("data: [DONE]\n\n") };
+                    return { done: true };
+                },
+                cancel: async () => {},
+            }) } };
+        };
+        ctx = makeContext({ fetchImpl, extraElementIds: ["btn-chat-jump-latest", "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"] });
+        const container = ctx.elements.get("chat-messages");
+        container.clientHeight = 200;
+        container.scrollHeight = 1200;
+        container.scrollTop = 1050;
+        ctx.api.init();
+        await ctx.api._testSendMessage("scroll test");
+        assert.equal(container.scrollTop, 100, "streaming output must preserve the user's latest away position");
+        assert.equal(ctx.elements.get("btn-chat-jump-latest").hidden, false, "Jump to latest stays visible after away-stream completion");
+        ctx.elements.get("btn-chat-jump-latest")._listeners.click[0]();
+        assert.equal(container.scrollTop, container.scrollHeight);
+        assert.equal(ctx.elements.get("btn-chat-jump-latest").hidden, true);
+    }
+
+    // Editing stages the later tail before truncation, keeps the original
+    // transcript intact until resend, and never adds a duplicate user turn.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [{ id: "edit-chat", title: "Keep title", messages: [
+                { role: "user", content: "original question" },
+                { role: "assistant", content: "old answer" },
+                { role: "user", content: "later question" },
+                { role: "assistant", content: "later answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("edit-chat");
+        await ctx.api._testEditUserMessage(0);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        assert.equal(ctx.elements.get("chat-input").value, "original question");
+        ctx.api._testCancelEdit();
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "revised question";
+        await ctx.api._testSendMessage(ctx.elements.get("chat-input").value);
+        const state = plain(ctx.api._testGetState());
+        assert.deepEqual(state.chatMessages.map(message => message.content), ["revised question", PARTIAL_TOKEN]);
+        const stored = ctx.getStoredConversations();
+        const active = stored.find(item => item.id === "edit-chat");
+        const beforeEdit = stored.find(item => item.id !== "edit-chat" && /before edit/.test(item.title));
+        assert.equal(active.title, "Keep title");
+        assert.ok(beforeEdit, "edit must create a selectable before-edit history copy");
+        assert.deepEqual(beforeEdit.messages.map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        await ctx.api._testLoadConversation(beforeEdit.id);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ], "loading the history copy must restore the removed later turns");
+        await ctx.api._testLoadConversation("edit-chat");
+    }
+
+    // A staged edit belongs to its source conversation and is discarded when
+    // the user loads another conversation before resending.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [
+                { id: "edit-source", messages: [{ role: "user", content: "source" }, { role: "assistant", content: "tail" }] },
+                { id: "edit-destination", messages: [{ role: "user", content: "destination" }] },
+            ],
+        });
+        await ctx.api._testLoadConversation("edit-source");
+        await ctx.api._testEditUserMessage(0);
+        await ctx.api._testLoadConversation("edit-destination");
+        assert.equal(ctx.api._testGetState().pendingEdit, null);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), ["destination"]);
+    }
+
+    // A failed branch write must leave the original transcript and staged
+    // edit intact; the resend cannot truncate later turns without recovery.
+    {
+        let requests = 0;
+        const ctx = makeContext({
+            storageMode: "fail-set",
+            fetchImpl: makeFetch("complete", { onRequest: () => { requests += 1; } }),
+            seedConversations: [{ id: "edit-fail", messages: [
+                { role: "user", content: "original" },
+                { role: "assistant", content: "later answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("edit-fail");
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "revised";
+        await ctx.api._testSendMessage("revised");
+        assert.equal(requests, 0, "storage failure must stop the resend before generation");
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), ["original", "later answer"]);
+        assert.equal(ctx.api._testGetState().pendingEdit.originalText, "original");
+    }
+
+    // The before-edit copy remains recoverable when creating it at the
+    // 50-entry boundary; the evicted oldest entry is moved to trash.
+    {
+        const saved = [{ id: "edit-full", title: "Full edit", messages: [
+            { role: "user", content: "before" }, { role: "assistant", content: "answer" },
+        ] }];
+        for (let index = 1; index < 50; index += 1) {
+            saved.push({ id: `saved-${index}`, title: `Saved ${index}`, messages: [{ role: "user", content: `saved ${index}` }] });
+        }
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved });
+        await ctx.api._testLoadConversation("edit-full");
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "edited";
+        await ctx.api._testSendMessage("edited");
+        assert.ok(ctx.getStoredConversations().some(item => /before edit/.test(item.title)), "backup survives retention pruning");
+        assert.ok(ctx.getStoredDeletedConversations().some(item => item.id === "saved-49"), "retention eviction is recoverable");
+    }
+
+    // Auto-compaction preflight for retry measures the exact request that will
+    // replace the old assistant answer, without duplicating its user prompt.
+    {
+        const contextBodies = [];
+        const generationBodies = [];
+        const ctx = makeContext({
+            fetchImpl: (url, options) => {
+                const body = JSON.parse(options.body || "{}");
+                if (String(url).endsWith("/context")) {
+                    contextBodies.push(body);
+                    return Promise.resolve({ ok: true, json: async () => ({ status: "warning", prompt_tokens: 100, capacity: 4096, remaining: 100 }) });
+                }
+                generationBodies.push(body);
+                return makeFetch("complete")(url, options);
+            },
+            seedConversations: [{ id: "retry-auto", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "old answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("retry-auto");
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testRegenerateResponse();
+        assert.deepEqual(contextBodies.at(-1).messages.map(message => message.content), ["question"]);
+        assert.deepEqual(generationBodies.at(-1).messages.map(message => message.content), ["question"]);
+    }
+
+    // Auto-compaction is opt-in. A fresh exact-draft preview can trigger one
+    // summary, after which the compacted request is remeasured before send.
+    {
+        let contextRequests = 0;
+        let generationRequests = 0;
+        const summary = "Preserved decisions and open questions.";
+        const transcript = Array.from({ length: 6 }, (_, index) => ({
+            role: index % 2 ? "assistant" : "user", content: `turn ${index}`,
+        }));
+        const fetchImpl = async (url, options) => {
+            const body = JSON.parse(options.body || "{}");
+            if (String(url).endsWith("/context")) {
+                contextRequests += 1;
+                const prompt = JSON.stringify(body.messages || []).includes(summary) ? 300 : 600;
+                const isInitial = body.messages?.at(-1)?.content === "pending draft"
+                    && body.messages.length >= transcript.length + 1
+                    && !JSON.stringify(body.messages).includes(summary);
+                return { ok: true, json: async () => ({
+                    status: isInitial ? "overflow" : "ok", prompt_tokens: prompt, capacity: 4096,
+                    reply_reserve: body.max_tokens || 0, remaining: isInitial ? -1 : 4096 - prompt,
+                }) };
+            }
+            generationRequests += 1;
+            const event = body.gui_require_context
+                ? { choices: [{ delta: { content: summary }, finish_reason: "stop" }] }
+                : { choices: [{ delta: { content: "sent after compaction" }, finish_reason: "stop" }] };
+            const usage = body.gui_require_context ? "" : `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 25, completion_tokens: 4, total_tokens: 29 }, timings: { predicted_per_second: 6 } })}\n\n`;
+            const encoded = new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n${usage}`);
+            let reads = 0;
+            return { ok: true, body: { getReader: () => ({
+                read: async () => {
+                    reads += 1;
+                    if (reads === 1) return { done: false, value: encoded };
+                    if (!body.gui_require_context) {
+                        if (reads === 2) return { done: false, value: new TextEncoder().encode("data: [DONE]\n\n") };
+                    }
+                    return { done: true };
+                }, cancel: async () => {},
+            }) } };
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: [{ id: "auto", messages: transcript }], extraElementIds: [
+            "chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-compaction-status", "btn-chat-compact",
+        ] });
+        await ctx.api._testLoadConversation("auto");
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testSendMessage("pending draft");
+        const state = plain(ctx.api._testGetState());
+        assert.equal(state.chatCompactions.length, 1);
+        assert.equal(state.chatMessages.at(-2).content, "pending draft");
+        assert.equal(state.chatMessages.at(-1).content, "sent after compaction");
+        assert.ok(contextRequests >= 4, "preflight, compaction, and post-compaction previews all run");
+        assert.equal(generationRequests >= 2, true, "summary and final answer requests both run");
+    }
+
+    // A failed automatic summary keeps the transcript and does not send the
+    // pending draft onward.
+    {
+        let normalRequests = 0;
+        const transcript = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `turn ${index}` }));
+        const fetchImpl = async (url, options) => {
+            const body = JSON.parse(options.body || "{}");
+            if (String(url).endsWith("/context")) return { ok: true, json: async () => ({
+                status: body.gui_require_context ? "ok" : "overflow", prompt_tokens: 200, capacity: 4096,
+                remaining: body.gui_require_context ? 3000 : -1,
+            }) };
+            normalRequests += 1;
+            if (body.gui_require_context) {
+                let read = false;
+                return { ok: true, body: { getReader: () => ({
+                    read: async () => {
+                        if (read) return { done: true };
+                        read = true;
+                        return { done: false, value: new TextEncoder().encode('data: {"error":{"message":"summary failed"}}\n\n') };
+                    }, cancel: async () => {},
+                }) } };
+            }
+            throw new Error("final request must not run after failed auto-compaction");
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: [{ id: "auto-fail", messages: transcript }], extraElementIds: [
+            "chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-compaction-status", "btn-chat-compact",
+        ] });
+        await ctx.api._testLoadConversation("auto-fail");
+        const before = plain(ctx.api._testGetState().chatMessages);
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testSendMessage("pending draft");
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages), before);
+        assert.equal(normalRequests, 1);
+        assert.match(ctx.elements.get("chat-compaction-status").textContent, /summary failed|Previous context kept/);
+    }
+
+    // User-assigned titles survive later saves; search, export, and trash
+    // restore operate on the same local data without permanent deletion.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [
+                { id: "alpha", title: "Custom Alpha", messages: [{ role: "user", content: "Find the alpha" }] },
+                { id: "beta", title: "Beta", messages: [{ role: "user", content: "Other topic" }] },
+            ],
+            extraElementIds: ["chat-history-search", "chat-history-retention", "chat-history-trash-status", "btn-chat-restore-deleted",
+                "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"],
+        });
+        ctx.api.init();
+        ctx.elements.get("chat-history-search").value = "ALPHA";
+        ctx.elements.get("chat-history-search")._listeners.input[0]();
+        assert.equal(ctx.elements.get("chat-history-list").children.length, 1);
+        assert.equal(ctx.elements.get("chat-history-list").children[0].children[1].textContent, "Find the alpha");
+        assert.equal(ctx.api._testRenameConversation("alpha", "Renamed Alpha"), true);
+        assert.equal(ctx.api._testExportConversation("alpha", "text").includes("FIND"), false);
+        await ctx.api._testLoadConversation("alpha");
+        await ctx.api._testSendMessage("Follow up");
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "alpha").title, "Renamed Alpha");
+        await ctx.api._testDeleteConversation("alpha");
+        assert.equal(ctx.getStoredConversations().some(item => item.id === "alpha"), false);
+        assert.match(ctx.elements.get("chat-history-trash-status").textContent, /available to restore/);
+        await ctx.api._testRestoreDeletedConversation("alpha");
+        assert.equal(ctx.getStoredConversations().some(item => item.id === "alpha"), true);
+    }
+
+    // Restore without an id takes the newest deleted item. At the retention
+    // boundary, restoration evicts the oldest saved item into recoverable
+    // trash instead of creating an invisible 51st entry.
+    {
+        const saved = Array.from({ length: 50 }, (_, index) => ({
+            id: `saved-${index}`, title: `Saved ${index}`, messages: [{ role: "user", content: `saved ${index}` }],
+        }));
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: saved,
+            seedDeletedConversations: [
+                { id: "deleted-newest", title: "Newest deleted", messages: [{ role: "user", content: "newest" }] },
+                { id: "deleted-older", title: "Older deleted", messages: [{ role: "user", content: "older" }] },
+            ],
+            extraElementIds: ["chat-history-retention", "chat-history-trash-status", "btn-chat-restore-deleted"],
+        });
+        await ctx.api._testRestoreDeletedConversation();
+        const restored = ctx.getStoredConversations();
+        assert.equal(restored.length, 50);
+        assert.equal(restored[0].id, "deleted-newest");
+        assert.equal(restored.some(item => item.id === "saved-49"), false);
+        assert.equal(ctx.getStoredDeletedConversations()[0].id, "deleted-older");
+        assert.equal(ctx.getStoredDeletedConversations().some(item => item.id === "saved-49"), true);
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");
