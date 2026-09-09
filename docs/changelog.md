@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-09
+
+- Added Saved value and GUI default columns to the Presets tab's saved-settings table, showing defaults only for overrides. Fixed numeric strings matching numeric defaults and excluded credentials and retired draft context from override counts.
+
 ## 2026-09-08
 
 - Corrected the `-cram` label and help text to describe host-RAM prompt caching for reuse, clarifying that it does not increase the context window or limit VRAM.

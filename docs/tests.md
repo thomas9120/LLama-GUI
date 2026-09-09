@@ -66,6 +66,8 @@ The smoke test also covers grouped sidebar navigation, current-page semantics, a
 
 Preset browser coverage includes loading into Configure, mirrored saved/modified identity, browsing without changing the edit source, masked comparisons, cancelling an update with focus restoration, saving the reviewed snapshot while newer edits remain pending, save-name collisions, rename/archive navigation, recoverable save failures, removal during a review, and containment at 390/900/1440px.
 
+Saved-settings coverage checks conditional GUI defaults, numeric-string equality, boolean/enum/Auto labels, unavailable defaults, hidden credentials and custom arguments, count consistency, safe text rendering, and table containment at 390/900/1440px. Preset unit tests cover numeric default comparisons, blank/invalid values, legacy reasoning values, excluded fields, search behavior, and preservation of the saved input.
+
 ```powershell
 .venv\Scripts\python.exe -m unittest discover tests -v
 ```

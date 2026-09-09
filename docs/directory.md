@@ -569,6 +569,8 @@ Because warnings are computed at build time, `refreshModels()` calls `refreshMod
 
 With a preset selected: model and warnings, followed by **Load into Configure**, Favorite, and a keyboard-operable **More actions** disclosure containing a named Update action, Duplicate, Rename, Export, Windows Shortcut, Archive/Restore, and Delete. The launch-input summary shows tool, context, GPU offload, and K/V cache settings from shared flag definitions. Missing values are explicitly labeled as GUI defaults; Auto is not presented as a resolved runtime value. All saved settings are available in a separate disclosure, with API keys and the retired draft-context flag excluded, and HF tokens, sensitive flags, and Custom Launch Args masked.
 
+The saved-settings table has **Setting**, **Saved value**, and **GUI default** columns. Defaults come from the current shared flag definitions and appear only for non-default values; blank cells mean the saved value matches, and unavailable defaults are labeled explicitly. It reuses the override IDs used by the count and search, treating nonempty numeric strings as equal to numeric defaults without coercing blanks or booleans to zero. API keys, HF tokens, and retired draft context do not contribute to the override count.
+
 With nothing selected: a library summary — preset count, model groups, favorites, warnings, missing models, most recently used, and a health line. The summary describes the **visible** presets, not everything on disk, so its numbers always agree with the list and the count line. Any absolute claim about library health is suppressed while a filter is active or while the model list is unchecked.
 
 ### Editing And Saving

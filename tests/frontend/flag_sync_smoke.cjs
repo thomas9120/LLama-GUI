@@ -360,7 +360,12 @@ async function verifyConfigureReset(page) {
 
 async function verifyPresetPolish(page) {
     const entries = [
-        { name: "Daily server", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4, hf_token: "hidden-hf-token", custom_args: "--alias daily" } } },
+        { name: "Daily server", data: { tool: "llama-server", model: "smoke-model.gguf", flags: {
+            temperature: 0.4, batch_size: 1024, ubatch_size: "512", gpu_layers: "all",
+            flash_attn: "on", mlock: true, reasoning_preserve: false,
+            hf_token: "hidden-hf-token", api_key: "hidden-api-key", ctx_size_draft: 99,
+            custom_args: "--alias daily", unknown_legacy_flag: "<img src=x>" + "long-value".repeat(20),
+        } } },
         { name: "Another preset", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { ctx_size: 0 } } },
     ];
     const writes = [];
@@ -407,7 +412,31 @@ async function verifyPresetPolish(page) {
         assert.equal(await page.getByRole("button", { name: "Duplicate", exact: true }).isVisible(), false);
         assert.match(await page.textContent(".preset-detail-stats"), /GUI default/);
         await page.locator(".preset-saved-settings > summary").click();
-        assert.doesNotMatch(await page.textContent(".preset-saved-settings"), /hidden-hf-token|--alias daily|ctx_size_draft/);
+        const table = page.locator(".preset-saved-values");
+        assert.deepEqual(await table.locator("thead th").allTextContents(), ["Setting", "Saved value", "GUI default"]);
+        for (const [label, saved, defaultValue] of [
+            ["Prompt Batch Size", "1024", "2048"],
+            ["Physical Batch Size", "512", ""],
+            ["GPU Layers", "All layers", "Auto"],
+            ["Flash Attention", "On", "Auto (default)"],
+            ["Lock Model in RAM", "Enabled", "Disabled"],
+            ["Preserve Reasoning", "Auto", ""],
+        ]) {
+            const row = table.getByRole("row").filter({ has: page.getByRole("rowheader", { name: label, exact: true }) });
+            assert.deepEqual(await row.locator("td").allTextContents(), [saved, defaultValue], label);
+        }
+        assert.equal(await table.locator("tbody tr").last().locator("td").last().textContent(), "Unavailable");
+        assert.equal(await table.locator("img").count(), 0, "saved values render as text");
+        assert.doesNotMatch(await page.textContent(".preset-saved-settings"), /hidden-hf-token|hidden-api-key|--alias daily|ctx_size_draft/);
+        const changedRows = await table.locator("tbody tr").evaluateAll(rows => rows.filter(row => row.lastElementChild.textContent !== "").length);
+        assert.match(await page.textContent(".preset-saved-settings > summary"), new RegExp(`${changedRows} non-default overrides`));
+        const viewport = page.viewportSize();
+        for (const width of [390, 900, 1440]) {
+            await page.setViewportSize({ width, height: 1000 });
+            assert.ok(await table.evaluate(el => el.getBoundingClientRect().width > 0 && el.scrollWidth <= el.clientWidth + 1), `saved settings fit at ${width}px`);
+            assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), `preset page fits at ${width}px`);
+        }
+        await page.setViewportSize(viewport);
         await page.getByRole("button", { name: "Load into Configure", exact: true }).click();
         await config.waitFor({ state: "visible" });
         assert.equal(await config.locator("[data-preset-name]").textContent(), "Daily server");
