@@ -4287,6 +4287,16 @@ textarea.chat-input:disabled {
     gap: 6px;
 }
 
+.chat-history-item-actions {
+    display: none;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.chat-history-item.active .chat-history-item-actions {
+    display: flex;
+}
+
 .chat-history-item-rename,
 .chat-history-item-export {
     appearance: none;

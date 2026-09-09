@@ -1828,9 +1828,12 @@
             });
 
             header.appendChild(title);
-            header.appendChild(renameBtn);
-            header.appendChild(exportBtn);
             header.appendChild(deleteBtn);
+
+            const actions = document.createElement("div");
+            actions.className = "chat-history-item-actions";
+            actions.appendChild(renameBtn);
+            actions.appendChild(exportBtn);
 
             const preview = document.createElement("div");
             preview.className = "chat-history-item-preview";
@@ -1844,6 +1847,7 @@
             item.appendChild(header);
             item.appendChild(preview);
             item.appendChild(time);
+            item.appendChild(actions);
 
             item.addEventListener("click", () => loadConversation(convo.id));
             list.appendChild(item);
