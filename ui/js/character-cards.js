@@ -3,6 +3,8 @@
 
     const MAX_FILE_BYTES = 20 * 1024 * 1024;
     const MAX_CARD_BYTES = 1024 * 1024;
+    const MAX_NAME_CHARS = 256;
+    const MAX_EXPANDED_CHARS = 1024 * 1024;
     const PNG_SIGNATURE = [137, 80, 78, 71, 13, 10, 26, 10];
 
     function parseJson(text) {
@@ -63,6 +65,17 @@
         return parseJson(text);
     }
 
+    function replaceBounded(text, pattern, replacement, limit = MAX_EXPANDED_CHARS) {
+        // Measure before replacement allocates the result. Even a small card
+        // can repeat a name or {{original}} enough times to exhaust memory.
+        let length = text.length;
+        for (const match of text.matchAll(pattern)) {
+            length += replacement(...match).length - match[0].length;
+        }
+        if (length > limit) throw new Error(`Character prompt and greeting exceed the expanded text limit (${MAX_EXPANDED_CHARS} characters).`);
+        return text.replace(pattern, replacement);
+    }
+
     function buildCharacter(card, originalPrompt) {
         if (!card || typeof card !== "object" || Array.isArray(card)) throw new Error("This file is not a character card.");
         if (card.spec && !["chara_card_v2", "chara_card_v3"].includes(card.spec)) throw new Error("This character card version is not supported.");
@@ -74,19 +87,22 @@
         }
         const name = (data.name || "").trim();
         if (!name || !fields.slice(1, 6).some(key => typeof data[key] === "string")) throw new Error("The file needs a character name and character details or a greeting.");
+        if (name.length > MAX_NAME_CHARS || (data.nickname?.trim().length || 0) > MAX_NAME_CHARS) {
+            throw new Error(`Character card name and nickname must be ${MAX_NAME_CHARS} characters or fewer.`);
+        }
         const characterName = data.nickname?.trim() || name;
-        const replaceNames = text => text.replace(/\{\{\s*(char|user)\s*\}\}|<(char|bot|user)>/gi,
-            (_, macro, legacy) => (macro || legacy).toLowerCase() === "user" ? "User" : characterName);
+        const replaceNames = (text, limit) => replaceBounded(text, /\{\{\s*(char|user)\s*\}\}|<(char|bot|user)>/gi,
+            (_, macro, legacy) => (macro || legacy).toLowerCase() === "user" ? "User" : characterName, limit);
         const basePrompt = originalPrompt.trim() || "You are a helpful assistant.";
         const system = (data.system_prompt || "").trim();
-        const sections = [system ? system.replace(/\{\{\s*original\s*\}\}/gi, () => basePrompt) : basePrompt,
+        const sections = [system ? replaceBounded(system, /\{\{\s*original\s*\}\}/gi, () => basePrompt) : basePrompt,
             `Write as ${characterName} in a conversation with User.`];
         for (const [key, label] of [["description", "Description"], ["personality", "Personality"],
             ["scenario", "Scenario"], ["mes_example", "Example dialogue"], ["post_history_instructions", "Additional instructions"]]) {
             if (data[key]?.trim()) sections.push(`${label}:\n${data[key].replace(/\{\{\s*original\s*\}\}/gi, "")}`);
         }
         const systemPrompt = replaceNames(sections.join("\n\n"));
-        const greeting = replaceNames(data.first_mes || "");
+        const greeting = replaceNames(data.first_mes || "", MAX_EXPANDED_CHARS - systemPrompt.length);
         const notices = [];
         if (data.post_history_instructions?.trim()) notices.push("Post-history instructions were added to System Prompt.");
         const omitted = [];
@@ -95,7 +111,7 @@
         if (data.assets?.length) omitted.push("assets");
         if (data.extensions && Object.keys(data.extensions).length) omitted.push("extensions");
         if (omitted.length) notices.push(`Not applied: ${omitted.join(", ")}.`);
-        if (/\{\{[^}]+\}\}/.test(systemPrompt + greeting)) notices.push("Other card macros remain as text; review System Prompt and the greeting.");
+        if (/\{\{[^{}]+\}\}/.test(systemPrompt + greeting)) notices.push("Other card macros remain as text; review System Prompt and the greeting.");
         return { name, systemPrompt, greeting, notices };
     }
 

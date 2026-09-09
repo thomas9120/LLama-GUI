@@ -1739,6 +1739,18 @@ async function runAbortScenario(action) {
         assert.equal(ctx.getStoredConversations().length, count);
         assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
 
+        const beforeRejectedCard = ctx.getStoredConversations();
+        for (const invalid of [
+            { name: "x".repeat(257), description: "Too long a name" },
+            { name: "x".repeat(256), description: "{{char}}".repeat(5000) },
+        ]) {
+            await ctx.api._testImportCharacterCard(cardFile(invalid));
+            assert.deepEqual(ctx.getStoredConversations(), beforeRejectedCard);
+            assert.equal(ctx.api._testGetState().currentConversationId, quiet.id);
+            assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+            assert.match(ctx.elements.get("chat-character-status").textContent, /256 characters|expanded text limit/);
+        }
+
         const pending = deferred();
         const file = cardFile();
         const importing = ctx.api._testImportCharacterCard({ ...file, arrayBuffer: () => pending.promise });

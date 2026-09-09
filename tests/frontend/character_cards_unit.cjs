@@ -4,9 +4,25 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { character, chunk, pngCard, cardFile } = require("./character_card_fixtures.cjs");
 
+const source = fs.readFileSync(path.resolve(__dirname, "../../ui/js/character-cards.js"), "utf8");
 const context = vm.createContext({ window: {}, TextDecoder, atob, console });
-vm.runInContext(fs.readFileSync(path.resolve(__dirname, "../../ui/js/character-cards.js"), "utf8"), context);
+vm.runInContext(source, context);
 const { readFile } = context.window.LlamaGui.characterCards;
+
+function readWithTimeout(data) {
+    const bytes = Uint8Array.from(Buffer.from(JSON.stringify(data)));
+    const sandbox = { window: {}, TextDecoder, atob, console, bytes };
+    // Include readFile's promise continuations in the VM timeout: a backtracking
+    // regression must fail the test instead of blocking the runner for minutes.
+    vm.runInNewContext(source + `
+        window.LlamaGui.characterCards.readFile({
+            name: "card.json", size: bytes.length, arrayBuffer: () => bytes.buffer,
+        }).then(card => { globalThis.result = card; }, error => { globalThis.failure = error; });
+    `, sandbox, { timeout: 5000, microtaskMode: "afterEvaluate" });
+    if (sandbox.failure) throw sandbox.failure;
+    assert.ok(sandbox.result, "the timed import must settle inside the VM");
+    return sandbox.result;
+}
 
 (async () => {
     const legacy = await readFile(cardFile());
@@ -38,6 +54,37 @@ const { readFile } = context.window.LlamaGui.characterCards;
     assert.equal((await readFile(cardFile({ name: "Quiet", description: "Silent observer" }))).greeting, "");
     assert.match((await readFile(cardFile({ ...character, description: "{{unsupported}}" }))).notices.join(" "), /macros remain as text/);
     assert.match((await readFile(cardFile({ ...character, name: "$&<img>", first_mes: "{{char}}" }))).greeting, /^\$&<img>$/);
+
+    const braces = "{".repeat(900000);
+    for (const field of ["description", "first_mes"]) {
+        const loaded = readWithTimeout({ name: "Braces", [field]: braces });
+        assert.ok((field === "description" ? loaded.systemPrompt : loaded.greeting).includes(braces));
+        assert.equal(loaded.notices.length, 0);
+    }
+
+    for (const field of ["name", "nickname"]) {
+        await assert.rejects(readFile(cardFile({ ...character, [field]: "x".repeat(257) })), /256 characters/);
+    }
+    const longName = "x".repeat(256);
+    for (const field of ["description", "first_mes"]) {
+        const oversized = { name: longName, [field]: "{{char}}".repeat(5000) };
+        await assert.rejects(readFile(cardFile(oversized)), /expanded text limit/);
+        await assert.rejects(readFile(cardFile(pngCard([["chara", JSON.stringify(oversized)]]), "card.png")), /expanded text limit/);
+    }
+    // Both outputs share one budget; neither individually exceeds the limit.
+    await assert.rejects(readFile(cardFile({ name: longName,
+        description: "<BOT>".repeat(2500), first_mes: "{{ CHAR }}".repeat(2500),
+    })), /expanded text limit/);
+    await assert.rejects(readFile(cardFile({ ...character, nickname: longName, first_mes: "<char>".repeat(5000) })), /expanded text limit/);
+    await assert.rejects(readFile(cardFile({ ...character, system_prompt: "{{original}}".repeat(10000) }), "x".repeat(500000)), /expanded text limit/);
+
+    // Allow the exact combined limit, then reject one additional character.
+    const boundary = { name: longName, description: "{{char}}".repeat(1000), first_mes: "" };
+    const prompt = (await readFile(cardFile(boundary))).systemPrompt;
+    boundary.first_mes = "x".repeat(1024 * 1024 - prompt.length);
+    const atLimit = await readFile(cardFile(boundary));
+    assert.equal(atLimit.systemPrompt.length + atLimit.greeting.length, 1024 * 1024);
+    await assert.rejects(readFile(cardFile({ ...boundary, first_mes: boundary.first_mes + "x" })), /expanded text limit/);
 
     for (const data of [null, [], {}, { name: "Other JSON" }, { ...character, first_mes: [] }, { spec: "other", data: character }]) {
         await assert.rejects(readFile(cardFile(data)));
