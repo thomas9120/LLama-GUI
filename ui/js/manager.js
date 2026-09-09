@@ -1278,7 +1278,10 @@ function confirmAction(title, message, confirmText) {
         };
         const onKeydown = (e) => {
             if (e.key === "Escape") finish(false);
-            if (e.key === "Enter") finish(true);
+            if (e.key === "Enter") {
+                e.preventDefault();
+                finish(e.target !== cancelBtn);
+            }
         };
 
         cancelBtn.addEventListener("click", onCancel);

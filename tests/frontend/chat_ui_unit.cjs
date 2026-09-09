@@ -254,6 +254,7 @@ function makeContext({
     flagValues = {},
     status,
     storageMode = "normal",
+    confirmImpl = async () => true,
     extraElementIds = [],
 }) {
     const elements = new Map();
@@ -365,7 +366,7 @@ function makeContext({
             getSelectedModel: () => "test-model",
             setFlagValue: () => {},
         },
-        confirmAction: async () => true,
+        confirmAction: confirmImpl,
         getLatestStatus: () => mutable.status,
         getLifecycleSnapshot: () => mutable.lifecycle || null,
         snapshotStatsBaseline: () => {},
@@ -1359,6 +1360,28 @@ async function runAbortScenario(action) {
         assert.equal(ctx.getStoredConversations().length, 0);
     }
     {
+        let pending = false;
+        let accepted = false;
+        const ctx = makeContext({
+            seedConversations: ["active", "other"].map(id => ({ id, title: id, messages: [{ role: "user", content: id }] })),
+            fetchImpl: makeFetch("hang", { onStreamPending: () => { pending = true; } }),
+            confirmImpl: async () => accepted,
+        });
+        await ctx.api._testLoadConversation("active");
+        const send = ctx.api._testSendMessage("Keep generating");
+        await flushUntil(() => pending, "stream while deleting another conversation");
+        const buttons = ctx.elements.get("chat-history-list").querySelectorAll(".chat-history-item-delete");
+        await buttons[0]._listeners.click[0]({ stopPropagation() {} });
+        assert.equal(ctx.api._testGetState().chatStreaming, true, "cancelling deletion leaves generation running");
+        accepted = true;
+        await buttons[1]._listeners.click[0]({ stopPropagation() {} });
+        assert.equal(ctx.api._testGetState().chatStreaming, true, "deleting an inactive chat leaves generation running");
+        assert.equal(ctx.getStoredConversations().some(c => c.id === "other"), false);
+        await ctx.api.abortActiveStream();
+        await send;
+        assert.equal(ctx.getStoredConversations().some(c => c.id === "active"), true);
+    }
+    {
         let requests = 0;
         const status = (port, generation) => ({ running: false, runtime_generation: 0,
             external_chat_target: { connected: true, host: "127.0.0.1", port, generation } });
@@ -1522,7 +1545,7 @@ async function runAbortScenario(action) {
     }
 
     // The before-edit copy remains recoverable when creating it at the
-    // 50-entry boundary; the evicted oldest entry is moved to trash.
+    // 50-entry boundary; the oldest entry is removed without a restore copy.
     {
         const saved = [{ id: "edit-full", title: "Full edit", messages: [
             { role: "user", content: "before" }, { role: "assistant", content: "answer" },
@@ -1536,7 +1559,9 @@ async function runAbortScenario(action) {
         ctx.elements.get("chat-input").value = "edited";
         await ctx.api._testSendMessage("edited");
         assert.ok(ctx.getStoredConversations().some(item => /before edit/.test(item.title)), "backup survives retention pruning");
-        assert.ok(ctx.getStoredDeletedConversations().some(item => item.id === "saved-49"), "retention eviction is recoverable");
+        assert.equal(ctx.getStoredConversations().length, 50);
+        assert.equal(ctx.getStoredConversations().some(item => item.id === "saved-49"), false);
+        assert.equal(ctx.getStoredDeletedConversations().length, 0);
     }
 
     // Auto-compaction preflight for retry measures the exact request that will
@@ -1656,8 +1681,8 @@ async function runAbortScenario(action) {
         assert.match(ctx.elements.get("chat-compaction-status").textContent, /summary failed|Previous context kept/);
     }
 
-    // User-assigned titles survive later saves; search, export, and trash
-    // restore operate on the same local data without permanent deletion.
+    // User-assigned titles survive later saves; search, export, and deletion
+    // operate on the same local conversation data.
     {
         const ctx = makeContext({
             fetchImpl: makeFetch("complete"),
@@ -1665,7 +1690,7 @@ async function runAbortScenario(action) {
                 { id: "alpha", title: "Custom Alpha", messages: [{ role: "user", content: "Find the alpha" }] },
                 { id: "beta", title: "Beta", messages: [{ role: "user", content: "Other topic" }] },
             ],
-            extraElementIds: ["chat-history-search", "chat-history-retention", "chat-history-trash-status", "btn-chat-restore-deleted",
+            extraElementIds: ["chat-history-search", "chat-history-retention",
                 "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"],
         });
         ctx.api.init();
@@ -1680,34 +1705,52 @@ async function runAbortScenario(action) {
         assert.equal(ctx.getStoredConversations().find(item => item.id === "alpha").title, "Renamed Alpha");
         await ctx.api._testDeleteConversation("alpha");
         assert.equal(ctx.getStoredConversations().some(item => item.id === "alpha"), false);
-        assert.match(ctx.elements.get("chat-history-trash-status").textContent, /available to restore/);
-        await ctx.api._testRestoreDeletedConversation("alpha");
-        assert.equal(ctx.getStoredConversations().some(item => item.id === "alpha"), true);
+        assert.equal(ctx.getStoredDeletedConversations().length, 0);
     }
 
-    // Restore without an id takes the newest deleted item. At the retention
-    // boundary, restoration evicts the oldest saved item into recoverable
-    // trash instead of creating an invisible 51st entry.
-    {
-        const saved = Array.from({ length: 50 }, (_, index) => ({
-            id: `saved-${index}`, title: `Saved ${index}`, messages: [{ role: "user", content: `saved ${index}` }],
-        }));
+    // UI actions ask once before any mutation; a cancelled dialog preserves
+    // both the active transcript and saved history. Legacy trash is inert.
+    for (const action of ["single", "all", "clear"]) {
+        let accepted = false;
+        const confirmations = [];
+        const saved = ["alpha", "beta"].map(id => ({ id, title: id, systemPrompt: "Keep prompt", messages: [{ role: "user", content: id }] }));
+        const legacyDeleted = [{ id: "legacy", title: "Old deleted chat", messages: [] }];
         const ctx = makeContext({
             fetchImpl: makeFetch("complete"),
             seedConversations: saved,
-            seedDeletedConversations: [
-                { id: "deleted-newest", title: "Newest deleted", messages: [{ role: "user", content: "newest" }] },
-                { id: "deleted-older", title: "Older deleted", messages: [{ role: "user", content: "older" }] },
-            ],
-            extraElementIds: ["chat-history-retention", "chat-history-trash-status", "btn-chat-restore-deleted"],
+            seedDeletedConversations: legacyDeleted,
+            confirmImpl: async (...args) => { confirmations.push(args); return accepted; },
+            extraElementIds: ["btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate", "btn-chat-clear", "btn-delete-all-history"],
         });
-        await ctx.api._testRestoreDeletedConversation();
-        const restored = ctx.getStoredConversations();
-        assert.equal(restored.length, 50);
-        assert.equal(restored[0].id, "deleted-newest");
-        assert.equal(restored.some(item => item.id === "saved-49"), false);
-        assert.equal(ctx.getStoredDeletedConversations()[0].id, "deleted-older");
-        assert.equal(ctx.getStoredDeletedConversations().some(item => item.id === "saved-49"), true);
+        ctx.api.init();
+        await ctx.api._testLoadConversation("alpha");
+        const click = () => {
+            const button = action === "single" ? ctx.elements.get("chat-history-list").querySelector(".chat-history-item-delete")
+                : ctx.elements.get(action === "all" ? "btn-delete-all-history" : "btn-chat-clear");
+            return button._listeners.click[0]({ stopPropagation() {} });
+        };
+        await click();
+        assert.equal(confirmations.length, 1);
+        assert.match(confirmations[0][1], /cannot be undone/);
+        assert.deepEqual(ctx.getStoredConversations(), saved);
+        assert.equal(ctx.api._testGetState().currentConversationId, "alpha");
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "Keep prompt");
+        accepted = true;
+        await click();
+        assert.equal(confirmations.length, 2, "one confirmation for each attempt, including Delete All and Clear");
+        assert.deepEqual(ctx.getStoredConversations().map(c => c.id), action === "all" ? [] : ["beta"]);
+        assert.equal(ctx.api._testGetState().currentConversationId, null);
+        assert.equal(ctx.api._testGetState().chatMessages.length, 0);
+        assert.deepEqual(ctx.getStoredDeletedConversations(), legacyDeleted, "new deletions must not update or use legacy trash");
+    }
+    for (const action of ["_testDeleteConversation", "_testDeleteAllConversations", "_testClearChat"]) {
+        const saved = [{ id: "keep", title: "Keep", messages: [{ role: "user", content: "Keep this transcript" }] }];
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved, storageMode: "fail-set" });
+        await ctx.api._testLoadConversation("keep");
+        await ctx.api[action]("keep");
+        assert.deepEqual(ctx.getStoredConversations(), saved);
+        assert.equal(ctx.api._testGetState().currentConversationId, "keep");
+        assert.equal(ctx.api._testGetState().chatMessages[0].content, "Keep this transcript");
     }
 
     // Character import preserves the previous chat and saves an immediately

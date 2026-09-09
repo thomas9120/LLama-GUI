@@ -1344,6 +1344,69 @@ async function verifyCharacterCards(page) {
     }
 }
 
+async function verifyChatDeletion(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => {
+        localStorage.setItem("llama_gui_conversations", JSON.stringify(["Alpha", "Beta", "Gamma", "Delta"].map(title => ({
+            id: title, title, systemPrompt: `${title} prompt`, messages: [{ role: "user", content: `${title} message` }],
+        }))));
+        localStorage.setItem("llama_gui_deleted_conversations", JSON.stringify([{ id: "old", title: "Old deleted", messages: [] }]));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("Alpha", { exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "Restore deleted", exact: true }).count(), 0);
+    const readIds = () => page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).map(c => c.id));
+    const modal = page.locator("#confirm-modal");
+    const confirm = page.locator("#confirm-modal-ok");
+    const cancel = page.locator("#confirm-modal-cancel");
+    const betaDelete = page.locator(".chat-history-item").filter({ hasText: "Beta" }).getByRole("button", { name: "Delete conversation", exact: true });
+    await betaDelete.click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Delete Conversation");
+    assert.match(await page.locator("#confirm-modal-message").textContent(), /Beta.*cannot be undone/);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"]);
+    await cancel.press("Enter");
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"], "Enter on Cancel must not confirm deletion");
+    await betaDelete.click();
+    await page.keyboard.press("Escape");
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"]);
+    await betaDelete.click();
+    await confirm.press("Enter");
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 3);
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Gamma", "Delta"]);
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Alpha prompt", "deleting another conversation keeps the active chat");
+
+    await page.locator("#btn-chat-clear").click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Clear Current Chat");
+    await cancel.click();
+    assert.match(await page.locator("#chat-messages").textContent(), /Alpha message/);
+    await page.locator("#btn-chat-clear").click();
+    await confirm.click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 2);
+    assert.equal(await modal.isVisible(), false, "Clear must not open a second delete confirmation");
+    assert.deepEqual(await readIds(), ["Gamma", "Delta"]);
+    assert.equal(await page.locator("#chat-messages .chat-message").count(), 0);
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "");
+
+    await page.getByText("Gamma", { exact: true }).click();
+    await page.locator("#btn-delete-all-history").click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Delete All Conversations");
+    await cancel.click();
+    assert.deepEqual(await readIds(), ["Gamma", "Delta"]);
+    await page.locator("#btn-delete-all-history").click();
+    await confirm.click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 0);
+    assert.equal(await modal.isVisible(), false, "one confirmation deletes the entire saved list");
+    assert.equal(await page.locator("#chat-messages .chat-message").count(), 0);
+    await page.locator("#btn-chat-new").click();
+    assert.deepEqual(await readIds(), [], "New Chat must not resurrect a deleted conversation");
+    assert.equal(await page.getByRole("button", { name: "Restore deleted", exact: true }).count(), 0);
+}
+
 async function verifyBenchmarkActions(page) {
     const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
     let runtime = null;
@@ -4090,6 +4153,7 @@ for (const [name, verify] of [
     ["chat, API and install presentation", verifySecondaryPagePolish],
     ["chat responsive layout bounds", verifyChatResponsiveLayout],
     ["character card import", verifyCharacterCards],
+    ["chat deletion confirmations", verifyChatDeletion],
     ["monitor runtime presentation", verifyMonitorRuntimePolish],
     ["preset library", verifyPresetPolish],
     ["benchmark actions and recovery", verifyBenchmarkActions],

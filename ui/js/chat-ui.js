@@ -41,7 +41,6 @@
     const CHAT_WEB_SEARCH_STORAGE_KEY = "llama_gui_chat_web_search_enabled";
     const CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY = "llama_gui_chat_web_search_max_results";
     const CHAT_AUTO_COMPACTION_STORAGE_KEY = "llama_gui_chat_auto_compaction";
-    const CHAT_DELETED_CONVERSATIONS_STORAGE_KEY = "llama_gui_deleted_conversations";
     const CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS = 5;
     const CHAT_WEB_SEARCH_MIN_RESULTS = 1;
     const CHAT_WEB_SEARCH_MAX_RESULTS = 10;
@@ -1475,33 +1474,12 @@
         }
     }
 
-    function getDeletedConversations() {
-        try {
-            const parsed = JSON.parse(getStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY) || "[]");
-            return Array.isArray(parsed) ? parsed : [];
-        } catch (e) {
-            console.debug("Failed to read deleted conversations", e);
-            return [];
-        }
-    }
-
     function renderHistoryRetention(count = getStoredConversations().length) {
         const label = document.getElementById("chat-history-retention");
         if (!label) return;
         label.textContent = historyRetentionNotice
-            ? `History keeps ${CHAT_MAX_STORED_CONVERSATIONS} conversations; older entries are available in recoverable trash.`
+            ? `History keeps ${CHAT_MAX_STORED_CONVERSATIONS} conversations; older entries have been removed.`
             : `History retention: ${count} of ${CHAT_MAX_STORED_CONVERSATIONS} conversations saved.`;
-    }
-
-    function renderTrashStatus() {
-        const deleted = getDeletedConversations();
-        const status = document.getElementById("chat-history-trash-status");
-        const restore = document.getElementById("btn-chat-restore-deleted");
-        if (status) status.textContent = deleted.length ? `${deleted.length} deleted conversation${deleted.length === 1 ? "" : "s"} available to restore.` : "";
-        if (restore) {
-            restore.hidden = deleted.length === 0;
-            restore.disabled = deleted.length === 0;
-        }
     }
 
     let historyRetentionNotice = false;
@@ -1509,31 +1487,12 @@
     function saveConversationsToStorage(list) {
         const all = Array.isArray(list) ? list : [];
         const pruned = all.slice(0, CHAT_MAX_STORED_CONVERSATIONS);
-        const evicted = all.slice(CHAT_MAX_STORED_CONVERSATIONS);
-        const previousConversations = getStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY);
-        const previousTrash = getStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY);
-        let saved = setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(pruned));
-        if (saved && evicted.length) {
-            const oldTrash = getDeletedConversations();
-            const evictedIds = new Set(evicted.map(item => item.id));
-            const nextTrash = oldTrash.filter(item => !evictedIds.has(item.id));
-            nextTrash.unshift(...evicted.map(item => ({ ...item, evictedAt: Date.now() })));
-            if (!setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(nextTrash))) {
-                setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, previousConversations || "[]");
-                if (previousTrash === null) {
-                    try { localStorage.removeItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY); } catch (error) { console.debug("Could not roll back conversation trash", error); }
-                } else {
-                    setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, previousTrash);
-                }
-                saved = false;
-            }
-        }
-        historyRetentionNotice = evicted.length > 0;
+        const saved = setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(pruned));
+        historyRetentionNotice = saved && all.length > CHAT_MAX_STORED_CONVERSATIONS;
         if (!saved && typeof window.showToast === "function") {
             window.showToast("Conversation history could not be saved. Your active chat remains available for this session.", "warning");
         }
         renderHistoryRetention(pruned.length);
-        renderTrashStatus();
         return saved;
     }
 
@@ -1678,64 +1637,24 @@
         scheduleContextPreview(true);
     }
 
-    async function restoreDeletedConversation(id) {
-        const deleted = getDeletedConversations();
-        const index = id ? deleted.findIndex(item => item.id === id) : 0;
-        if (index < 0) return false;
-        const convo = deleted[index];
-        const conversations = getStoredConversations();
-        if (conversations.some(item => item.id === convo.id)) return false;
-        const nextDeleted = deleted.slice(0, index).concat(deleted.slice(index + 1));
-        const nextConversations = [convo, ...conversations];
-        if (nextConversations.length > CHAT_MAX_STORED_CONVERSATIONS) {
-            const evicted = nextConversations.pop();
-            nextDeleted.push({ ...evicted, evictedAt: Date.now() });
-        }
-        if (!setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(nextConversations))) return false;
-        if (!setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(nextDeleted))) {
-            setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(conversations));
-            return false;
-        }
-        renderHistoryList();
-        renderTrashStatus();
-        return true;
-    }
-
     async function deleteConversation(id) {
-        if (chatStreaming || compactionController || sendPreflightPromise) await abortActiveStream();
+        if (currentConversationId === id && (chatStreaming || compactionController || sendPreflightPromise)) await abortActiveStream();
         const conversations = getStoredConversations();
         const deleted = conversations.find(c => c.id === id);
         if (!deleted) return false;
-        const previousTrash = getDeletedConversations();
-        const trash = previousTrash.filter(item => item.id !== id);
-        trash.unshift({ ...deleted, deletedAt: Date.now() });
-        if (!setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(trash))) return false;
         const filtered = conversations.filter(c => c.id !== id);
-        if (!saveConversationsToStorage(filtered)) {
-            setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(previousTrash));
-            return false;
-        }
+        if (!saveConversationsToStorage(filtered)) return false;
         if (currentConversationId === id) resetActiveChatState();
 
         renderHistoryList();
-        renderTrashStatus();
         return true;
     }
 
     async function deleteAllConversations() {
         if (chatStreaming || compactionController || sendPreflightPromise) await abortActiveStream();
-        const conversations = getStoredConversations();
-        const trash = getDeletedConversations();
-        if (conversations.length && !setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify([
-            ...conversations.map(item => ({ ...item, deletedAt: Date.now() })), ...trash,
-        ]))) return false;
-        if (!saveConversationsToStorage([])) {
-            setStoredItem(CHAT_DELETED_CONVERSATIONS_STORAGE_KEY, JSON.stringify(trash));
-            return false;
-        }
+        if (!saveConversationsToStorage([])) return false;
         resetActiveChatState();
         renderHistoryList();
-        renderTrashStatus();
         return true;
     }
 
@@ -1775,7 +1694,6 @@
         const conversations = getStoredConversations();
         list.innerHTML = "";
         renderHistoryRetention(conversations.length);
-        renderTrashStatus();
         const query = chatHistoryFilter.trim().toLocaleLowerCase();
         const visibleConversations = query
             ? conversations.filter(convo => `${convo.title || ""} ${JSON.stringify(convo.messages || [])}`.toLocaleLowerCase().includes(query))
@@ -1801,12 +1719,15 @@
             title.textContent = convo.title;
 
             const deleteBtn = document.createElement("button");
+            deleteBtn.type = "button";
             deleteBtn.className = "chat-history-item-delete";
             deleteBtn.textContent = "\uD83D\uDDD1";
             deleteBtn.title = "Delete conversation";
-            deleteBtn.addEventListener("click", (e) => {
+            deleteBtn.setAttribute("aria-label", "Delete conversation");
+            deleteBtn.addEventListener("click", async (e) => {
                 e.stopPropagation();
-                return deleteConversation(convo.id);
+                const confirmed = await confirmAction("Delete Conversation", `Delete "${convo.title || "Untitled"}"? This cannot be undone.`, "Delete");
+                if (confirmed) return deleteConversation(convo.id);
             });
 
             const renameBtn = document.createElement("button");
@@ -2043,7 +1964,7 @@
         if (deleteAllBtn) {
             deleteAllBtn.addEventListener("click", async () => {
                 if (getStoredConversations().length === 0) return;
-                const confirmed = await confirmAction("Delete All Conversations", "Move all conversations to the recoverable trash?", "Delete All");
+                const confirmed = await confirmAction("Delete All Conversations", "Delete all saved conversations? This cannot be undone.", "Delete All");
                 if (confirmed) {
                     await deleteAllConversations();
                 }
@@ -2058,10 +1979,6 @@
                 renderHistoryList();
             });
         }
-        document.getElementById("btn-chat-restore-deleted")?.addEventListener("click", () => {
-            void restoreDeletedConversation();
-        });
-
         renderHistoryList();
 
         for (const [sliderId, meta] of Object.entries(CHAT_SAMPLER_SLIDER_MAP)) {
@@ -2101,7 +2018,10 @@
 
         const clearBtn = document.getElementById("btn-chat-clear");
         if (clearBtn) {
-            clearBtn.addEventListener("click", clearChat);
+            clearBtn.addEventListener("click", async () => {
+                const confirmed = await confirmAction("Clear Current Chat", "Clear this chat, including its saved conversation and system prompt? This cannot be undone.", "Clear Chat");
+                if (confirmed) await clearChat();
+            });
         }
 
         refreshSidebarUI();
@@ -2138,7 +2058,6 @@
             _testRenameConversation: renameConversation,
             _testExportConversation: exportConversation,
             _testDeleteConversation: deleteConversation,
-            _testRestoreDeletedConversation: restoreDeletedConversation,
             _testSetAutoCompaction: setAutoCompactionEnabled,
             _testGetState: () => ({
                 chatMessages: chatMessages.slice(),

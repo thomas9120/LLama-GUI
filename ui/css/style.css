@@ -4256,27 +4256,11 @@ textarea.chat-input:disabled {
     box-shadow: 0 0 0 3px var(--accent-subtle);
 }
 
-.chat-history-retention,
-.chat-history-trash-status {
+.chat-history-retention {
     color: var(--fg-faint);
     font-size: 10px;
     line-height: 1.35;
 }
-
-.chat-history-trash-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-2);
-    border: 1px solid var(--yellow-border);
-    border-radius: var(--radius-sm);
-    background: var(--yellow-subtle);
-    color: var(--yellow);
-}
-
-.chat-history-trash-actions:has(.chat-history-trash-status:empty) { display: none; }
-.chat-history-trash-status { flex: 1 1 140px; }
 
 .chat-history-empty { padding: 20px 14px; text-align: center; color: var(--fg-muted); font-size: 12px; }
 
