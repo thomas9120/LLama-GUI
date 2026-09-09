@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-09
 
+- Replaced the full-width response Copy button with a compact icon aligned below the output on the right, retaining accessible labels and copy-result feedback.
 - Fixed character-card imports freezing on unmatched braces and allocating oversized macro expansions. Imports now validate name lengths and expanded prompt/greeting size before building the expanded text, preserving the current conversation on rejection.
 - Added spacing between Load character card and its help text.
 - Added Load character card below Chat's System Prompt for JSON and PNG cards. Import saves the current conversation and opens a new character chat with an editable prompt and greeting, with notices for unsupported card features and validation that preserves the current chat on failure.

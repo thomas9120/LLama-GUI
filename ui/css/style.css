@@ -3944,7 +3944,14 @@ body.chat-focus-mode .stats-bar { left: 0; }
 }
 
 .chat-response-metadata-item { white-space: nowrap; }
-.chat-response-copy { margin-top: var(--space-2); }
+.chat-response-copy {
+    align-self: flex-end;
+    width: 28px;
+    height: 28px;
+    min-height: 28px;
+    padding: 0;
+    flex-shrink: 0;
+}
 
 .chat-sources { display: flex; flex-wrap: wrap; gap: 6px; }
 

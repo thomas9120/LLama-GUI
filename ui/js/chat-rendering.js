@@ -290,17 +290,23 @@
         const button = document.createElement("button");
         button.type = "button";
         button.className = "btn btn-xs chat-response-copy";
-        button.title = "Copy response";
-        button.textContent = "Copy";
+        const copyIcon = '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>';
+        const showIcon = (label, paths) => {
+            button.title = label;
+            button.setAttribute("aria-label", label);
+            button.innerHTML = `<span class="icon icon-sm" aria-hidden="true"><svg viewBox="0 0 24 24">${paths}</svg></span>`;
+        };
+        showIcon("Copy response", copyIcon);
         button.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
             const text = getChatResponseRawText(bubble);
             if (!text.trim()) return;
             void copyTextToClipboard(text).then((copied) => {
-                button.textContent = copied ? "Copied" : "Copy failed";
+                showIcon(copied ? "Response copied" : "Copy failed", copied
+                    ? '<polyline points="20 6 9 17 4 12"/>' : '<path d="m18 6-12 12M6 6l12 12"/>');
                 window.setTimeout(() => {
-                    button.textContent = "Copy";
+                    showIcon("Copy response", copyIcon);
                 }, 1200);
             });
         });
