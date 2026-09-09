@@ -3613,20 +3613,10 @@ body.chat-focus-mode .stats-bar { left: 0; }
     align-items: stretch;
 }
 
-body.chat-focus-mode #section-chat .chat-layout {
-    gap: 0;
-    height: calc(100vh - 112px);
-}
-
-body.chat-focus-mode #section-chat .chat-history-panel,
-body.chat-focus-mode #section-chat .btn-history-open,
-body.chat-focus-mode #section-chat .chat-sidebar,
-body.chat-focus-mode #section-chat .btn-settings-open {
-    display: none !important;
-}
-
-body.chat-focus-mode #section-chat .chat-main {
-    flex: 1 1 auto;
+@media (min-width: 901px) {
+    body.chat-focus-mode #section-chat .chat-layout {
+        height: calc(100vh - 112px);
+    }
 }
 
 .chat-main {
@@ -4722,7 +4712,7 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     .chat-main { flex: 1 1 auto; min-height: 0; }
     .chat-layout:has(> .chat-history-panel:not(.collapsed)):has(> .chat-sidebar:not(.collapsed)) {
         --chat-stacked-panel-basis: 280px;
-        --chat-stacked-main-min-height: 350px;
+        --chat-stacked-main-min-height: 360px;
         height: auto;
         min-height: 0;
         overflow: visible;

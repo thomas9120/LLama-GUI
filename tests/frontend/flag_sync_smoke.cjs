@@ -1001,9 +1001,27 @@ async function verifySecondaryPagePolish(page) {
     assert.equal(await page.locator("#btn-collapse-sidebar").evaluate(el => el === document.activeElement), true,
         "restoring the panel keeps focus on a visible control");
     await page.locator("#btn-chat-focus").click();
-    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.waitForFunction(() => document.querySelector(".sidebar").getBoundingClientRect().right <= 1);
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), true);
+        assert.equal(await page.locator(`#${open}`).isVisible(), true, "panel buttons remain available in focus mode");
+        await page.locator(`#${open}`).press("Enter");
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), false);
+        assert.equal(await page.locator(`#${open}`).getAttribute("aria-expanded"), "true");
+        assert.equal(await page.locator(`#${close}`).evaluate(el => el === document.activeElement), true);
+        assert.equal(await page.locator("#btn-chat-focus").getAttribute("aria-pressed"), "true",
+            "opening a panel keeps focus mode active");
+        assert.ok(await page.locator(".sidebar").evaluate(el => el.getBoundingClientRect().right <= 0),
+            "main navigation stays off screen");
+        await page.locator(`#${close}`).press("Enter");
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+        assert.equal(await page.locator(`#${open}`).evaluate(el => el === document.activeElement), true);
+    }
     await page.locator("#btn-chat-focus").click();
-    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true,
+        "focus-mode panel choices do not overwrite the normal expanded preference");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => window.LlamaGui?.chatUi);
     await selectSection(page, "chat");
@@ -1016,6 +1034,14 @@ async function verifySecondaryPagePolish(page) {
     await page.waitForFunction(() => window.LlamaGui?.chatUi);
     await selectSection(page, "chat");
     for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel, open] of panels) {
+        await page.locator(`#${open}`).click();
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    }
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false,
+        "exiting focus mode restores the normal collapsed preference");
     await page.locator("#btn-open-sidebar").click();
     const samplerHelp = page.locator(".chat-settings-help");
     assert.equal(await samplerHelp.locator("dl").isVisible(), false);
@@ -1161,13 +1187,18 @@ async function verifyChatResponsiveLayout(page) {
         { width: 900, height: 720 },
         { width: 1440, height: 915 },
     ];
-    for (const viewport of responsiveViewports) {
-        await page.setViewportSize(viewport);
+    for (const viewport of responsiveViewports.flatMap(size => [size, { ...size, focus: true }])) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        if ((await page.locator("#btn-chat-focus").getAttribute("aria-pressed") === "true") !== Boolean(viewport.focus)) {
+            await page.locator("#btn-chat-focus").click();
+        }
         await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         for (const state of ["closed", "history", "settings", "both"]) {
             await setPanelState(...panelStates.history, state === "history" || state === "both");
             await setPanelState(...panelStates.settings, state === "settings" || state === "both");
             const layout = await readLayout();
+            assert.equal(layout.history.visible, state === "history" || state === "both");
+            assert.equal(layout.settings.visible, state === "settings" || state === "both");
             assert.equal(layout.main.visible, true, `chat main remains visible at ${viewport.width}px (${state})`);
             assert.equal(layout.intersections.historyMain, false, `history does not overlap chat main at ${viewport.width}px (${state})`);
             assert.equal(layout.intersections.settingsMain, false, `settings does not overlap chat main at ${viewport.width}px (${state})`);
@@ -1192,6 +1223,7 @@ async function verifyChatResponsiveLayout(page) {
 
     for (const width of [1024, 1100]) {
         await page.setViewportSize({ width, height: 720 });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
         await setPanelState(...panelStates.history, true);
         await setPanelState(...panelStates.settings, true);
         await page.evaluate(() => {

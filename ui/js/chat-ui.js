@@ -17,6 +17,7 @@
     let sendAttemptToken = 0;
     let currentConversationId = null;
     let chatFocusMode = false;
+    const chatPanelLayouts = [];
     let contextTimer = null;
     let contextController = null;
     let contextKey = null;
@@ -462,21 +463,26 @@
         const openButton = document.getElementById(openId);
         const collapseButton = document.getElementById(collapseId);
         if (!panel || !openButton || !collapseButton) return;
-        // Responsive collapse is temporary; only an explicit choice is saved.
+        // Focus mode and responsive collapse leave the normal panel preference intact.
         let preferredCollapsed = getStoredItem(storageKey) !== "false";
         const applyLayout = () => setChatPanelCollapsed(panel, openButton, collapseButton,
-            shouldUseConstrainedChatLayout() || preferredCollapsed);
+            chatFocusMode || shouldUseConstrainedChatLayout() || preferredCollapsed);
+        chatPanelLayouts.push(applyLayout);
         applyLayout();
         openButton.addEventListener("click", () => {
-            preferredCollapsed = false;
+            if (!chatFocusMode) {
+                preferredCollapsed = false;
+                setStoredItem(storageKey, "false");
+            }
             setChatPanelCollapsed(panel, openButton, collapseButton, false);
-            setStoredItem(storageKey, "false");
             collapseButton.focus();
         });
         collapseButton.addEventListener("click", () => {
-            preferredCollapsed = true;
+            if (!chatFocusMode) {
+                preferredCollapsed = true;
+                setStoredItem(storageKey, "true");
+            }
             setChatPanelCollapsed(panel, openButton, collapseButton, true);
-            setStoredItem(storageKey, "true");
             openButton.focus();
         });
         const media = window.matchMedia?.(CHAT_CONSTRAINED_LAYOUT_QUERY);
@@ -496,6 +502,7 @@
     function setChatFocusMode(enabled) {
         chatFocusMode = Boolean(enabled);
         document.body.classList.toggle("chat-focus-mode", chatFocusMode);
+        chatPanelLayouts.forEach(applyLayout => applyLayout());
         updateChatFocusButton();
     }
 
