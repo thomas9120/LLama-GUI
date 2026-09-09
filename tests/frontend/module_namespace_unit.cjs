@@ -74,6 +74,7 @@ const expectedNamespaces = [
     "chatUi",
     "chatRendering",
     "chatCompaction",
+    "characterCards",
     "apiTab",
     "hfDownloadUi",
     "remoteTunnelUi",

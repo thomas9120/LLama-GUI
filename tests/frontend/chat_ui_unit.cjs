@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { character, cardFile } = require("./character_card_fixtures.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
@@ -346,6 +347,7 @@ function makeContext({
     vm.runInContext(renderingSource, context, { filename: "ui/js/chat-rendering.js" });
     vm.runInContext(appDataSource, context, { filename: "ui/js/app-data.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/character-cards.js"), "utf8"), context, { filename: "ui/js/character-cards.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
 
     const api = context.window.LlamaGui.chatUi;
@@ -1706,6 +1708,54 @@ async function runAbortScenario(action) {
         assert.equal(restored.some(item => item.id === "saved-49"), false);
         assert.equal(ctx.getStoredDeletedConversations()[0].id, "deleted-older");
         assert.equal(ctx.getStoredDeletedConversations().some(item => item.id === "saved-49"), true);
+    }
+
+    // Character import preserves the previous chat and saves an immediately
+    // reloadable prompt/greeting, including cards with no first message.
+    {
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), extraElementIds: ["chat-character-status"] });
+        await ctx.api._testSendMessage("Before character import");
+        const previous = ctx.getStoredConversations()[0];
+        await ctx.api._testImportCharacterCard(cardFile());
+        const loaded = ctx.getStoredConversations()[0];
+        assert.equal(loaded.title, character.name);
+        assert.equal(loaded.messages[0].role, "assistant");
+        assert.match(loaded.systemPrompt, /Éloïse is an astronomer/);
+        assert.deepEqual(ctx.getStoredConversations().find(c => c.id === previous.id).messages, previous.messages);
+        assert.equal(ctx.elements.get("chat-sys-char-count").textContent, loaded.systemPrompt.length + " chars");
+        await ctx.api._testLoadConversation(previous.id);
+        assert.equal(ctx.elements.get("chat-system-prompt").value, previous.systemPrompt);
+        await ctx.api._testLoadConversation(loaded.id);
+        assert.equal(ctx.elements.get("chat-system-prompt").value, loaded.systemPrompt);
+        await ctx.api._testImportCharacterCard(cardFile({ name: "Quiet", description: "Silent observer" }));
+        const quiet = ctx.getStoredConversations()[0];
+        assert.equal(quiet.title, "Quiet");
+        assert.equal(quiet.messages.length, 0);
+        await ctx.api._testStartNewChat();
+        await ctx.api._testLoadConversation(quiet.id);
+        assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+        const count = ctx.getStoredConversations().length;
+        await ctx.api._testImportCharacterCard(cardFile({ invalid: true }));
+        assert.equal(ctx.getStoredConversations().length, count);
+        assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+
+        const pending = deferred();
+        const file = cardFile();
+        const importing = ctx.api._testImportCharacterCard({ ...file, arrayBuffer: () => pending.promise });
+        await ctx.api._testStartNewChat();
+        pending.resolve(await file.arrayBuffer());
+        await importing;
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "");
+        assert.match(ctx.elements.get("chat-character-status").textContent, /Chat changed/);
+    }
+    {
+        const original = { id: "before", title: "Before", messages: [{ role: "user", content: "Keep me" }], systemPrompt: "Original prompt" };
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: [original], storageMode: "fail-set", extraElementIds: ["chat-character-status"] });
+        await ctx.api._testLoadConversation(original.id);
+        await ctx.api._testImportCharacterCard(cardFile());
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "Original prompt");
+        assert.match(ctx.elements.get("chat-character-status").textContent, /Could not save/);
+        assert.equal(ctx.getStoredConversations().length, 1);
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

@@ -3586,7 +3586,7 @@ body.chat-focus-mode .stats-bar { left: 0; }
     letter-spacing: 0.04em;
 }
 
-#chat-active-model, #chat-active-reasoning {
+#chat-active-model {
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -4487,6 +4487,10 @@ textarea.sidebar-system-prompt {
 
 textarea.sidebar-system-prompt:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-subtle); }
 textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
+
+.chat-character-status { overflow-wrap: anywhere; }
+#btn-chat-load-character { width: 100%; white-space: normal; }
+#chat-character-help { margin-top: var(--space-2); }
 
 .sidebar-char-count {
     font-size: 10px;

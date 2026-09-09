@@ -32,6 +32,7 @@
     let chatScrollState = null;
     let autoCompactionAttempted = false;
     let chatHistoryFilter = "";
+    let characterImportPending = false;
     const compaction = window.LlamaGui.chatCompaction;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
@@ -154,12 +155,6 @@
             const compactModelName = fullModelName.split(/[\\/]/).pop() || fullModelName;
             modelIndicator.textContent = compactModelName;
             modelIndicator.title = fullModelName;
-        }
-        const reasoningIndicator = document.getElementById("chat-active-reasoning");
-        if (reasoningIndicator) {
-            const effort = getChatThinkingEffort();
-            reasoningIndicator.textContent = effort === "auto" ? "Auto" : effort === "off" ? "Off" : effort;
-            reasoningIndicator.title = "Auto lets the loaded model choose. Other levels request more or less reasoning when supported.";
         }
         scheduleContextPreview();
     }
@@ -319,6 +314,8 @@
             && (lifecycle.phase === "starting" || lifecycle.phase === "loading")
         );
         const canSend = Boolean(isRunning) && !chatStreaming && !compactionController && !sendPreflightPromise;
+        const characterButton = document.getElementById("btn-chat-load-character");
+        if (characterButton) characterButton.disabled = characterImportPending || chatStreaming || Boolean(compactionController) || Boolean(sendPreflightPromise);
 
         if (chatInput) {
             chatInput.disabled = !isRunning;
@@ -1541,7 +1538,7 @@
     }
 
     function saveCurrentConversation() {
-        if (chatMessages.length === 0) return;
+        if (chatMessages.length === 0 && !currentConversationId) return true;
         const sysPrompt = document.getElementById("chat-system-prompt");
         const conversations = getStoredConversations();
         const existing = currentConversationId
@@ -1569,8 +1566,9 @@
             currentConversationId = convo.id;
         }
 
-        saveConversationsToStorage(conversations);
+        const saved = saveConversationsToStorage(conversations);
         renderHistoryList();
+        return saved;
     }
 
     function generateConversationTitle(messages) {
@@ -1581,6 +1579,7 @@
     }
 
     async function loadConversation(id) {
+        reportCharacterImport();
         setChatToolsOpen(false);
         // Must await: abort() rejects the pending read on a later microtask, so a
         // bare stopStream() lets the AbortError handler run after the reassignments
@@ -1741,6 +1740,7 @@
     }
 
     async function startNewChat() {
+        reportCharacterImport();
         setChatToolsOpen(false);
         // Stop before saving: an in-flight stream would otherwise keep appending
         // tokens into the fresh chat and leave the composer disabled.
@@ -1895,6 +1895,46 @@
         if (snapshotStatsBaseline) snapshotStatsBaseline();
     }
 
+    function reportCharacterImport(message = "") {
+        const status = document.getElementById("chat-character-status");
+        if (status) { status.textContent = message; status.hidden = !message; }
+    }
+
+    async function importCharacterCard(file) {
+        if (!file || characterImportPending || chatStreaming || compactionController || sendPreflightPromise) return;
+        characterImportPending = true;
+        updateChatAvailability(isServerRunning());
+        reportCharacterImport("Reading character card…");
+        const originalMessages = chatMessages;
+        const originalLength = chatMessages.length;
+        const originalPrompt = document.getElementById("chat-system-prompt").value;
+        try {
+            const card = await window.LlamaGui.characterCards.readFile(file);
+            if (chatMessages !== originalMessages || chatMessages.length !== originalLength
+                || document.getElementById("chat-system-prompt").value !== originalPrompt
+                || chatStreaming || compactionController || sendPreflightPromise) {
+                throw new Error("Chat changed while reading the card. Please load it again.");
+            }
+            if (!saveCurrentConversation()) throw new Error("Could not save the current conversation. The character was not loaded.");
+            const conversation = {
+                id: createConversationId(), title: card.name.slice(0, 120),
+                messages: card.greeting.trim() ? [{ role: "assistant", content: card.greeting }] : [],
+                compactions: [], systemPrompt: card.systemPrompt, thinkingEffort: "auto", timestamp: Date.now(),
+            };
+            const conversations = getStoredConversations();
+            conversations.unshift(conversation);
+            if (!saveConversationsToStorage(conversations)) throw new Error("Could not save the character chat. The current conversation is still open.");
+            await loadConversation(conversation.id);
+            reportCharacterImport([`Started a chat with ${card.name}.`, ...card.notices].join(" "));
+        } catch (error) {
+            console.debug("Character card import did not complete", error);
+            reportCharacterImport(error.message || "Could not read the character card. Try another JSON or PNG file.");
+        } finally {
+            characterImportPending = false;
+            updateChatAvailability(isServerRunning());
+        }
+    }
+
     function init() {
         initChatTools();
         ensureAutoCompactionControl();
@@ -1908,6 +1948,13 @@
         const focusBtn = document.getElementById("btn-chat-focus");
         const sysPrompt = document.getElementById("chat-system-prompt");
         const sysCharCount = document.getElementById("chat-sys-char-count");
+        const characterFile = document.getElementById("chat-character-file");
+        document.getElementById("btn-chat-load-character")?.addEventListener("click", () => characterFile?.click());
+        characterFile?.addEventListener("change", () => {
+            const file = characterFile.files?.[0];
+            characterFile.value = "";
+            void importCharacterCard(file);
+        });
         const webSearchToggle = document.getElementById("chat-web-search-toggle");
         const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
         const thinkingEffort = document.getElementById("chat-thinking-effort");
@@ -2080,6 +2127,7 @@
             _testLoadConversation: loadConversation,
             _testClearChat: clearChat,
             _testStartNewChat: startNewChat,
+            _testImportCharacterCard: importCharacterCard,
             _testDeleteAllConversations: deleteAllConversations,
             _testRegenerateResponse: regenerateResponse,
             _testCompactConversation: compactConversation,

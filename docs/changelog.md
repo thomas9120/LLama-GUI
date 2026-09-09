@@ -4,6 +4,9 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-09
 
+- Added spacing between Load character card and its help text.
+- Added Load character card below Chat's System Prompt for JSON and PNG cards. Import saves the current conversation and opens a new character chat with an editable prompt and greeting, with notices for unsupported card features and validation that preserves the current chat on failure.
+- Removed the duplicate reasoning indicator from the Chat header; reasoning controls remain in Settings.
 - Replaced Chat's ellipsis menu with a labeled Context button and an expandable panel above the message box, keeping Send accessible while context usage and compaction controls are open.
 - Show Rename and Export only for the selected conversation, in a separate row below its details so the buttons leave room for the title.
 - Kept Conversations and Settings accessible in Chat focus mode. Panels open without leaving focus mode, start collapsed on entry, and restore the normal panel layout on exit.

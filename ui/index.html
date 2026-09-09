@@ -1084,7 +1084,6 @@
                     <span class="badge badge-neutral" id="chat-no-server-badge">No Server</span>
                     <div class="chat-runtime-indicators" aria-live="polite">
                         <span class="chat-runtime-indicator"><span class="chat-runtime-label">Model</span><span id="chat-active-model">Not selected</span></span>
-                        <span class="chat-runtime-indicator"><span class="chat-runtime-label">Reasoning</span><span id="chat-active-reasoning">Auto</span></span>
                     </div>
                 </div>
                 <div class="page-actions chat-header-actions">
@@ -1210,6 +1209,12 @@
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> System Prompt</div>
                             <textarea class="sidebar-system-prompt" id="chat-system-prompt" aria-label="System prompt" placeholder="You are a helpful assistant..."></textarea>
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
+                        </div>
+                        <div class="sidebar-section">
+                            <button class="btn btn-sm" id="btn-chat-load-character" type="button" aria-describedby="chat-character-help">Load character card</button>
+                            <input type="file" id="chat-character-file" accept=".json,.png,application/json,image/png" aria-label="Character card file" hidden>
+                            <div class="sidebar-field-desc" id="chat-character-help">JSON or PNG. Saves this conversation and starts a new chat with the character's prompt and greeting.</div>
+                            <div class="sidebar-field-desc chat-character-status" id="chat-character-status" role="status" aria-live="polite" hidden></div>
                         </div>
                         <div class="sidebar-section">
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5C14.5 15.3 14 16.2 14 18h-4c0-1.8-.5-2.7-1.5-3.5z"/></svg></span> Thinking</div>
@@ -1832,6 +1837,7 @@
 <script src="/js/external-server-ui.js?v=revamp-1"></script>
 <script src="/js/quick-launch-ui.js?v=revamp-2"></script>
 <script src="/js/chat-compaction.js?v=revamp-1"></script>
+<script src="/js/character-cards.js?v=revamp-1"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
 <script src="/js/monitor-ui.js?v=monitor-1"></script>

@@ -3,6 +3,7 @@ const { spawn } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
 const { after, before, test } = require("node:test");
+const { character, pngCard } = require("./character_card_fixtures.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const UI_DIR = path.join(ROOT, "ui");
@@ -1269,6 +1270,77 @@ async function verifyChatResponsiveLayout(page) {
         assert.equal(hitTest.jumpVisible, true, `Jump remains visible at ${width}px with transcript scrolled away`);
         assert.equal(hitTest.sendHit, true, `Send remains hit-testable at ${width}px with Jump shown`);
         assert.equal(hitTest.separated, true, `Jump does not cover Send at ${width}px`);
+    }
+}
+
+async function verifyCharacterCards(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
+        running: true, active_process_tool: "llama-server", runtime_generation: 700,
+        active_runtime: { tool: "llama-server", model: "smoke-model.gguf", generation: 700 },
+    } }));
+    await page.evaluate(() => localStorage.setItem("llama_gui_conversations", JSON.stringify([
+        { id: "original", title: "Original chat", systemPrompt: "Original system prompt", messages: [{ role: "user", content: "Keep this conversation" }] },
+    ])));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("Original chat", { exact: true }).click();
+    await page.locator("#btn-chat-focus").click();
+    await page.locator("#btn-open-sidebar").click();
+    const completions = [];
+    page.on("request", request => {
+        if (new URL(request.url()).pathname === "/api/chat/completions") completions.push(request.postDataJSON());
+    });
+    const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser"), page.getByRole("button", { name: "Load character card", exact: true }).press("Enter"),
+    ]);
+    await chooser.setFiles({ name: "eloise.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(character)) });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.startsWith("Started a chat"));
+    assert.equal(completions.length, 0, "import must not send a chat request");
+    assert.match(await page.locator("#chat-system-prompt").inputValue(), /Éloïse is an astronomer/);
+    assert.match(await page.locator("#chat-messages").textContent(), /Hello User, I'm Éloïse/);
+    assert.equal(await page.locator("#chat-character-file").inputValue(), "", "the same file can be selected again");
+    assert.equal(await page.locator("body").evaluate(el => el.classList.contains("chat-focus-mode")), true);
+    const firstImport = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations")));
+    assert.equal(firstImport.length, 2);
+    assert.equal(firstImport.find(c => c.id === "original").systemPrompt, "Original system prompt");
+
+    await page.setInputFiles("#chat-character-file", { name: "bad.json", mimeType: "application/json", buffer: Buffer.from("{bad") });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.includes("invalid JSON"));
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), firstImport[0].systemPrompt);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))), firstImport);
+
+    const pngData = { spec: "chara_card_v3", spec_version: "3.0", data: {
+        ...character, name: "PNG explorer", description: "Studies the Moon.", first_mes: "Hello <img src=x onerror=alert(1)>",
+    } };
+    await page.setInputFiles("#chat-character-file", { name: "card.png", mimeType: "image/png", buffer: pngCard([["ccv3", JSON.stringify(pngData)]]) });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.includes("Started a chat with PNG explorer"));
+    assert.equal(await page.locator("#chat-messages img").count(), 0, "card greeting HTML is rendered as text");
+    assert.match(await page.locator("#chat-messages").textContent(), /<img src=x/);
+    assert.equal(completions.length, 0);
+    const pngPrompt = await page.locator("#chat-system-prompt").inputValue();
+    await page.fill("#chat-input", "Tell me about the Moon");
+    await page.locator("#btn-chat-send").click();
+    await page.waitForFunction(() => document.querySelectorAll(".chat-message.assistant").length === 2
+        && !document.getElementById("btn-chat-send").disabled);
+    assert.equal(completions[0].messages[0].content, pngPrompt);
+    assert.equal(completions[0].messages[1].content, pngData.data.first_mes);
+    assert.equal(completions[0].messages[2].content, "Tell me about the Moon");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("PNG explorer", { exact: true }).click();
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), pngPrompt);
+    await page.getByText("Original chat", { exact: true }).click();
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Original system prompt");
+    for (const width of [390, 900]) {
+        await page.setViewportSize({ width, height: 844 });
+        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
+        await page.locator("#btn-chat-load-character").scrollIntoViewIfNeeded();
+        const bounds = await page.locator("#btn-chat-load-character").boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `character loader fits at ${width}px`);
     }
 }
 
@@ -4017,6 +4089,7 @@ for (const [name, verify] of [
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
     ["chat responsive layout bounds", verifyChatResponsiveLayout],
+    ["character card import", verifyCharacterCards],
     ["monitor runtime presentation", verifyMonitorRuntimePolish],
     ["preset library", verifyPresetPolish],
     ["benchmark actions and recovery", verifyBenchmarkActions],
