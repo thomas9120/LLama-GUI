@@ -1459,6 +1459,7 @@ async function verifyChatDeletion(page) {
     const modal = page.locator("#confirm-modal");
     const confirm = page.locator("#confirm-modal-ok");
     const cancel = page.locator("#confirm-modal-cancel");
+    await page.getByText("Beta", { exact: true }).click();
     const betaDelete = page.locator(".chat-history-item").filter({ hasText: "Beta" }).getByRole("button", { name: "Delete conversation", exact: true });
     await betaDelete.click();
     assert.equal(await page.locator("#confirm-modal-title").textContent(), "Delete Conversation");
@@ -1476,7 +1477,9 @@ async function verifyChatDeletion(page) {
     await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 3);
     assert.equal(await modal.isVisible(), false);
     assert.deepEqual(await readIds(), ["Alpha", "Gamma", "Delta"]);
-    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Alpha prompt", "deleting another conversation keeps the active chat");
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "", "deleting the selected conversation clears the active chat");
+    await page.getByText("Alpha", { exact: true }).click();
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Alpha prompt", "deleting a conversation preserves other chats");
 
     await page.locator("#btn-chat-clear").click();
     assert.equal(await page.locator("#confirm-modal-title").textContent(), "Clear Current Chat");

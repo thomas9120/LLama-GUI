@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-10
 
+- Moved each conversation's Delete button beside Rename and Export, replacing the trash icon with text.
 - Added opt-in Current Date & Time tool for Chat; small Chat and validation fixes.
 
 ## 2026-09-09
