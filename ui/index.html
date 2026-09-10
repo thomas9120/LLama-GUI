@@ -1082,6 +1082,9 @@
                     <h1 class="page-title">Chat</h1>
                     <span class="badge badge-green" id="chat-status-badge" style="display:none;"><span class="badge-dot"></span> Server Running</span>
                     <span class="badge badge-neutral" id="chat-no-server-badge">No Server</span>
+                    <div class="chat-runtime-indicators" aria-live="polite">
+                        <span class="chat-runtime-indicator"><span class="chat-runtime-label">Model</span><span id="chat-active-model">Not selected</span></span>
+                    </div>
                 </div>
                 <div class="page-actions chat-header-actions">
                     <button class="btn btn-sm btn-ghost btn-history-open" id="btn-open-history" type="button" title="Show conversations" aria-label="Show conversations" aria-controls="chat-history-panel" aria-expanded="false">
@@ -1100,10 +1103,6 @@
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
                         New Chat
                     </button>
-                    <button class="btn btn-sm btn-ghost" id="btn-chat-clear" type="button">
-                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
-                        Clear
-                    </button>
                 </div>
             </div>
             <div class="chat-layout" id="chat-layout">
@@ -1114,8 +1113,17 @@
                             <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></span>
                         </button>
                     </div>
+                    <div class="chat-history-tools">
+                        <label class="chat-history-search-label" for="chat-history-search">Find a conversation</label>
+                        <input id="chat-history-search" class="chat-history-search" type="search" placeholder="Search conversations" autocomplete="off">
+                        <div id="chat-history-retention" class="chat-history-retention" role="status">Up to 50 conversations are saved.</div>
+                    </div>
                     <div class="chat-history-list" id="chat-history-list"></div>
                     <div class="chat-history-footer">
+                        <button class="btn btn-xs btn-ghost" id="btn-chat-clear" type="button" title="Clear the current conversation">
+                            <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2 2v2"/></svg></span>
+                            Clear current chat
+                        </button>
                         <button class="btn btn-xs btn-danger" id="btn-delete-all-history" type="button">
                             <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></span>
                             Delete All
@@ -1130,6 +1138,22 @@
                             </div>
                             <h3>Start a conversation</h3>
                         </div>
+                    </div>
+                    <button class="btn btn-sm btn-ghost chat-jump-latest" id="btn-chat-jump-latest" type="button" hidden aria-controls="chat-messages" title="Jump to the newest message">Jump to latest</button>
+                    <div id="chat-tools" class="chat-tools" role="group" aria-label="Conversation context" hidden>
+                        <details id="chat-context-details">
+                            <summary>Context usage</summary>
+                            <div class="chat-context">
+                                <div id="chat-context-bar" class="chat-context-bar" role="progressbar" aria-label="Chat context including reply reserve" aria-valuemin="0" aria-valuemax="100" hidden>
+                                    <span id="chat-context-prompt"></span><span id="chat-context-reserve"></span>
+                                </div>
+                                <div id="chat-context-label" role="status" aria-live="polite">Start or connect to a server to measure context.</div>
+                            </div>
+                        </details>
+                        <button id="btn-chat-compact" type="button" class="btn btn-xs" disabled>Compact conversation</button>
+                        <button id="btn-chat-view-summary" type="button" class="btn btn-xs" hidden>View summary</button>
+                        <button id="btn-chat-tools-undo-compaction" type="button" class="btn btn-xs" hidden>Undo compaction</button>
+                        <div id="chat-compaction-status" role="status" aria-live="polite" hidden></div>
                     </div>
                     <div class="chat-input-area">
                         <div id="chat-context-warning" class="chat-context-warning" role="status" hidden>
@@ -1164,27 +1188,12 @@
                                 <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                                 Regenerate
                             </button>
-                            <button class="btn btn-xs" id="btn-chat-tools" type="button" aria-label="Chat tools" title="Chat tools" aria-expanded="false" aria-controls="chat-tools">⋯</button>
-                            <div id="chat-tools" class="chat-tools" role="group" aria-label="Chat tools" hidden>
-                                <details id="chat-context-details">
-                                    <summary>Context usage</summary>
-                                    <div class="chat-context">
-                                        <div id="chat-context-bar" class="chat-context-bar" role="progressbar" aria-label="Chat context including reply reserve" aria-valuemin="0" aria-valuemax="100" hidden>
-                                            <span id="chat-context-prompt"></span><span id="chat-context-reserve"></span>
-                                        </div>
-                                        <div id="chat-context-label" role="status" aria-live="polite">Start or connect to a server to measure context.</div>
-                                    </div>
-                                </details>
-                                <button id="btn-chat-compact" type="button" class="btn btn-xs" disabled>Compact conversation</button>
-                                <button id="btn-chat-view-summary" type="button" class="btn btn-xs" hidden>View summary</button>
-                                <button id="btn-chat-tools-undo-compaction" type="button" class="btn btn-xs" hidden>Undo compaction</button>
-                                <div id="chat-compaction-status" role="status" aria-live="polite" hidden></div>
-                            </div>
+                            <button class="btn btn-xs" id="btn-chat-tools" type="button" title="Context usage and compaction" aria-expanded="false" aria-controls="chat-tools">Context</button>
                             <span class="chat-input-hint"><kbd>Enter</kbd> send &middot; <kbd>Shift+Enter</kbd> new line</span>
                         </div>
                     </div>
                 </div>
-                <div class="chat-sidebar" id="chat-sidebar">
+                <div class="chat-sidebar collapsed" id="chat-sidebar" aria-hidden="true">
                     <div class="sidebar-header">
                         <h3>Settings</h3>
                         <button class="btn-toggle-sidebar" id="btn-collapse-sidebar" type="button" title="Collapse settings" aria-label="Collapse settings" aria-controls="chat-sidebar">
@@ -1198,6 +1207,12 @@
                             <div class="sidebar-char-count" id="chat-sys-char-count">0 chars</div>
                         </div>
                         <div class="sidebar-section">
+                            <button class="btn btn-sm" id="btn-chat-load-character" type="button" aria-describedby="chat-character-help">Load character card</button>
+                            <input type="file" id="chat-character-file" accept=".json,.png,application/json,image/png" aria-label="Character card file" hidden>
+                            <div class="sidebar-field-desc" id="chat-character-help">JSON or PNG. Saves this conversation and starts a new chat with the character's prompt and greeting.</div>
+                            <div class="sidebar-field-desc chat-character-status" id="chat-character-status" role="status" aria-live="polite" hidden></div>
+                        </div>
+                        <div class="sidebar-section">
                             <div class="sidebar-section-label"><span class="sidebar-icon"><svg viewBox="0 0 24 24" width="13" height="13"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M8.5 14.5A7 7 0 1 1 15.5 14.5C14.5 15.3 14 16.2 14 18h-4c0-1.8-.5-2.7-1.5-3.5z"/></svg></span> Thinking</div>
                             <div class="sidebar-field">
                                 <label class="sidebar-field-label" for="chat-thinking-effort">Reasoning Effort</label>
@@ -1209,8 +1224,22 @@
                                     <option value="high">High</option>
                                     <option value="xhigh">XHigh</option>
                                 </select>
-                                <div class="sidebar-field-desc">Applies to the next message. Unsupported models may ignore or reject non-default values.</div>
+                                <div class="sidebar-field-desc">Controls how much effort a supported model spends thinking. Auto uses the model default.</div>
+                                <details class="chat-reasoning-technical">
+                                    <summary>Compatibility details</summary>
+                                    <div>Some model templates ignore effort levels or use a different request field. Unsupported values may have no effect.</div>
+                                </details>
                                 <div id="chat-thinking-effort-cap-hint" class="chat-effort-cap-warning hidden"></div>
+                            </div>
+                        </div>
+                        <div class="sidebar-section">
+                            <div class="sidebar-section-label">Tools</div>
+                            <div class="sidebar-field">
+                                <label class="chat-web-toggle">
+                                    <input type="checkbox" id="chat-datetime-enabled" aria-describedby="chat-datetime-help">
+                                    <span>Current Date &amp; Time</span>
+                                </label>
+                                <div class="sidebar-field-desc" id="chat-datetime-help">Let the model check your local date, time, and timezone for time-sensitive questions. Requires tool support. Applies to your next message. Saved in this browser when storage is available; otherwise, applies only to this session.</div>
                             </div>
                         </div>
                         <div class="sidebar-section">
@@ -1228,42 +1257,71 @@
                                     <label class="sidebar-sampler-text" for="chat-slider-temp">Temperature</label>
                                     <span class="sidebar-sampler-value" id="chat-val-temp">0.80</span>
                                 </div>
-                                <input type="range" id="chat-slider-temp" min="0" max="2" step="0.01" value="0.80">
-                            </div>
-                            <div class="sidebar-sampler-control">
-                                <div class="sidebar-sampler-label">
-                                    <label class="sidebar-sampler-text" for="chat-slider-top-p">Top-P</label>
-                                    <span class="sidebar-sampler-value" id="chat-val-top-p">0.95</span>
+                                <div class="sidebar-sampler-input-row">
+                                    <input type="range" id="chat-slider-temp" min="0" max="2" step="0.01" value="0.80">
+                                    <input type="number" class="chat-sampler-number" id="chat-num-temp" step="0.01" value="0.80" aria-label="Temperature exact value">
                                 </div>
-                                <input type="range" id="chat-slider-top-p" min="0" max="1" step="0.01" value="0.95">
+                                <div class="sidebar-field-desc">Lower values make answers more focused; higher values add variety.</div>
                             </div>
-                            <div class="sidebar-sampler-control">
-                                <div class="sidebar-sampler-label">
-                                    <label class="sidebar-sampler-text" for="chat-slider-top-k">Top-K</label>
-                                    <span class="sidebar-sampler-value" id="chat-val-top-k">40</span>
+                            <details class="chat-advanced-samplers">
+                                <summary>Advanced sampling</summary>
+                                <div class="chat-advanced-sampler-body">
+                                    <div class="sidebar-sampler-control">
+                                        <div class="sidebar-sampler-label">
+                                            <label class="sidebar-sampler-text" for="chat-slider-top-p">Top-P</label>
+                                            <span class="sidebar-sampler-value" id="chat-val-top-p">0.95</span>
+                                        </div>
+                                        <div class="sidebar-sampler-input-row">
+                                            <input type="range" id="chat-slider-top-p" min="0" max="1" step="0.01" value="0.95">
+                                            <input type="number" class="chat-sampler-number" id="chat-num-top-p" step="0.01" value="0.95" aria-label="Top-P exact value">
+                                        </div>
+                                        <div class="sidebar-field-desc">Keep only the most likely next tokens within this probability share.</div>
+                                    </div>
+                                    <div class="sidebar-sampler-control">
+                                        <div class="sidebar-sampler-label">
+                                            <label class="sidebar-sampler-text" for="chat-slider-top-k">Top-K</label>
+                                            <span class="sidebar-sampler-value" id="chat-val-top-k">40</span>
+                                        </div>
+                                        <div class="sidebar-sampler-input-row">
+                                            <input type="range" id="chat-slider-top-k" min="1" max="200" step="1" value="40">
+                                            <input type="number" class="chat-sampler-number" id="chat-num-top-k" step="1" value="40" aria-label="Top-K exact value">
+                                        </div>
+                                        <div class="sidebar-field-desc">Limit each next token to the top K choices.</div>
+                                    </div>
+                                    <div class="sidebar-sampler-control">
+                                        <div class="sidebar-sampler-label">
+                                            <label class="sidebar-sampler-text" for="chat-slider-min-p">Min-P</label>
+                                            <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
+                                        </div>
+                                        <div class="sidebar-sampler-input-row">
+                                            <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
+                                            <input type="number" class="chat-sampler-number" id="chat-num-min-p" step="0.01" value="0.05" aria-label="Min-P exact value">
+                                        </div>
+                                        <div class="sidebar-field-desc">Ignore choices far below the most likely token.</div>
+                                    </div>
+                                    <div class="sidebar-sampler-control">
+                                        <div class="sidebar-sampler-label">
+                                            <label class="sidebar-sampler-text" for="chat-slider-repeat">Repeat penalty</label>
+                                            <span class="sidebar-sampler-value" id="chat-val-repeat">1.00</span>
+                                        </div>
+                                        <div class="sidebar-sampler-input-row">
+                                            <input type="range" id="chat-slider-repeat" min="1" max="2" step="0.01" value="1.00">
+                                            <input type="number" class="chat-sampler-number" id="chat-num-repeat" step="0.01" value="1.00" aria-label="Repeat penalty exact value">
+                                        </div>
+                                        <div class="sidebar-field-desc">Raise this gently to reduce repeated phrases.</div>
+                                    </div>
                                 </div>
-                                <input type="range" id="chat-slider-top-k" min="1" max="200" step="1" value="40">
-                            </div>
-                            <div class="sidebar-sampler-control">
-                                <div class="sidebar-sampler-label">
-                                    <label class="sidebar-sampler-text" for="chat-slider-min-p">Min-P</label>
-                                    <span class="sidebar-sampler-value" id="chat-val-min-p">0.05</span>
-                                </div>
-                                <input type="range" id="chat-slider-min-p" min="0" max="1" step="0.01" value="0.05">
-                            </div>
-                            <div class="sidebar-sampler-control">
-                                <div class="sidebar-sampler-label">
-                                    <label class="sidebar-sampler-text" for="chat-slider-repeat">Repeat Penalty</label>
-                                    <span class="sidebar-sampler-value" id="chat-val-repeat">1.00</span>
-                                </div>
-                                <input type="range" id="chat-slider-repeat" min="1" max="2" step="0.01" value="1.00">
-                            </div>
+                            </details>
                             <div class="sidebar-sampler-control">
                                 <div class="sidebar-sampler-label">
                                     <label class="sidebar-sampler-text" for="chat-slider-max-tokens">Max Tokens</label>
                                     <span class="sidebar-sampler-value" id="chat-val-max-tokens">Server default</span>
                                 </div>
-                                <input type="range" id="chat-slider-max-tokens" aria-label="Max Tokens" min="-1" max="32768" step="1" value="-1">
+                                <div class="sidebar-sampler-input-row">
+                                    <input type="range" id="chat-slider-max-tokens" aria-label="Max Tokens" min="-1" max="32768" step="1" value="-1">
+                                    <input type="number" class="chat-sampler-number" id="chat-num-max-tokens" step="1" value="-1" aria-label="Max Tokens exact value">
+                                </div>
+                                <div class="sidebar-field-desc">Maximum response length. Use -1 to inherit the server default.</div>
                             </div>
                             <details class="chat-settings-help">
                                 <summary>Sampler reference</summary>
@@ -1769,6 +1827,7 @@
 <script src="/js/flags/helpers.js?v=revamp-1"></script>
 <script src="/js/theme-ui.js?v=revamp-1"></script>
 <script src="/js/flag-core.js?v=revamp-1"></script>
+<script src="/js/chat-tools.js?v=1"></script>
 <script src="/js/config-flags-ui.js?v=revamp-1"></script>
 <script src="/js/manager.js?v=revamp-4"></script>
 <script src="/js/presets.js?v=revamp-6"></script>
@@ -1785,6 +1844,7 @@
 <script src="/js/external-server-ui.js?v=revamp-1"></script>
 <script src="/js/quick-launch-ui.js?v=revamp-2"></script>
 <script src="/js/chat-compaction.js?v=revamp-1"></script>
+<script src="/js/character-cards.js?v=revamp-1"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
 <script src="/js/monitor-ui.js?v=monitor-1"></script>

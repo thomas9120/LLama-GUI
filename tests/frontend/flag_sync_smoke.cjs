@@ -3,6 +3,7 @@ const { spawn } = require("node:child_process");
 const http = require("node:http");
 const path = require("node:path");
 const { after, before, test } = require("node:test");
+const { character, pngCard } = require("./character_card_fixtures.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const UI_DIR = path.join(ROOT, "ui");
@@ -1001,9 +1002,27 @@ async function verifySecondaryPagePolish(page) {
     assert.equal(await page.locator("#btn-collapse-sidebar").evaluate(el => el === document.activeElement), true,
         "restoring the panel keeps focus on a visible control");
     await page.locator("#btn-chat-focus").click();
-    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.waitForFunction(() => document.querySelector(".sidebar").getBoundingClientRect().right <= 1);
+    for (const [panel, open, close] of panels) {
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), true);
+        assert.equal(await page.locator(`#${open}`).isVisible(), true, "panel buttons remain available in focus mode");
+        await page.locator(`#${open}`).press("Enter");
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+        assert.equal(await page.locator(`#${panel}`).evaluate(el => el.inert), false);
+        assert.equal(await page.locator(`#${open}`).getAttribute("aria-expanded"), "true");
+        assert.equal(await page.locator(`#${close}`).evaluate(el => el === document.activeElement), true);
+        assert.equal(await page.locator("#btn-chat-focus").getAttribute("aria-pressed"), "true",
+            "opening a panel keeps focus mode active");
+        assert.ok(await page.locator(".sidebar").evaluate(el => el.getBoundingClientRect().right <= 0),
+            "main navigation stays off screen");
+        await page.locator(`#${close}`).press("Enter");
+        assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+        assert.equal(await page.locator(`#${open}`).evaluate(el => el === document.activeElement), true);
+    }
     await page.locator("#btn-chat-focus").click();
-    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), true,
+        "focus-mode panel choices do not overwrite the normal expanded preference");
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => window.LlamaGui?.chatUi);
     await selectSection(page, "chat");
@@ -1016,6 +1035,14 @@ async function verifySecondaryPagePolish(page) {
     await page.waitForFunction(() => window.LlamaGui?.chatUi);
     await selectSection(page, "chat");
     for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false);
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel, open] of panels) {
+        await page.locator(`#${open}`).click();
+        assert.equal(await page.locator(`#${panel}`).isVisible(), true);
+    }
+    await page.locator("#btn-chat-focus").click();
+    for (const [panel] of panels) assert.equal(await page.locator(`#${panel}`).isVisible(), false,
+        "exiting focus mode restores the normal collapsed preference");
     await page.locator("#btn-open-sidebar").click();
     const samplerHelp = page.locator(".chat-settings-help");
     assert.equal(await samplerHelp.locator("dl").isVisible(), false);
@@ -1080,6 +1107,402 @@ async function verifySecondaryPagePolish(page) {
     assert.equal(installed.unsafeElements, 0);
     assert.match(installed.warning, /required.*runtime libraries are missing/);
     await selectSection(page, "quick-launch");
+}
+
+async function verifyChatResponsiveLayout(page) {
+    await page.setViewportSize({ width: 1385, height: 1232 });
+    await page.evaluate(() => {
+        localStorage.removeItem("llama_gui_chat_history_collapsed");
+        localStorage.removeItem("llama_gui_chat_settings_collapsed");
+        const transcript = Array.from({ length: 80 }, (_, index) =>
+            `Layout regression paragraph ${index + 1}: populated transcript content remains readable while panels change size.`
+        ).join("\n\n");
+        localStorage.setItem("llama_gui_conversations", JSON.stringify([{
+            id: "layout-regression",
+            title: "Responsive layout regression",
+            messages: [
+                { role: "user", content: "Check the responsive chat layout." },
+                { role: "assistant", content: transcript, status: "complete" },
+            ],
+            timestamp: Date.now(),
+        }]));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.LlamaGui?.chatUi);
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").evaluate((element) => element.click());
+    await page.waitForFunction(() => !document.querySelector("#chat-history-panel")?.classList.contains("collapsed"));
+    await page.locator("#chat-history-list .chat-history-item").first().click();
+    await page.waitForFunction(() => document.querySelectorAll("#chat-messages .chat-message").length >= 2);
+
+    const setPanelState = async (panelId, openId, closeId, open) => {
+        const currentlyOpen = await page.locator(`#${panelId}`).evaluate((element) => !element.classList.contains("collapsed"));
+        if (currentlyOpen !== open) await page.locator(`#${open ? openId : closeId}`).evaluate((element) => element.click());
+        await page.waitForFunction(({ id, expected }) => {
+            const element = document.getElementById(id);
+            return Boolean(element) && !element.classList.contains("collapsed") === expected;
+        }, { id: panelId, expected: open });
+    };
+    const panelStates = {
+        history: ["chat-history-panel", "btn-open-history", "btn-collapse-history"],
+        settings: ["chat-sidebar", "btn-open-sidebar", "btn-collapse-sidebar"],
+    };
+    const readLayout = () => page.evaluate(() => {
+        const read = (selector) => {
+            const element = document.querySelector(selector);
+            if (!element) return null;
+            const rect = element.getBoundingClientRect();
+            const style = getComputedStyle(element);
+            return {
+                left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom,
+                width: rect.width, height: rect.height,
+                visible: style.display !== "none" && style.visibility !== "hidden" && rect.width > 0 && rect.height > 0,
+                clientHeight: element.clientHeight, scrollHeight: element.scrollHeight,
+            };
+        };
+        const intersects = (left, right) => Boolean(left?.visible && right?.visible
+            && left.left < right.right && left.right > right.left
+            && left.top < right.bottom && left.bottom > right.top);
+        const layout = read("#chat-layout");
+        const main = read(".chat-main");
+        const composer = read(".chat-input-area");
+        const history = read("#chat-history-panel");
+        const historyList = read("#chat-history-list");
+        const settings = read("#chat-sidebar");
+        const messages = read("#chat-messages");
+        const context = read("#chat-tools");
+        return {
+            layout, main, composer, history, historyList, settings, messages, context,
+            intersections: {
+                historyMain: intersects(history, main),
+                settingsMain: intersects(settings, main),
+                historyComposer: intersects(history, composer),
+                settingsComposer: intersects(settings, composer),
+            },
+            documentHeight: document.documentElement.scrollHeight,
+            viewportHeight: innerHeight,
+        };
+    });
+    const responsiveViewports = [
+        { width: 1385, height: 1232 },
+        { width: 390, height: 844 },
+        { width: 900, height: 720 },
+        { width: 1440, height: 915 },
+    ];
+    for (const viewport of responsiveViewports.flatMap(size => [size, { ...size, focus: true }])) {
+        await page.setViewportSize({ width: viewport.width, height: viewport.height });
+        if ((await page.locator("#btn-chat-focus").getAttribute("aria-pressed") === "true") !== Boolean(viewport.focus)) {
+            await page.locator("#btn-chat-focus").click();
+        }
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        for (const state of ["closed", "history", "settings", "both"]) {
+            await setPanelState(...panelStates.history, state === "history" || state === "both");
+            await setPanelState(...panelStates.settings, state === "settings" || state === "both");
+            const layout = await readLayout();
+            assert.equal(layout.history.visible, state === "history" || state === "both");
+            assert.equal(layout.settings.visible, state === "settings" || state === "both");
+            assert.equal(layout.main.visible, true, `chat main remains visible at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.historyMain, false, `history does not overlap chat main at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.settingsMain, false, `settings does not overlap chat main at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.historyComposer, false, `history does not overlap composer at ${viewport.width}px (${state})`);
+            assert.equal(layout.intersections.settingsComposer, false, `settings does not overlap composer at ${viewport.width}px (${state})`);
+            assert.ok(layout.composer.height > 0 && layout.composer.bottom <= layout.main.bottom + 1,
+                `composer stays inside chat main at ${viewport.width}px (${state})`);
+            assert.ok(layout.composer.bottom <= layout.documentHeight + 1,
+                `composer remains reachable in the document at ${viewport.width}px (${state})`);
+            assert.ok(layout.messages.clientHeight > 0 && layout.messages.scrollHeight > layout.messages.clientHeight,
+                `populated transcript remains internally scrollable at ${viewport.width}px (${state})`);
+            if (layout.history.visible) {
+                assert.ok(layout.historyList.clientHeight >= 32,
+                    `visible history keeps a reachable conversation list at ${viewport.width}px (${state})`);
+            }
+            if (state === "both" && (viewport.width === 390 || viewport.width === 900)) {
+                assert.ok(layout.messages.clientHeight >= 80,
+                    `both-open stacked layout reserves at least 80px of transcript space at ${viewport.width}px (received ${layout.messages.clientHeight}px)`);
+            }
+            await page.getByRole("button", { name: "Context", exact: true }).click();
+            await page.locator("#chat-context-details summary").press("Enter");
+            const expanded = await readLayout();
+            assert.ok(expanded.context.height > 30 && expanded.context.bottom <= expanded.composer.top,
+                `expanded Context stays above the composer at ${viewport.width}px (${state})`);
+            assert.ok(expanded.messages.bottom <= expanded.context.top + 1 && expanded.messages.clientHeight > 0,
+                `expanded Context reserves space below the transcript at ${viewport.width}px (${state})`);
+            assert.ok(Math.abs(expanded.composer.height - layout.composer.height) <= 1
+                && Math.abs((expanded.main.bottom - expanded.composer.bottom) - (layout.main.bottom - layout.composer.bottom)) <= 1,
+                "opening Context keeps the composer anchored at the bottom of Chat");
+            await page.locator("#btn-chat-send").scrollIntoViewIfNeeded();
+            assert.equal(await page.locator("#btn-chat-send").evaluate(send => {
+                const rect = send.getBoundingClientRect();
+                const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+                return hit === send || send.contains(hit);
+            }), true, `Context does not cover Send at ${viewport.width}px (${state})`);
+            await page.getByRole("button", { name: "Context", exact: true }).click();
+            assert.equal(await page.locator("#chat-tools").isVisible(), false, "Context toggles closed");
+        }
+    }
+
+    for (const width of [1024, 1100]) {
+        await page.setViewportSize({ width, height: 720 });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        await setPanelState(...panelStates.history, true);
+        await setPanelState(...panelStates.settings, true);
+        await page.evaluate(() => {
+            const messages = document.getElementById("chat-messages");
+            messages.scrollTop = 0;
+            messages.dispatchEvent(new Event("scroll"));
+        });
+        await page.waitForSelector("#btn-chat-jump-latest:not([hidden])");
+        const hitTest = await page.evaluate(() => {
+            const send = document.getElementById("btn-chat-send");
+            const jump = document.getElementById("btn-chat-jump-latest");
+            const sendRect = send.getBoundingClientRect();
+            const jumpRect = jump.getBoundingClientRect();
+            const hit = document.elementFromPoint(sendRect.left + sendRect.width / 2, sendRect.top + sendRect.height / 2);
+            return {
+                sendVisible: sendRect.width > 0 && sendRect.height > 0,
+                jumpVisible: jumpRect.width > 0 && jumpRect.height > 0,
+                sendHit: hit === send || send.contains(hit),
+                separated: sendRect.right <= jumpRect.left || jumpRect.right <= sendRect.left
+                    || sendRect.bottom <= jumpRect.top || jumpRect.bottom <= sendRect.top,
+            };
+        });
+        assert.equal(hitTest.sendVisible, true, `Send remains visible at ${width}px with Jump shown`);
+        assert.equal(hitTest.jumpVisible, true, `Jump remains visible at ${width}px with transcript scrolled away`);
+        assert.equal(hitTest.sendHit, true, `Send remains hit-testable at ${width}px with Jump shown`);
+        assert.equal(hitTest.separated, true, `Jump does not cover Send at ${width}px`);
+    }
+}
+
+async function verifyCharacterCards(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
+        running: true, active_process_tool: "llama-server", runtime_generation: 700,
+        active_runtime: { tool: "llama-server", model: "smoke-model.gguf", generation: 700 },
+    } }));
+    await page.evaluate(() => localStorage.setItem("llama_gui_conversations", JSON.stringify([
+        { id: "original", title: "Original chat", systemPrompt: "Original system prompt", messages: [{ role: "user", content: "Keep this conversation" }] },
+    ])));
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("Original chat", { exact: true }).click();
+    await page.locator("#btn-chat-focus").click();
+    await page.locator("#btn-open-sidebar").click();
+    const completions = [];
+    page.on("request", request => {
+        if (new URL(request.url()).pathname === "/api/chat/completions") completions.push(request.postDataJSON());
+    });
+    const [chooser] = await Promise.all([
+        page.waitForEvent("filechooser"), page.getByRole("button", { name: "Load character card", exact: true }).press("Enter"),
+    ]);
+    await chooser.setFiles({ name: "eloise.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(character)) });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.startsWith("Started a chat"));
+    assert.equal(completions.length, 0, "import must not send a chat request");
+    assert.match(await page.locator("#chat-system-prompt").inputValue(), /Éloïse is an astronomer/);
+    assert.match(await page.locator("#chat-messages").textContent(), /Hello User, I'm Éloïse/);
+    assert.equal(await page.locator("#chat-character-file").inputValue(), "", "the same file can be selected again");
+    assert.equal(await page.locator("body").evaluate(el => el.classList.contains("chat-focus-mode")), true);
+    const firstImport = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations")));
+    assert.equal(firstImport.length, 2);
+    assert.equal(firstImport.find(c => c.id === "original").systemPrompt, "Original system prompt");
+
+    await page.setInputFiles("#chat-character-file", { name: "bad.json", mimeType: "application/json", buffer: Buffer.from("{bad") });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.includes("invalid JSON"));
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), firstImport[0].systemPrompt);
+    assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))), firstImport);
+
+    const pngData = { spec: "chara_card_v3", spec_version: "3.0", data: {
+        ...character, name: "PNG explorer", description: "Studies the Moon.", first_mes: "Hello <img src=x onerror=alert(1)>",
+    } };
+    await page.setInputFiles("#chat-character-file", { name: "card.png", mimeType: "image/png", buffer: pngCard([["ccv3", JSON.stringify(pngData)]]) });
+    await page.waitForFunction(() => document.getElementById("chat-character-status").textContent.includes("Started a chat with PNG explorer"));
+    assert.equal(await page.locator("#chat-messages img").count(), 0, "card greeting HTML is rendered as text");
+    assert.match(await page.locator("#chat-messages").textContent(), /<img src=x/);
+    assert.equal(completions.length, 0);
+    const pngPrompt = await page.locator("#chat-system-prompt").inputValue();
+    await page.fill("#chat-input", "Tell me about the Moon");
+    await page.locator("#btn-chat-send").click();
+    await page.waitForFunction(() => document.querySelectorAll(".chat-message.assistant").length === 2
+        && !document.getElementById("btn-chat-send").disabled);
+    assert.equal(completions[0].messages[0].content, pngPrompt);
+    assert.equal(completions[0].messages[1].content, pngData.data.first_mes);
+    assert.equal(completions[0].messages[2].content, "Tell me about the Moon");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("PNG explorer", { exact: true }).click();
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), pngPrompt);
+    await page.getByText("Original chat", { exact: true }).click();
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Original system prompt");
+    for (const width of [390, 900]) {
+        await page.setViewportSize({ width, height: 844 });
+        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
+        await page.locator("#btn-chat-load-character").scrollIntoViewIfNeeded();
+        const bounds = await page.locator("#btn-chat-load-character").boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `character loader fits at ${width}px`);
+    }
+}
+
+async function verifyChatDateTime(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
+        running: true, active_process_tool: "llama-server", runtime_generation: 700,
+        active_runtime: { tool: "llama-server", model: "smoke-model.gguf", generation: 700 },
+    } }));
+    const requests = [];
+    await page.route("**/api/chat/completions", route => {
+        const body = route.request().postDataJSON();
+        requests.push(body);
+        const events = body.tools?.length && body.tool_choice !== "none" ? [
+            { choices: [{ delta: { tool_calls: [{ index: 0, id: "clock-1", type: "function", function: { name: "get_", arguments: "{" } }] } }] },
+            { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "datetime", arguments: "}" } }] }, finish_reason: "tool_calls" }] },
+        ] : [{ choices: [{ delta: { content: "Your local time is available." }, finish_reason: "stop" }] }];
+        return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n" });
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.clock.setFixedTime(new Date("2026-09-10T12:34:56Z"));
+    await selectSection(page, "configure");
+    assert.equal(await page.locator("#flag-category-mcp #chat-datetime-enabled").count(), 0,
+        "the browser tool is separate from server tools and their launch baseline");
+    await selectSection(page, "chat");
+    await page.click("#btn-open-sidebar");
+    const control = page.getByRole("checkbox", { name: "Current Date & Time", exact: true });
+    await control.waitFor({ state: "visible" });
+    assert.equal(await control.isChecked(), false);
+    const argsBefore = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs());
+    await page.evaluate(() => {
+        window.LlamaGui.chatTools.init();
+    });
+    await control.focus();
+    await control.press("Space");
+    assert.equal(await control.isChecked(), true, "keyboard toggle enables the browser tool");
+    assert.equal(await page.evaluate(() => window.LlamaGui.chatTools.getDefinitions().length), 1,
+        "initializing without a callback still lets the checkbox enable the tool");
+    await page.evaluate(() => {
+        window.dateTimeChangeCount = 0;
+        const onChange = () => { window.dateTimeChangeCount += 1; window.LlamaGui.chatUi.refreshSidebarUI(); };
+        window.LlamaGui.chatTools.init(onChange);
+        window.LlamaGui.chatTools.init(onChange);
+    });
+    await control.uncheck();
+    assert.equal(await page.evaluate(() => window.dateTimeChangeCount), 1, "reinitializing does not duplicate the change callback");
+    await control.check();
+    assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs()), argsBefore,
+        "browser tools never change llama-server launch arguments");
+    assert.equal(await page.locator("#chat-sidebar #chat-datetime-enabled").count(), 1);
+    await page.click("#btn-collapse-sidebar");
+    for (const width of [390, 900, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.click("#btn-open-sidebar");
+        await control.click({ trial: true });
+        const bounds = await page.locator("#chat-datetime-help").boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `date/time help fits at ${width}px`);
+        await page.click("#btn-collapse-sidebar");
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    if (await page.locator("#btn-open-sidebar").isVisible()) await page.click("#btn-open-sidebar");
+    await control.waitFor({ state: "visible" });
+    assert.equal(await control.isChecked(), true, "preference survives reload");
+    await selectSection(page, "chat");
+    const [previewRequest] = await Promise.all([
+        page.waitForRequest(request => new URL(request.url()).pathname === "/api/chat/context"
+            && request.postDataJSON()?.messages?.some(msg => msg.role === "tool"), { timeout: 10000 }),
+        (async () => {
+            await page.fill("#chat-input", "What is the date and time?");
+            await page.click("#btn-chat-send");
+            await page.getByText("Used Current Date & Time", { exact: true }).waitFor({ state: "visible" });
+        })(),
+    ]);
+    assert.equal(requests.length, 2);
+    const result = JSON.parse(requests[1].messages.at(-1).content);
+    assert.equal(new Date(result.result).toISOString(), "2026-09-10T12:34:56.000Z");
+    assert.equal(result.timezone, await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone));
+    assert.equal(requests[1].tool_choice, "none");
+    assert.match(requests[0].messages[0].content, /get_datetime.*today.*web search/,
+        "date-dependent questions get explicit clock guidance");
+    await page.getByText("Used Current Date & Time", { exact: true }).click();
+    assert.match(await page.locator("#chat-messages").textContent(), new RegExp(result.timezone));
+    const preview = previewRequest.postDataJSON();
+    assert.deepEqual(preview.tools, requests[0].tools);
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0]);
+    assert.equal(saved.messages.length, 2);
+    assert.equal(saved.messages[1].toolMessages[1].content, requests[1].messages.at(-1).content);
+    await control.uncheck();
+    await selectSection(page, "chat");
+    await page.fill("#chat-input", "Thanks");
+    await page.click("#btn-chat-send");
+    await page.waitForFunction(() => document.querySelectorAll(".chat-message.assistant").length === 2
+        && !document.getElementById("btn-chat-send").disabled);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[2].tools, undefined, "disabled tool is not advertised");
+    assert.equal(requests[2].messages[0].role, "user", "disabling removes clock instructions");
+    assert.equal(requests[2].messages[2].role, "tool", "prior tool context is retained after disabling");
+}
+
+async function verifyChatDeletion(page) {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.evaluate(() => {
+        localStorage.setItem("llama_gui_conversations", JSON.stringify(["Alpha", "Beta", "Gamma", "Delta"].map(title => ({
+            id: title, title, systemPrompt: `${title} prompt`, messages: [{ role: "user", content: `${title} message` }],
+        }))));
+        localStorage.setItem("llama_gui_deleted_conversations", JSON.stringify([{ id: "old", title: "Old deleted", messages: [] }]));
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    await page.locator("#btn-open-history").click();
+    await page.getByText("Alpha", { exact: true }).click();
+    assert.equal(await page.getByRole("button", { name: "Restore deleted", exact: true }).count(), 0);
+    const readIds = () => page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).map(c => c.id));
+    const modal = page.locator("#confirm-modal");
+    const confirm = page.locator("#confirm-modal-ok");
+    const cancel = page.locator("#confirm-modal-cancel");
+    const betaDelete = page.locator(".chat-history-item").filter({ hasText: "Beta" }).getByRole("button", { name: "Delete conversation", exact: true });
+    await betaDelete.click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Delete Conversation");
+    assert.match(await page.locator("#confirm-modal-message").textContent(), /Beta.*cannot be undone/);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"]);
+    await cancel.press("Enter");
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"], "Enter on Cancel must not confirm deletion");
+    await betaDelete.click();
+    await page.keyboard.press("Escape");
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Beta", "Gamma", "Delta"]);
+    await betaDelete.click();
+    await confirm.press("Enter");
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 3);
+    assert.equal(await modal.isVisible(), false);
+    assert.deepEqual(await readIds(), ["Alpha", "Gamma", "Delta"]);
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "Alpha prompt", "deleting another conversation keeps the active chat");
+
+    await page.locator("#btn-chat-clear").click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Clear Current Chat");
+    await cancel.click();
+    assert.match(await page.locator("#chat-messages").textContent(), /Alpha message/);
+    await page.locator("#btn-chat-clear").click();
+    await confirm.click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 2);
+    assert.equal(await modal.isVisible(), false, "Clear must not open a second delete confirmation");
+    assert.deepEqual(await readIds(), ["Gamma", "Delta"]);
+    assert.equal(await page.locator("#chat-messages .chat-message").count(), 0);
+    assert.equal(await page.locator("#chat-system-prompt").inputValue(), "");
+
+    await page.getByText("Gamma", { exact: true }).click();
+    await page.locator("#btn-delete-all-history").click();
+    assert.equal(await page.locator("#confirm-modal-title").textContent(), "Delete All Conversations");
+    await cancel.click();
+    assert.deepEqual(await readIds(), ["Gamma", "Delta"]);
+    await page.locator("#btn-delete-all-history").click();
+    await confirm.click();
+    await page.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations")).length === 0);
+    assert.equal(await modal.isVisible(), false, "one confirmation deletes the entire saved list");
+    assert.equal(await page.locator("#chat-messages .chat-message").count(), 0);
+    await page.locator("#btn-chat-new").click();
+    assert.deepEqual(await readIds(), [], "New Chat must not resurrect a deleted conversation");
+    assert.equal(await page.getByRole("button", { name: "Restore deleted", exact: true }).count(), 0);
 }
 
 async function verifyBenchmarkActions(page) {
@@ -2331,7 +2754,43 @@ async function runScenario(browser, port, verify) {
         assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
             "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
         ]);
-        if (!await page.locator("#chat-sidebar").isVisible()) await page.locator("#btn-open-sidebar").click();
+        if (await page.locator("#chat-sidebar").evaluate(el => el.classList.contains("collapsed"))) {
+            await page.locator("#btn-open-sidebar").click();
+            await page.waitForFunction(() => !document.querySelector("#chat-sidebar")?.classList.contains("collapsed"));
+        }
+        const advancedSamplers = page.locator(".chat-advanced-samplers");
+        if (!await advancedSamplers.evaluate(el => el.open)) await advancedSamplers.locator(":scope > summary").click();
+        const samplerBeforeExactEntry = await page.evaluate(() => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return { temperature: values.temperature, top_p: values.top_p };
+        });
+        await page.fill("#chat-num-temp", "2.5");
+        await page.dispatchEvent("#chat-num-temp", "change");
+        await page.fill("#chat-num-top-p", "1.5");
+        await page.dispatchEvent("#chat-num-top-p", "change");
+        await page.waitForFunction(() => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return values.temperature === 2.5 && values.top_p === 1.5;
+        });
+        assert.equal(await page.locator("#chat-num-temp").inputValue(), "2.5");
+        assert.equal(await page.locator("#chat-num-top-p").inputValue(), "1.5");
+        assert.equal(await page.locator("#chat-slider-temp").inputValue(), "2",
+            "the temperature slider is a clamped visual proxy for an exact numeric value");
+        assert.equal(await page.locator("#chat-slider-top-p").inputValue(), "1",
+            "the Top-P slider is a clamped visual proxy for an exact numeric value");
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Numeric sampler request");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(chatCompletionBodies.at(-1).temperature, 2.5);
+        assert.equal(chatCompletionBodies.at(-1).top_p, 1.5);
+        await page.evaluate(({ temperature, top_p }) => {
+            window.LlamaGui.flagCore.setMultipleFlagValues({ temperature, top_p });
+        }, samplerBeforeExactEntry);
+        await page.waitForFunction(({ temperature, top_p }) => {
+            const values = window.LlamaGui.flagCore.getFlagValues();
+            return values.temperature === temperature && values.top_p === top_p;
+        }, samplerBeforeExactEntry);
         await page.selectOption("#chat-thinking-effort", "medium");
         await page.check("#chat-web-search-toggle");
         await page.fill("#chat-web-search-max-results", "7");
@@ -2479,6 +2938,157 @@ async function runScenario(browser, port, verify) {
         await page.evaluate(() => window.__restoreChatFetch());
 
         await page.click("#btn-chat-new");
+        await page.evaluate(() => {
+            const originalFetch = window.fetch;
+            let controller = null;
+            let closed = false;
+            const encoder = new TextEncoder();
+            const emit = (payload) => {
+                if (!controller || closed) return;
+                const data = typeof payload === "string" ? payload : JSON.stringify(payload);
+                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            };
+            window.__pushStagedChatChunk = emit;
+            window.__finishStagedChatStream = () => {
+                emit("[DONE]");
+                if (controller && !closed) {
+                    closed = true;
+                    controller.close();
+                }
+            };
+            window.__restoreStagedChatFetch = () => {
+                window.fetch = originalFetch;
+                delete window.__pushStagedChatChunk;
+                delete window.__finishStagedChatStream;
+                delete window.__restoreStagedChatFetch;
+            };
+            window.fetch = (url, options = {}) => {
+                if (!String(url).includes("/api/chat/completions")) return originalFetch(url, options);
+                const stream = new ReadableStream({
+                    start(nextController) {
+                        controller = nextController;
+                        closed = false;
+                        emit({ choices: [{ delta: {
+                            content: "First staged response " + "staged-token ".repeat(600),
+                        } }] });
+                        options.signal?.addEventListener("abort", () => {
+                            if (!closed) {
+                                closed = true;
+                                controller.error(new DOMException("Aborted", "AbortError"));
+                            }
+                        }, { once: true });
+                    },
+                });
+                return Promise.resolve(new Response(stream, {
+                    status: 200,
+                    headers: { "Content-Type": "text/event-stream" },
+                }));
+            };
+        });
+        await page.fill("#chat-input", "Staged streaming response");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("First staged response"));
+        const scrolledAway = await page.evaluate(() => {
+            const container = document.getElementById("chat-messages");
+            const maxScroll = container.scrollHeight - container.clientHeight;
+            if (maxScroll <= 80) throw new Error("staged response did not create a scrollable transcript");
+            container.scrollTop = Math.max(0, maxScroll - 240);
+            if (maxScroll - (container.scrollTop + container.clientHeight) <= 80) container.scrollTop = 0;
+            container.dispatchEvent(new Event("scroll"));
+            return {
+                top: container.scrollTop,
+                maxScroll,
+                clientHeight: container.clientHeight,
+            };
+        });
+        assert.ok(scrolledAway.maxScroll - (scrolledAway.top + scrolledAway.clientHeight) > 80,
+            "the staged reader is scrolled away from the latest response");
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { reasoning_content: "Later reasoning chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Later reasoning chunk"));
+        assert.equal(await page.evaluate(() => document.querySelector("#chat-messages").scrollTop), scrolledAway.top,
+            "later reasoning preserves an away-from-bottom reader position");
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { content: "Later content chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Later content chunk"));
+        assert.equal(await page.evaluate(() => document.querySelector("#chat-messages").scrollTop), scrolledAway.top,
+            "later content and reasoning preserve an away-from-bottom reader position");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), true,
+            "Jump to latest stays available while a reader is scrolled away");
+        await page.evaluate(() => {
+            window.__pushStagedChatChunk({ choices: [{ delta: {}, finish_reason: "stop" }] });
+            window.__pushStagedChatChunk({
+                choices: [],
+                usage: { prompt_tokens: 13, completion_tokens: 7, total_tokens: 20 },
+                timings: { predicted_per_second: 12.5 },
+            });
+        });
+        await page.evaluate(() => window.__finishStagedChatStream());
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), true,
+            "Jump to latest remains available after a completed away-from-bottom stream");
+        const stagedMetadata = await page.locator(".chat-response-metadata").last().innerText();
+        assert.match(stagedMetadata, /Prompt: 13/);
+        assert.match(stagedMetadata, /Completion: 7/);
+        assert.match(stagedMetadata, /Total: 20/);
+        assert.match(stagedMetadata, /Speed: 12\.5 tok\/s/);
+        assert.match(stagedMetadata, /Stop: Finished/);
+        assert.doesNotMatch(stagedMetadata, /Stop: stop/i);
+        assert.match(await page.locator(".chat-reasoning-body").last().textContent(), /Later reasoning chunk/);
+
+        await page.locator("#btn-chat-jump-latest").click();
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), false,
+            "Jump to latest resumes follow mode");
+        await page.click("#btn-chat-new");
+        await page.fill("#chat-input", "Follow after jump");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("First staged response"));
+        const followScroll = await page.evaluate(() => {
+            const container = document.getElementById("chat-messages");
+            const maxScroll = container.scrollHeight - container.clientHeight;
+            if (maxScroll <= 80) throw new Error("follow response did not create a scrollable transcript");
+            container.scrollTop = 0;
+            container.dispatchEvent(new Event("scroll"));
+            return { top: container.scrollTop, maxScroll, clientHeight: container.clientHeight };
+        });
+        assert.ok(followScroll.maxScroll - (followScroll.top + followScroll.clientHeight) > 80);
+        await page.locator("#btn-chat-jump-latest").click();
+        await page.evaluate(() => window.__pushStagedChatChunk({
+            choices: [{ delta: { content: "Final followed chunk" } }],
+        }));
+        await page.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Final followed chunk"));
+        await page.waitForFunction(() => {
+            const container = document.querySelector("#chat-messages");
+            return container.scrollHeight - (container.scrollTop + container.clientHeight) <= 80;
+        });
+        await page.evaluate(() => window.__finishStagedChatStream());
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        assert.equal(await page.locator("#btn-chat-jump-latest").isVisible(), false,
+            "a followed stream finishes at the latest response");
+        await page.evaluate(() => window.__restoreStagedChatFetch());
+
+        if (!await page.locator("#chat-sidebar").evaluate((element) => element.classList.contains("collapsed"))) {
+            await page.click("#btn-collapse-sidebar");
+        }
+        await page.click("#btn-chat-new");
+        chatResponseMode = "ok";
+        await page.fill("#chat-input", "Editable prompt");
+        await page.click("#btn-chat-send");
+        await page.waitForFunction(() => document.querySelector("#btn-chat-send")?.style.display !== "none");
+        const editAction = page.getByRole("button", { name: "Edit and resend", exact: true });
+        assert.equal(await editAction.count(), 1, "completed user turns expose Edit and resend immediately");
+        await editAction.click();
+        await page.waitForSelector("#confirm-modal:not(.hidden)");
+        await page.click("#confirm-modal-ok");
+        await page.waitForSelector("#chat-edit-status:not([hidden])");
+        assert.match(await page.locator("#chat-edit-status").innerText(), /history copy.*before edit/i);
+        assert.equal(await page.locator("#chat-input").inputValue(), "Editable prompt");
+        await page.click("#chat-edit-status .btn");
+        await page.waitForSelector("#chat-edit-status[hidden]", { state: "attached" });
+
+        await page.click("#btn-chat-new");
         chatResponseMode = "ok";
         await page.fill("#chat-input", "Recovery test");
         await page.click("#btn-chat-send");
@@ -2497,7 +3107,7 @@ async function runScenario(browser, port, verify) {
         await page.getByRole("button", { name: "Previous answer", exact: true }).click();
         chatResponseMode = "ok";
         await page.getByRole("button", { name: "Retry", exact: true }).click();
-        await page.waitForFunction(() => document.querySelector(".chat-response-footer")?.textContent.includes("Answer 3 of 3"));
+        await page.waitForFunction(() => document.querySelector(".chat-message.assistant .chat-response-footer")?.textContent.includes("Answer 3 of 3"));
         assert.equal(await page.locator(".chat-message.user").count(), 1);
         assert.equal(chatCompletionBodies.length, recoveryRequestCount + 2);
         assert.deepEqual(chatCompletionBodies.at(-1).messages, [{ role: "user", content: "Recovery test" }]);
@@ -2520,7 +3130,7 @@ async function runScenario(browser, port, verify) {
         await page.click("#btn-chat-tools");
         await page.keyboard.press("Shift+Tab");
         await page.keyboard.press("Shift+Tab");
-        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing past the trigger dismisses tools");
+        assert.equal(await page.locator("#chat-tools").isVisible(), false, "tabbing outside Context dismisses the panel");
         await page.click("#btn-chat-tools");
         await page.locator("#chat-messages").click({ position: { x: 5, y: 5 } });
         assert.equal(await page.locator("#chat-tools").isVisible(), false, "outside clicks dismiss tools");
@@ -2536,7 +3146,7 @@ async function runScenario(browser, port, verify) {
         assert.equal(await page.locator("#chat-context-label").isVisible(), true);
         assert.match(await page.locator("#chat-context-label").innerText(), /Includes web results/);
         assert.equal(await page.locator("#chat-context-bar").getAttribute("data-status"), "overflow");
-        assert.equal(await page.locator(".chat-message.user").innerText(), "U\nMeasure my draft");
+        assert.equal(await page.locator(".chat-message.user .chat-bubble").innerText(), "Measure my draft");
         contextResponseMode = "unavailable";
         await page.fill("#chat-input", "Changed draft");
         await page.waitForFunction(() => document.querySelector("#chat-context-label")?.textContent.includes("unavailable"));
@@ -2558,7 +3168,7 @@ async function runScenario(browser, port, verify) {
         assert.equal(chatCompletionBodies.at(-1).messages.filter(msg => msg.role === "user").length, 1);
         assert.equal(await page.locator("#chat-input").inputValue(), "Changed draft");
 
-        // Context and compaction are reached through the composer tools menu;
+        // Context and compaction are reached through the composer's Context panel;
         // both it and the summary stay collapsed until requested.
         contextResponseMode = "compaction";
         await page.click("#btn-chat-new");
@@ -3639,6 +4249,10 @@ for (const [name, verify] of [
     ["quick launch presentation", verifyQuickLaunchPolish],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
+    ["chat responsive layout bounds", verifyChatResponsiveLayout],
+    ["character card import", verifyCharacterCards],
+    ["chat date and time tool", verifyChatDateTime],
+    ["chat deletion confirmations", verifyChatDeletion],
     ["monitor runtime presentation", verifyMonitorRuntimePolish],
     ["preset library", verifyPresetPolish],
     ["benchmark actions and recovery", verifyBenchmarkActions],

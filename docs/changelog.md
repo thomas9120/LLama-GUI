@@ -2,9 +2,26 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-10
+
+- Hardened date/time tool validation for missing function metadata, made each batch share one clock snapshot, made checkbox initialization safe to repeat or omit a callback, and clarified session-only persistence when browser storage is blocked.
+- Centered Chat sampler readouts above their numeric input boxes using matching columns.
+- Added an opt-in Current Date & Time browser tool in Chat → Settings → Tools. Enabled chats instruct the model to check the clock for date-dependent questions, including today's news, instead of guessing from search excerpts. The model can check local time and timezone without a server flag or restart; tool results stay with saved answers, retries, and context/compaction requests.
+
 ## 2026-09-09
 
+- Replaced Restore deleted with confirmation dialogs for deleting a conversation, deleting all conversations, and clearing the current chat. Delete All and Clear each ask once; confirmed deletions no longer create trash copies. Fixed Enter on Cancel confirming shared dialogs instead of cancelling them.
+- Replaced the full-width response Copy button with a compact icon aligned below the output on the right, retaining accessible labels and copy-result feedback.
+- Fixed character-card imports freezing on unmatched braces and allocating oversized macro expansions. Imports now validate name lengths and expanded prompt/greeting size before building the expanded text, preserving the current conversation on rejection.
+- Added spacing between Load character card and its help text.
+- Added Load character card below Chat's System Prompt for JSON and PNG cards. Import saves the current conversation and opens a new character chat with an editable prompt and greeting, with notices for unsupported card features and validation that preserves the current chat on failure.
+- Removed the duplicate reasoning indicator from the Chat header; reasoning controls remain in Settings.
+- Replaced Chat's ellipsis menu with a labeled Context button and an expandable panel above the message box, keeping Send accessible while context usage and compaction controls are open.
+- Show Rename and Export only for the selected conversation, in a separate row below its details so the buttons leave room for the title.
+- Kept Conversations and Settings accessible in Chat focus mode. Panels open without leaving focus mode, start collapsed on entry, and restore the normal panel layout on exit.
 - Added Saved value and GUI default columns to the Presets tab's saved-settings table, showing defaults only for overrides. Fixed numeric strings matching numeric defaults and excluded credentials and retired draft context from override counts.
+- Added opt-in context-aware auto-compaction, selectable before-edit history copies for recoverable Edit and resend, exact numeric Chat sampler inputs, active model/reasoning indicators, near-bottom streaming follow with Jump to latest, response metadata and Copy integration, and searchable, renameable, exportable, recoverable conversation history with visible retention.
+- Updated Conversations and Settings to use responsive side-by-side or stacked panels that keep the transcript and composer reachable, with Jump to latest staying in normal composer flow.
 
 ## 2026-09-08
 

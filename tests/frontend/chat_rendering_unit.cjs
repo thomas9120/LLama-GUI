@@ -43,6 +43,10 @@ function createElement(tagName) {
         rel: "",
         title: "",
         _listeners: {},
+        _attributes: {},
+        setAttribute(name, value) {
+            this._attributes[name] = String(value);
+        },
         addEventListener(type, handler) {
             this._listeners[type] = this._listeners[type] || [];
             this._listeners[type].push(handler);
@@ -302,6 +306,58 @@ const rendering = context.window.LlamaGui.chatRendering;
     assert.equal(sources.children[2].tagName, "A");
     assert.equal(sources.children[2].href, "https://example.com/secure");
     assert.equal(sources.children[3].tagName, "SPAN");
+}
+
+{
+    const messages = createElement("div");
+    messages.clientHeight = 400;
+    messages.scrollHeight = 900;
+    messages.scrollTop = 500;
+    elements.set("chat-messages", messages);
+    elements.set("chat-empty", createElement("div"));
+
+    rendering.renderChatMessage("assistant", "Follow the reader.");
+    assert.equal(messages.scrollTop, 900, "new output should follow a reader at the bottom");
+
+    messages.scrollHeight = 1400;
+    messages.scrollTop = 700;
+    rendering.appendChatStreamToken(messages.children[0].querySelector(".chat-bubble"), " New token");
+    assert.equal(messages.scrollTop, 700, "new output should preserve a reader who scrolled away");
+    assert.equal(rendering.isChatNearBottom(messages), false);
+    assert.equal(rendering.followChatIfNearBottom(messages), false);
+    rendering.scrollChatToLatest(messages);
+    assert.equal(messages.scrollTop, 1400);
+}
+
+{
+    const messages = createElement("div");
+    elements.set("chat-messages", messages);
+    elements.set("chat-empty", createElement("div"));
+    const bubble = rendering.renderChatMessage("assistant", "Whole response **copy**.");
+    const copyButton = bubble.closest(".chat-message-content").querySelector(".chat-response-copy");
+    assert.ok(copyButton, "assistant messages should expose a whole-response copy action");
+    copyButton._listeners.click[0]({ preventDefault() {}, stopPropagation() {} });
+    assert.equal(copiedText, "Whole response **copy**.");
+}
+
+{
+    const messages = createElement("div");
+    elements.set("chat-messages", messages);
+    elements.set("chat-empty", createElement("div"));
+    const bubble = rendering.renderChatMessage("assistant", "Measured response.");
+    const metadata = rendering.setChatResponseMetadata(bubble, {
+        usage: { prompt_tokens: 12, completion_tokens: 8, total_tokens: 20 },
+        tokens_per_second: 4.5,
+        stop_reason: "length",
+    });
+    assert.ok(metadata, "supplied response metadata should render a compact footer");
+    assert.equal(metadata.children.length, 5);
+    assert.equal(metadata.children[0].textContent, "Prompt: 12");
+    assert.equal(metadata.children[3].textContent, "Speed: 4.5 tok/s");
+    assert.equal(metadata.children[4].textContent, "Stop: Output limit reached");
+    rendering.setChatResponseMetadata(bubble, {});
+    assert.equal(bubble.closest(".chat-message-content").querySelector(".chat-response-metadata"), null,
+        "absent response metadata should not invent or retain statistics");
 }
 
 console.log("chat rendering unit tests passed");

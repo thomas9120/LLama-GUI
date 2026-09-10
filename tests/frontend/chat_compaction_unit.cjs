@@ -3,9 +3,9 @@ const fs = require("node:fs");
 const vm = require("node:vm");
 const path = require("node:path");
 const root = path.resolve(__dirname, "../..");
-const context = { window: { LlamaGui: {} }, console, TextDecoder };
+const context = { window: { LlamaGui: {} }, console, TextDecoder, localStorage: { getItem: () => null, setItem() {} } };
 vm.createContext(context);
-for (const file of ["chat-rendering.js", "chat-compaction.js"]) {
+for (const file of ["chat-rendering.js", "chat-tools.js", "chat-compaction.js"]) {
     vm.runInContext(fs.readFileSync(path.join(root, "ui/js", file), "utf8"), context);
 }
 const api = context.window.LlamaGui.chatCompaction;
@@ -78,6 +78,19 @@ function compact(extra = {}) {
     await compact({ messages: extended, previous: result });
     assert.equal(JSON.parse(generations[0].messages[1].content).previous_summary, result.summary);
     assert.deepEqual(JSON.parse(generations[0].messages[1].content).messages, transcript.slice(4, 6));
+
+    setup();
+    const tools = context.window.LlamaGui.chatTools;
+    tools.setEnabled(true);
+    const toolMessages = [{ role: "assistant", content: "", tool_calls: [{ id: "clock", type: "function", function: { name: "get_datetime", arguments: "{}" } }] },
+        { role: "tool", tool_call_id: "clock", content: '{"result":"2026-09-10T12:00:00+00:00","timezone":"UTC"}' }];
+    const withTools = transcript.map((message, index) => ({ ...message, ...([1, 5].includes(index) ? { toolMessages } : {}) }));
+    await compact({ messages: withTools, body: { model: "test", max_tokens: 128, tools: tools.getDefinitions(), messages: [] } });
+    assert.equal(requests[0].messages.filter(msg => msg.role === "tool").length, 2, "count all historical tool exchanges before compaction");
+    assert.equal(requests.at(-1).messages.filter(msg => msg.role === "tool").length, 1, "keep the recent tool exchange after compaction");
+    assert.ok(generations.every(body => !body.tools), "summaries do not call tools");
+    assert.deepEqual(generations.flatMap(body => JSON.parse(body.messages[1].content).messages).find(msg => msg.toolMessages).toolMessages, toolMessages,
+        "older tool results are included in summary data");
 
     for (const [failure, message] of [["unavailable", /token counting/], ["too-small", /do not fit/],
         ["length", /output limit/], ["empty", /complete summary/], ["eof", /complete summary/],

@@ -145,27 +145,29 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
 2. `theme-ui.js` — theme registry, persisted selection, and the sidebar theme menu (`window.LlamaGui.themeUi`)
 3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
-4. `config-flags-ui.js` — Configure tab rendering
-5. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
-6. `presets.js` — preset CRUD
-7. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
-8. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
-9. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
-10. `output-cursor.js` — shared process-output cursor consumer (`window.LlamaGui.outputCursor`)
-11. `process-lifecycle.js` — guarded launch, stop, switch, restore, and health-readiness orchestration (`window.LlamaGui.processLifecycle`)
-12. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
-13. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
-14. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
-15. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
-16. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
-17. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
-18. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-19. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
-20. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-21. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-22. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-23. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
-24. `app.js` — main orchestration (wires everything together)
+4. `chat-tools.js` — browser date/time preference, tool execution, and saved tool exchanges (`window.LlamaGui.chatTools`)
+5. `config-flags-ui.js` — Configure tab rendering
+6. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
+7. `presets.js` — preset CRUD
+8. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
+9. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
+10. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
+11. `output-cursor.js` — shared process-output cursor consumer (`window.LlamaGui.outputCursor`)
+12. `process-lifecycle.js` — guarded launch, stop, switch, restore, and health-readiness orchestration (`window.LlamaGui.processLifecycle`)
+13. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
+14. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
+15. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
+16. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
+17. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
+18. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
+19. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
+20. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
+21. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
+22. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+23. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+24. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+25. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
+26. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -182,6 +184,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/flags/helpers.js` | (data) | `getFlagsForTool()`, `getFlagsByCategory()`, speculative helpers |
 | `ui/js/theme-ui.js` | `window.LlamaGui.themeUi` | `THEMES` registry (the single source of truth for shipped themes), preference persistence, root theme attribute application, color-scheme hints, and the sidebar theme menu — rendered from the registry, with roving arrow-key focus |
 | `ui/js/flag-core.js` | `window.LlamaGui.flagCore` | Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation |
+| `ui/js/chat-tools.js` | `window.LlamaGui.chatTools` | Opt-in browser date/time tool preference, schema, bounded streamed-call assembly, local execution, and tool-exchange request/display helpers |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
 | `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; an archive view that hides unused presets until restored; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
@@ -198,6 +201,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/external-server-ui.js` | `window.LlamaGui.externalServerUi` | API tab controls for registering a llama-server started outside this GUI: connect/disconnect actions, target rendering, and the status refresh that unlocks Chat; receives `fetchJson` and status helpers from `app.js` |
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
 | `ui/js/chat-compaction.js` | `window.LlamaGui.chatCompaction` | Manual summary generation with counted chunks, selected context, and preserved recent turns |
+| `ui/js/character-cards.js` | `window.LlamaGui.characterCards` | Bounded local JSON/PNG character-card parsing, field validation, basic name macros, and conversion to an editable prompt and greeting |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
@@ -230,7 +234,11 @@ The sidebar runtime disclosure shows lifecycle state and active model, with laun
 
 - Monitor's active-runtime summary reads lifecycle identity and `flagCore.compareLaunchSettings()`, with Open Configure and focused launch-change review. System telemetry is explicitly scoped to this machine and kept separate from inference activity. Vendor probe setup/state cards sit in a native disclosure with Recheck; hardware/inference card visibility and order preferences remain intact. Inference availability notes distinguish loading, non-server tools, and independently unavailable metrics/slots. Empty idle output is hidden, while retained logs are labeled **Last run output**. Changing an inference target invalidates the previous polling epoch before setting the new baseline, including external reconnects to the same address.
 
-- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
+- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At wide widths, expanded panels participate in the normal layout beside Chat; at narrow widths they stack without covering the transcript or composer, and the panel contents retain their own scrolling. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary: entering collapses both panels but keeps their header buttons available, opening panels keeps focus mode active, and exiting restores the normal panel preferences. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
+- Chat's **Context** button opens an inline panel above the composer for usage and compaction controls. The panel scrolls internally, leaves Send accessible, and closes through the button, Escape, or focus/click outside. Narrow layouts can grow vertically to keep the panel and composer reachable.
+- Chat uses the shared confirmation dialog before deleting one conversation, deleting all saved conversations, or clearing the current chat (including its saved entry and system prompt). Delete All and Clear each ask once. Cancel leaves the active chat and any generation running; deleting an inactive conversation also leaves the current generation running. Confirmed deletions remove entries directly from saved history, with no restore-deleted control or new trash copies. Legacy deleted-history storage is left unused. History still keeps at most 50 conversations and removes overflow entries. Storage failures retain the active chat. The shared dialog treats Enter on Cancel as cancellation.
+- **Load character card**, below Chat's System Prompt, reads local JSON or PNG files without uploading the file. Supports legacy Tavern fields and the core fields in [V2](https://github.com/malfoyslastname/character-card-spec-v2/blob/main/spec_v2.md) and [V3](https://github.com/kwaroran/character-card-spec-v3/blob/main/SPEC_V3.md) cards. PNG decoding reads base64 UTF-8 `tEXt` metadata (`ccv3` preferred over `chara`), checks chunk bounds and metadata checksums, and limits files to 20 MB and card data to 1 MB. Import saves the current conversation before opening a saved character chat, including cards without a greeting; storage or parse failure keeps the current chat open. Description, personality, scenario, and example dialogue become an editable System Prompt; `first_mes` becomes the initial assistant message. Card system prompts replace the helpful-assistant fallback, with `{{original}}` expanding to that fallback. `{{char}}`/`{{user}}` and legacy name markers expand to the character name (V3 nickname if supplied) and `User`. Post-history instructions are included in System Prompt and reported as such. Import notices identify omitted lorebooks, alternate greetings, assets, extensions, and remaining unsupported macros. Creator metadata is excluded from the prompt. This is a core-field importer, not a SillyTavern prompt/lorebook engine or character-card editor. The resulting prompt and transcript use normal conversation persistence and request/context-preview paths; importing does not generate a reply.
+- Character-card names and nicknames are limited to 256 UTF-16 code units. The combined expanded System Prompt and greeting are limited to 1,048,576 UTF-16 code units; name and `{{original}}` substitutions measure the resulting length before allocation. Unsupported-macro detection excludes braces from the macro body so unmatched opening braces are scanned in linear time.
 - API endpoints render as responsive list rows with full URLs and individually labeled Copy buttons. Client examples are native disclosures; cURL starts open and `updateEndpoints()` preserves expanded examples when their content changes. External-server and tunnel controls are separate disclosures whose status badges remain visible while closed. Tunnel warnings remain beside the actions. Endpoint/auth resolution and connection behavior are unchanged.
 - Install & Update keeps required launch tools visible and groups optional tools under an installed-count disclosure. Missing optional tools use neutral status text; missing required binaries/runtime libraries retain repair guidance. `updateStatusUI()` skips rebuilding installation details when only runtime status changes, preserving disclosure focus. **Restart Llama GUI** uses the existing restart/confirmation path.
 
@@ -657,9 +665,9 @@ When the web search toggle is enabled:
 ### Conversation History
 
 - Conversations are stored in `localStorage` under `llama_gui_conversations`.
-- Each conversation has an id, title (derived from first user message), messages array, system prompt, and timestamp.
-- Sidebar shows recent conversations with preview text and relative timestamps.
-- Features: new chat, undo last message, regenerate last response, delete individual/all conversations, collapse sidebar.
+- Each conversation has an id, title (initially derived from the first user message and preserved after a manual rename), messages array, compaction stack, system prompt, reasoning setting, and timestamp.
+- The collapsed-by-default history panel shows recent conversations with search, preview text, relative timestamps, rename, JSON export, and visible 50-conversation retention status.
+- Features include new chat, undo last message, regenerate/retry with answer versions, Edit and resend with a saved recoverable tail, and recoverable individual/bulk deletion. Restoring into a full history moves the oldest saved conversation into the recoverable store instead of silently dropping it.
 - User turns are saved before requests start. Completed, stopped, failed, and output-limited answers retain their status; interrupted content and saved source chips are restored when reopening history.
 - Regeneration sends the existing user turn without its previous answer. The previous answer stays selected until a completed replacement arrives; failed/stopped attempts are retained as answer versions. The latest assistant turn offers previous/next answer navigation and Retry after an unsuccessful or limited attempt. Only the selected answer content/reasoning is sent to the model; version and error metadata remain local.
 
@@ -673,7 +681,7 @@ When the web search toggle is enabled:
 
 ### Sampler Sliders
 
-Chat sidebar has sliders for temperature, top-p, top-k, min-p, repeat-penalty, and max-tokens. Changes write through `window.LlamaGui.flagCore.setFlagValue()` and sync with Configure/Quick Launch.
+The collapsed-by-default Chat settings panel has sliders plus exact numeric inputs for temperature, top-p, top-k, min-p, repeat-penalty, and max-tokens. Advanced samplers start collapsed. Numeric values write through `window.LlamaGui.flagCore.setFlagValue()` and stay exact in shared state and requests even when the visual slider is clamped; Configure, Quick Launch, and command preview receive the same state.
 
 ---
 
@@ -908,6 +916,14 @@ The Configure tab's "MCP Settings" category (separate from "Server Settings") co
 
 When a high-risk tool is selected, a warning message appears.
 
+### Chat tools
+
+**Current Date & Time**, in Chat → Settings → Tools, is an opt-in browser tool, independent of server `--tools` and launch presets. Its preference is stored under `llama_gui_chat_datetime_enabled`; blocked storage falls back to the current session. It takes effect on the next Chat request without restarting the server. Turning it off also prevents any pending call from executing.
+
+`chat-tools.js` owns the preference and advertises `get_datetime` only when enabled. It adds request-only system instructions to check the clock for date-dependent questions (including today's news) rather than infer dates from training or search results; the editable system prompt is preserved. It reads the browser clock on invocation and returns ISO 8601 local time with its UTC offset plus the IANA timezone. The model must support and choose tool calls. No date/time CLI flag is emitted: upstream moved this functionality from server tools to the browser in [llama.cpp PR #27255](https://github.com/ggml-org/llama.cpp/pull/27255), merged 2026-08-17.
+
+Chat assembles fragmented tool-call deltas and permits one batch (up to four date/time calls sharing one clock snapshot), followed by a final request with `tool_choice: "none"`. Unknown tools, malformed/incomplete calls, repeated tool rounds and revoked permission produce recoverable reply errors. Both requests use the normal authenticated, cancellable chat proxy and context checks; when web search is enabled, each request receives search context. Conversation changes await the outgoing stream, which checks for cancellation between tool rounds before executing the clock. The completed exchange is stored as `toolMessages` on the assistant answer, alongside each answer version, and displayed under **Used Current Date & Time**. Requests and context/compaction counts expand these into assistant/tool messages without changing transcript indices. Summary generation receives older tool results as data and never advertises tools.
+
 ---
 
 ## Reasoning / Thinking Support
@@ -972,7 +988,7 @@ The composer previews the selected conversation, current system instructions and
 
 An explicit output limit reserves the requested tokens, including reasoning. Otherwise a finite running-server default is reserved; unlimited/unknown output uses advisory headroom of one quarter of context, capped at 1,024 tokens. That headroom does not change generation limits or block an otherwise fitting prompt. A prompt at or above capacity, or a prompt plus finite reserve above capacity, is refused before inference with recovery instructions.
 
-The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Automatic compaction remains opt-in work for a later batch. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
+The preview does not run web searches. Completions count again after injecting fetched source material, emitting a `context_budget` SSE event before generation. Missing/failed counting endpoints produce an unavailable state in Context usage and leave final validation to llama-server. Optional automatic compaction is off by default; when enabled, Send obtains a fresh count for the exact pending request, summarizes at most once when near or over capacity, remeasures, and pauses safely if summary generation or the follow-up count fails. Server builds with incompatible templates or tokenizer behavior can still reject a request; those failures remain recoverable.
 
 Upstream behavior checked against [server-context.cpp](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/server-context.cpp) and [server API documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md) on 2026-09-04.
 
@@ -981,6 +997,8 @@ Upstream behavior checked against [server-context.cpp](https://github.com/ggml-o
 ## Manual chat compaction
 
 `Compact conversation` lives in the composer’s ⋯ tools menu and is enabled when older messages exist beyond the last two user turns. It becomes Cancel during summarization, with progress and recovery details inside the popup. After compaction, the menu offers View summary (opens the transcript marker) and Undo compaction. The collapsed marker also retains its Undo action.
+
+The same menu contains the opt-in automatic-compaction toggle. Manual and automatic compaction share the same reversible summary records and transcript-preservation rules.
 
 `chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
 

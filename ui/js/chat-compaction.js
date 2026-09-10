@@ -82,7 +82,7 @@
         };
         const system = body.messages.filter(message => message.role === "system");
         const requestFor = (history, reserve = body.max_tokens) => {
-            const request = { ...body, messages: [...system, ...history.filter(msg => msg.role !== "assistant" || msg.content || msg.reasoning_content).map(msg => ({ role: msg.role, content: msg.content, ...(msg.reasoning_content ? { reasoning_content: msg.reasoning_content } : {}) }))] };
+            const request = { ...body, messages: [...system, ...window.LlamaGui.chatTools.requestMessages(history)] };
             delete request.web_search;
             delete request.web_search_max_results;
             delete request.max_completion_tokens;

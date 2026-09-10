@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { character, cardFile } = require("./character_card_fixtures.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
@@ -9,6 +10,7 @@ const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js")
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-ui.js"), "utf8");
 
 const STORAGE_KEY = "llama_gui_conversations";
+const DELETED_STORAGE_KEY = "llama_gui_deleted_conversations";
 const PARTIAL_TOKEN = "partial-token";
 
 // --- DOM stub (adapted from chat_rendering_unit.cjs) ---
@@ -231,7 +233,7 @@ function makeFetch(mode, hooks = {}) {
                 });
             },
             cancel() {
-                return Promise.resolve();
+                return hooks.onCancel ? hooks.onCancel() : Promise.resolve();
             },
         };
         return Promise.resolve({
@@ -248,15 +250,20 @@ function makeFetch(mode, hooks = {}) {
 function makeContext({
     fetchImpl,
     seedConversations = [],
+    seedDeletedConversations = [],
     flagValues = {},
     status,
     storageMode = "normal",
+    confirmImpl = async () => true,
     extraElementIds = [],
 }) {
     const elements = new Map();
     const storageMap = new Map();
     if (seedConversations.length) {
         storageMap.set(STORAGE_KEY, JSON.stringify(seedConversations));
+    }
+    if (seedDeletedConversations.length) {
+        storageMap.set(DELETED_STORAGE_KEY, JSON.stringify(seedDeletedConversations));
     }
 
     const addElement = (id) => {
@@ -306,7 +313,9 @@ function makeContext({
         }
         : {
             getItem: (key) => (storageMap.has(key) ? storageMap.get(key) : null),
-            setItem: (key, value) => storageMap.set(key, String(value)),
+            setItem: storageMode === "fail-set"
+                ? () => { throw new Error("storage write failed"); }
+                : (key, value) => storageMap.set(key, String(value)),
             removeItem: (key) => storageMap.delete(key),
         };
 
@@ -338,7 +347,9 @@ function makeContext({
     vm.createContext(context);
     vm.runInContext(renderingSource, context, { filename: "ui/js/chat-rendering.js" });
     vm.runInContext(appDataSource, context, { filename: "ui/js/app-data.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-tools.js"), "utf8"), context, { filename: "ui/js/chat-tools.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/character-cards.js"), "utf8"), context, { filename: "ui/js/character-cards.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
 
     const api = context.window.LlamaGui.chatUi;
@@ -356,7 +367,7 @@ function makeContext({
             getSelectedModel: () => "test-model",
             setFlagValue: () => {},
         },
-        confirmAction: async () => true,
+        confirmAction: confirmImpl,
         getLatestStatus: () => mutable.status,
         getLifecycleSnapshot: () => mutable.lifecycle || null,
         snapshotStatsBaseline: () => {},
@@ -365,10 +376,13 @@ function makeContext({
     });
 
     const getStoredConversations = () => JSON.parse(storageMap.get(STORAGE_KEY) || "[]");
+    const getStoredDeletedConversations = () => JSON.parse(storageMap.get(DELETED_STORAGE_KEY) || "[]");
     return {
         api,
+        tools: context.window.LlamaGui.chatTools,
         elements,
         getStoredConversations,
+        getStoredDeletedConversations,
         setFlagValues: (values) => { mutable.flagValues = values; },
         setStatus: (value) => { mutable.status = value; },
         setLifecycle: (value) => { mutable.lifecycle = value; },
@@ -423,7 +437,7 @@ async function runAbortScenario(action) {
 (async () => {
     // Happy path first: proves the harness itself streams and persists correctly.
     {
-        const { api, getStoredConversations } = makeContext({ fetchImpl: makeFetch("complete") });
+        const { api, elements, getStoredConversations } = makeContext({ fetchImpl: makeFetch("complete") });
         await api._testSendMessage("hello");
         const state = api._testGetState();
         assert.equal(state.chatStreaming, false);
@@ -437,6 +451,9 @@ async function runAbortScenario(action) {
             ["user", "hello"],
             ["assistant", PARTIAL_TOKEN],
         ]);
+        const userBubble = elements.get("chat-messages").querySelectorAll(".chat-message")
+            .find(element => element._classes.has("user"));
+        assert.equal(userBubble.querySelector(".chat-response-action").textContent, "Edit and resend");
     }
 
     // H2: switching to a stored conversation mid-stream must not finalize the
@@ -1345,6 +1362,28 @@ async function runAbortScenario(action) {
         assert.equal(ctx.getStoredConversations().length, 0);
     }
     {
+        let pending = false;
+        let accepted = false;
+        const ctx = makeContext({
+            seedConversations: ["active", "other"].map(id => ({ id, title: id, messages: [{ role: "user", content: id }] })),
+            fetchImpl: makeFetch("hang", { onStreamPending: () => { pending = true; } }),
+            confirmImpl: async () => accepted,
+        });
+        await ctx.api._testLoadConversation("active");
+        const send = ctx.api._testSendMessage("Keep generating");
+        await flushUntil(() => pending, "stream while deleting another conversation");
+        const buttons = ctx.elements.get("chat-history-list").querySelectorAll(".chat-history-item-delete");
+        await buttons[0]._listeners.click[0]({ stopPropagation() {} });
+        assert.equal(ctx.api._testGetState().chatStreaming, true, "cancelling deletion leaves generation running");
+        accepted = true;
+        await buttons[1]._listeners.click[0]({ stopPropagation() {} });
+        assert.equal(ctx.api._testGetState().chatStreaming, true, "deleting an inactive chat leaves generation running");
+        assert.equal(ctx.getStoredConversations().some(c => c.id === "other"), false);
+        await ctx.api.abortActiveStream();
+        await send;
+        assert.equal(ctx.getStoredConversations().some(c => c.id === "active"), true);
+    }
+    {
         let requests = 0;
         const status = (port, generation) => ({ running: false, runtime_generation: 0,
             external_chat_target: { connected: true, host: "127.0.0.1", port, generation } });
@@ -1366,6 +1405,522 @@ async function runAbortScenario(action) {
         await ctx.api.refreshTemplateCaps();
         assert.equal(requests, 3, "reconnecting the same endpoint must refresh capabilities");
         assert.equal(ctx.elements.get("chat-thinking-effort-cap-hint").textContent, "");
+    }
+
+    // The server may send finish_reason first, then a separate empty-choices
+    // usage/timings event. The client must consume both and save supplied
+    // values without deriving a speed.
+    {
+        const finish = { choices: [{ delta: { content: "metadata answer" }, finish_reason: "stop" }] };
+        const usage = { choices: [], usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }, timings: { predicted_per_second: 7.5 } };
+        const chunk = [finish, usage].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+        let requestBody;
+        const ctx = makeContext({ fetchImpl: makeFetch("complete", { chunk, onRequest: body => { requestBody = body; } }) });
+        await ctx.api._testSendMessage("metadata");
+        assert.deepEqual(requestBody.stream_options, { include_usage: true });
+        const assistant = ctx.getStoredConversations()[0].messages[1];
+        assert.equal(assistant.status, "complete");
+        assert.deepEqual(assistant.metadata, {
+            stop_reason: "stop",
+            usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 },
+            timings: { predicted_per_second: 7.5 },
+        });
+    }
+
+    // Once a reader scrolls away during generation, later content and
+    // reasoning chunks preserve that new position and leave Jump to latest
+    // available after the stream finishes.
+    {
+        let ctx;
+        const fetchImpl = async (_url, _options) => {
+            const container = ctx.elements.get("chat-messages");
+            const encoder = new TextEncoder();
+            let reads = 0;
+            return { ok: true, body: { getReader: () => ({
+                read: async () => {
+                    reads += 1;
+                    if (reads === 1) return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":"one"}}]}\n\n') };
+                    if (reads === 2) {
+                        container.scrollTop = 100;
+                        container._listeners.scroll?.forEach(listener => listener());
+                        return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"reasoning_content":"thought","content":"two"}}]}\n\n') };
+                    }
+                    if (reads === 3) return { done: false, value: encoder.encode('data: {"choices":[{"delta":{"content":"three"}}]}\n\n') };
+                    if (reads === 4) return { done: false, value: encoder.encode("data: [DONE]\n\n") };
+                    return { done: true };
+                },
+                cancel: async () => {},
+            }) } };
+        };
+        ctx = makeContext({ fetchImpl, extraElementIds: ["btn-chat-jump-latest", "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"] });
+        const container = ctx.elements.get("chat-messages");
+        container.clientHeight = 200;
+        container.scrollHeight = 1200;
+        container.scrollTop = 1050;
+        ctx.api.init();
+        await ctx.api._testSendMessage("scroll test");
+        assert.equal(container.scrollTop, 100, "streaming output must preserve the user's latest away position");
+        assert.equal(ctx.elements.get("btn-chat-jump-latest").hidden, false, "Jump to latest stays visible after away-stream completion");
+        ctx.elements.get("btn-chat-jump-latest")._listeners.click[0]();
+        assert.equal(container.scrollTop, container.scrollHeight);
+        assert.equal(ctx.elements.get("btn-chat-jump-latest").hidden, true);
+    }
+
+    // Editing stages the later tail before truncation, keeps the original
+    // transcript intact until resend, and never adds a duplicate user turn.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [{ id: "edit-chat", title: "Keep title", messages: [
+                { role: "user", content: "original question" },
+                { role: "assistant", content: "old answer" },
+                { role: "user", content: "later question" },
+                { role: "assistant", content: "later answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("edit-chat");
+        await ctx.api._testEditUserMessage(0);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        assert.equal(ctx.elements.get("chat-input").value, "original question");
+        ctx.api._testCancelEdit();
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "revised question";
+        await ctx.api._testSendMessage(ctx.elements.get("chat-input").value);
+        const state = plain(ctx.api._testGetState());
+        assert.deepEqual(state.chatMessages.map(message => message.content), ["revised question", PARTIAL_TOKEN]);
+        const stored = ctx.getStoredConversations();
+        const active = stored.find(item => item.id === "edit-chat");
+        const beforeEdit = stored.find(item => item.id !== "edit-chat" && /before edit/.test(item.title));
+        assert.equal(active.title, "Keep title");
+        assert.ok(beforeEdit, "edit must create a selectable before-edit history copy");
+        assert.deepEqual(beforeEdit.messages.map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ]);
+        await ctx.api._testLoadConversation(beforeEdit.id);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), [
+            "original question", "old answer", "later question", "later answer",
+        ], "loading the history copy must restore the removed later turns");
+        await ctx.api._testLoadConversation("edit-chat");
+    }
+
+    // A staged edit belongs to its source conversation and is discarded when
+    // the user loads another conversation before resending.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [
+                { id: "edit-source", messages: [{ role: "user", content: "source" }, { role: "assistant", content: "tail" }] },
+                { id: "edit-destination", messages: [{ role: "user", content: "destination" }] },
+            ],
+        });
+        await ctx.api._testLoadConversation("edit-source");
+        await ctx.api._testEditUserMessage(0);
+        await ctx.api._testLoadConversation("edit-destination");
+        assert.equal(ctx.api._testGetState().pendingEdit, null);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), ["destination"]);
+    }
+
+    // A failed branch write must leave the original transcript and staged
+    // edit intact; the resend cannot truncate later turns without recovery.
+    {
+        let requests = 0;
+        const ctx = makeContext({
+            storageMode: "fail-set",
+            fetchImpl: makeFetch("complete", { onRequest: () => { requests += 1; } }),
+            seedConversations: [{ id: "edit-fail", messages: [
+                { role: "user", content: "original" },
+                { role: "assistant", content: "later answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("edit-fail");
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "revised";
+        await ctx.api._testSendMessage("revised");
+        assert.equal(requests, 0, "storage failure must stop the resend before generation");
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(message => message.content), ["original", "later answer"]);
+        assert.equal(ctx.api._testGetState().pendingEdit.originalText, "original");
+    }
+
+    // The before-edit copy remains recoverable when creating it at the
+    // 50-entry boundary; the oldest entry is removed without a restore copy.
+    {
+        const saved = [{ id: "edit-full", title: "Full edit", messages: [
+            { role: "user", content: "before" }, { role: "assistant", content: "answer" },
+        ] }];
+        for (let index = 1; index < 50; index += 1) {
+            saved.push({ id: `saved-${index}`, title: `Saved ${index}`, messages: [{ role: "user", content: `saved ${index}` }] });
+        }
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved });
+        await ctx.api._testLoadConversation("edit-full");
+        await ctx.api._testEditUserMessage(0);
+        ctx.elements.get("chat-input").value = "edited";
+        await ctx.api._testSendMessage("edited");
+        assert.ok(ctx.getStoredConversations().some(item => /before edit/.test(item.title)), "backup survives retention pruning");
+        assert.equal(ctx.getStoredConversations().length, 50);
+        assert.equal(ctx.getStoredConversations().some(item => item.id === "saved-49"), false);
+        assert.equal(ctx.getStoredDeletedConversations().length, 0);
+    }
+
+    // Auto-compaction preflight for retry measures the exact request that will
+    // replace the old assistant answer, without duplicating its user prompt.
+    {
+        const contextBodies = [];
+        const generationBodies = [];
+        const ctx = makeContext({
+            fetchImpl: (url, options) => {
+                const body = JSON.parse(options.body || "{}");
+                if (String(url).endsWith("/context")) {
+                    contextBodies.push(body);
+                    return Promise.resolve({ ok: true, json: async () => ({ status: "warning", prompt_tokens: 100, capacity: 4096, remaining: 100 }) });
+                }
+                generationBodies.push(body);
+                return makeFetch("complete")(url, options);
+            },
+            seedConversations: [{ id: "retry-auto", messages: [
+                { role: "user", content: "question" },
+                { role: "assistant", content: "old answer" },
+            ] }],
+        });
+        await ctx.api._testLoadConversation("retry-auto");
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testRegenerateResponse();
+        assert.deepEqual(contextBodies.at(-1).messages.map(message => message.content), ["question"]);
+        assert.deepEqual(generationBodies.at(-1).messages.map(message => message.content), ["question"]);
+    }
+
+    // Auto-compaction is opt-in. A fresh exact-draft preview can trigger one
+    // summary, after which the compacted request is remeasured before send.
+    {
+        let contextRequests = 0;
+        let generationRequests = 0;
+        const summary = "Preserved decisions and open questions.";
+        const transcript = Array.from({ length: 6 }, (_, index) => ({
+            role: index % 2 ? "assistant" : "user", content: `turn ${index}`,
+        }));
+        const fetchImpl = async (url, options) => {
+            const body = JSON.parse(options.body || "{}");
+            if (String(url).endsWith("/context")) {
+                contextRequests += 1;
+                const prompt = JSON.stringify(body.messages || []).includes(summary) ? 300 : 600;
+                const isInitial = body.messages?.at(-1)?.content === "pending draft"
+                    && body.messages.length >= transcript.length + 1
+                    && !JSON.stringify(body.messages).includes(summary);
+                return { ok: true, json: async () => ({
+                    status: isInitial ? "overflow" : "ok", prompt_tokens: prompt, capacity: 4096,
+                    reply_reserve: body.max_tokens || 0, remaining: isInitial ? -1 : 4096 - prompt,
+                }) };
+            }
+            generationRequests += 1;
+            const event = body.gui_require_context
+                ? { choices: [{ delta: { content: summary }, finish_reason: "stop" }] }
+                : { choices: [{ delta: { content: "sent after compaction" }, finish_reason: "stop" }] };
+            const usage = body.gui_require_context ? "" : `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 25, completion_tokens: 4, total_tokens: 29 }, timings: { predicted_per_second: 6 } })}\n\n`;
+            const encoded = new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n${usage}`);
+            let reads = 0;
+            return { ok: true, body: { getReader: () => ({
+                read: async () => {
+                    reads += 1;
+                    if (reads === 1) return { done: false, value: encoded };
+                    if (!body.gui_require_context) {
+                        if (reads === 2) return { done: false, value: new TextEncoder().encode("data: [DONE]\n\n") };
+                    }
+                    return { done: true };
+                }, cancel: async () => {},
+            }) } };
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: [{ id: "auto", messages: transcript }], extraElementIds: [
+            "chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-compaction-status", "btn-chat-compact",
+        ] });
+        await ctx.api._testLoadConversation("auto");
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testSendMessage("pending draft");
+        const state = plain(ctx.api._testGetState());
+        assert.equal(state.chatCompactions.length, 1);
+        assert.equal(state.chatMessages.at(-2).content, "pending draft");
+        assert.equal(state.chatMessages.at(-1).content, "sent after compaction");
+        assert.ok(contextRequests >= 4, "preflight, compaction, and post-compaction previews all run");
+        assert.equal(generationRequests >= 2, true, "summary and final answer requests both run");
+    }
+
+    // A failed automatic summary keeps the transcript and does not send the
+    // pending draft onward.
+    {
+        let normalRequests = 0;
+        const transcript = Array.from({ length: 6 }, (_, index) => ({ role: index % 2 ? "assistant" : "user", content: `turn ${index}` }));
+        const fetchImpl = async (url, options) => {
+            const body = JSON.parse(options.body || "{}");
+            if (String(url).endsWith("/context")) return { ok: true, json: async () => ({
+                status: body.gui_require_context ? "ok" : "overflow", prompt_tokens: 200, capacity: 4096,
+                remaining: body.gui_require_context ? 3000 : -1,
+            }) };
+            normalRequests += 1;
+            if (body.gui_require_context) {
+                let read = false;
+                return { ok: true, body: { getReader: () => ({
+                    read: async () => {
+                        if (read) return { done: true };
+                        read = true;
+                        return { done: false, value: new TextEncoder().encode('data: {"error":{"message":"summary failed"}}\n\n') };
+                    }, cancel: async () => {},
+                }) } };
+            }
+            throw new Error("final request must not run after failed auto-compaction");
+        };
+        const ctx = makeContext({ fetchImpl, seedConversations: [{ id: "auto-fail", messages: transcript }], extraElementIds: [
+            "chat-context-label", "chat-context-bar", "chat-context-prompt", "chat-context-reserve", "chat-compaction-status", "btn-chat-compact",
+        ] });
+        await ctx.api._testLoadConversation("auto-fail");
+        const before = plain(ctx.api._testGetState().chatMessages);
+        ctx.api._testSetAutoCompaction(true);
+        await ctx.api._testSendMessage("pending draft");
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages), before);
+        assert.equal(normalRequests, 1);
+        assert.match(ctx.elements.get("chat-compaction-status").textContent, /summary failed|Previous context kept/);
+    }
+
+    // User-assigned titles survive later saves; search, export, and deletion
+    // operate on the same local conversation data.
+    {
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: [
+                { id: "alpha", title: "Custom Alpha", messages: [{ role: "user", content: "Find the alpha" }] },
+                { id: "beta", title: "Beta", messages: [{ role: "user", content: "Other topic" }] },
+            ],
+            extraElementIds: ["chat-history-search", "chat-history-retention",
+                "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate"],
+        });
+        ctx.api.init();
+        ctx.elements.get("chat-history-search").value = "ALPHA";
+        ctx.elements.get("chat-history-search")._listeners.input[0]();
+        assert.equal(ctx.elements.get("chat-history-list").children.length, 1);
+        assert.equal(ctx.elements.get("chat-history-list").children[0].children[1].textContent, "Find the alpha");
+        assert.equal(ctx.api._testRenameConversation("alpha", "Renamed Alpha"), true);
+        assert.equal(ctx.api._testExportConversation("alpha", "text").includes("FIND"), false);
+        await ctx.api._testLoadConversation("alpha");
+        await ctx.api._testSendMessage("Follow up");
+        assert.equal(ctx.getStoredConversations().find(item => item.id === "alpha").title, "Renamed Alpha");
+        await ctx.api._testDeleteConversation("alpha");
+        assert.equal(ctx.getStoredConversations().some(item => item.id === "alpha"), false);
+        assert.equal(ctx.getStoredDeletedConversations().length, 0);
+    }
+
+    // UI actions ask once before any mutation; a cancelled dialog preserves
+    // both the active transcript and saved history. Legacy trash is inert.
+    for (const action of ["single", "all", "clear"]) {
+        let accepted = false;
+        const confirmations = [];
+        const saved = ["alpha", "beta"].map(id => ({ id, title: id, systemPrompt: "Keep prompt", messages: [{ role: "user", content: id }] }));
+        const legacyDeleted = [{ id: "legacy", title: "Old deleted chat", messages: [] }];
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete"),
+            seedConversations: saved,
+            seedDeletedConversations: legacyDeleted,
+            confirmImpl: async (...args) => { confirmations.push(args); return accepted; },
+            extraElementIds: ["btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate", "btn-chat-clear", "btn-delete-all-history"],
+        });
+        ctx.api.init();
+        await ctx.api._testLoadConversation("alpha");
+        const click = () => {
+            const button = action === "single" ? ctx.elements.get("chat-history-list").querySelector(".chat-history-item-delete")
+                : ctx.elements.get(action === "all" ? "btn-delete-all-history" : "btn-chat-clear");
+            return button._listeners.click[0]({ stopPropagation() {} });
+        };
+        await click();
+        assert.equal(confirmations.length, 1);
+        assert.match(confirmations[0][1], /cannot be undone/);
+        assert.deepEqual(ctx.getStoredConversations(), saved);
+        assert.equal(ctx.api._testGetState().currentConversationId, "alpha");
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "Keep prompt");
+        accepted = true;
+        await click();
+        assert.equal(confirmations.length, 2, "one confirmation for each attempt, including Delete All and Clear");
+        assert.deepEqual(ctx.getStoredConversations().map(c => c.id), action === "all" ? [] : ["beta"]);
+        assert.equal(ctx.api._testGetState().currentConversationId, null);
+        assert.equal(ctx.api._testGetState().chatMessages.length, 0);
+        assert.deepEqual(ctx.getStoredDeletedConversations(), legacyDeleted, "new deletions must not update or use legacy trash");
+    }
+    for (const action of ["_testDeleteConversation", "_testDeleteAllConversations", "_testClearChat"]) {
+        const saved = [{ id: "keep", title: "Keep", messages: [{ role: "user", content: "Keep this transcript" }] }];
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved, storageMode: "fail-set" });
+        await ctx.api._testLoadConversation("keep");
+        await ctx.api[action]("keep");
+        assert.deepEqual(ctx.getStoredConversations(), saved);
+        assert.equal(ctx.api._testGetState().currentConversationId, "keep");
+        assert.equal(ctx.api._testGetState().chatMessages[0].content, "Keep this transcript");
+    }
+
+    // Character import preserves the previous chat and saves an immediately
+    // reloadable prompt/greeting, including cards with no first message.
+    {
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), extraElementIds: ["chat-character-status"] });
+        await ctx.api._testSendMessage("Before character import");
+        const previous = ctx.getStoredConversations()[0];
+        await ctx.api._testImportCharacterCard(cardFile());
+        const loaded = ctx.getStoredConversations()[0];
+        assert.equal(loaded.title, character.name);
+        assert.equal(loaded.messages[0].role, "assistant");
+        assert.match(loaded.systemPrompt, /Éloïse is an astronomer/);
+        assert.deepEqual(ctx.getStoredConversations().find(c => c.id === previous.id).messages, previous.messages);
+        assert.equal(ctx.elements.get("chat-sys-char-count").textContent, loaded.systemPrompt.length + " chars");
+        await ctx.api._testLoadConversation(previous.id);
+        assert.equal(ctx.elements.get("chat-system-prompt").value, previous.systemPrompt);
+        await ctx.api._testLoadConversation(loaded.id);
+        assert.equal(ctx.elements.get("chat-system-prompt").value, loaded.systemPrompt);
+        await ctx.api._testImportCharacterCard(cardFile({ name: "Quiet", description: "Silent observer" }));
+        const quiet = ctx.getStoredConversations()[0];
+        assert.equal(quiet.title, "Quiet");
+        assert.equal(quiet.messages.length, 0);
+        await ctx.api._testStartNewChat();
+        await ctx.api._testLoadConversation(quiet.id);
+        assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+        const count = ctx.getStoredConversations().length;
+        await ctx.api._testImportCharacterCard(cardFile({ invalid: true }));
+        assert.equal(ctx.getStoredConversations().length, count);
+        assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+
+        const beforeRejectedCard = ctx.getStoredConversations();
+        for (const invalid of [
+            { name: "x".repeat(257), description: "Too long a name" },
+            { name: "x".repeat(256), description: "{{char}}".repeat(5000) },
+        ]) {
+            await ctx.api._testImportCharacterCard(cardFile(invalid));
+            assert.deepEqual(ctx.getStoredConversations(), beforeRejectedCard);
+            assert.equal(ctx.api._testGetState().currentConversationId, quiet.id);
+            assert.match(ctx.elements.get("chat-system-prompt").value, /Silent observer/);
+            assert.match(ctx.elements.get("chat-character-status").textContent, /256 characters|expanded text limit/);
+        }
+
+        const pending = deferred();
+        const file = cardFile();
+        const importing = ctx.api._testImportCharacterCard({ ...file, arrayBuffer: () => pending.promise });
+        await ctx.api._testStartNewChat();
+        pending.resolve(await file.arrayBuffer());
+        await importing;
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "");
+        assert.match(ctx.elements.get("chat-character-status").textContent, /Chat changed/);
+    }
+    {
+        const original = { id: "before", title: "Before", messages: [{ role: "user", content: "Keep me" }], systemPrompt: "Original prompt" };
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: [original], storageMode: "fail-set", extraElementIds: ["chat-character-status"] });
+        await ctx.api._testLoadConversation(original.id);
+        await ctx.api._testImportCharacterCard(cardFile());
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "Original prompt");
+        assert.match(ctx.elements.get("chat-character-status").textContent, /Could not save/);
+        assert.equal(ctx.getStoredConversations().length, 1);
+    }
+
+    // A fragmented tool call gets one bounded continuation, with its trace saved
+    // on the answer and replayed intact for reloads, previews and regeneration.
+    const toolChunk = [
+        { choices: [{ delta: { reasoning_content: "Need the current clock.", tool_calls: [{ index: 0, id: "clock-1", type: "function", function: { name: "get_", arguments: "{" } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "datetime", arguments: "}" } }] }, finish_reason: "tool_calls" }] },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    for (const action of ["_testLoadConversation", "_testStartNewChat", "_testClearChat"]) {
+        const boundary = deferred();
+        let atBoundary = false;
+        let requestCount = 0;
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete", {
+                chunk: toolChunk,
+                onRequest: () => { requestCount += 1; },
+                onCancel: () => { atBoundary = true; return boundary.promise; },
+            }),
+            seedConversations: [{ id: "other", messages: [{ role: "user", content: "Keep the target chat" }] }],
+        });
+        ctx.tools.setEnabled(true);
+        let executions = 0;
+        const execute = ctx.tools.executeCalls;
+        ctx.tools.executeCalls = calls => { executions += 1; return execute(calls); };
+        const sending = ctx.api._testSendMessage("Check the clock");
+        await flushUntil(() => atBoundary, "round one to finish while reader cancellation is pending");
+        const originalId = ctx.api._testGetState().currentConversationId;
+        const changing = ctx.api[action]("other");
+        assert.equal(ctx.api._testGetState().currentConversationId, originalId,
+            "conversation changes wait for the outgoing stream to settle");
+        boundary.resolve();
+        await Promise.all([sending, changing]);
+        assert.equal(requestCount, 1, "an aborted first round never starts the continuation");
+        assert.equal(executions, 0, "an aborted first round never executes the clock");
+        assert.equal(ctx.api._testGetState().chatStreaming, false);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(msg => msg.content),
+            action === "_testLoadConversation" ? ["Keep the target chat"] : []);
+        if (action !== "_testClearChat") {
+            assert.equal(ctx.getStoredConversations().find(convo => convo.id === originalId).messages.at(-1).status, "stopped",
+                "the original abort is preserved instead of a DOM error");
+        }
+    }
+    {
+        const requests = [];
+        let count = 0;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (!url.includes("/api/chat/completions")) return makeFetch("complete")(url, options);
+            count += 1;
+            return makeFetch("complete", { chunk: count % 2 ? toolChunk : 'data: {"choices":[{"delta":{"content":"It is the current local time."},"finish_reason":"stop"}]}\n\n',
+                onRequest: body => requests.push(body) })(url, options);
+        }, extraElementIds: ["chat-web-search-toggle"] });
+        ctx.tools.setEnabled(true);
+        ctx.elements.get("chat-web-search-toggle").checked = true;
+        await ctx.api._testSendMessage("What time is it?");
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].tools[0].function.name, "get_datetime");
+        assert.equal(requests[1].tool_choice, "none");
+        assert.equal(requests[1].web_search, true, "continuation retains web-search context injection");
+        assert.deepEqual(requests[1].messages.map(msg => msg.role), ["system", "user", "assistant", "tool"]);
+        assert.match(requests[0].messages[0].content, /get_datetime.*today.*web search/);
+        assert.equal(requests[1].messages[2].reasoning_content, "Need the current clock.");
+        assert.equal(requests[1].messages[3].tool_call_id, "clock-1");
+        const answer = ctx.api._testGetState().chatMessages.at(-1);
+        assert.equal(answer.content, "It is the current local time.");
+        assert.equal(answer.toolMessages.length, 2);
+        assert.equal(answer.status, "complete");
+        const saved = ctx.getStoredConversations()[0];
+        await ctx.api._testLoadConversation(saved.id);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages.at(-1).toolMessages), saved.messages.at(-1).toolMessages);
+        ctx.tools.setEnabled(false);
+        assert.equal(ctx.tools.getDefinitions().length, 0);
+        assert.equal(ctx.tools.requestMessages(ctx.api._testGetState().chatMessages)[2].role, "tool", "disabling keeps historical results");
+        ctx.tools.setEnabled(true);
+        await ctx.api._testRegenerateResponse();
+        assert.equal(requests[2].messages.length, 2, "regeneration excludes the previous answer and its tool exchange");
+        const versions = ctx.api._testGetState().chatMessages.at(-1).versions;
+        assert.equal(versions.length, 2);
+        assert.equal(versions[0].toolMessages.length, 2);
+        assert.equal(versions[1].toolMessages.length, 2);
+    }
+    for (const mode of ["disabled", "unknown", "incomplete", "repeat", "network", "cancel", "revoked"]) {
+        let count = 0;
+        let pending = false;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (!url.includes("/api/chat/completions")) return makeFetch("complete")(url, options);
+            count += 1;
+            if (mode === "revoked") ctx.tools.setEnabled(false);
+            if (count === 2 && mode === "network") return makeFetch("network")(url, options);
+            if (count === 2 && mode === "cancel") return makeFetch("hang", { onStreamPending: () => { pending = true; } })(url, options);
+            const chunk = mode === "unknown" ? toolChunk.replace('"datetime"', '"shell_command"').replace('"get_"', '"exec_"')
+                : mode === "incomplete" ? toolChunk.replace('"tool_calls"}', '"length"}') : toolChunk;
+            return makeFetch("complete", { chunk })(url, options);
+        } });
+        if (mode !== "disabled") ctx.tools.setEnabled(true);
+        const sending = ctx.api._testSendMessage("What time is it?");
+        if (mode === "cancel") {
+            await flushUntil(() => pending, "the tool continuation to wait");
+            await ctx.api._testStartNewChat();
+        }
+        await sending;
+        assert.ok(count <= 2, "no unbounded tool loop");
+        if (mode === "cancel") {
+            assert.equal(ctx.api._testGetState().chatMessages.length, 0, "cancelled continuation cannot leak into the new conversation");
+            assert.equal(ctx.getStoredConversations()[0].messages.at(-1).status, "stopped");
+        } else {
+            assert.equal(ctx.api._testGetState().chatMessages.at(-1).status, "failed", mode);
+            assert.equal(count, ["repeat", "network"].includes(mode) ? 2 : 1, mode);
+        }
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");
