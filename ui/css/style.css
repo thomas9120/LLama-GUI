@@ -4299,7 +4299,8 @@ textarea.chat-input:disabled {
 }
 
 .chat-history-item-rename,
-.chat-history-item-export {
+.chat-history-item-export,
+.chat-history-item-delete {
     appearance: none;
     flex: 0 0 auto;
     min-height: 24px;
@@ -4333,21 +4334,6 @@ textarea.chat-input:disabled {
     min-width: 0;
 }
 
-.chat-history-item-delete {
-    background: none;
-    border: none;
-    color: var(--fg-muted);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 2px 4px;
-    line-height: 1;
-    opacity: 0;
-    transition: opacity var(--ease-fast), color var(--ease-fast);
-    flex-shrink: 0;
-    height: auto;
-}
-
-.chat-history-item:hover .chat-history-item-delete { opacity: 1; }
 .chat-history-item-delete:hover { color: var(--red); }
 
 .chat-history-item-preview {

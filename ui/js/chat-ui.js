@@ -1755,8 +1755,8 @@
 
             const deleteBtn = document.createElement("button");
             deleteBtn.type = "button";
-            deleteBtn.className = "chat-history-item-delete";
-            deleteBtn.textContent = "\uD83D\uDDD1";
+            deleteBtn.className = "btn btn-xs chat-history-item-delete";
+            deleteBtn.textContent = "Delete";
             deleteBtn.title = "Delete conversation";
             deleteBtn.setAttribute("aria-label", "Delete conversation");
             deleteBtn.addEventListener("click", async (e) => {
@@ -1784,12 +1784,12 @@
             });
 
             header.appendChild(title);
-            header.appendChild(deleteBtn);
 
             const actions = document.createElement("div");
             actions.className = "chat-history-item-actions";
             actions.appendChild(renameBtn);
             actions.appendChild(exportBtn);
+            actions.appendChild(deleteBtn);
 
             const preview = document.createElement("div");
             preview.className = "chat-history-item-preview";
