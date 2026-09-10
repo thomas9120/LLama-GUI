@@ -242,19 +242,7 @@
     }
 
     function getChatRequestMessages(messages) {
-        return messages.filter((msg) => msg.role !== "assistant" || msg.content || msg.reasoning || msg.reasoning_content).map((msg) => {
-            const requestMessage = {
-                role: msg.role,
-                content: msg.content,
-            };
-            const reasoning = typeof msg.reasoning === "string"
-                ? msg.reasoning
-                : (typeof msg.reasoning_content === "string" ? msg.reasoning_content : "");
-            if (msg.role === "assistant" && reasoning) {
-                requestMessage.reasoning_content = reasoning;
-            }
-            return requestMessage;
-        });
+        return window.LlamaGui.chatTools.requestMessages(messages);
     }
 
     function getChatDeltaText(delta, keys) {
@@ -536,7 +524,10 @@
 
     function buildChatBody(history, draft = "", includeUsage = false) {
         const messages = [];
-        const systemPrompt = (document.getElementById("chat-system-prompt")?.value || "").trim();
+        const systemPrompt = [
+            (document.getElementById("chat-system-prompt")?.value || "").trim(),
+            window.LlamaGui.chatTools.getInstructions(),
+        ].filter(Boolean).join("\n\n");
         if (systemPrompt) messages.push({ role: "system", content: systemPrompt });
         messages.push(...getChatRequestMessages(compaction.workingMessages(history, chatCompactions.at(-1))));
         if (draft.trim()) messages.push({ role: "user", content: draft.trim() });
@@ -549,6 +540,8 @@
             body.web_search = true;
             body.web_search_max_results = getChatWebSearchMaxResults();
         }
+        const tools = window.LlamaGui.chatTools.getDefinitions();
+        if (tools.length) body.tools = tools;
         return body;
     }
 
@@ -632,7 +625,7 @@
             let applied = false;
             try {
                 const record = await compaction.compact({
-                    messages: chatMessages.map(msg => ({ role: msg.role, content: msg.content, reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status })),
+                    messages: chatMessages.map(msg => ({ role: msg.role, content: msg.content, reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status, toolMessages: msg.toolMessages })),
                     previous: chatCompactions.at(-1), body: buildChatBody(chatMessages),
                     draft, signal: controller.signal,
                     headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }), onProgress: report,
@@ -1089,7 +1082,7 @@
         return saveConversationsToStorage([backup, ...conversations]);
     }
 
-    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex, metadata = {}) {
+    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex, metadata = {}, toolMessages = []) {
         let finalContent = content;
         let finalReasoning = reasoning;
         if (!finalReasoning && shouldExtractEmbeddedReasoning()) {
@@ -1100,12 +1093,14 @@
             }
         }
         const result = { content: finalContent, reasoning: finalReasoning, sources, status, error, metadata };
+        if (toolMessages.length) result.toolMessages = toolMessages;
         const previous = replacementIndex >= 0 ? chatMessages[replacementIndex] : null;
         if (previous) {
             const versions = Array.isArray(previous.versions) ? previous.versions.slice() : [{
                 content: previous.content, reasoning: previous.reasoning || "",
                 sources: previous.sources || [], status: previous.status || "complete", error: previous.error || "",
                 metadata: previous.metadata || {},
+                ...(previous.toolMessages ? { toolMessages: previous.toolMessages } : {}),
             }];
             versions.push(result);
             // An unsuccessful attempt is still recoverable, but never replaces
@@ -1155,6 +1150,7 @@
                 return;
             }
             renderChatSources(bubble, msg.sources);
+            window.LlamaGui.chatTools.renderResults(bubble, msg.toolMessages);
             setChatResponseMetadata(bubble, msg.metadata || {});
             if (!msg.content) bubble.classList.add("hidden");
             const footer = document.createElement("div");
@@ -1272,102 +1268,141 @@
         let status = "complete";
         let error = "";
         const responseMetadata = {};
+        const toolMessages = [];
         let reader = null;
 
         try {
-            const resp = await fetch("/api/chat/completions", {
-                method: "POST",
-                headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }),
-                body: JSON.stringify(body),
-                signal: chatAbortController.signal,
-            });
+            // One date/time exchange per answer, then require a final response.
+            for (let round = 0; round < 2; round += 1) {
+                chatAbortController.signal.throwIfAborted();
+                const toolCalls = [];
+                let roundFinishReason = "";
+                const resp = await fetch("/api/chat/completions", {
+                    method: "POST",
+                    headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }),
+                    body: JSON.stringify(body),
+                    signal: chatAbortController.signal,
+                });
 
-            removeChatTypingIndicator();
+                removeChatTypingIndicator();
 
-            if (!resp.ok) {
-                const errText = await resp.text().catch(() => resp.statusText);
-                throw new Error(`HTTP ${resp.status} - ${errText}`);
-            }
-
-            if (!resp.body) {
-                throw new Error("Response body is empty.");
-            }
-            bubble = renderChatMessage("assistant", "");
-            reader = resp.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-            let streamDone = false;
-            let receivedFinish = false;
-
-            while (!streamDone) {
-                const { done, value } = await reader.read();
-                buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop() || "";
-                if (done && buffer) {
-                    lines.push(buffer);
-                    buffer = "";
+                if (!resp.ok) {
+                    const errText = await resp.text().catch(() => resp.statusText);
+                    throw new Error(`HTTP ${resp.status} - ${errText}`);
                 }
 
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed || !trimmed.startsWith("data:")) continue;
-                    const data = trimmed.slice(5).trimStart();
-                    if (data === "[DONE]") {
-                        streamDone = true;
-                        setChatWebStatus(bubble, "");
+                if (!resp.body) {
+                    throw new Error("Response body is empty.");
+                }
+                bubble = renderChatMessage("assistant", "");
+                reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                let streamDone = false;
+                let receivedFinish = false;
+
+                while (!streamDone) {
+                    const { done, value } = await reader.read();
+                    buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop() || "";
+                    if (done && buffer) {
+                        lines.push(buffer);
+                        buffer = "";
+                    }
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || !trimmed.startsWith("data:")) continue;
+                        const data = trimmed.slice(5).trimStart();
+                        if (data === "[DONE]") {
+                            streamDone = true;
+                            setChatWebStatus(bubble, "");
+                            break;
+                        }
+
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(data);
+                        } catch (e) {
+                            console.debug("Skipping malformed chat stream chunk", e);
+                            continue;
+                        }
+                        if (parsed.type === "context_budget") {
+                            renderContextBudget(parsed);
+                            continue;
+                        }
+                        if (parsed.type === "web_status") {
+                            setChatWebStatus(bubble, parsed.content || "");
+                            continue;
+                        }
+                        if (parsed.type === "web_sources") {
+                            responseSources = parsed.sources || [];
+                            renderChatSources(bubble, responseSources);
+                            continue;
+                        }
+                        if (parsed.error) {
+                            const message = parsed.error.message || "Unknown error";
+                            throw new Error(message);
+                        }
+                        const delta = parsed.choices?.[0]?.delta;
+                        const finishReason = parsed.choices?.[0]?.finish_reason;
+                        if (finishReason) {
+                            roundFinishReason = finishReason;
+                            receivedFinish = true;
+                            updateResponseMetadata(responseMetadata, parsed, finishReason);
+                            if (finishReason === "length") status = "length";
+                        }
+                        updateResponseMetadata(responseMetadata, parsed);
+                        if (delta?.tool_calls !== undefined) {
+                            if (!body.tools?.length) throw new Error("The model requested a tool while Chat tools are disabled.");
+                            window.LlamaGui.chatTools.collectCalls(toolCalls, delta.tool_calls);
+                        }
+                        const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
+                        if (reasoningDelta) {
+                            fullReasoning += reasoningDelta;
+                            appendChatReasoningStreamToken(bubble, reasoningDelta);
+                            followChatOutput();
+                        }
+                        const contentDelta = getChatDeltaText(delta, ["content"]);
+                        if (contentDelta) {
+                            fullContent += contentDelta;
+                            appendChatStreamToken(bubble, contentDelta);
+                            followChatOutput();
+                        }
+                    }
+                    if (done) {
+                        if (!streamDone && !receivedFinish) throw new Error("Connection closed before the response completed.");
                         break;
                     }
+                }
 
-                    let parsed;
-                    try {
-                        parsed = JSON.parse(data);
-                    } catch (e) {
-                        console.debug("Skipping malformed chat stream chunk", e);
-                        continue;
+                await reader.cancel().catch(e => console.debug("Failed to close chat stream reader", e));
+                reader = null;
+                // Conversation changes await this stream. Check abort after the last
+                // await before executing tools and removing the provisional message.
+                chatAbortController.signal.throwIfAborted();
+                if (toolCalls.length || roundFinishReason === "tool_calls") {
+                    if (round > 0) throw new Error("The model requested more tools instead of answering. Retry the reply.");
+                    if (!toolCalls.length || roundFinishReason !== "tool_calls") {
+                        throw new Error("The date/time tool call was incomplete. Retry the reply.");
                     }
-                    if (parsed.type === "context_budget") {
-                        renderContextBudget(parsed);
-                        continue;
-                    }
-                    if (parsed.type === "web_status") {
-                        setChatWebStatus(bubble, parsed.content || "");
-                        continue;
-                    }
-                    if (parsed.type === "web_sources") {
-                        responseSources = parsed.sources || [];
-                        renderChatSources(bubble, responseSources);
-                        continue;
-                    }
-                    if (parsed.error) {
-                        const message = parsed.error.message || "Unknown error";
-                        throw new Error(message);
-                    }
-                    const delta = parsed.choices?.[0]?.delta;
-                    const finishReason = parsed.choices?.[0]?.finish_reason;
-                    if (finishReason) {
-                        receivedFinish = true;
-                        updateResponseMetadata(responseMetadata, parsed, finishReason);
-                        if (finishReason === "length") status = "length";
-                    }
-                    updateResponseMetadata(responseMetadata, parsed);
-                    const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
-                    if (reasoningDelta) {
-                        fullReasoning += reasoningDelta;
-                        appendChatReasoningStreamToken(bubble, reasoningDelta);
-                        followChatOutput();
-                    }
-                    const contentDelta = getChatDeltaText(delta, ["content"]);
-                    if (contentDelta) {
-                        fullContent += contentDelta;
-                        appendChatStreamToken(bubble, contentDelta);
-                        followChatOutput();
-                    }
+                    const results = window.LlamaGui.chatTools.executeCalls(toolCalls);
+                    toolMessages.push({
+                        role: "assistant", content: fullContent, tool_calls: toolCalls,
+                        ...(fullReasoning ? { reasoning_content: fullReasoning } : {}),
+                    }, ...results);
+                    body.messages.push(...toolMessages);
+                    body.tool_choice = "none";
+                    fullContent = "";
+                    fullReasoning = "";
+                    for (const key of Object.keys(responseMetadata)) delete responseMetadata[key];
+                    bubble.closest(".chat-message").remove();
+                    bubble = null;
+                    renderChatTypingIndicator();
+                    continue;
                 }
-                if (done) {
-                    if (!streamDone && !receivedFinish) throw new Error("Connection closed before the response completed.");
-                    break;
-                }
+                break;
             }
 
             if (!fullContent && !fullReasoning) throw new Error("The server returned no answer.");
@@ -1382,7 +1417,7 @@
         } finally {
             if (reader) await reader.cancel().catch((e) => console.debug("Failed to close chat stream reader", e));
             removeChatTypingIndicator();
-            finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex, responseMetadata);
+            finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex, responseMetadata, toolMessages);
             chatStreaming = false;
             chatAbortController = null;
             showChatSendButton(true);
@@ -1858,6 +1893,7 @@
 
     function init() {
         initChatTools();
+        window.LlamaGui.chatTools.init(() => scheduleContextPreview(true));
         ensureAutoCompactionControl();
         ensureEditStatusControl();
         wireChatScrollControls();

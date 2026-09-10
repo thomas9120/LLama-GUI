@@ -1344,6 +1344,104 @@ async function verifyCharacterCards(page) {
     }
 }
 
+async function verifyChatDateTime(page) {
+    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
+    await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
+        running: true, active_process_tool: "llama-server", runtime_generation: 700,
+        active_runtime: { tool: "llama-server", model: "smoke-model.gguf", generation: 700 },
+    } }));
+    const requests = [];
+    await page.route("**/api/chat/completions", route => {
+        const body = route.request().postDataJSON();
+        requests.push(body);
+        const events = body.tools?.length && body.tool_choice !== "none" ? [
+            { choices: [{ delta: { tool_calls: [{ index: 0, id: "clock-1", type: "function", function: { name: "get_", arguments: "{" } }] } }] },
+            { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "datetime", arguments: "}" } }] }, finish_reason: "tool_calls" }] },
+        ] : [{ choices: [{ delta: { content: "Your local time is available." }, finish_reason: "stop" }] }];
+        return route.fulfill({ contentType: "text/event-stream", body: events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n" });
+    });
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.clock.setFixedTime(new Date("2026-09-10T12:34:56Z"));
+    await selectSection(page, "configure");
+    assert.equal(await page.locator("#flag-category-mcp #chat-datetime-enabled").count(), 0,
+        "the browser tool is separate from server tools and their launch baseline");
+    await selectSection(page, "chat");
+    await page.click("#btn-open-sidebar");
+    const control = page.getByRole("checkbox", { name: "Current Date & Time", exact: true });
+    await control.waitFor({ state: "visible" });
+    assert.equal(await control.isChecked(), false);
+    const argsBefore = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs());
+    await page.evaluate(() => {
+        window.LlamaGui.chatTools.init();
+    });
+    await control.focus();
+    await control.press("Space");
+    assert.equal(await control.isChecked(), true, "keyboard toggle enables the browser tool");
+    assert.equal(await page.evaluate(() => window.LlamaGui.chatTools.getDefinitions().length), 1,
+        "initializing without a callback still lets the checkbox enable the tool");
+    await page.evaluate(() => {
+        window.dateTimeChangeCount = 0;
+        const onChange = () => { window.dateTimeChangeCount += 1; window.LlamaGui.chatUi.refreshSidebarUI(); };
+        window.LlamaGui.chatTools.init(onChange);
+        window.LlamaGui.chatTools.init(onChange);
+    });
+    await control.uncheck();
+    assert.equal(await page.evaluate(() => window.dateTimeChangeCount), 1, "reinitializing does not duplicate the change callback");
+    await control.check();
+    assert.deepEqual(await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs()), argsBefore,
+        "browser tools never change llama-server launch arguments");
+    assert.equal(await page.locator("#chat-sidebar #chat-datetime-enabled").count(), 1);
+    await page.click("#btn-collapse-sidebar");
+    for (const width of [390, 900, 1440]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await page.click("#btn-open-sidebar");
+        await control.click({ trial: true });
+        const bounds = await page.locator("#chat-datetime-help").boundingBox();
+        assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width, `date/time help fits at ${width}px`);
+        await page.click("#btn-collapse-sidebar");
+    }
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await selectSection(page, "chat");
+    if (await page.locator("#btn-open-sidebar").isVisible()) await page.click("#btn-open-sidebar");
+    await control.waitFor({ state: "visible" });
+    assert.equal(await control.isChecked(), true, "preference survives reload");
+    await selectSection(page, "chat");
+    const [previewRequest] = await Promise.all([
+        page.waitForRequest(request => new URL(request.url()).pathname === "/api/chat/context"
+            && request.postDataJSON()?.messages?.some(msg => msg.role === "tool"), { timeout: 10000 }),
+        (async () => {
+            await page.fill("#chat-input", "What is the date and time?");
+            await page.click("#btn-chat-send");
+            await page.getByText("Used Current Date & Time", { exact: true }).waitFor({ state: "visible" });
+        })(),
+    ]);
+    assert.equal(requests.length, 2);
+    const result = JSON.parse(requests[1].messages.at(-1).content);
+    assert.equal(new Date(result.result).toISOString(), "2026-09-10T12:34:56.000Z");
+    assert.equal(result.timezone, await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone));
+    assert.equal(requests[1].tool_choice, "none");
+    assert.match(requests[0].messages[0].content, /get_datetime.*today.*web search/,
+        "date-dependent questions get explicit clock guidance");
+    await page.getByText("Used Current Date & Time", { exact: true }).click();
+    assert.match(await page.locator("#chat-messages").textContent(), new RegExp(result.timezone));
+    const preview = previewRequest.postDataJSON();
+    assert.deepEqual(preview.tools, requests[0].tools);
+    const saved = await page.evaluate(() => JSON.parse(localStorage.getItem("llama_gui_conversations"))[0]);
+    assert.equal(saved.messages.length, 2);
+    assert.equal(saved.messages[1].toolMessages[1].content, requests[1].messages.at(-1).content);
+    await control.uncheck();
+    await selectSection(page, "chat");
+    await page.fill("#chat-input", "Thanks");
+    await page.click("#btn-chat-send");
+    await page.waitForFunction(() => document.querySelectorAll(".chat-message.assistant").length === 2
+        && !document.getElementById("btn-chat-send").disabled);
+    assert.equal(requests.length, 3);
+    assert.equal(requests[2].tools, undefined, "disabled tool is not advertised");
+    assert.equal(requests[2].messages[0].role, "user", "disabling removes clock instructions");
+    assert.equal(requests[2].messages[2].role, "tool", "prior tool context is retained after disabling");
+}
+
 async function verifyChatDeletion(page) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.evaluate(() => {
@@ -4153,6 +4251,7 @@ for (const [name, verify] of [
     ["chat, API and install presentation", verifySecondaryPagePolish],
     ["chat responsive layout bounds", verifyChatResponsiveLayout],
     ["character card import", verifyCharacterCards],
+    ["chat date and time tool", verifyChatDateTime],
     ["chat deletion confirmations", verifyChatDeletion],
     ["monitor runtime presentation", verifyMonitorRuntimePolish],
     ["preset library", verifyPresetPolish],

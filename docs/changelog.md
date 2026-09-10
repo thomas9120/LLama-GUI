@@ -2,6 +2,12 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-10
+
+- Hardened date/time tool validation for missing function metadata, made each batch share one clock snapshot, made checkbox initialization safe to repeat or omit a callback, and clarified session-only persistence when browser storage is blocked.
+- Centered Chat sampler readouts above their numeric input boxes using matching columns.
+- Added an opt-in Current Date & Time browser tool in Chat → Settings → Tools. Enabled chats instruct the model to check the clock for date-dependent questions, including today's news, instead of guessing from search excerpts. The model can check local time and timezone without a server flag or restart; tool results stay with saved answers, retries, and context/compaction requests.
+
 ## 2026-09-09
 
 - Replaced Restore deleted with confirmation dialogs for deleting a conversation, deleting all conversations, and clearing the current chat. Delete All and Clear each ask once; confirmed deletions no longer create trash copies. Fixed Enter on Cancel confirming shared dialogs instead of cancelling them.

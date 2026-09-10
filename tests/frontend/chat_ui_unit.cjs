@@ -233,7 +233,7 @@ function makeFetch(mode, hooks = {}) {
                 });
             },
             cancel() {
-                return Promise.resolve();
+                return hooks.onCancel ? hooks.onCancel() : Promise.resolve();
             },
         };
         return Promise.resolve({
@@ -347,6 +347,7 @@ function makeContext({
     vm.createContext(context);
     vm.runInContext(renderingSource, context, { filename: "ui/js/chat-rendering.js" });
     vm.runInContext(appDataSource, context, { filename: "ui/js/app-data.js" });
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-tools.js"), "utf8"), context, { filename: "ui/js/chat-tools.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/character-cards.js"), "utf8"), context, { filename: "ui/js/character-cards.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
@@ -378,6 +379,7 @@ function makeContext({
     const getStoredDeletedConversations = () => JSON.parse(storageMap.get(DELETED_STORAGE_KEY) || "[]");
     return {
         api,
+        tools: context.window.LlamaGui.chatTools,
         elements,
         getStoredConversations,
         getStoredDeletedConversations,
@@ -1811,6 +1813,114 @@ async function runAbortScenario(action) {
         assert.equal(ctx.elements.get("chat-system-prompt").value, "Original prompt");
         assert.match(ctx.elements.get("chat-character-status").textContent, /Could not save/);
         assert.equal(ctx.getStoredConversations().length, 1);
+    }
+
+    // A fragmented tool call gets one bounded continuation, with its trace saved
+    // on the answer and replayed intact for reloads, previews and regeneration.
+    const toolChunk = [
+        { choices: [{ delta: { reasoning_content: "Need the current clock.", tool_calls: [{ index: 0, id: "clock-1", type: "function", function: { name: "get_", arguments: "{" } }] } }] },
+        { choices: [{ delta: { tool_calls: [{ index: 0, function: { name: "datetime", arguments: "}" } }] }, finish_reason: "tool_calls" }] },
+    ].map(event => `data: ${JSON.stringify(event)}\n\n`).join("");
+    for (const action of ["_testLoadConversation", "_testStartNewChat", "_testClearChat"]) {
+        const boundary = deferred();
+        let atBoundary = false;
+        let requestCount = 0;
+        const ctx = makeContext({
+            fetchImpl: makeFetch("complete", {
+                chunk: toolChunk,
+                onRequest: () => { requestCount += 1; },
+                onCancel: () => { atBoundary = true; return boundary.promise; },
+            }),
+            seedConversations: [{ id: "other", messages: [{ role: "user", content: "Keep the target chat" }] }],
+        });
+        ctx.tools.setEnabled(true);
+        let executions = 0;
+        const execute = ctx.tools.executeCalls;
+        ctx.tools.executeCalls = calls => { executions += 1; return execute(calls); };
+        const sending = ctx.api._testSendMessage("Check the clock");
+        await flushUntil(() => atBoundary, "round one to finish while reader cancellation is pending");
+        const originalId = ctx.api._testGetState().currentConversationId;
+        const changing = ctx.api[action]("other");
+        assert.equal(ctx.api._testGetState().currentConversationId, originalId,
+            "conversation changes wait for the outgoing stream to settle");
+        boundary.resolve();
+        await Promise.all([sending, changing]);
+        assert.equal(requestCount, 1, "an aborted first round never starts the continuation");
+        assert.equal(executions, 0, "an aborted first round never executes the clock");
+        assert.equal(ctx.api._testGetState().chatStreaming, false);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages).map(msg => msg.content),
+            action === "_testLoadConversation" ? ["Keep the target chat"] : []);
+        if (action !== "_testClearChat") {
+            assert.equal(ctx.getStoredConversations().find(convo => convo.id === originalId).messages.at(-1).status, "stopped",
+                "the original abort is preserved instead of a DOM error");
+        }
+    }
+    {
+        const requests = [];
+        let count = 0;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (!url.includes("/api/chat/completions")) return makeFetch("complete")(url, options);
+            count += 1;
+            return makeFetch("complete", { chunk: count % 2 ? toolChunk : 'data: {"choices":[{"delta":{"content":"It is the current local time."},"finish_reason":"stop"}]}\n\n',
+                onRequest: body => requests.push(body) })(url, options);
+        }, extraElementIds: ["chat-web-search-toggle"] });
+        ctx.tools.setEnabled(true);
+        ctx.elements.get("chat-web-search-toggle").checked = true;
+        await ctx.api._testSendMessage("What time is it?");
+        assert.equal(requests.length, 2);
+        assert.equal(requests[0].tools[0].function.name, "get_datetime");
+        assert.equal(requests[1].tool_choice, "none");
+        assert.equal(requests[1].web_search, true, "continuation retains web-search context injection");
+        assert.deepEqual(requests[1].messages.map(msg => msg.role), ["system", "user", "assistant", "tool"]);
+        assert.match(requests[0].messages[0].content, /get_datetime.*today.*web search/);
+        assert.equal(requests[1].messages[2].reasoning_content, "Need the current clock.");
+        assert.equal(requests[1].messages[3].tool_call_id, "clock-1");
+        const answer = ctx.api._testGetState().chatMessages.at(-1);
+        assert.equal(answer.content, "It is the current local time.");
+        assert.equal(answer.toolMessages.length, 2);
+        assert.equal(answer.status, "complete");
+        const saved = ctx.getStoredConversations()[0];
+        await ctx.api._testLoadConversation(saved.id);
+        assert.deepEqual(plain(ctx.api._testGetState().chatMessages.at(-1).toolMessages), saved.messages.at(-1).toolMessages);
+        ctx.tools.setEnabled(false);
+        assert.equal(ctx.tools.getDefinitions().length, 0);
+        assert.equal(ctx.tools.requestMessages(ctx.api._testGetState().chatMessages)[2].role, "tool", "disabling keeps historical results");
+        ctx.tools.setEnabled(true);
+        await ctx.api._testRegenerateResponse();
+        assert.equal(requests[2].messages.length, 2, "regeneration excludes the previous answer and its tool exchange");
+        const versions = ctx.api._testGetState().chatMessages.at(-1).versions;
+        assert.equal(versions.length, 2);
+        assert.equal(versions[0].toolMessages.length, 2);
+        assert.equal(versions[1].toolMessages.length, 2);
+    }
+    for (const mode of ["disabled", "unknown", "incomplete", "repeat", "network", "cancel", "revoked"]) {
+        let count = 0;
+        let pending = false;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (!url.includes("/api/chat/completions")) return makeFetch("complete")(url, options);
+            count += 1;
+            if (mode === "revoked") ctx.tools.setEnabled(false);
+            if (count === 2 && mode === "network") return makeFetch("network")(url, options);
+            if (count === 2 && mode === "cancel") return makeFetch("hang", { onStreamPending: () => { pending = true; } })(url, options);
+            const chunk = mode === "unknown" ? toolChunk.replace('"datetime"', '"shell_command"').replace('"get_"', '"exec_"')
+                : mode === "incomplete" ? toolChunk.replace('"tool_calls"}', '"length"}') : toolChunk;
+            return makeFetch("complete", { chunk })(url, options);
+        } });
+        if (mode !== "disabled") ctx.tools.setEnabled(true);
+        const sending = ctx.api._testSendMessage("What time is it?");
+        if (mode === "cancel") {
+            await flushUntil(() => pending, "the tool continuation to wait");
+            await ctx.api._testStartNewChat();
+        }
+        await sending;
+        assert.ok(count <= 2, "no unbounded tool loop");
+        if (mode === "cancel") {
+            assert.equal(ctx.api._testGetState().chatMessages.length, 0, "cancelled continuation cannot leak into the new conversation");
+            assert.equal(ctx.getStoredConversations()[0].messages.at(-1).status, "stopped");
+        } else {
+            assert.equal(ctx.api._testGetState().chatMessages.at(-1).status, "failed", mode);
+            assert.equal(count, ["repeat", "network"].includes(mode) ? 2 : 1, mode);
+        }
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

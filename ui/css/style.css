@@ -4546,12 +4546,15 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
 .sidebar-sampler-control { margin-bottom: var(--space-3); }
 .sidebar-sampler-control:last-child { margin-bottom: 0; }
 
-.sidebar-sampler-label {
-    display: flex;
+.sidebar-sampler-label,
+.sidebar-sampler-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: var(--space-1);
+    gap: var(--space-2);
 }
+
+.sidebar-sampler-label { margin-bottom: var(--space-1); }
 
 .sidebar-sampler-text { font-size: 12px; font-weight: 600; color: var(--fg); }
 
@@ -4560,15 +4563,8 @@ textarea.sidebar-system-prompt::placeholder { color: var(--fg-muted); }
     font-family: var(--mono);
     color: var(--accent-text);
     font-weight: 600;
-    min-width: 36px;
-    text-align: right;
-}
-
-.sidebar-sampler-input-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 72px;
-    align-items: center;
-    gap: var(--space-2);
+    min-width: 0;
+    text-align: center;
 }
 
 .chat-sampler-number {
