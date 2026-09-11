@@ -378,7 +378,7 @@ test("Chat pop-out contains URL construction and live host getter failures", { t
             return adapter && { ...adapter, getSettings() { throw new Error("fixture live host getter failure"); } };
         };
     });
-    const popupPromise = main.waitForEvent("popup");
+    const popupPromise = main.waitForEvent("popup", { timeout: 10_000 });
     await main.locator(CHAT_POP_OUT).click();
     const popup = await popupPromise;
     await popup.locator("body[data-chat-window-error]").waitFor({ state: "visible" });

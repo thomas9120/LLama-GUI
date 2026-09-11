@@ -4,6 +4,12 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Fixed detached Chat starting with ownership before the verified handoff; the popup now starts as an observer like the host path.
+- Fixed a Chat undo crash when the message container is missing and made the stream-abort helper return a boolean.
+- Cleaned up the pending Chat pop-out storage probe when the main page unloads mid-handshake.
+- Fixed benchmark load-mode translation for the mlock toggle and named the winning --load-mode when two Legacy toggles conflict.
+- Accepted suffixed build tags (e.g. b10875-cuda) in the b10434/b10875 feature gates instead of silently using the legacy path.
+- Fixed a dangling implementation-plan link, stale capability-doc status, an unbounded popup wait, and single-lock fixture fidelity.
 - Improved separate Chat focus and accessible controls, stopped background inference polling after popup close, and kept main GUI navigation available after Chat startup failures.
 - Bounded Chat ownership waits and hardened transfer cancellation and detached-window startup failures.
 - Hardened separate Chat window recovery and added lifecycle, failure, and compatibility coverage with documented browser limits.

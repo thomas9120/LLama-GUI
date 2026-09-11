@@ -61,6 +61,7 @@ const flags = [
     { id: "threads", flag: "-t", type: "int", label: "Threads" },
     { id: "load_mode", flag: "--load-mode", type: "enum", label: "Load Mode" },
     { id: "mmap", flag: "--mmap", false_flag: "--no-mmap", type: "bool", label: "Mmap" },
+    { id: "mlock", flag: "--mlock", type: "bool", label: "Mlock" },
     { id: "direct_io", flag: "-dio", type: "bool", label: "Direct I/O" },
     { id: "hf_repo", flag: "-hf", type: "text", label: "HF Repo" },
     { id: "temperature", flag: "--temp", type: "float", label: "Temperature" },
@@ -462,6 +463,27 @@ function flat(result) {
     assert.equal(benchExplicitMode.error, null);
     assert.equal(flat(benchExplicitMode).filter((token) => token === "--load-mode").length, 1);
     assert.ok(flat(benchExplicitMode).includes("mmap+mlock"));
+
+    const benchMlockOn = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mlock: true } },
+    });
+    assert.equal(benchMlockOn.error, null);
+    assert.ok(!flat(benchMlockOn).includes("--mlock"), "new builds must not emit --mlock");
+    assert.ok(flat(benchMlockOn).includes("--load-mode") && flat(benchMlockOn).includes("mlock"));
+
+    // Two legacy toggles cannot share one --load-mode slot: the loser names
+    // the winner instead of a generic exclusion. FLAGS order decides.
+    const benchConflict = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mmap: false, direct_io: true } },
+    });
+    assert.equal(benchConflict.error, null);
+    assert.equal(flat(benchConflict).filter((token) => token === "--load-mode").length, 1);
+    assert.ok(benchConflict.excluded.some((item) => String(item.reason).includes("--load-mode")),
+        "the losing legacy toggle must name the winning --load-mode value");
 
     vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("")`, context);
 }

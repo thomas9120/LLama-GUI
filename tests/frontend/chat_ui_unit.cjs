@@ -2105,6 +2105,10 @@ async function runAbortScenario(action) {
     // exact peer references and shared recovery store for A → B → A transfer.
     // This intentionally asserts the complete round trip so a checkpoint made
     // by saveForTransfer cannot silently leave the prepared revision stale.
+    // Both contexts share one Map, which faithfully models same-partition
+    // localStorage here: stored values are strings (immutable, so no caller
+    // can mutate another context's state without a setItem), and each context
+    // parses its own copy on read.
     {
         const sharedUiStorage = new Map();
         const recoveryStorage = new IntegrationRecoveryStorage();

@@ -539,7 +539,7 @@
     }
 
     function supportsNativeReasoningEffort() {
-        const match = /^b(\d+)$/.exec(binaryTag);
+        const match = /^b(\d+)/.exec(binaryTag);
         return Boolean(match) && Number(match[1]) >= 10434;
     }
 
@@ -547,10 +547,11 @@
     // -dio/--direct-io/--no-direct-io were removed from llama-server and
     // llama-cli in favor of --load-mode (upstream PR 28334). The tag comes
     // from /api/status like the reasoning-effort gate above: official
-    // releases use "bNNNNN"; custom slots use "custom". Anything
-    // unrecognized stays silent, keeping older and custom builds working.
+    // releases use "bNNNNN" (trailing build suffixes such as "-cuda" are
+    // accepted); custom slots use "custom". Anything unrecognized stays
+    // silent, keeping older and custom builds working.
     function supportsLoadModeOnly() {
-        const match = /^b(\d+)$/.exec(binaryTag);
+        const match = /^b(\d+)/.exec(binaryTag);
         return Boolean(match) && Number(match[1]) >= 10875;
     }
 

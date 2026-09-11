@@ -229,7 +229,6 @@
             detachedView: options.detachedView === true,
         };
         window.LlamaGui.chatTools.configureWorkspace?.({
-            detachedView: workspaceConfig.detachedView,
             canMutate: () => workspaceMutationAllowed() || workspaceRestoreInProgress,
             onChange: notifyWorkspaceChange,
         });
@@ -2186,6 +2185,7 @@
         if (pending) {
             await pending.catch((error) => console.debug("Chat stream did not settle cleanly", error));
         }
+        return true;
     }
 
     function addModelTransitionDivider(previousLabel, nextLabel) {
@@ -2208,11 +2208,12 @@
     function undoMessage() {
         if (!workspaceMutationAllowed() || chatStreaming || compactionController || chatMessages.length === 0) return false;
         if (currentConversationId && !invalidateWorkspace()) return false;
+        const container = document.getElementById("chat-messages");
+        if (!container) return false;
         const previousMessages = chatMessages.slice();
         const previousCompactions = chatCompactions.slice();
         chatMessages.pop();
         while (chatCompactions.length && !compaction.valid(chatCompactions.at(-1), chatMessages)) chatCompactions.pop();
-        const container = document.getElementById("chat-messages");
         const msgs = container.querySelectorAll(".chat-message");
         if (msgs.length > 0) msgs[msgs.length - 1].remove();
 

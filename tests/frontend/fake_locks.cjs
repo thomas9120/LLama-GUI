@@ -7,12 +7,16 @@ const assert = require("node:assert/strict");
 // cross-context scheduling and lock release when a window closes.
 class FakeLocks {
     constructor() {
+        this.name = null;
         this.held = null;
         this.queue = [];
         this.calls = [];
     }
 
     request(name, options, callback) {
+        assert.equal(typeof name, "string");
+        if (this.name === null) this.name = name;
+        assert.equal(name, this.name, "FakeLocks supports a single lock name per instance");
         assert.equal(options.mode, "exclusive");
         assert.equal(options.ifAvailable && Boolean(options.signal), false,
             "ifAvailable requests must not carry AbortSignal");

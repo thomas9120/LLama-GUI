@@ -38,4 +38,4 @@ Only pages running this implementation in the same browser storage partition par
 
 For a native launcher or browser check, use disposable test conversations and verify popup/opener retention, shared storage, focus, close/reload recovery, and Return/Send access with both panels and Context open. Check the launcher's embedded view separately from its external-browser link. Keep CI on Linux and Windows; native checks do not require adding macOS runners.
 
-See [capability evidence](chat-popout-capabilities.md), the [implementation plan](chat-popout-implementation-plan.md), and [test commands](tests.md).
+See [capability evidence](chat-popout-capabilities.md) and [test commands](tests.md).

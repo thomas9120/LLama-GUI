@@ -1917,7 +1917,15 @@
             void (detached ? requestReturn() : recoverMain());
         });
         if (typeof target.addEventListener === "function") {
-            target.addEventListener("pagehide", () => { notifyHostChange({ type: "session-invalidated" }); });
+            target.addEventListener("pagehide", () => {
+                // A reload mid-handshake would otherwise orphan the storage
+                // probe key, so remove the pending proof before invalidating.
+                try {
+                    if (popupProof) storage.removeItem(popupProof.key);
+                } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
+                popupProof = null;
+                notifyHostChange({ type: "session-invalidated" });
+            });
             target.addEventListener("pageshow", event => {
                 // A cached document's host adapter was revoked on pagehide.
                 // Rebuild the host session and reacquire ownership normally.
@@ -2139,6 +2147,10 @@
             showDetachedError(target, "Chat popout unavailable", "This browser does not support the exclusive lock required for a shared Chat.");
             return result(false, "locks-unavailable");
         }
+        // The popup starts as an observer like the host path above: revoke
+        // ownership before init() so nothing is mutable before the verified
+        // handoff grants it. Host availability is granted after the handshake.
+        chatUi.setOwnership?.(false);
         chatUi.setHostAvailable?.(false);
         await whenDomReady(target);
         options.themeUi?.init?.();

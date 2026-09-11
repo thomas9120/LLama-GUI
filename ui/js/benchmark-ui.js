@@ -25,6 +25,7 @@
         "flash_attn",
         "load_mode",
         "mmap",
+        "mlock",
         "direct_io",
         "fit",
         "fit_target",
@@ -192,6 +193,25 @@
         return args.some((entry) => Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm"));
     }
 
+    function getLoadModeArgValue(args) {
+        for (let index = args.length - 1; index >= 0; index -= 1) {
+            const entry = args[index];
+            if (Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm")) return String(entry[1]);
+        }
+        return "";
+    }
+
+    // On b10875+ builds a single --load-mode slot cannot express two legacy
+    // toggles at once, so name the winner instead of a generic exclusion.
+    function loadModeConflictReason(flag, args) {
+        if (!isLoadModeOnlyBuild() || !hasLoadModeArg(args)) return "";
+        if (flag.id !== "mmap" && flag.id !== "mlock" && flag.id !== "direct_io") return "";
+        const winner = getLoadModeArgValue(args);
+        return winner
+            ? `Superseded by --load-mode ${winner} from another Legacy toggle; only one load mode can be emitted`
+            : "Superseded by --load-mode from another Legacy toggle";
+    }
+
     function pushFlagArg(args, tool, flag, value) {
         if (isEmptyFlagValue(value)) return false;
 
@@ -215,6 +235,13 @@
                     return true;
                 }
                 args.push(["-mmp", value ? "1" : "0"]);
+                return true;
+            }
+            if (flag.id === "mlock" && isLoadModeOnlyBuild()) {
+                // mlock is opt-in, so only the enabled state maps onto
+                // --load-mode; off matches the new-build default behavior.
+                if (!value || hasLoadModeArg(args)) return false;
+                args.push(["--load-mode", "mlock"]);
                 return true;
             }
             if (flag.id === "direct_io") {
@@ -335,7 +362,7 @@
                     applied.push({ label: getFlagLabel(flag), value: flag.sensitive ? "<redacted>" : Array.isArray(value) ? value.join(",") : String(value) });
                 } else {
                     if (!Object.prototype.hasOwnProperty.call(defaultFlags, flag.id) || !valuesEqual(value, defaultFlags[flag.id])) {
-                        excluded.push({ label: getFlagLabel(flag), reason: "Not supported for this benchmark" });
+                        excluded.push({ label: getFlagLabel(flag), reason: loadModeConflictReason(flag, args) || "Not supported for this benchmark" });
                     }
                 }
             }

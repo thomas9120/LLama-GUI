@@ -601,6 +601,15 @@ function launchResult() {
     assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
     vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("custom")`, context);
     assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    // Suffixed build tags (variant suffixes) must still gate on the number.
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10875-cuda")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10917 (vulkan)")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10874-cuda")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("custom")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
 
     // Old builds stay silent on the legacy path.
     vm.runInContext(`
