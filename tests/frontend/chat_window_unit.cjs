@@ -15,7 +15,7 @@ function loadApi() {
         setTimeout,
         crypto: { randomUUID: (() => { let n = 0; return () => `uuid-${++n}`; })() },
     };
-    const context = { window, console: window.console, setTimeout, clearTimeout };
+    const context = { window, console: window.console, setTimeout, clearTimeout, AbortController };
     vm.createContext(context);
     vm.runInContext(source, context, { filename: "chat-window.js" });
     return context.window.LlamaGui.chatWindow;
@@ -127,6 +127,7 @@ function makePeerPair(api, options = {}) {
     const locks = options.locks || new FakeLocks();
     const storage = options.storage || new FakeStorage();
     const sessionId = options.sessionId || "session-1";
+    const transferTimeoutMs = options.transferTimeoutMs === undefined ? 100 : options.transferTimeoutMs;
     const origin = "http://127.0.0.1:5240";
     const peerA = {};
     const peerB = {};
@@ -142,8 +143,8 @@ function makePeerPair(api, options = {}) {
     };
     const sendA = message => deliver("A", message, b, peerA);
     const sendB = message => deliver("B", message, a, peerB);
-    a = api.createCoordinator({ instanceId: "A", sessionId, origin, locks, storage, chatUi: uiA, transport: { send: sendA }, transferTimeoutMs: 100 });
-    b = api.createCoordinator({ instanceId: "B", sessionId, origin, locks, storage, chatUi: uiB, transport: { send: sendB }, transferTimeoutMs: 100 });
+    a = api.createCoordinator({ instanceId: "A", sessionId, origin, locks, storage, chatUi: uiA, transport: { send: sendA }, transferTimeoutMs });
+    b = api.createCoordinator({ instanceId: "B", sessionId, origin, locks, storage, chatUi: uiB, transport: { send: sendB }, transferTimeoutMs });
     a.attachPeer(peerB, { peerId: "B", sessionId, origin });
     b.attachPeer(peerA, { peerId: "A", sessionId, origin });
     return { a, b, uiA, uiB, locks, storage, peerA, peerB, sessionId, origin, sent };
@@ -158,6 +159,60 @@ async function preparePair(pair) {
     await flush();
     assert.equal(pair.a.isPeerVerified(), true, `A handshake failed ${JSON.stringify(pair.a.getState())}`);
     assert.equal(pair.b.isPeerVerified(), true, `B handshake failed ${JSON.stringify(pair.b.getState())}`);
+}
+
+function waitForCoordinatorState(coordinator, predicate, description, timeoutMs = 1000) {
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        let unsubscribe = () => {};
+        const finish = (state) => {
+            if (settled) return;
+            let matches = false;
+            try { matches = predicate(state); } catch (error) {
+                settled = true;
+                clearTimeout(timer);
+                unsubscribe();
+                reject(error);
+                return;
+            }
+            if (!matches) return;
+            settled = true;
+            clearTimeout(timer);
+            unsubscribe();
+            resolve(state);
+        };
+        const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            unsubscribe();
+            reject(new Error(`timed out after ${timeoutMs} ms waiting for ${description}`));
+        }, timeoutMs);
+        unsubscribe = coordinator.subscribe(finish);
+        finish(coordinator.getState());
+    });
+}
+
+function waitForCondition(predicate, description, timeoutMs = 1000) {
+    return new Promise((resolve, reject) => {
+        const deadline = Date.now() + timeoutMs;
+        const check = () => {
+            try {
+                if (predicate()) {
+                    resolve();
+                    return;
+                }
+            } catch (error) {
+                reject(error);
+                return;
+            }
+            if (Date.now() >= deadline) {
+                reject(new Error(`timed out after ${timeoutMs} ms waiting for ${description}`));
+                return;
+            }
+            setTimeout(check, 5);
+        };
+        check();
+    });
 }
 
 (async () => {
@@ -221,6 +276,24 @@ async function preparePair(pair) {
         assert.equal(c.receiveMessage({ data: Object.assign({}, messages[0], { epoch: -1 }), origin: "https://gui.test", source: {} }), false);
     }
 
+    // A coordinator without a trustworthy origin must reject every hello,
+    // including an event whose origin is itself empty.
+    {
+        const messages = [];
+        const c = api.createCoordinator({ instanceId: "no-origin", sessionId: "s", origin: "", locks: new FakeLocks(),
+            storage: new FakeStorage(), chatUi: makeUi("no-origin"), transport: { send: message => messages.push(message) } });
+        const peer = {};
+        c.attachPeer(peer, { peerId: "receiver", sessionId: "s", origin: "" });
+        const hello = {
+            channel: "llama-gui-chat-window", version: 1, type: "hello", sessionId: "s",
+            sourceId: "receiver", destinationId: "no-origin", epoch: 0,
+        };
+        assert.equal(c.receiveMessage({ data: hello, origin: "", source: peer }), false);
+        assert.equal(c.receiveMessage({ data: hello, origin: "https://evil.test", source: peer }), false);
+        assert.equal(c.isPeerVerified(), false);
+        assert.deepEqual(messages, []);
+    }
+
     // Full A -> B -> A -> B sequence. saveForTransfer runs before capture,
     // proving an unsaved conversation ID is not lost or duplicated.
     {
@@ -244,6 +317,42 @@ async function preparePair(pair) {
         assert.equal(pair.uiA.owner, false);
         assert.equal(pair.uiB.snapshotState().conversationId, "A-saved-1");
         assert.equal(pair.uiA.saves, 2);
+    }
+
+    // A receiver queued behind a still-held lock must time out its commit
+    // acquisition. Releasing the competing owner afterward must not grant the
+    // canceled request or activate the receiver late.
+    {
+        const pair = makePeerPair(api);
+        await preparePair(pair);
+        const snapshot = pair.uiA.captureSnapshot({ sourceId: "A", destinationId: "B", transferId: "held", revision: 1 });
+        assert.equal(pair.a.checkpoint(snapshot, {
+            sourceId: "A", destinationId: "B", transferId: "held", revision: 1,
+        }), true, "the queued commit must have a valid durable record to revalidate");
+        const epoch = pair.a.getState().epoch;
+        const baseMessage = {
+            channel: "llama-gui-chat-window", version: 1, sessionId: pair.sessionId,
+            sourceId: "A", destinationId: "B", epoch, transferId: "held", revision: 1,
+        };
+        assert.equal(pair.b.receiveMessage({
+            data: Object.assign({}, baseMessage, { type: "prepare", payload: { snapshot } }),
+            origin: pair.origin, source: pair.peerA,
+        }), true);
+        await waitForCoordinatorState(pair.b, state => state.transfer?.phase === "prepared", "receiver prepare");
+        assert.equal(pair.b.receiveMessage({
+            data: Object.assign({}, baseMessage, { type: "commit" }),
+            origin: pair.origin, source: pair.peerA,
+        }), true);
+        await waitForCoordinatorState(pair.b, state => state.status === "acquiring", "receiver lock acquisition");
+        const failed = await waitForCoordinatorState(pair.b, state => state.status === "recovery-required", "receiver lock timeout");
+        assert.equal(failed.transfer?.phase, "failed");
+        assert.equal(pair.sent.some(item => item.from === "B"
+            && item.message.type === "reject" && item.message.reason === "ownership-failed"), true,
+        "timed-out receiver must reject the transfer");
+        assert.equal(pair.locks.queue.length, 0);
+        pair.a.releaseOwnership();
+        await flush();
+        assert.equal(pair.b.isOwner(), false, "a timed-out commit cannot acquire after the competing lock is released");
     }
 
     // Storage quota/read failures abort before source release and preserve the
@@ -284,6 +393,136 @@ async function preparePair(pair) {
         assert.equal(afterRelease.a.getState().status, "recovery-required");
         assert.equal(afterRelease.uiA.owner, false);
         assert.equal(afterRelease.uiB.owner, true);
+    }
+
+    // Invalidation while a receiver is awaiting restore must retire the
+    // stale continuation. It cannot publish ready or leave a lockless owner
+    // after the restore promise settles.
+    {
+        const pair = makePeerPair(api);
+        await preparePair(pair);
+        let finishRestore;
+        let restoreStarted = false;
+        pair.uiB.restoreSnapshot = () => new Promise(resolve => {
+            restoreStarted = true;
+            finishRestore = resolve;
+        });
+        const snapshot = pair.uiA.captureSnapshot({ sourceId: "A", destinationId: "B", transferId: "prepare-invalidation", revision: 1 });
+        const message = {
+            channel: "llama-gui-chat-window", version: 1, type: "prepare", sessionId: pair.sessionId,
+            sourceId: "A", destinationId: "B", epoch: pair.a.getState().epoch,
+            transferId: "prepare-invalidation", revision: 1, payload: { snapshot },
+        };
+        assert.equal(pair.b.receiveMessage({ data: message, origin: pair.origin, source: pair.peerA }), true);
+        await waitForCondition(() => restoreStarted, "receiver restore to start");
+        assert.equal(pair.b.getState().transfer?.phase, "restoring");
+        assert.equal(await pair.b.invalidateSession(), true);
+        finishRestore(true);
+        await flush();
+        assert.equal(pair.b.isOwner(), false);
+        assert.notEqual(pair.b.getState().transfer?.phase, "prepared");
+        assert.equal(pair.sent.some(item => item.from === "B" && item.message.type === "ready"), false,
+            "an invalidated restore must not publish ready");
+    }
+
+    // The commit path awaits a second restore while holding the destination
+    // lock. Invalidation during that await must release the lock and prevent
+    // a late restore completion from publishing ownership or owner-ack.
+    {
+        const pair = makePeerPair(api, { transferTimeoutMs: 1000 });
+        await preparePair(pair);
+        let restoreCalls = 0;
+        let finishPrepare;
+        let finishCommit;
+        pair.uiB.restoreSnapshot = () => {
+            restoreCalls += 1;
+            return new Promise(resolve => {
+                if (restoreCalls === 1) finishPrepare = resolve;
+                else finishCommit = resolve;
+            });
+        };
+        const transfer = pair.a.beginTransfer({ destinationId: "B", transferId: "commit-invalidation", timeoutMs: 100 });
+        await waitForCondition(() => restoreCalls === 1, "prepare restore to start");
+        finishPrepare(true);
+        await waitForCoordinatorState(pair.b, state => state.status === "prepared", "receiver prepared state");
+        await waitForCondition(() => restoreCalls === 2, "commit restore to start");
+        assert.equal(pair.b.getState().status, "acquiring");
+        assert.equal(await pair.b.invalidateSession(), true);
+        finishCommit(true);
+        assert.equal(await transfer, false);
+        await flush();
+        assert.equal(pair.b.isOwner(), false, "an invalidated commit cannot become owner after restore settles");
+        assert.equal(pair.a.isOwner(), false);
+        assert.equal(pair.sent.some(item => item.from === "B" && item.message.type === "owner-ack"), false,
+            "an invalidated commit must not publish owner-ack");
+    }
+
+    // A source that times out waiting for owner-ack remains recoverable.
+    // A delayed ack and a later competing-lock release cannot reactivate it;
+    // explicit recovery must make a fresh peer transfer valid again.
+    {
+        let droppedAck = null;
+        let dropNextAck = true;
+        const hookedPair = makePeerPair(api, {
+            transferTimeoutMs: 100,
+            drop: (from, message) => {
+                if (from === "B" && message.type === "owner-ack" && dropNextAck) {
+                    dropNextAck = false;
+                    droppedAck = clone(message);
+                    return true;
+                }
+                return false;
+            },
+        });
+        await preparePair(hookedPair);
+        const first = hookedPair.a.beginTransfer({ destinationId: "B", transferId: "owner-ack-timeout", timeoutMs: 100 });
+        await waitForCoordinatorState(hookedPair.b, state => state.ownership === true && state.status === "active", "receiver ownership");
+        assert.equal(await first, false);
+        const sourceState = hookedPair.a.getState();
+        assert.equal(sourceState.status, "recovery-required");
+        assert.equal(sourceState.ownership, false);
+        assert.ok(droppedAck, "the receiver must have attempted the owner acknowledgment");
+        assert.equal(hookedPair.a.receiveMessage({ data: droppedAck, origin: hookedPair.origin, source: hookedPair.peerB }), true);
+        await flush();
+        assert.equal(hookedPair.a.isOwner(), false);
+        hookedPair.b.releaseOwnership();
+        await flush();
+        assert.equal(hookedPair.a.isOwner(), false, "releasing the receiver lock cannot reactivate the timed-out source");
+
+        assert.equal(await hookedPair.a.recover(), true, "source can explicitly recover after the receiver releases ownership");
+        assert.equal(hookedPair.a.isOwner(), true);
+        assert.equal(await hookedPair.a.beginTransfer({ destinationId: "B", transferId: "fresh-transfer", timeoutMs: 100 }), true,
+            "a fresh peer transfer remains possible after recovery");
+        assert.equal(hookedPair.b.isOwner(), true);
+        hookedPair.b.releaseOwnership();
+    }
+
+    // Invalidating while owner-ack is pending retires the operation.  A late
+    // acknowledgment must not resurrect ownership or transfer state.
+    {
+        let droppedAck = null;
+        const invalidatedPair = makePeerPair(api, {
+            transferTimeoutMs: 100,
+            drop: (from, message) => {
+                if (from === "B" && message.type === "owner-ack" && droppedAck === null) {
+                    droppedAck = clone(message);
+                    return true;
+                }
+                return false;
+            },
+        });
+        await preparePair(invalidatedPair);
+        const pending = invalidatedPair.a.beginTransfer({ destinationId: "B", transferId: "owner-ack-invalidation", timeoutMs: 1000 });
+        await waitForCoordinatorState(invalidatedPair.b, state => state.ownership === true && state.status === "active", "receiver ownership before invalidation");
+        await waitForCoordinatorState(invalidatedPair.a, state => state.transfer?.phase === "awaiting-ack", "source owner-ack wait");
+        assert.equal(await invalidatedPair.a.invalidateSession(), true);
+        assert.equal(await pending, false, "invalidating the source cancels the pending owner acknowledgment");
+        assert.ok(droppedAck, "the invalidated transfer must have produced a delayed owner acknowledgment");
+        assert.equal(invalidatedPair.a.receiveMessage({ data: droppedAck, origin: invalidatedPair.origin, source: invalidatedPair.peerB }), false,
+            "a late owner acknowledgment is rejected after invalidation");
+        await flush();
+        assert.equal(invalidatedPair.a.isOwner(), false);
+        assert.equal(invalidatedPair.a.getState().transfer, null, "invalidation retires the pending transfer");
     }
 
     // Durable tombstones win over an interrupted destructive history write;

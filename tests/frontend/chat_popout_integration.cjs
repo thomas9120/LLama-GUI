@@ -336,6 +336,60 @@ test("direct Chat window URL without an opener shows a safe unavailable shell", 
     assert.deepEqual(pageErrors, [], "an orphan detached page must not raise uncaught errors");
 });
 
+test("Chat pop-out contains URL construction and live host getter failures", { timeout: 60_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const pageErrors = [];
+    context.on("page", page => page.on("pageerror", error => pageErrors.push(error.message)));
+    await installInitScript(context, representativeConversation(), randomUUID());
+    const { calls } = await installApiRoutes(context);
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+    const main = await context.newPage();
+    await main.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
+    await selectChat(main);
+    await main.locator("#chat-input").fill("Draft survives startup exceptions.");
+    const historyBefore = await readStoredConversations(main);
+    await main.evaluate(() => {
+        const OriginalURL = window.URL;
+        try {
+            window.URL = class { constructor() { throw new Error("fixture URL construction failure"); } };
+            document.querySelector("#btn-chat-popout").click();
+        } finally { window.URL = OriginalURL; }
+    });
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible" });
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true);
+    assert.deepEqual(await main.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("llama-gui:chat-window-probe:"))), []);
+    assert.deepEqual(await readStoredConversations(main), historyBefore);
+    await main.evaluate(() => {
+        const chatWindow = window.LlamaGui.chatWindow;
+        const getAdapter = chatWindow.getPeerHostAdapter;
+        chatWindow.getPeerHostAdapter = candidate => {
+            const adapter = getAdapter(candidate);
+            return adapter && { ...adapter, getSettings() { throw new Error("fixture live host getter failure"); } };
+        };
+    });
+    const popupPromise = main.waitForEvent("popup");
+    await main.locator(CHAT_POP_OUT).click();
+    const popup = await popupPromise;
+    await popup.locator("body[data-chat-window-error]").waitFor({ state: "visible" });
+    assert.match(await popup.locator(`${CHAT_WINDOW_PLACEHOLDER} h3`).textContent(), /unavailable/i);
+    assert.equal(await popup.locator("#chat-layout").isVisible(), false);
+    assert.equal(await popup.locator("#section-quick-launch").isVisible(), false);
+    assert.equal(await popup.locator(CHAT_RETURN).isDisabled(), true);
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible", timeout: 15_000 });
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true);
+    assert.equal(await main.locator("#chat-input").inputValue(), "Draft survives startup exceptions.");
+    assert.deepEqual(await readStoredConversations(main), historyBefore);
+    assert.deepEqual(await main.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith("llama-gui:chat-window-probe:"))), []);
+    assert.equal(calls.some(call => /\/(launch|stop|shutdown|restart)$/.test(call.pathname)), false);
+    assert.deepEqual(pageErrors, []);
+});
+
 test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }, async t => {
     const server = await startUiServer();
     const browser = await chromium.launch({ headless: true });

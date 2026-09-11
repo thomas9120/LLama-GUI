@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Bounded Chat ownership waits and hardened transfer cancellation and detached-window startup failures.
 - Hardened separate Chat window recovery and added lifecycle, failure, and compatibility coverage with documented browser limits.
 - Fixed hidden main-window Return styling, cleared stale pop-out/return tooltips after ownership transitions, and added persistent blocked/handshake failure guidance.
 - Detached Chat failures now establish the isolated Chat shell before validation and offer same-browser full-GUI recovery guidance without starting app activity.

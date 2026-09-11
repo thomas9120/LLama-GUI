@@ -321,6 +321,7 @@
         let localEpoch = 0;
         let revision = Number.isInteger(config.revision) && config.revision >= 0 ? config.revision : 0;
         let transfer = null;
+        let transferOperation = null;
         let disposed = false;
         const pending = new Map();
         let state = {
@@ -347,6 +348,23 @@
         function setState(patch) {
             state = Object.assign({}, state, patch || {}, { epoch: localEpoch, revision });
             emit();
+        }
+
+        function retireTransfer() {
+            if (transfer) transfer.cancelled = true;
+            if (transferOperation) transferOperation.cancelled = true;
+            transfer = null;
+            transferOperation = null;
+        }
+
+        function isCurrentTransfer(candidate, phases) {
+            if (!candidate || transfer !== candidate || candidate.cancelled || disposed) return false;
+            return !phases || phases.includes(candidate.phase);
+        }
+
+        function isCurrentTransferOperation(operation) {
+            return Boolean(operation && transferOperation === operation && !operation.cancelled
+                && !disposed && state.hostAvailable && ownershipActive && localEpoch === operation.epoch);
         }
 
         function uiCall(name, args, fallback) {
@@ -527,23 +545,26 @@
             return Boolean(secureContext && lockManager && typeof lockManager.request === "function");
         }
 
-        function cancelPendingLock() {
-            if (!lockRequest) return false;
-            if (lockHeld) return false;
-            lockRequest.cancelled = true;
-            if (lockRequest.controller && typeof lockRequest.controller.abort === "function") lockRequest.controller.abort();
-            if (lockRequest.waiting) lockRequest.waiting.resolve(false);
-            lockRequest = null;
+        function cancelPendingLock(reason = "cancelled", expectedRequest) {
+            const request = lockRequest;
+            if (!request || (expectedRequest && request !== expectedRequest) || lockHeld) return false;
+            request.cancelled = true;
+            if (request.timer !== null && typeof clearTimeout === "function") clearTimeout(request.timer);
+            request.timer = null;
+            if (request.controller && typeof request.controller.abort === "function") request.controller.abort();
+            if (request.waiting) request.waiting.resolve(result(false, reason));
+            if (lockRequest === request) lockRequest = null;
             return true;
         }
 
         function acquireLock(options) {
             const lockOptions = Object.assign({ ifAvailable: true }, options || {});
             if (!lockSupport()) return Promise.resolve(result(false, "locks-unavailable"));
-            if (lockHeld) return Promise.resolve(result(true, "lock-acquired"));
+            if (lockHeld) return Promise.resolve(result(true, "lock-acquired", { request: lockRequest }));
             cancelPendingLock();
             const request = {
                 token: randomId("lock", config), cancelled: false, waiting: defer(), hold: defer(), controller: null,
+                timer: null,
             };
             lockRequest = request;
             if (typeof AbortController === "function") request.controller = new AbortController();
@@ -557,8 +578,10 @@
                     request.waiting.resolve(result(false, "lock-busy"));
                     return undefined;
                 }
+                if (request.timer !== null && typeof clearTimeout === "function") clearTimeout(request.timer);
+                request.timer = null;
                 lockHeld = true;
-                request.waiting.resolve(result(true, "lock-acquired"));
+                request.waiting.resolve(result(true, "lock-acquired", { request }));
                 return request.hold.promise;
             };
             let pendingRequest;
@@ -573,19 +596,34 @@
                     warn(config, "Web Lock request failed", error);
                 }
             }).finally(() => {
+                if (request.timer !== null && typeof clearTimeout === "function") clearTimeout(request.timer);
+                request.timer = null;
                 if (lockRequest === request && request.cancelled) lockRequest = null;
             });
+            const configuredTimeout = lockOptions.timeoutMs === undefined
+                ? (config.transferTimeoutMs === undefined ? 10000 : config.transferTimeoutMs)
+                : lockOptions.timeoutMs;
+            const configuredValue = Number(configuredTimeout);
+            const timeoutMs = Number.isFinite(configuredValue) && configuredValue > 0 ? configuredValue : 10000;
+            if (!requestOptions.ifAvailable && lockRequest === request && !lockHeld
+                && Number.isFinite(timeoutMs) && timeoutMs > 0 && typeof setTimeout === "function") {
+                request.timer = setTimeout(() => {
+                    cancelPendingLock("lock-timeout", request);
+                }, timeoutMs);
+            }
             return request.waiting.promise.then(outcome => {
                 if (!outcome.ok && lockRequest === request) lockRequest = null;
                 return outcome;
             });
         }
 
-        function releaseLock() {
+        function releaseLock(expectedRequest) {
             const request = lockRequest;
-            if (!request || !lockHeld) return false;
+            if (!request || !lockHeld || (expectedRequest && request !== expectedRequest)) return false;
             lockHeld = false;
             request.cancelled = true;
+            if (request.timer !== null && typeof clearTimeout === "function") clearTimeout(request.timer);
+            request.timer = null;
             request.hold.resolve();
             if (request.controller && typeof request.controller.abort === "function") request.controller.abort();
             if (lockRequest === request) lockRequest = null;
@@ -622,7 +660,7 @@
 
         async function acquireOwnership(options) {
             const acquireOptions = Object.assign({ ifAvailable: true, activate: true }, options || {});
-            if (disposed || (host && typeof host.isSessionValid === "function" && !host.isSessionValid())) return false;
+            if (disposed || !state.hostAvailable || (host && typeof host.isSessionValid === "function" && !host.isSessionValid())) return false;
             if (ownershipActive && !acquireOptions.expectedTransfer) return true;
             if (!lockSupport()) {
                 if (acquireOptions.allowSingleWindow === false) {
@@ -635,7 +673,17 @@
                 setState({ role: "single-window", status: "active", ownership: true, lockAvailable: false, popoutAvailable: false, reason: "exclusive Web Locks are unavailable" });
                 return true;
             }
+            const acquisitionEpoch = localEpoch;
             const outcome = await acquireLock(acquireOptions);
+            if (outcome.ok && acquireOptions.transferToken) {
+                Object.defineProperty(acquireOptions.transferToken, "lockRequest", {
+                    configurable: true, value: outcome.request,
+                });
+            }
+            if (disposed || localEpoch !== acquisitionEpoch || !state.hostAvailable) {
+                if (outcome.ok && lockHeld) releaseLock(outcome.request);
+                return false;
+            }
             if (!outcome.ok) {
                 setState({ status: outcome.reason === "lock-busy" ? "observer" : "error", ownership: false, reason: outcome.reason });
                 return false;
@@ -646,19 +694,22 @@
             }
             const activated = await activateAfterLock(acquireOptions.expectedTransfer, acquireOptions.snapshot);
             if (!activated) {
-                releaseLock();
-                setState({ status: "observer", ownership: false, reason: "transfer-record-invalid" });
+                releaseLock(outcome.request);
+                if (!disposed && state.hostAvailable && localEpoch === acquisitionEpoch) {
+                    setState({ status: "observer", ownership: false, reason: "transfer-record-invalid" });
+                }
                 return false;
             }
             return true;
         }
 
-        function releaseOwnership() {
+        function releaseOwnership(expectedRequest) {
+            if (expectedRequest && lockRequest !== expectedRequest) return false;
             if (!ownershipActive && !lockHeld) return false;
             ownershipActive = false;
             localEpoch += 1;
             setUiOwnership(false);
-            releaseLock();
+            releaseLock(expectedRequest);
             setState({ role: "observer", status: "released", ownership: false });
             return true;
         }
@@ -666,7 +717,7 @@
         function verifyMessage(event) {
             const message = event && event.data;
             if (!isObject(message) || message.channel !== PROTOCOL || message.version !== PROTOCOL_VERSION) return null;
-            if (origin && event.origin !== origin) return null;
+            if (!origin || event.origin !== origin) return null;
             // Registration is required before any handshake message is
             // accepted.  Same-origin alone is not an identity check.
             if (!peer || event.source !== peer) return null;
@@ -744,8 +795,8 @@
         async function prepareSourceTransfer(options) {
             const transferOptions = Object.assign({}, options || {});
             if (!peerVerified || !ownershipActive || !lockSupport()) return false;
-            if (transfer && transfer.phase === "owned" && ownershipActive) transfer = null;
-            if (transfer) return false;
+            if (transfer && transfer.phase === "owned" && ownershipActive) retireTransfer();
+            if (transfer || transferOperation) return false;
             const allowed = uiCall("getTransferState", [], { allowed: true });
             if (!allowed || allowed.allowed !== true) {
                 setState({ reason: allowed && allowed.reason ? allowed.reason : "chat is busy" });
@@ -754,16 +805,23 @@
             const destinationId = String(transferOptions.destinationId || peerId || "");
             if (!destinationId) return false;
             const transferId = String(transferOptions.transferId || randomId("transfer", config));
+            const operation = { id: transferId, epoch: localEpoch, cancelled: false };
+            transferOperation = operation;
+            const abortSourceAttempt = () => {
+                if (transferOperation !== operation || operation.cancelled) return;
+                const resume = ownershipActive && state.hostAvailable;
+                retireTransfer();
+                if (resume) uiCall("resumeTransfer", [], undefined);
+            };
             const suspended = await uiAwait("suspendTransfer", [], false);
-            if (!suspended || !ownershipActive) {
-                uiCall("resumeTransfer", [], undefined);
+            if (!suspended || !isCurrentTransferOperation(operation)) {
+                abortSourceAttempt();
                 return false;
             }
-            const transferEpoch = localEpoch;
             // suspendTransfer() performs the second idle/ownership check.  A
             // suspended Chat intentionally reports transfers as unavailable.
-            if (!await uiAwait("saveForTransfer", [], false) || !ownershipActive || localEpoch !== transferEpoch) {
-                uiCall("resumeTransfer", [], undefined);
+            if (!await uiAwait("saveForTransfer", [], false) || !isCurrentTransferOperation(operation)) {
+                abortSourceAttempt();
                 return false;
             }
             // Saving may itself checkpoint through Chat's workspace hook.
@@ -774,66 +832,67 @@
                 destinationInstanceId: destinationId, transferId, revision: transferRevision,
             };
             const snapshot = await uiAwait("captureSnapshot", [metadata], null);
-            if (!snapshot || !validateSnapshot(snapshot) || !ownershipActive || localEpoch !== transferEpoch) {
-                uiCall("resumeTransfer", [], undefined);
+            if (!snapshot || !validateSnapshot(snapshot) || !isCurrentTransferOperation(operation)) {
+                abortSourceAttempt();
                 return false;
             }
-            const checkpoint = writeCheckpoint(snapshot, metadata, "prepared", transferEpoch);
+            const checkpoint = writeCheckpoint(snapshot, metadata, "prepared", operation.epoch);
             if (!checkpoint.ok) {
-                uiCall("resumeTransfer", [], undefined);
+                abortSourceAttempt();
                 setState({ reason: checkpoint.reason });
                 return false;
             }
             revision = transferRevision;
             const normalizedSnapshot = cloneJson(snapshot, config, "chat snapshot");
             if (normalizedSnapshot && !normalizedSnapshot.kind) normalizedSnapshot.kind = SNAPSHOT_KIND;
-            transfer = { id: transferId, phase: "preparing", sourceId: instanceId, destinationId, revision: transferRevision, snapshot: normalizedSnapshot, epoch: transferEpoch };
+            transfer = { id: transferId, phase: "preparing", sourceId: instanceId, destinationId, revision: transferRevision, snapshot: normalizedSnapshot, epoch: operation.epoch };
+            const sourceTransfer = transfer;
             setState({ status: "preparing", transferId, reason: "" });
             const key = `ready:${transferId}`;
             const ready = addPending(key);
-            if (!send("prepare", { snapshot: normalizedSnapshot }, { transferId, revision: transferRevision, epoch: transfer.epoch })) {
+            if (!send("prepare", { snapshot: normalizedSnapshot }, { transferId, revision: transferRevision, epoch: sourceTransfer.epoch })) {
                 pending.delete(key);
-                transfer = null;
-                uiCall("resumeTransfer", [], undefined);
+                abortSourceAttempt();
                 return false;
             }
             const readyMessage = await waitForPending(key, transferOptions.timeoutMs);
-            if (!readyMessage || readyMessage.type !== "ready" || !transfer || transfer.phase !== "preparing") {
-                transfer = null;
-                uiCall("resumeTransfer", [], undefined);
+            if (!readyMessage || readyMessage.type !== "ready" || !isCurrentTransfer(sourceTransfer, ["preparing"])) {
+                abortSourceAttempt();
                 return false;
             }
-            transfer.phase = "committed";
+            sourceTransfer.phase = "committed";
             setState({ status: "committing" });
             const ackKey = `owner:${transferId}`;
             const ack = addPending(ackKey);
-            if (!send("commit", undefined, { transferId, revision: transferRevision, epoch: transfer.epoch })) {
+            if (!send("commit", undefined, { transferId, revision: transferRevision, epoch: sourceTransfer.epoch })) {
                 pending.delete(ackKey);
-                transfer = null;
-                uiCall("resumeTransfer", [], undefined);
+                abortSourceAttempt();
                 return false;
             }
             if (!setUiOwnership(false)) {
                 pending.delete(ackKey);
-                transfer = null;
-                uiCall("resumeTransfer", [], undefined);
+                abortSourceAttempt();
                 return false;
             }
             ownershipActive = false;
             localEpoch += 1;
             releaseLock();
-            transfer.phase = "awaiting-ack";
+            sourceTransfer.phase = "awaiting-ack";
             setState({ role: "observer", status: "released", ownership: false });
             const ownerAck = await waitForPending(ackKey, transferOptions.timeoutMs);
-            if (ownerAck && ownerAck.type === "owner-ack") {
-                transfer.phase = "complete";
+            if (ownerAck && ownerAck.type === "owner-ack" && isCurrentTransfer(sourceTransfer, ["awaiting-ack"]) && !operation.cancelled && state.hostAvailable) {
+                sourceTransfer.phase = "complete";
+                transferOperation = null;
                 setState({ status: "detached" });
                 return true;
             }
             // A receiver that disappeared after release cannot be replaced by
             // a timeout.  Keep this page inert; explicit recovery must acquire
             // the lock and revalidate the durable record.
-            setState({ status: "recovery-required", reason: "receiver did not acknowledge ownership" });
+            if (isCurrentTransfer(sourceTransfer, ["awaiting-ack"]) && !operation.cancelled) {
+                retireTransfer();
+                setState({ status: "recovery-required", reason: "receiver did not acknowledge ownership" });
+            }
             return false;
         }
 
@@ -863,15 +922,18 @@
                 destinationId: metadata.destinationId, revision: metadata.revision,
                 snapshot: message.payload.snapshot, epoch: message.epoch,
             };
+            const preparedTransfer = transfer;
             uiCall("setOwnership", [false], undefined);
             if (!await uiAwait("restoreSnapshot", [message.payload.snapshot], false)) {
-                transfer.phase = "failed";
+                if (!isCurrentTransfer(preparedTransfer, ["restoring"])) return;
+                preparedTransfer.phase = "failed";
                 send("reject", undefined, { transferId: message.transferId, revision: message.revision, reason: "restore-failed" });
                 return;
             }
-            transfer.phase = "prepared";
-            setState({ status: "prepared", transferId: transfer.id, role: "observer", ownership: false });
-            send("ready", undefined, { transferId: transfer.id, revision: transfer.revision, epoch: transfer.epoch });
+            if (!isCurrentTransfer(preparedTransfer, ["restoring"]) || !state.hostAvailable || !peerVerified) return;
+            preparedTransfer.phase = "prepared";
+            setState({ status: "prepared", transferId: preparedTransfer.id, role: "observer", ownership: false });
+            send("ready", undefined, { transferId: preparedTransfer.id, revision: preparedTransfer.revision, epoch: preparedTransfer.epoch });
         }
 
         async function handleCommit(message) {
@@ -881,22 +943,30 @@
                 if (transfer.phase === "owned") send("owner-ack", undefined, { transferId: transfer.id, revision: transfer.revision, epoch: transfer.epoch });
                 return;
             }
-            transfer.phase = "acquiring";
+            const committingTransfer = transfer;
+            committingTransfer.phase = "acquiring";
             setState({ status: "acquiring" });
             const acquired = await acquireOwnership({ ifAvailable: false, expectedTransfer: {
-                sourceId: transfer.sourceId, destinationId: transfer.destinationId,
-                transferId: transfer.id, revision: transfer.revision,
-            }, snapshot: transfer.snapshot });
-            if (!acquired) {
-                transfer.phase = "failed";
-                setState({ status: "recovery-required", reason: "ownership acquisition failed" });
-                send("reject", undefined, { transferId: transfer.id, revision: transfer.revision, reason: "ownership-failed" });
+                sourceId: committingTransfer.sourceId, destinationId: committingTransfer.destinationId,
+                transferId: committingTransfer.id, revision: committingTransfer.revision,
+            }, snapshot: committingTransfer.snapshot, timeoutMs: config.transferTimeoutMs, transferToken: committingTransfer });
+            if (!isCurrentTransfer(committingTransfer, ["acquiring"]) || !state.hostAvailable || !peerVerified) {
+                if (acquired && ownershipActive && committingTransfer.lockRequest
+                    && lockHeld && lockRequest === committingTransfer.lockRequest) {
+                    releaseOwnership(committingTransfer.lockRequest);
+                }
                 return;
             }
-            revision = Math.max(revision, transfer.revision);
-            transfer.phase = "owned";
+            if (!acquired) {
+                committingTransfer.phase = "failed";
+                setState({ status: "recovery-required", reason: "ownership acquisition failed" });
+                send("reject", undefined, { transferId: committingTransfer.id, revision: committingTransfer.revision, reason: "ownership-failed" });
+                return;
+            }
+            revision = Math.max(revision, committingTransfer.revision);
+            committingTransfer.phase = "owned";
             setState({ status: "active", role: "owner", ownership: true });
-            send("owner-ack", undefined, { transferId: transfer.id, revision: transfer.revision, epoch: transfer.epoch });
+            send("owner-ack", undefined, { transferId: committingTransfer.id, revision: committingTransfer.revision, epoch: committingTransfer.epoch });
         }
 
         function sendHostUpdate(change) {
@@ -1007,7 +1077,7 @@
                 peerId = null;
                 peerSession = null;
                 peerVerified = false;
-                if (transfer && transfer.phase === "owned" && ownershipActive) transfer = null;
+                if (transfer && transfer.phase === "owned" && ownershipActive) retireTransfer();
             }
             peer = nextPeer;
             peerId = peerOptions.peerId ? String(peerOptions.peerId) : null;
@@ -1072,6 +1142,7 @@
                         setState({ status: "recovery-required", ownership: false, reason: "saved Chat workspace was cleared" });
                         return result(false, "recovery-reset-failed");
                     }
+                    if (transfer || transferOperation) retireTransfer();
                     if (!await activateAfterLock(null, null)) {
                         releaseOwnership();
                         return result(false, "activation-failed");
@@ -1094,6 +1165,7 @@
                 if (!removed.ok || !resetWorkspaceUnderLock()) return false;
                 const activated = await activateAfterLock(null, null);
                 if (!activated) return false;
+                if (transfer || transferOperation) retireTransfer();
                 setState({ reason: "" });
                 return true;
             }
@@ -1101,7 +1173,7 @@
             if (!validateSnapshot(stored.record.snapshot)) return false;
             const restored = await activateAfterLock(null, stored.record.snapshot);
             if (!restored) return false;
-            if (transfer && transfer.phase !== "owned") transfer = null;
+            if ((transfer && transfer.phase !== "owned") || (!transfer && transferOperation)) retireTransfer();
             setState({ reason: "" });
             return true;
         }
@@ -1123,6 +1195,7 @@
             if (peerVerified) {
                 send("host-update", { change: { type: "session-invalidated" } }, { epoch: localEpoch });
             }
+            retireTransfer();
             state = Object.assign({}, state, { hostAvailable: false });
             // Quarantine mutation entry points immediately. Chat retains its
             // partial checkpoint while the awaited abort settles.
@@ -1184,6 +1257,7 @@
             listeners.clear();
             cancelPendingMessages(null);
             peerVerified = false;
+            retireTransfer();
             ownershipActive = false;
         }
 
@@ -1203,8 +1277,8 @@
                 const beforeRelease = transfer.phase === "preparing" || transfer.phase === "committed";
                 if (beforeRelease && !ownershipActive) return false;
                 transfer.phase = "failed";
+                retireTransfer();
                 uiCall("resumeTransfer", [], undefined);
-                transfer = null;
                 setState({ status: "active", transferId: null, reason: "transfer cancelled" });
                 return true;
             },
@@ -1215,7 +1289,6 @@
                 return snapshot && validateSnapshot(snapshot) ? cloneJson(snapshot, config, "chat snapshot") : null;
             },
             validateSnapshot,
-            restoreSnapshot: snapshot => validateSnapshot(snapshot) && uiCall("restoreSnapshot", [snapshot], false) !== false,
             checkpoint: checkpointSnapshot,
             readRecovery,
             invalidateRecovery,
@@ -1624,18 +1697,20 @@
                 return false;
             }
             popupProof = { key, value };
-            originalFocus = target.document.activeElement;
-            const url = new URL(target.location.href);
-            url.searchParams.set(DETACHED_QUERY_PARAM, "1");
-            url.searchParams.delete("preset");
-            let opened;
-            try { opened = target.open(url.href, POPUP_NAME, POPUP_FEATURES); } catch (error) {
-                opened = null;
+            let opened = null;
+            try {
+                originalFocus = target.document.activeElement;
+                const url = new URL(target.location.href);
+                url.searchParams.set(DETACHED_QUERY_PARAM, "1");
+                url.searchParams.delete("preset");
+                opened = target.open(url.href, POPUP_NAME, POPUP_FEATURES);
+            } catch (error) {
                 logger?.debug?.("Chat popout could not be opened", error);
             }
             if (!opened) {
                 try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
                 popupProof = null;
+                originalFocus = null;
                 setDetachedUi(false, "Allow popups for this page to open Chat in a separate window.");
                 setHostStatus("Chat remains available in this window. Allow popups for this page to open Chat in a separate window.");
                 return false;
@@ -1681,6 +1756,7 @@
             popupProof = null;
             setHostStatus("");
             setDetachedUi(true);
+            if (isClosedWindow(popup)) showRecoveryMessage();
             return true;
         }
 
@@ -1787,6 +1863,25 @@
     }
 
     async function startDetachedView(options = {}) {
+        const target = options.window || (typeof window !== "undefined" ? window : null);
+        if (!target) return result(false, "chat-host-unavailable");
+        const holder = { coordinator: null, hostCheckTimer: null };
+        try {
+            return await startDetachedViewImpl(options, holder);
+        } catch (error) {
+            if (holder.hostCheckTimer !== null) clearInterval(holder.hostCheckTimer);
+            holder.coordinator?.dispose?.();
+            debug({ window: target }, "Detached Chat bootstrap failed", error);
+            try {
+                showDetachedError(target, "Chat window unavailable", "This Chat window could not connect to the main GUI. Close it, then choose Recover chat here in the main Chat window.");
+            } catch (showError) {
+                debug({ window: target }, "Unable to show detached Chat error", showError);
+            }
+            return result(false, "detached-init-failed");
+        }
+    }
+
+    async function startDetachedViewImpl(options = {}, holder = {}) {
         const target = options.window || (typeof window !== "undefined" ? window : null);
         if (!target) return result(false, "chat-host-unavailable");
         await whenDomReady(target);
@@ -1916,6 +2011,7 @@
             onHostUpdate: updateRemote,
             onReturnRequest: () => { void transferToMain(); },
         });
+        holder.coordinator = coordinator;
         if (typeof target.addEventListener === "function") {
             target.addEventListener("pagehide", () => {
                 const transferState = coordinator.getState().transfer;
@@ -1979,6 +2075,7 @@
         options.monitorUi?.renderInferenceSnapshot?.(remoteState.inference);
         options.monitorUi?.renderStatsBarFromSnapshot?.(remoteState.inference, target.document);
         hostCheckTimer = setInterval(hasCurrentHostSession, 500);
+        holder.hostCheckTimer = hostCheckTimer;
         return Object.assign(result(true, "detached-ready"), { coordinator, hostAdapter: remoteAdapter, initialized });
     }
 
