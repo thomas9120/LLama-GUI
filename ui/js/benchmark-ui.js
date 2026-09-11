@@ -189,20 +189,25 @@
         return Boolean(core && typeof core.supportsLoadModeOnly === "function" && core.supportsLoadModeOnly());
     }
 
+    function getLoadModeArg(args) {
+        for (let index = args.length - 1; index >= 0; index -= 1) {
+            const entry = args[index];
+            if (Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm")) return entry;
+        }
+        return null;
+    }
+
     function hasLoadModeArg(args) {
-        return args.some((entry) => Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm"));
+        return Boolean(getLoadModeArg(args));
     }
 
     function getLoadModeArgValue(args) {
-        for (let index = args.length - 1; index >= 0; index -= 1) {
-            const entry = args[index];
-            if (Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm")) return String(entry[1]);
-        }
-        return "";
+        const entry = getLoadModeArg(args);
+        return entry ? String(entry[1]) : "";
     }
 
-    // On b10875+ builds a single --load-mode slot cannot express two legacy
-    // toggles at once, so name the winner instead of a generic exclusion.
+    // On b10875+ builds incompatible legacy toggles cannot share the single
+    // --load-mode slot, so name the winner instead of a generic exclusion.
     function loadModeConflictReason(flag, args) {
         if (!isLoadModeOnlyBuild() || !hasLoadModeArg(args)) return "";
         if (flag.id !== "mmap" && flag.id !== "mlock" && flag.id !== "direct_io") return "";
@@ -230,7 +235,14 @@
             }
             if (flag.id === "mmap") {
                 if (isLoadModeOnlyBuild()) {
-                    if (hasLoadModeArg(args)) return false;
+                    const loadModeArg = getLoadModeArg(args);
+                    if (loadModeArg) {
+                        if (value && loadModeArg[1] === "mlock") {
+                            loadModeArg[1] = "mmap+mlock";
+                            return true;
+                        }
+                        return false;
+                    }
                     args.push(["--load-mode", value ? "mmap" : "none"]);
                     return true;
                 }
@@ -240,7 +252,15 @@
             if (flag.id === "mlock" && isLoadModeOnlyBuild()) {
                 // mlock is opt-in, so only the enabled state maps onto
                 // --load-mode; off matches the new-build default behavior.
-                if (!value || hasLoadModeArg(args)) return false;
+                if (!value) return false;
+                const loadModeArg = getLoadModeArg(args);
+                if (loadModeArg) {
+                    if (loadModeArg[1] === "mmap") {
+                        loadModeArg[1] = "mmap+mlock";
+                        return true;
+                    }
+                    return false;
+                }
                 args.push(["--load-mode", "mlock"]);
                 return true;
             }
@@ -356,9 +376,8 @@
                     continue;
                 }
 
-                const before = args.length;
                 const didApply = pushFlagArg(args, tool, flag, value);
-                if (didApply && args.length > before) {
+                if (didApply) {
                     applied.push({ label: getFlagLabel(flag), value: flag.sensitive ? "<redacted>" : Array.isArray(value) ? value.join(",") : String(value) });
                 } else {
                     if (!Object.prototype.hasOwnProperty.call(defaultFlags, flag.id) || !valuesEqual(value, defaultFlags[flag.id])) {

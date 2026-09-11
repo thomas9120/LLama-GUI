@@ -473,8 +473,25 @@ function flat(result) {
     assert.ok(!flat(benchMlockOn).includes("--mlock"), "new builds must not emit --mlock");
     assert.ok(flat(benchMlockOn).includes("--load-mode") && flat(benchMlockOn).includes("mlock"));
 
-    // Two legacy toggles cannot share one --load-mode slot: the loser names
-    // the winner instead of a generic exclusion. FLAGS order decides.
+    const mlockFirstFlags = [...flags];
+    const mmapIndex = mlockFirstFlags.findIndex((flag) => flag.id === "mmap");
+    const mlockIndex = mlockFirstFlags.findIndex((flag) => flag.id === "mlock");
+    [mlockFirstFlags[mmapIndex], mlockFirstFlags[mlockIndex]] = [mlockFirstFlags[mlockIndex], mlockFirstFlags[mmapIndex]];
+    for (const orderedFlags of [flags, mlockFirstFlags]) {
+        const benchMmapMlock = adapter.buildBenchmarkArgs({
+            benchmarkType: "bench",
+            flags: orderedFlags,
+            source: { model: "tiny.gguf", flags: { load_mode: "", mmap: true, mlock: true } },
+        });
+        assert.equal(benchMmapMlock.error, null);
+        assert.equal(flat(benchMmapMlock).filter((token) => token === "--load-mode").length, 1);
+        assert.ok(flat(benchMmapMlock).includes("mmap+mlock"),
+            "enabled mmap and mlock toggles must preserve the supported combined mode in either flag order");
+        assert.ok(!benchMmapMlock.excluded.some((item) => item.label === "Mmap" || item.label === "Mlock"));
+    }
+
+    // Incompatible legacy toggles cannot share one --load-mode slot: the loser
+    // names the winner instead of a generic exclusion. FLAGS order decides.
     const benchConflict = adapter.buildBenchmarkArgs({
         benchmarkType: "bench",
         flags,

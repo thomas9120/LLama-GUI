@@ -1961,7 +1961,7 @@ async function runAbortScenario(action) {
             return makeFetch("complete")(url, options);
         }, seedConversations: original,
             flagValues: { temperature: 0.4, top_p: 0.9 }, extraElementIds: [
-                "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
+                "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle", "chat-datetime-enabled",
                 "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate",
             ] });
         await ctx.api._testLoadConversation("snapshot");
@@ -1989,6 +1989,8 @@ async function runAbortScenario(action) {
         assert.equal(snapshot.inputs.datetimeEnabled, true);
         assert.equal(snapshot.inputs.samplers, undefined, "samplers are read through the shared adapter, never restored");
         assert.equal(ctx.api.validateSnapshot(snapshot), true);
+        ctx.tools.setEnabled(false);
+        assert.equal(ctx.elements.get("chat-datetime-enabled").checked, false);
         const invalid = JSON.parse(JSON.stringify(snapshot));
         invalid.metadata.secret = "reject";
         assert.equal(ctx.api.validateSnapshot(invalid), false);
@@ -2001,6 +2003,8 @@ async function runAbortScenario(action) {
         assert.equal(ctx.elements.get("chat-system-prompt").value, "Live rules");
         assert.equal(ctx.elements.get("chat-input").value, "Draft text");
         assert.equal(ctx.tools.isEnabled(), true);
+        assert.equal(ctx.elements.get("chat-datetime-enabled").checked, true,
+            "snapshot restoration synchronizes the visible date/time setting");
         assert.deepEqual(ctx.getStoredConversations(), storedBeforeRestore, "restore is inert and does not write history");
         assert.equal(checkpoints, checkpointsBeforeRestore, "restore does not checkpoint by itself");
         assert.equal(await ctx.api._testSendMessage("observer restore"), false);
@@ -2013,17 +2017,31 @@ async function runAbortScenario(action) {
     {
         let requests = 0;
         let checkpoint = 0;
+        const workspaceInputIds = [
+            "chat-system-prompt", "chat-thinking-effort", "chat-datetime-enabled",
+            "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
+            "chat-slider-temp", "chat-slider-top-p", "chat-slider-top-k", "chat-slider-min-p",
+            "chat-slider-repeat", "chat-slider-max-tokens", "chat-num-temp", "chat-num-top-p",
+            "chat-num-top-k", "chat-num-min-p", "chat-num-repeat", "chat-num-max-tokens",
+        ];
         const ctx = makeContext({ fetchImpl: (url, options) => {
             if (String(url).includes("/api/chat/completions")) requests += 1;
             return makeFetch("complete")(url, options);
-        }, seedConversations: [{ id: "owned", messages: [{ role: "user", content: "Keep" }] }] });
+        }, seedConversations: [{ id: "owned", messages: [{ role: "user", content: "Keep" }] }],
+            extraElementIds: workspaceInputIds });
         await ctx.api._testLoadConversation("owned");
         ctx.api.configureWorkspace({ checkpoint: () => { checkpoint += 1; return true; }, onChange: () => {} });
         assert.equal(ctx.api.setOwnership(false), true);
         assert.equal(ctx.api.getTransferState().allowed, false);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, true, `${id} must be inert without workspace ownership`);
+        }
         await ctx.api._testSendMessage("blocked");
         assert.equal(requests, 0);
         assert.equal(ctx.api.setOwnership(true), true);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, false, `${id} must unlock with workspace ownership`);
+        }
         assert.equal(ctx.api.suspendTransfer(), true);
         assert.equal(ctx.api.getTransferState().allowed, false);
         await ctx.api._testSendMessage("suspended");
@@ -2032,6 +2050,9 @@ async function runAbortScenario(action) {
         assert.equal(checkpoint, 1);
         assert.equal(ctx.api.resumeTransfer(), true);
         ctx.api.setHostAvailable(false);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, true, `${id} must be inert while the host is unavailable`);
+        }
         await ctx.api._testSendMessage("offline host");
         assert.equal(requests, 0);
         ctx.api.setHostAvailable(true);

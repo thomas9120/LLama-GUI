@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Fixed combined mmap/mlock benchmark translation, made Chat settings inert when workspace mutation is unavailable, and synchronized the date/time checkbox after workspace restoration.
 - Fixed detached Chat recovery race: a popup that loses its host keeps the workspace lock while paused, so a reloading main page always observes lock-busy with explicit recovery instead of sometimes silently adopting the quarantined checkpoint.
 - Fixed detached Chat starting with ownership before the verified handoff; the popup now starts as an observer like the host path.
 - Fixed a Chat undo crash when the message container is missing and made the stream-abort helper return a boolean.

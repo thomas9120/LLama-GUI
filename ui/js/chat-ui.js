@@ -968,6 +968,15 @@
         const canSend = Boolean(isRunning) && canOperate && !chatStreaming && !compactionController && !sendPreflightPromise;
         const characterButton = document.getElementById("btn-chat-load-character");
         if (characterButton) characterButton.disabled = !canOperate || characterImportPending || chatStreaming || Boolean(compactionController) || Boolean(sendPreflightPromise);
+        const workspaceInputIds = [
+            "chat-system-prompt", "chat-thinking-effort", "chat-datetime-enabled",
+            "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
+            ...Object.keys(CHAT_SAMPLER_SLIDER_MAP), ...Object.keys(CHAT_NUMERIC_INPUTS),
+        ];
+        for (const id of workspaceInputIds) {
+            const input = document.getElementById(id);
+            if (input) input.disabled = !canOperate;
+        }
 
         if (chatInput) {
             chatInput.disabled = !isRunning || !canOperate;

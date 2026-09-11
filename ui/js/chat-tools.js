@@ -17,9 +17,15 @@
         workspaceChange = typeof options.onChange === "function" ? options.onChange : null;
     }
 
+    function syncCheckbox() {
+        const checkbox = typeof document !== "undefined" ? document.getElementById("chat-datetime-enabled") : null;
+        if (checkbox) checkbox.checked = enabled;
+    }
+
     function setEnabled(value, options = {}) {
         if (!canMutate()) return false;
         enabled = value === true;
+        syncCheckbox();
         if (options.persist !== false) {
             try {
                 localStorage.setItem(STORAGE_KEY, String(enabled));
@@ -51,7 +57,7 @@
     function init(onChange) {
         const checkbox = document.getElementById("chat-datetime-enabled");
         if (!checkbox) return;
-        checkbox.checked = enabled;
+        syncCheckbox();
         checkbox.onchange = () => {
             if (!setEnabled(checkbox.checked)) {
                 checkbox.checked = enabled;
