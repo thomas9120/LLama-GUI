@@ -1214,10 +1214,14 @@
             peerVerified = false;
             cancelPendingMessages(null);
             cancelPendingLock();
-            if (ownershipActive || lockHeld) {
+            // Retain a held Web Lock while paused: a fresh document must
+            // observe lock-busy (explicit recovery) rather than silently
+            // adopting this quarantined checkpoint, however it races our
+            // revocation write. The browser releases the lock when this
+            // document unloads; dispose() covers explicit teardown.
+            if (ownershipActive) {
                 ownershipActive = false;
                 setUiOwnership(false);
-                releaseLock();
             }
             setState({ role: "observer", status: "host-unavailable", ownership: false, reason: "host session invalidated" });
             return true;

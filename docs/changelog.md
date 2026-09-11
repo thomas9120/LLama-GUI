@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Fixed detached Chat recovery race: a popup that loses its host keeps the workspace lock while paused, so a reloading main page always observes lock-busy with explicit recovery instead of sometimes silently adopting the quarantined checkpoint.
 - Fixed detached Chat starting with ownership before the verified handoff; the popup now starts as an observer like the host path.
 - Fixed a Chat undo crash when the message container is missing and made the stream-abort helper return a boolean.
 - Cleaned up the pending Chat pop-out storage probe when the main page unloads mid-handshake.

@@ -618,6 +618,33 @@ function waitForCondition(predicate, description, timeoutMs = 1000) {
         assert.equal(pair.b.isOwner(), false);
     }
 
+    // A host-loss quarantine retains the Web Lock while paused: a fresh
+    // document observes lock-busy (explicit recovery) however it races the
+    // failed popup's revocation write, and recovers after the popup releases.
+    {
+        const locks = new FakeLocks();
+        const storage = new FakeStorage();
+        const popupUi = makeUi("revoked-popup");
+        const popup = api.createCoordinator({ instanceId: "revoked-popup", sessionId: "revoke-session", origin: "http://127.0.0.1:5240", locks, storage, chatUi: popupUi });
+        assert.equal((await popup.initialize({ recover: false })).ok, true);
+        assert.equal(await popup.invalidateSession(), true, "host loss quarantines a host-revocation checkpoint");
+        assert.equal(popup.isOwner(), false, "quarantined popup is paused");
+        assert.equal(popup.readRecovery().record.phase, "host-revocation");
+
+        const mainUi = makeUi("revoked-main");
+        const main = api.createCoordinator({ instanceId: "revoked-main", sessionId: "revoke-session", origin: "http://127.0.0.1:5240", locks, storage, chatUi: mainUi });
+        const initialized = await main.initialize();
+        assert.equal(initialized.ok, false);
+        assert.equal(initialized.reason, "lock-busy", "fresh document stays an observer while the paused popup holds the lock");
+        assert.equal(main.isOwner(), false);
+        assert.equal(mainUi.restores, 0, "quarantined snapshot is not silently restored");
+
+        popup.dispose();
+        await flush();
+        assert.equal(await main.recover(), true, "explicit recovery restores the quarantined checkpoint after release");
+        assert.equal(mainUi.snapshotState().title, "revoked-popup title");
+    }
+
     console.log("chat window coordinator tests passed");
 })().catch(error => {
     console.error(error);
