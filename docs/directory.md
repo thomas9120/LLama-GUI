@@ -887,7 +887,7 @@ Upstream's `--spec-ngram-simple-min-hits` is deliberately not exposed: the curre
 
 ### Model Load Mode
 
-The Context & Memory category exposes `--load-mode` with llama.cpp's `none`, `mmap`, `mlock`, and `dio` modes. The deprecated mmap, mlock, and Direct I/O controls remain available for older builds. When an explicit load mode is selected, command generation suppresses those overlapping legacy arguments so only `--load-mode` is emitted.
+The Context & Memory category exposes `--load-mode` with llama.cpp's `none`, `mmap`, `mlock`, and `dio` modes. The legacy mmap (`--mmap` / `--no-mmap`), mlock, and Direct I/O (`-dio` / `-ndio` / `--direct-io` / `--no-direct-io`) controls remain available for builds at or below b10874; they were removed from `llama-server` / `llama-cli` in b10875 (PR #28334), and b10917 help output confirms `llama-bench` / `llama-perplexity` only advertise `--load-mode` as well. When an explicit load mode is selected, command generation suppresses those overlapping legacy arguments so only `--load-mode` is emitted. On b10875+ (detected via the installed build tag), emitting a removed flag via Legacy controls or custom args adds a warn-only hint to select a `--load-mode` instead, and benchmark commands translate the legacy toggles: perplexity Memory Mapping off emits `--load-mode none` instead of `--no-mmap`; llama-bench mmap on/off emits `--load-mode mmap` / `none` instead of `-mmp 1/0`; Direct I/O on emits `--load-mode dio` instead of `-dio 1`, and off emits nothing. The legacy definitions carry `removed_in: "b10875"` so the installed-binary compatibility check exempts them on newer builds.
 
 ---
 

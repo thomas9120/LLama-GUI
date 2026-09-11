@@ -145,7 +145,7 @@ Fast Node tests:
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
-- `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
+- `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
 - `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:

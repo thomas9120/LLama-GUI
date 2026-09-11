@@ -180,6 +180,18 @@
         });
     }
 
+    // llama.cpp b10875 removed --mmap/--no-mmap, --mlock, and the -dio family
+    // from every tool — llama-bench and llama-perplexity only advertise
+    // --load-mode on such builds — so legacy load toggles must translate.
+    function isLoadModeOnlyBuild() {
+        const core = root.flagCore;
+        return Boolean(core && typeof core.supportsLoadModeOnly === "function" && core.supportsLoadModeOnly());
+    }
+
+    function hasLoadModeArg(args) {
+        return args.some((entry) => Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm"));
+    }
+
     function pushFlagArg(args, tool, flag, value) {
         if (isEmptyFlagValue(value)) return false;
 
@@ -197,10 +209,22 @@
                 }
             }
             if (flag.id === "mmap") {
+                if (isLoadModeOnlyBuild()) {
+                    if (hasLoadModeArg(args)) return false;
+                    args.push(["--load-mode", value ? "mmap" : "none"]);
+                    return true;
+                }
                 args.push(["-mmp", value ? "1" : "0"]);
                 return true;
             }
             if (flag.id === "direct_io") {
+                if (isLoadModeOnlyBuild()) {
+                    // "dio off" is the default load behavior on new builds, so
+                    // only the enabled state maps onto --load-mode.
+                    if (!value || hasLoadModeArg(args)) return false;
+                    args.push(["--load-mode", "dio"]);
+                    return true;
+                }
                 args.push(["-dio", value ? "1" : "0"]);
                 return true;
             }
@@ -353,7 +377,8 @@
                 if (flashAttention) args.push(["-fa", flashAttention]);
                 if (cacheTypeK) args.push(["-ctk", cacheTypeK]);
                 if (cacheTypeV) args.push(["-ctv", cacheTypeV]);
-                if (options.pplMmap === false) args.push(["--no-mmap"]);
+                const mmapOffArg = isLoadModeOnlyBuild() ? ["--load-mode", "none"] : ["--no-mmap"];
+                if (options.pplMmap === false) args.push(mmapOffArg);
                 args.push(["-f", String(options.promptFile)]);
                 if (options.chunks !== undefined && options.chunks !== "") args.push(["--chunks", String(options.chunks)]);
                 if (options.pplStride !== undefined && options.pplStride !== "") args.push(["--ppl-stride", String(options.pplStride)]);
@@ -366,7 +391,7 @@
                 if (flashAttention) applied.push({ label: "Flash Attention", value: flashAttention });
                 if (cacheTypeK) applied.push({ label: "K Cache Type", value: cacheTypeK });
                 if (cacheTypeV) applied.push({ label: "V Cache Type", value: cacheTypeV });
-                applied.push({ label: "Memory Mapping", value: options.pplMmap === false ? "Off (--no-mmap)" : "On" });
+                applied.push({ label: "Memory Mapping", value: options.pplMmap === false ? `Off (${mmapOffArg.join(" ")})` : "On" });
                 applied.push({ label: "Chunks", value: options.chunks === undefined || options.chunks === "" ? "-1" : String(options.chunks) });
                 applied.push({ label: "PPL Stride", value: options.pplStride === undefined || options.pplStride === "" ? "0" : String(options.pplStride) });
                 applied.push({ label: "Warmup", value: options.warmup === false ? "Off" : "On" });

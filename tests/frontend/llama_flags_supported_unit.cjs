@@ -85,6 +85,24 @@ function runHelp(executable) {
     return `${result.stdout || ""}\n${result.stderr || ""}`;
 }
 
+function parseToolBuildNumber(executable) {
+    const result = spawnSync(executable, ["--version"], {
+        cwd: ROOT,
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 30000,
+        maxBuffer: 1024 * 1024,
+    });
+    const text = stripAnsi(`${result.stdout || ""}\n${result.stderr || ""}`);
+    const match = /\bbuild\s+(\d+)\b/.exec(text) || /\bb(\d{3,})\b/.exec(text);
+    return match ? Number(match[1]) : null;
+}
+
+function parseRemovedInBuild(value) {
+    const match = /^b(\d+)$/.exec(String(value || "").trim());
+    return match ? Number(match[1]) : null;
+}
+
 function stripAnsi(value) {
     return String(value).replace(/\x1b\[[0-9;]*m/g, "");
 }
@@ -105,17 +123,27 @@ function expectedTools(flag) {
     return [flag.tool];
 }
 
-function collectUnsupportedFlags(flags, advertisedByTool) {
+function collectUnsupportedFlags(flags, advertisedByTool, buildByTool) {
     const unsupported = [];
+    const removedExemptions = [];
     for (const flag of flags) {
         // Fork-only flags (documented in docs/upstream-changes.md) are absent
         // from upstream builds on purpose; never hold them against a binary.
         if (flag.fork_only) continue;
+        const removedInBuild = parseRemovedInBuild(flag.removed_in);
         for (const option of [flag.flag, flag.false_flag].filter(Boolean)) {
             for (const tool of expectedTools(flag)) {
                 const advertised = advertisedByTool[tool];
                 if (!advertised) continue;
                 if (!advertised.has(option)) {
+                    // Flags removed upstream (removed_in, documented in
+                    // docs/upstream-changes.md) stay in the GUI for older
+                    // builds; builds at or above the removal tag may lack them.
+                    const build = buildByTool[tool];
+                    if (removedInBuild !== null && build !== null && build >= removedInBuild) {
+                        removedExemptions.push({ tool, id: flag.id, option, build, removedInBuild });
+                        continue;
+                    }
                     unsupported.push({
                         tool,
                         id: flag.id,
@@ -126,7 +154,7 @@ function collectUnsupportedFlags(flags, advertisedByTool) {
             }
         }
     }
-    return unsupported;
+    return { unsupported, removedExemptions };
 }
 
 assert.ok(!REQUIRE_BINARIES || EXPLICIT_BIN_DIR,
@@ -143,9 +171,11 @@ if (REQUIRE_BINARIES) {
 }
 
 const advertisedByTool = {};
+const buildByTool = {};
 for (const [tool, executable] of Object.entries(executables)) {
     if (!executable) continue;
     advertisedByTool[tool] = parseAdvertisedOptions(runHelp(executable));
+    buildByTool[tool] = parseToolBuildNumber(executable);
 }
 
 if (!advertisedByTool.server && !advertisedByTool.cli) {
@@ -156,7 +186,7 @@ if (!advertisedByTool.server && !advertisedByTool.cli) {
     process.exit(0);
 }
 
-const unsupported = collectUnsupportedFlags(flags, advertisedByTool);
+const { unsupported, removedExemptions } = collectUnsupportedFlags(flags, advertisedByTool, buildByTool);
 if (unsupported.length > 0) {
     console.error("Unsupported llama.cpp flags exposed by the GUI:");
     for (const item of unsupported) {
@@ -168,6 +198,12 @@ const forkOnlyCount = flags.filter((flag) => flag.fork_only).length;
 if (forkOnlyCount > 0) {
     console.log(
         `llama flag compatibility: skipped ${forkOnlyCount} fork-only flag(s) (fork_only: true; see docs/upstream-changes.md).`
+    );
+}
+if (removedExemptions.length > 0) {
+    console.log(
+        `llama flag compatibility: exempted ${removedExemptions.length} option(s) removed upstream (removed_in; see docs/upstream-changes.md): ` +
+        removedExemptions.map((item) => `${item.tool}: ${item.option} (build ${item.build} >= ${item.removedInBuild})`).join(", ")
     );
 }
 const checkedTools = Object.entries(executables)
