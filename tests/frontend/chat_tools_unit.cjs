@@ -100,6 +100,7 @@ assert.equal(tools.requestMessages([{ role: "assistant", content: "", toolMessag
 let toolChanges = 0;
 tools.configureWorkspace({ canMutate: () => false, onChange: () => { toolChanges += 1; } });
 assert.equal(tools.setEnabled(false), false, "workspace ownership gates tool preference mutation");
+assert.equal(tools.setEnabled(false, { force: true }), false, "callers cannot bypass workspace ownership");
 assert.equal(tools.isEnabled(), true);
 tools.configureWorkspace({ canMutate: () => true, onChange: () => { toolChanges += 1; } });
 assert.equal(tools.setEnabled(false), true);

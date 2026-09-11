@@ -18,7 +18,7 @@
     }
 
     function setEnabled(value, options = {}) {
-        if (!canMutate() && options.force !== true) return false;
+        if (!canMutate()) return false;
         enabled = value === true;
         if (options.persist !== false) {
             try {

@@ -164,10 +164,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 20. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
 21. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
 22. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
-23. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-24. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-25. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
-26. `app.js` — main orchestration (wires everything together)
+23. `chat-window.js` — verified Chat window, ownership/recovery coordination, and dedicated display bootstrap (`window.LlamaGui.chatWindow`)
+24. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+25. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+26. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
+27. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
 
@@ -203,6 +204,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/chat-compaction.js` | `window.LlamaGui.chatCompaction` | Manual summary generation with counted chunks, selected context, and preserved recent turns |
 | `ui/js/character-cards.js` | `window.LlamaGui.characterCards` | Bounded local JSON/PNG character-card parsing, field validation, basic name macros, and conversion to an editable prompt and greeting |
 | `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
+| `ui/js/chat-window.js` | `window.LlamaGui.chatWindow` | Dedicated Chat display, verified main/popup bridge, exclusive workspace ownership, handoff, and recovery checkpoints |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, shared template helpers, toasts, module initialization, and cache-busting reload |
@@ -622,7 +624,10 @@ All reads and writes go through helpers that tolerate blocked storage; failures 
 
 `chat-ui.js` owns the versioned workspace snapshot and guards conversation mutations with an ownership epoch. Its transfer interface suspends idle Chat, saves the existing conversation, captures/restores supported transcript and draft state without creating a second history entry, and keeps main-window layout separate. Shared sampler settings remain authoritative in the host and are never restored from a conversation transfer.
 
-`chat-window.js` provides the host adapter and a feature-specific coordinator for an exclusive origin-scoped Web Lock, verified peers, and one separate versioned recovery record. Recovery invalidation precedes destructive history writes. A timer or missed message never grants ownership. The Phase 2 module is inert until explicitly initialized; display-mode and application bootstrap wiring follow in Phase 3.
+`chat-window.js` provides the host adapter and a feature-specific coordinator for an exclusive origin-scoped Web Lock, verified peers, and one separate versioned recovery record. Recovery invalidation precedes destructive history writes. A timer or missed message never grants ownership. The module has no startup side effects until explicitly initialized.
+
+The detached display mode uses the same `index.html` and Chat modules. It bypasses normal application initialization and receives settings, runtime status, and inference snapshots through the original main window. The main window must remain open; it continues to own launch settings and process lifecycle actions. Only the current Chat owner may mutate conversation history. Main-window layout is retained separately, and popup panel choices do not overwrite it.
+
 The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface that proxies through the Python backend.
 
 ### Architecture

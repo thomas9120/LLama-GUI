@@ -1568,6 +1568,39 @@
             : "--");
     }
 
+    // The fixed stats bar is part of the shared Chat shell, while its values
+    // come from the one main-window inference engine. Keep this renderer pure
+    // so a detached Chat can reuse the DOM helper without creating a poller.
+    function renderStatsBarFromSnapshot(snapshot, targetDocument = document) {
+        const doc = targetDocument || document;
+        const get = id => doc.getElementById(id);
+        const set = (id, value, format) => {
+            const element = get(id);
+            if (element) element.textContent = value === null || value === undefined ? "--" : format(value);
+        };
+        const bar = get("stats-bar");
+        if (!bar) return;
+        if (!snapshot || !snapshot.targetKey) {
+            bar.classList.add("hidden");
+            for (const id of ["stats-prompt-tokens", "stats-prompt-speed", "stats-gen-tokens", "stats-gen-speed", "stats-context"]) {
+                const element = get(id);
+                if (element) element.textContent = "--";
+            }
+            const kv = get("stats-kv-usage");
+            if (kv) kv.textContent = "--%";
+            return;
+        }
+        bar.classList.remove("hidden");
+        set("stats-prompt-tokens", snapshot.session?.prompt, value => Math.round(value).toLocaleString());
+        set("stats-prompt-speed", snapshot.speed?.prompt, value => value.toFixed(1));
+        set("stats-prompt-speed-label", snapshot.speed?.promptIsLive, live => live ? "tok/s prompt live" : "tok/s prompt avg");
+        set("stats-gen-tokens", snapshot.session?.generated, value => Math.round(value).toLocaleString());
+        set("stats-gen-speed", snapshot.speed?.generated, value => value.toFixed(1));
+        set("stats-gen-speed-label", snapshot.speed?.generatedIsLive, live => live ? "tok/s gen live" : "tok/s gen avg");
+        set("stats-context", snapshot.session?.total, value => Math.round(value).toLocaleString());
+        set("stats-kv-usage", snapshot.context ? snapshot.context.percent : null, value => `${Math.round(value)}%`);
+    }
+
     // ════════════════════════════════════════════════════════════════════
     // Hidden-card behavior
     // ════════════════════════════════════════════════════════════════════
@@ -1999,6 +2032,7 @@
         updateProcessHeader,
         renderRuntime,
         renderInferenceSnapshot,
+        renderStatsBarFromSnapshot,
         // Shared stats helpers used by app.js's single poller:
         createInferenceStats,
         parseMetricsText,

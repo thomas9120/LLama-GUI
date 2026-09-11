@@ -1099,10 +1099,28 @@
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg></span>
                         <span id="chat-focus-label">Focus</span>
                     </button>
+                    <button class="btn btn-sm btn-ghost" id="btn-chat-popout" type="button" title="Open Chat in a separate window">
+                        <span class="icon icon-sm"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M14 3h7v7"/><path d="m21 3-9 9"/></svg></span>
+                        Pop out
+                    </button>
+                    <button class="btn btn-sm btn-ghost" id="btn-chat-return" type="button" title="Return Chat to the main window" hidden>
+                        Return to main window
+                    </button>
                     <button class="btn btn-sm" id="btn-chat-new" type="button">
                         <span class="icon icon-sm"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></span>
                         New Chat
                     </button>
+                </div>
+            </div>
+            <div id="chat-window-placeholder" class="chat-window-placeholder" role="status" hidden>
+                <div class="chat-window-placeholder-card">
+                    <span class="icon chat-window-placeholder-icon"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="14" height="14" rx="2"/><path d="M14 3h7v7"/><path d="m21 3-9 9"/></svg></span>
+                    <h3>Chat is open in another window</h3>
+                    <p>Use the separate Chat window to continue this conversation.</p>
+                    <div class="chat-window-placeholder-actions">
+                        <button class="btn btn-sm" id="btn-chat-show-window" type="button" hidden>Show window</button>
+                        <button class="btn btn-sm btn-ghost" id="btn-chat-return-here" type="button" hidden>Return chat here</button>
+                    </div>
                 </div>
             </div>
             <div class="chat-layout" id="chat-layout">
@@ -1846,6 +1864,7 @@
 <script src="/js/chat-compaction.js?v=revamp-1"></script>
 <script src="/js/character-cards.js?v=revamp-1"></script>
 <script src="/js/chat-ui.js?v=revamp-1"></script>
+<script src="/js/chat-window.js?v=chat-window-1"></script>
 <script src="/js/benchmark-ui.js?v=revamp-2"></script>
 <script src="/js/monitor-ui.js?v=monitor-1"></script>
 <script src="/js/shell-ui.js?v=shell-1"></script>

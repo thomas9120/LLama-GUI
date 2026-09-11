@@ -56,7 +56,7 @@ npm run test:frontend
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
-The browser suite has thirteen named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
+The browser suite has fourteen named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
 
 ```powershell
 node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smoke.cjs
@@ -73,6 +73,8 @@ node tests/frontend/chat_popout_capabilities.cjs
 It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus/close behavior, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
 
 `node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts.
+
+`node --test tests/frontend/chat_popout_integration.cjs` runs the actual application in isolated same-context main/popup pages. It covers a full detach/use/return cycle with a synthetic transcript, tools, answer versions, compaction, draft, focus layout, authoritative sampler updates/unset values, authenticated request construction, and secret exclusion. It verifies that the popup does not start lifecycle actions or its own status/inference polling. This test is included in `npm run test:frontend` and never uses a real model or existing browser profile.
 
 Preset browser coverage includes loading into Configure, mirrored saved/modified identity, browsing without changing the edit source, masked comparisons, cancelling an update with focus restoration, saving the reviewed snapshot while newer edits remain pending, save-name collisions, rename/archive navigation, recoverable save failures, removal during a review, and containment at 390/900/1440px.
 

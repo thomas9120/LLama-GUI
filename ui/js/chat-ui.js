@@ -914,6 +914,7 @@
                     : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
             }
         }
+        notifyWorkspaceChange();
     }
 
     function updateStatusBadge() {
@@ -1536,6 +1537,7 @@
         const pending = runMessage(userText, retry, attemptToken, ownerEpoch);
         sendPreflightPromise = pending;
         chatStreamPromise = pending;
+        updateChatAvailability(isServerRunning());
         const clearPending = () => {
             if (chatStreamPromise === pending) chatStreamPromise = null;
             if (sendPreflightPromise === pending) {

@@ -882,14 +882,37 @@
             send("owner-ack", undefined, { transferId: transfer.id, revision: transfer.revision, epoch: transfer.epoch });
         }
 
+        function sendHostUpdate(change) {
+            if (!host || !peerVerified || !state.hostAvailable) return false;
+            const safeChange = isObject(change) ? change : {};
+            const read = getter => {
+                try { return typeof getter === "function" ? getter() : null; }
+                catch (error) { debug(config, "Host state read failed", error); return null; }
+            };
+            const payload = {
+                settings: read(host.getSettings),
+                runtime: read(host.getRuntime),
+                status: read(host.getStatus),
+                inference: read(host.getInference),
+                change: {
+                    type: typeof safeChange.type === "string" ? safeChange.type : "host-change",
+                    fields: Array.isArray(safeChange.fields) ? safeChange.fields : undefined,
+                },
+            };
+            return send("host-update", payload, { epoch: localEpoch });
+        }
+
         function handleMessage(event) {
             const message = verifyMessage(event);
             if (!message) return false;
             if (message.type === "hello") {
+                if (typeof config.verifyPeerProof === "function" && !config.verifyPeerProof(message.payload || {})) return false;
                 if (!peerSession) peerSession = message.sessionId;
+                if (!peerId) peerId = message.sourceId;
                 peerVerified = true;
                 setState({ popoutAvailable: lockSupport(), hostAvailable: !host || host.isSessionValid() });
                 send("hello-ack", undefined, { epoch: localEpoch });
+                sendHostUpdate({ type: "hello" });
                 return true;
             }
             if (!peerVerified && message.type !== "hello-ack") return false;
@@ -916,6 +939,30 @@
             if (message.type === "host-update") {
                 if (typeof config.onHostUpdate === "function") {
                     try { config.onHostUpdate(message.payload || {}); } catch (error) { warn(config, "Host update listener failed", error); }
+                }
+                return true;
+            }
+            if (message.type === "abort") {
+                const requestId = typeof message.requestId === "string" ? message.requestId : "";
+                if (typeof ui.abortActiveStream !== "function") {
+                    send("abort-ack", { ok: false }, { epoch: localEpoch, requestId });
+                    return true;
+                }
+                Promise.resolve(ui.abortActiveStream()).then(() => {
+                    send("abort-ack", { ok: true }, { epoch: localEpoch, requestId });
+                }).catch(error => {
+                    warn(config, "Chat abort request failed", error);
+                    send("abort-ack", { ok: false }, { epoch: localEpoch, requestId });
+                });
+                return true;
+            }
+            if (message.type === "abort-ack") {
+                if (typeof message.requestId === "string") resolvePending(`abort:${message.requestId}`, message);
+                return true;
+            }
+            if (message.type === "return-request") {
+                if (typeof config.onReturnRequest === "function") {
+                    try { void config.onReturnRequest(message); } catch (error) { warn(config, "Return request failed", error); }
                 }
                 return true;
             }
@@ -947,9 +994,9 @@
             return result(true, "peer-attached", { instanceId, sessionId, origin: peerOrigin });
         }
 
-        function beginHandshake() {
+        function beginHandshake(payload) {
             installMessageListener();
-            return send("hello", undefined, { epoch: localEpoch });
+            return send("hello", payload === undefined ? undefined : payload, { epoch: localEpoch });
         }
 
         async function initialize(options) {
@@ -967,16 +1014,7 @@
                         return;
                     }
                     if (!state.hostAvailable) return;
-                    const hostState = {
-                        settings: typeof host.getSettings === "function" ? host.getSettings() : {},
-                        runtime: typeof host.getRuntime === "function" ? host.getRuntime() : null,
-                        status: typeof host.getStatus === "function" ? host.getStatus() : null,
-                        change: isObject(change) ? {
-                            type: typeof change.type === "string" ? change.type : "host-change",
-                            fields: Array.isArray(change.fields) ? change.fields : undefined,
-                        } : { type: "host-change" },
-                    };
-                    send("host-update", hostState, { epoch: localEpoch });
+                    sendHostUpdate(change);
                     if (typeof config.onHostChange === "function") {
                         try { config.onHostChange(change); } catch (error) { warn(config, "Host change listener failed", error); }
                     }
@@ -1026,6 +1064,9 @@
 
         async function invalidateSession() {
             if (!state.hostAvailable && !peerVerified) return false;
+            if (peerVerified) {
+                send("host-update", { change: { type: "session-invalidated" } }, { epoch: localEpoch });
+            }
             state = Object.assign({}, state, { hostAvailable: false });
             // Quarantine mutation entry points immediately. Chat retains its
             // partial checkpoint while the awaited abort settles.
@@ -1054,7 +1095,7 @@
         }
 
         function getPeerHostAdapter(candidate) {
-            if (!peerVerified || (candidate && candidate !== peer) || !state.hostAvailable || !host) return null;
+            if (!peerVerified || candidate !== peer || !state.hostAvailable || !host) return null;
             // Cross-window consumers receive only the narrow live bridge. They
             // cannot invalidate/dispose the host or publish forged notices.
             return Object.freeze({
@@ -1125,7 +1166,25 @@
             clearRecovery,
             recover,
             invalidateSession,
+            abortActiveStream() {
+                if (disposed || !state.hostAvailable) return Promise.resolve(false);
+                if (ownershipActive) return uiAwait("abortActiveStream", [], false).then(() => true);
+                if (!peerVerified) return Promise.resolve(false);
+                const requestId = randomId("abort", config);
+                const key = `abort:${requestId}`;
+                addPending(key);
+                if (!send("abort", undefined, { epoch: localEpoch, requestId })) {
+                    pending.delete(key);
+                    return Promise.resolve(false);
+                }
+                return waitForPending(key, 5000).then(message => Boolean(message && message.payload && message.payload.ok));
+            },
+            requestReturn() {
+                if (disposed || !peerVerified || !state.hostAvailable) return false;
+                return send("return-request", undefined, { epoch: localEpoch });
+            },
             getPeerHostAdapter,
+            getSessionInfo: () => ({ instanceId, sessionId, origin, protocolVersion: PROTOCOL_VERSION }),
             getTransferState: () => uiCall("getTransferState", [], { allowed: false, reason: "chat UI unavailable" }),
             getState: () => Object.assign({}, state, { transfer: transfer ? Object.assign({}, transfer, { snapshot: undefined }) : null }),
             isOwner: () => ownershipActive,
@@ -1140,10 +1199,587 @@
         return Object.freeze(coordinator);
     }
 
+    const DETACHED_QUERY_PARAM = "chat-window";
+    const POPUP_NAME = "llama-gui-chat";
+    const POPUP_FEATURES = "popup=yes,width=960,height=760,resizable=yes,scrollbars=yes";
+
+    function isDetachedView(target) {
+        const current = target || (typeof window !== "undefined" ? window : null);
+        try {
+            const href = current && current.location && typeof current.location.href === "string"
+                ? current.location.href : "";
+            if (!href) return false;
+            if (typeof URL === "function") return new URL(href).searchParams.get(DETACHED_QUERY_PARAM) === "1";
+            const query = href.split("?", 2)[1]?.split("#", 1)[0] || "";
+            return query.split("&").some(part => {
+                const [key, value] = part.split("=", 2);
+                return decodeURIComponent(key || "") === DETACHED_QUERY_PARAM && decodeURIComponent(value || "") === "1";
+            });
+        } catch (error) {
+            if (current && current.console && typeof current.console.debug === "function") {
+                current.console.debug("Unable to determine Chat window mode", error);
+            }
+            return false;
+        }
+    }
+
+    function isClosedWindow(value) {
+        try { return !value || value.closed === true; } catch (error) { return true; }
+    }
+
+    function safeRead(getter, fallback, logger) {
+        try { return typeof getter === "function" ? getter() : fallback; }
+        catch (error) {
+            if (logger && typeof logger.debug === "function") logger.debug("Chat window host read failed", error);
+            return fallback;
+        }
+    }
+
+    function createFlagCoreBridge(host, options = {}) {
+        const listeners = new Set();
+        let values = {};
+        let selectedModel = "";
+        const logger = options.window && options.window.console;
+
+        function refresh(nextSettings) {
+            const settings = nextSettings && typeof nextSettings === "object" ? nextSettings
+                : safeRead(host && host.getSettings, {}, logger);
+            values = Object.assign({}, settings || {});
+            selectedModel = values.selected_model === null || values.selected_model === undefined
+                ? "" : String(values.selected_model);
+            for (const listener of Array.from(listeners)) {
+                try { listener(values); } catch (error) {
+                    if (logger && typeof logger.warn === "function") logger.warn("Detached Chat settings listener failed", error);
+                }
+            }
+            return values;
+        }
+
+        function currentValues() {
+            const live = safeRead(host && host.getSettings, null, logger);
+            if (live && typeof live === "object" && !Array.isArray(live)) refresh(live);
+            return Object.assign({}, values);
+        }
+
+        function write(patch) {
+            if (!host || typeof host.setSettings !== "function") throw new Error("Chat host settings writer is unavailable.");
+            if (typeof host.isSessionValid === "function" && host.isSessionValid() !== true) {
+                throw new Error("Chat host is not connected.");
+            }
+            const resultValue = host.setSettings(patch);
+            refresh(resultValue);
+            return values;
+        }
+
+        refresh();
+        return Object.freeze({
+            getFlagValues: currentValues,
+            getSelectedModel: () => {
+                currentValues();
+                return selectedModel;
+            },
+            getCurrentTool: () => "llama-server",
+            setFlagValue: (field, value) => write({ [field]: value }),
+            setMultipleFlagValues: patch => write(patch),
+            subscribe(listener) {
+                if (typeof listener !== "function") return () => {};
+                listeners.add(listener);
+                return () => listeners.delete(listener);
+            },
+            refresh,
+        });
+    }
+
+    function waitForPeer(coordinator, timeoutMs = 10000) {
+        if (coordinator.isPeerVerified()) return Promise.resolve(true);
+        const limit = Number.isFinite(Number(timeoutMs)) ? Math.max(0, Number(timeoutMs)) : 10000;
+        return new Promise(resolve => {
+            let finished = false;
+            const finish = value => {
+                if (finished) return;
+                finished = true;
+                if (unsubscribe) unsubscribe();
+                if (timer) clearInterval(timer);
+                resolve(Boolean(value));
+            };
+            const unsubscribe = coordinator.subscribe(() => {
+                if (coordinator.isPeerVerified()) finish(true);
+            });
+            const timer = typeof setInterval === "function" ? setInterval(() => {
+                if (coordinator.isPeerVerified()) finish(true);
+            }, 50) : null;
+            if (typeof setTimeout === "function") setTimeout(() => finish(coordinator.isPeerVerified()), limit);
+            else finish(coordinator.isPeerVerified());
+        });
+    }
+
+    function whenDomReady(target) {
+        if (!target || !target.document || target.document.readyState !== "loading") return Promise.resolve();
+        return new Promise(resolve => target.document.addEventListener("DOMContentLoaded", resolve, { once: true }));
+    }
+
+    function showDetachedError(target, title, message) {
+        const doc = target && target.document;
+        const placeholder = doc?.getElementById("chat-window-placeholder");
+        const layout = doc?.getElementById("chat-layout");
+        const heading = placeholder?.querySelector("h3");
+        const detail = placeholder?.querySelector("p");
+        const showWindow = doc?.getElementById("btn-chat-show-window");
+        const returnHere = doc?.getElementById("btn-chat-return-here");
+        if (heading) heading.textContent = title;
+        if (detail) detail.textContent = message;
+        if (layout) layout.hidden = true;
+        if (placeholder) placeholder.hidden = false;
+        if (showWindow) showWindow.hidden = true;
+        if (returnHere) returnHere.hidden = true;
+        doc?.body?.setAttribute("data-chat-window-error", "true");
+        heading?.focus?.();
+    }
+
+    function startHostView(options = {}) {
+        const target = options.window || (typeof window !== "undefined" ? window : null);
+        const chatUi = options.chatUi || target?.LlamaGui?.chatUi;
+        const flagCore = options.flagCore || target?.LlamaGui?.flagCore;
+        if (!target || !chatUi || !flagCore) return Promise.resolve(result(false, "chat-host-unavailable"));
+        if (api._hostView) return api._hostView.ready;
+
+        let popup = null;
+        let popupProof = null;
+        let detached = false;
+        let mainLayout = null;
+        let originalFocus = null;
+        let closedCheckTimer = null;
+        const storage = getStorage({ window: target });
+        const logger = target.console;
+        const getStatus = () => safeRead(options.getLatestStatus, null, logger);
+        const getLifecycle = () => safeRead(options.getLifecycleSnapshot, null, logger);
+        const hostAdapter = createHostAdapter({
+            window: target,
+            storage,
+            flagCore,
+            getChatSamplerFlagIds: () => chatUi.getChatSamplerFlagIds?.() || [],
+            getSelectedModel: () => flagCore.getSelectedModel?.() || "",
+            getActiveRuntime: getLifecycle,
+            getStatus,
+            getInference: () => safeRead(options.getInferenceSnapshot, null, logger),
+            resetInferenceBaseline: options.resetInferenceBaseline,
+            getAuthorizationHeaders: options.getApiAuthorizationHeaders,
+            bringToFront: () => {
+                try { target.focus(); return true; } catch (error) {
+                    logger?.debug?.("Main Chat focus failed", error);
+                    return false;
+                }
+            },
+            navigate: tabId => {
+                if (typeof options.switchTab !== "function") return false;
+                try {
+                    options.switchTab(tabId);
+                    try { target.focus(); } catch (error) { logger?.debug?.("Main Chat focus failed", error); }
+                    return true;
+                } catch (error) { return false; }
+            },
+        });
+        const coordinator = createCoordinator({
+            window: target,
+            chatUi,
+            flagCore,
+            hostAdapter,
+            verifyPeerProof: payload => Boolean(popupProof && payload && payload.proof
+                && payload.proof.key === popupProof.key && payload.proof.value === popupProof.value),
+        });
+
+        function setDetachedUi(active, reason) {
+            detached = Boolean(active);
+            const placeholder = target.document.getElementById("chat-window-placeholder");
+            const layout = target.document.getElementById("chat-layout");
+            const popout = target.document.getElementById("btn-chat-popout");
+            const returnHere = target.document.getElementById("btn-chat-return-here");
+            const showWindow = target.document.getElementById("btn-chat-show-window");
+            if (placeholder) placeholder.hidden = !detached;
+            if (layout) layout.hidden = detached;
+            if (popout) {
+                popout.disabled = detached || !coordinator.isOwner() || !coordinator.getState().popoutAvailable;
+                if (reason) popout.title = reason;
+            }
+            if (returnHere) returnHere.hidden = !detached;
+            if (returnHere && !detached) returnHere.textContent = "Return chat here";
+            if (showWindow) showWindow.hidden = !detached;
+            if (!detached) {
+                const heading = placeholder?.querySelector("h3");
+                const message = placeholder?.querySelector("p");
+                if (heading) heading.textContent = "Chat is open in another window";
+                if (message) message.textContent = "Use the separate Chat window to continue this conversation.";
+            }
+            if (typeof options.onDetachedChange === "function") {
+                try { options.onDetachedChange(detached); } catch (error) { logger?.warn?.("Chat detached-state callback failed", error); }
+            }
+        }
+
+        function restoreSourceAfterFailure() {
+            setDetachedUi(false);
+            if (mainLayout) chatUi.restoreLayout?.(mainLayout);
+            mainLayout = null;
+            try { target.focus(); } catch (error) { logger?.debug?.("Main Chat focus failed", error); }
+            if (originalFocus && typeof originalFocus.focus === "function") {
+                try { originalFocus.focus(); } catch (error) { logger?.debug?.("Chat control focus failed", error); }
+            }
+            originalFocus = null;
+        }
+
+        function showRecoveryMessage() {
+            const placeholder = target.document.getElementById("chat-window-placeholder");
+            const heading = placeholder?.querySelector("h3");
+            const message = placeholder?.querySelector("p");
+            const showWindow = target.document.getElementById("btn-chat-show-window");
+            const returnHere = target.document.getElementById("btn-chat-return-here");
+            if (heading) heading.textContent = "The Chat window was closed";
+            if (message) message.textContent = "Recover the saved Chat workspace here when you are ready.";
+            if (showWindow) showWindow.hidden = true;
+            if (returnHere) {
+                returnHere.hidden = false;
+                returnHere.disabled = false;
+                returnHere.textContent = "Recover chat here";
+            }
+        }
+
+        function updateControls(state) {
+            const transferState = coordinator.getTransferState();
+            const popout = target.document.getElementById("btn-chat-popout");
+            if (popout) {
+                popout.disabled = detached || !coordinator.isOwner() || state.popoutAvailable !== true
+                    || transferState.allowed !== true;
+                if (transferState.reason || state.reason) popout.title = transferState.reason || state.reason;
+            }
+            const returnHere = target.document.getElementById("btn-chat-return-here");
+            if (returnHere && detached) {
+                returnHere.disabled = Boolean(state.transfer && !isClosedWindow(popup)
+                    && state.transfer.phase !== "complete");
+            }
+            if (state.status === "detached" && !detached) setDetachedUi(true);
+            if (state.ownership && detached) {
+                detached = false;
+                setDetachedUi(false);
+                if (mainLayout) chatUi.restoreLayout?.(mainLayout);
+                target.document.getElementById("chat-input")?.focus();
+                mainLayout = null;
+            }
+        }
+
+        async function openPopout() {
+            if (isClosedWindow(popup) === false) {
+                try { popup.focus(); } catch (error) { logger?.debug?.("Chat popout focus failed", error); }
+                return true;
+            }
+            const state = coordinator.getState();
+            const transferState = coordinator.getTransferState();
+            if (!state.popoutAvailable || !coordinator.isOwner() || transferState.allowed !== true) {
+                setDetachedUi(false, transferState.reason || state.reason || "Chat popout is unavailable in this browser.");
+                return false;
+            }
+            if (!storage || typeof storage.setItem !== "function") {
+                setDetachedUi(false, "Chat popout requires available same-origin storage.");
+                return false;
+            }
+            const key = `llama-gui:chat-window-probe:${randomId("probe", { window: target })}`;
+            const value = randomId("partition", { window: target });
+            try { storage.setItem(key, value); } catch (error) {
+                logger?.debug?.("Chat popout storage probe failed", error);
+                setDetachedUi(false, "Chat popout requires available same-origin storage.");
+                return false;
+            }
+            popupProof = { key, value };
+            originalFocus = target.document.activeElement;
+            const url = new URL(target.location.href);
+            url.searchParams.set(DETACHED_QUERY_PARAM, "1");
+            url.searchParams.delete("preset");
+            let opened;
+            try { opened = target.open(url.href, POPUP_NAME, POPUP_FEATURES); } catch (error) {
+                opened = null;
+                logger?.debug?.("Chat popout could not be opened", error);
+            }
+            if (!opened) {
+                try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
+                popupProof = null;
+                setDetachedUi(false, "Allow popups for this page to open Chat in a separate window.");
+                return false;
+            }
+            popup = opened;
+            mainLayout = chatUi.captureLayout?.() || null;
+            coordinator.attachPeer(popup, { origin: getOrigin({ window: target }), sessionId: coordinator.sessionId });
+            if (!closedCheckTimer && typeof setInterval === "function") {
+                closedCheckTimer = setInterval(() => {
+                    if (!isClosedWindow(popup)) return;
+                    popup = null;
+                    popupProof = null;
+                    if (detached) showRecoveryMessage();
+                    if (closedCheckTimer) { clearInterval(closedCheckTimer); closedCheckTimer = null; }
+                }, 500);
+            }
+            const ready = await waitForPeer(coordinator, 10000);
+            if (!ready || isClosedWindow(popup)) {
+                try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
+                popupProof = null;
+                if (!isClosedWindow(popup)) {
+                    try { popup.close(); } catch (error) { logger?.debug?.("Failed Chat popup close", error); }
+                }
+                popup = null;
+                restoreSourceAfterFailure();
+                return false;
+            }
+            try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
+            if (!await coordinator.beginTransfer({ timeoutMs: 10000 })) {
+                popupProof = null;
+                if (coordinator.getState().status === "recovery-required") {
+                    setDetachedUi(true, "Chat ownership needs explicit recovery from the saved workspace.");
+                    try { target.focus(); } catch (error) { logger?.debug?.("Main Chat focus failed", error); }
+                } else {
+                    try { popup?.close?.(); } catch (error) { logger?.debug?.("Failed Chat popup close", error); }
+                    popup = null;
+                    restoreSourceAfterFailure();
+                }
+                return false;
+            }
+            popupProof = null;
+            setDetachedUi(true);
+            return true;
+        }
+
+        async function requestReturn() {
+            if (!detached) return false;
+            if (isClosedWindow(popup)) return recoverMain();
+            return coordinator.requestReturn();
+        }
+
+        async function recoverMain() {
+            const locked = await coordinator.acquireOwnership({ ifAvailable: true, activate: false });
+            if (!locked) return false;
+            const record = coordinator.readRecovery();
+            if (!record.ok && record.reason !== "empty" && record.reason !== "invalidated") {
+                coordinator.releaseOwnership();
+                return false;
+            }
+            let recovered = false;
+            if (record.ok && record.record && !record.record.invalidated) {
+                recovered = await coordinator.recover();
+                if (!recovered) {
+                    coordinator.releaseOwnership();
+                    return false;
+                }
+            } else {
+                recovered = await coordinator.acquireOwnership({ ifAvailable: true, activate: true });
+            }
+            if (recovered) {
+                setDetachedUi(false);
+                mainLayout = null;
+                target.document.getElementById("chat-input")?.focus();
+            }
+            return recovered;
+        }
+
+        function getBootstrapInfo(candidate) {
+            if (candidate !== popup || isClosedWindow(popup) || !popupProof) return null;
+            return {
+                instanceId: coordinator.instanceId,
+                sessionId: coordinator.sessionId,
+                origin: getOrigin({ window: target }),
+                protocolVersion: PROTOCOL_VERSION,
+                proofKey: popupProof.key,
+                proofValue: popupProof.value,
+            };
+        }
+
+        chatUi.configureWorkspace({
+            checkpoint: snapshot => coordinator.checkpoint(snapshot),
+            invalidate: () => coordinator.invalidateRecovery().ok,
+            onChange: () => updateControls(coordinator.getState()),
+            detachedView: false,
+        });
+        coordinator.subscribe(updateControls);
+        target.document.getElementById("btn-chat-popout")?.addEventListener("click", () => { void openPopout(); });
+        target.document.getElementById("btn-chat-show-window")?.addEventListener("click", () => {
+            if (!isClosedWindow(popup)) popup.focus();
+        });
+        target.document.getElementById("btn-chat-return-here")?.addEventListener("click", () => { void requestReturn(); });
+        if (typeof target.addEventListener === "function") {
+            target.addEventListener("pagehide", () => { void coordinator.invalidateSession(); });
+        }
+        const ready = coordinator.initialize({ acquire: true, recover: true });
+        api._hostView = { coordinator, hostAdapter, openPopout, requestReturn, getBootstrapInfo,
+            isDetached: () => detached, ready,
+            get popup() { return popup; } };
+        return ready;
+    }
+
+    async function startDetachedView(options = {}) {
+        const target = options.window || (typeof window !== "undefined" ? window : null);
+        const opener = target && target.opener;
+        const chatUi = options.chatUi || target?.LlamaGui?.chatUi;
+        if (!target) return result(false, "chat-host-unavailable");
+        if (!opener || !chatUi || !opener.LlamaGui?.chatWindow) {
+            await whenDomReady(target);
+            showDetachedError(target, "Chat window unavailable", "Return to the main window and open Chat again.");
+            return result(false, "chat-host-unavailable");
+        }
+        let descriptor;
+        try { descriptor = opener.LlamaGui.chatWindow.getBootstrapInfo(target); } catch (error) { descriptor = null; }
+        if (!descriptor || descriptor.origin !== getOrigin({ window: target }) || !descriptor.proofKey || !descriptor.proofValue) {
+            await whenDomReady(target);
+            showDetachedError(target, "Chat window unavailable", "Return to the main window and open Chat again.");
+            return result(false, "chat-host-unavailable");
+        }
+        const storage = getStorage({ window: target });
+        let proofMatches = false;
+        try { proofMatches = storage && storage.getItem(descriptor.proofKey) === descriptor.proofValue; } catch (error) { proofMatches = false; }
+        if (!proofMatches) {
+            await whenDomReady(target);
+            showDetachedError(target, "Chat window unavailable", "This window could not verify the main Chat storage partition.");
+            return result(false, "storage-partition-mismatch");
+        }
+        target.document.body?.classList.add("chat-window-detached");
+        const remoteState = { settings: {}, runtime: null, status: null, inference: null };
+        let remoteAdapter = null;
+        const remoteHost = {
+            getSettings: () => remoteAdapter ? remoteAdapter.getSettings() : Object.assign({}, remoteState.settings),
+            setSettings: patch => {
+                if (!remoteAdapter) throw new Error("Chat host is not connected.");
+                return remoteAdapter.setSettings(patch);
+            },
+            getRuntime: () => remoteAdapter ? remoteAdapter.getRuntime() : remoteState.runtime,
+            getActiveRuntime: () => remoteAdapter ? remoteAdapter.getActiveRuntime() : remoteState.runtime,
+            getStatus: () => remoteAdapter ? remoteAdapter.getStatus() : remoteState.status,
+            getInference: () => remoteAdapter ? remoteAdapter.getInference() : remoteState.inference,
+            getAuthorizationHeaders: (...args) => remoteAdapter ? remoteAdapter.getAuthorizationHeaders(...args) : {},
+            navigate: (...args) => remoteAdapter ? remoteAdapter.navigate(...args) : false,
+            bringToFront: (...args) => remoteAdapter ? remoteAdapter.bringToFront(...args) : false,
+            isSessionValid: () => Boolean(remoteAdapter && remoteAdapter.isSessionValid?.()),
+        };
+        const bridge = createFlagCoreBridge(remoteHost, { window: target });
+        let coordinator;
+        let returnPromise = null;
+        async function transferToMain() {
+            if (returnPromise) return returnPromise;
+            if (!coordinator || !coordinator.isOwner()) return false;
+            const allowed = coordinator.getTransferState();
+            if (!allowed || allowed.allowed !== true) return false;
+            returnPromise = coordinator.beginTransfer({ destinationId: descriptor.instanceId, timeoutMs: 10000 })
+                .then(returned => {
+                    if (returned) {
+                        try { opener.focus(); } catch (error) { target.console?.debug?.("Main Chat focus failed", error); }
+                        try { target.close(); } catch (error) { target.console?.debug?.("Chat window close failed", error); }
+                    }
+                    return returned;
+                })
+                .finally(() => { returnPromise = null; });
+            return returnPromise;
+        }
+        function updateReturnControl() {
+            const button = target.document?.getElementById("btn-chat-return");
+            if (!button || !coordinator) return;
+            const allowed = coordinator.getTransferState();
+            button.disabled = !coordinator.isOwner() || allowed.allowed !== true;
+            if (allowed.reason) button.title = allowed.reason;
+        }
+        const updateRemote = payload => {
+            const next = payload && typeof payload === "object" ? payload : {};
+            if (next.settings && typeof next.settings === "object") {
+                remoteState.settings = Object.assign({}, next.settings);
+                bridge.refresh(remoteState.settings);
+            }
+            if (Object.prototype.hasOwnProperty.call(next, "runtime")) remoteState.runtime = next.runtime;
+            if (Object.prototype.hasOwnProperty.call(next, "status")) remoteState.status = next.status;
+            if (Object.prototype.hasOwnProperty.call(next, "inference")) remoteState.inference = next.inference;
+            if (next.change?.type === "session-invalidated") {
+                remoteAdapter = null;
+                chatUi.setHostAvailable?.(false);
+            }
+            chatUi.refreshSidebarUI?.();
+            chatUi.updateStatusBadge?.();
+            if (remoteState.inference && options.monitorUi) {
+                options.monitorUi.renderInferenceSnapshot?.(remoteState.inference);
+                options.monitorUi.renderStatsBarFromSnapshot?.(remoteState.inference, target.document);
+            }
+        };
+        coordinator = createCoordinator({
+            window: target,
+            chatUi,
+            sessionId: descriptor.sessionId,
+            onHostUpdate: updateRemote,
+            onReturnRequest: () => { void transferToMain(); },
+        });
+        chatUi.configure({
+            flagCore: bridge,
+            confirmAction: options.confirmAction || target.confirmAction || ((title, message) => target.confirm(title, message)),
+            getLatestStatus: () => remoteState.status,
+            getLifecycleSnapshot: () => remoteState.runtime,
+            snapshotStatsBaseline: () => remoteAdapter?.resetInferenceBaseline?.(),
+            switchTab: tabId => remoteAdapter?.navigate?.(tabId) || false,
+            getApiAuthorizationHeaders: (...args) => remoteAdapter?.getAuthorizationHeaders?.(...args) || {},
+        });
+        chatUi.configureWorkspace({
+            checkpoint: snapshot => coordinator.checkpoint(snapshot),
+            invalidate: () => coordinator.invalidateRecovery().ok,
+            onChange: updateReturnControl,
+            detachedView: true,
+        });
+        const initialized = await coordinator.initialize({ acquire: false, recover: false });
+        if (!coordinator.getState().lockAvailable) {
+            await whenDomReady(target);
+            showDetachedError(target, "Chat popout unavailable", "This browser does not support the exclusive lock required for a shared Chat.");
+            return result(false, "locks-unavailable");
+        }
+        chatUi.setHostAvailable?.(false);
+        await whenDomReady(target);
+        options.themeUi?.init?.();
+        chatUi.init();
+        target.document.getElementById("btn-chat-return")?.removeAttribute("hidden");
+        target.document.getElementById("btn-chat-return")?.addEventListener("click", () => { void transferToMain(); });
+        coordinator.attachPeer(opener, {
+            origin: descriptor.origin,
+            peerId: descriptor.instanceId,
+            sessionId: descriptor.sessionId,
+        });
+        coordinator.beginHandshake({ proof: { key: descriptor.proofKey, value: descriptor.proofValue } });
+        const verified = await waitForPeer(coordinator, 10000);
+        if (!verified) {
+            chatUi.setHostAvailable?.(false);
+            showDetachedError(target, "Chat host unavailable", "Return to the main window and open Chat again.");
+            return result(false, "host-handshake-failed");
+        }
+        remoteAdapter = opener.LlamaGui.chatWindow.getPeerHostAdapter(target);
+        if (!remoteAdapter) {
+            chatUi.setHostAvailable?.(false);
+            showDetachedError(target, "Chat host unavailable", "The main Chat window is no longer available.");
+            return result(false, "host-adapter-unavailable");
+        }
+        updateRemote({
+            settings: remoteAdapter.getSettings(), runtime: remoteAdapter.getRuntime(),
+            status: remoteAdapter.getStatus(), inference: remoteAdapter.getInference(),
+        });
+        chatUi.setHostAvailable?.(true);
+        updateReturnControl();
+        options.monitorUi?.renderInferenceSnapshot?.(remoteState.inference);
+        options.monitorUi?.renderStatsBarFromSnapshot?.(remoteState.inference, target.document);
+        return Object.assign(result(true, "detached-ready"), { coordinator, hostAdapter: remoteAdapter, initialized });
+    }
+
     const api = {
         PROTOCOL, PROTOCOL_VERSION, SNAPSHOT_VERSION, SNAPSHOT_KIND, RECOVERY_VERSION,
         DEFAULT_LOCK_NAME, DEFAULT_RECOVERY_KEY, CHAT_READONLY_SETTING_FIELDS,
         createHostAdapter, createCoordinator,
+        isDetachedView,
+        startHostView,
+        startDetachedView,
+        notifyHostChange(change) {
+            return api._hostView ? api._hostView.hostAdapter.notify(change) : false;
+        },
+        getPeerHostAdapter(candidate) {
+            return api._hostView?.coordinator.getPeerHostAdapter(candidate) || null;
+        },
+        hasDetachedView: () => Boolean(api._hostView && api._hostView.isDetached?.()),
+        abortActiveStream: () => api._hostView ? api._hostView.coordinator.abortActiveStream() : Promise.resolve(false),
+        getBootstrapInfo(candidate) {
+            return api._hostView?.getBootstrapInfo(candidate) || null;
+        },
         configure(options) {
             if (!api._coordinator) api._coordinator = createCoordinator(options);
             return api._coordinator.initialize(options);
