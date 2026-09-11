@@ -198,7 +198,7 @@ function installHangingCompletion(context, options = {}) {
     }, { toolRound: Boolean(options.toolRound) });
 }
 
-function makeStatus() {
+function makeStatus(overrides = {}) {
     const runtime = {
         tool: "llama-server",
         model: "phase3-fixture-model.gguf",
@@ -206,7 +206,7 @@ function makeStatus() {
         generation: 73,
         ready: true,
     };
-    return {
+    return Object.assign({
         installed: true,
         running: true,
         active_process_tool: "llama-server",
@@ -224,12 +224,12 @@ function makeStatus() {
         models_dir_is_default: true,
         models_dir_available: true,
         models_dir_error: "",
-    };
+    }, overrides);
 }
 
-async function installApiRoutes(context) {
+async function installApiRoutes(context, options = {}) {
     const calls = [];
-    const status = makeStatus();
+    const status = makeStatus(options.status || {});
     await context.route("**/api/**", async route => {
         const request = route.request();
         const url = new URL(request.url());
@@ -320,6 +320,11 @@ test("direct Chat window URL without an opener shows a safe unavailable shell", 
 
     await page.goto(`${server.baseUrl}?${POPUP_QUERY}`, { waitUntil: "domcontentloaded" });
     await page.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
+    assert.equal(await page.locator(CHAT_WINDOW_PLACEHOLDER).getAttribute("role"), "region");
+    const placeholderLabelId = await page.locator(CHAT_WINDOW_PLACEHOLDER).getAttribute("aria-labelledby");
+    assert.ok(placeholderLabelId, "the Chat placeholder region must reference its heading");
+    assert.equal(await page.locator(`#${placeholderLabelId}`).textContent(), "Chat window unavailable");
+    assert.equal(await page.locator(CHAT_HOST_STATUS).getAttribute("role"), "status");
     assert.match(await page.locator(`${CHAT_WINDOW_PLACEHOLDER} h3`).textContent(), /Chat window unavailable/i);
     assert.match(await page.locator(`${CHAT_WINDOW_PLACEHOLDER} p`).textContent(), /same browser|cannot share/i);
     assert.equal(await page.locator("#section-quick-launch").isVisible(), false);
@@ -390,6 +395,97 @@ test("Chat pop-out contains URL construction and live host getter failures", { t
     assert.deepEqual(pageErrors, []);
 });
 
+test("Chat recovery focuses a safe control when no server disables the composer", { timeout: 120_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    await installInitScript(context, representativeConversation(), randomUUID());
+    await installApiRoutes(context, {
+        status: {
+            running: false,
+            active_process_tool: null,
+            active_runtime: null,
+            runtime_generation: null,
+        },
+    });
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+
+    const main = await context.newPage();
+    await main.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
+    await selectChat(main);
+    await main.waitForFunction(() => document.getElementById("chat-input")?.disabled === true, null, { timeout: 10_000 });
+    assert.equal(await main.locator("#chat-input").isDisabled(), true, "the no-server fixture disables the composer");
+    assert.equal(await main.locator(CHAT_POP_OUT).isDisabled(), false, "no server does not disable Chat ownership handoff");
+
+    const popupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    await main.locator(CHAT_POP_OUT).click();
+    const popup = await popupPromise;
+    await popup.locator(CHAT_RETURN).waitFor({ state: "visible" });
+    await main.waitForFunction(() => document.activeElement?.id === "btn-chat-show-window", null, { timeout: 10_000 });
+    await main.keyboard.press("Tab");
+    await main.waitForFunction(() => document.activeElement?.id === "btn-chat-return-here", null, { timeout: 10_000 });
+    assert.equal(await main.locator(CHAT_RETURN_HERE).isDisabled(), false);
+    assert.equal(await main.locator(CHAT_RETURN_HERE).getAttribute("aria-disabled"), "false");
+    await popup.locator(CHAT_RETURN).click();
+    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    await main.waitForFunction(() => {
+        const input = document.getElementById("chat-input");
+        const active = document.activeElement;
+        return Boolean(input && input.disabled && active && active.matches("button, a")
+            && !active.hidden && !active.disabled && active.getAttribute("aria-disabled") !== "true");
+    }, null, { timeout: 10_000 });
+    const focusedFallback = await main.evaluate(() => document.activeElement?.id || "");
+    assert.equal(focusedFallback, "btn-chat-popout", "recovery falls back to the original enabled Pop out control when the composer is disabled");
+    if (!popup.isClosed()) await popup.waitForEvent("close", { timeout: 3_000 });
+});
+
+test("Chat initialization failure leaves an unavailable shell without breaking the GUI", { timeout: 60_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    let chatUiRouteHit = false;
+    await context.route(/\/js\/chat-ui\.js(?:\?|$)/, async route => {
+        chatUiRouteHit = true;
+        const source = fs.readFileSync(path.join(UI_ROOT, "js", "chat-ui.js"), "utf8");
+        await route.fulfill({
+            contentType: "text/javascript; charset=utf-8",
+            body: `${source}\nwindow.__phase4ChatInitFailureFixture = true; window.LlamaGui.chatUi.init = () => { throw new Error("fixture Chat init failure"); };`,
+        });
+    });
+    await installApiRoutes(context);
+    const pageErrors = [];
+    const page = await context.newPage();
+    page.on("pageerror", error => pageErrors.push(error.message));
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+
+    await page.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForFunction(() => window.__phase4ChatInitFailureFixture === true);
+    assert.equal(chatUiRouteHit, true, "the Chat init failure fixture replaced the versioned chat-ui script");
+    await page.locator("#section-quick-launch").waitFor({ state: "visible" });
+    await page.locator('.nav-item[data-section="configure"]').click();
+    await page.locator("#section-configure").waitFor({ state: "visible" });
+    assert.equal(await page.locator("#config-search").isVisible(), true, "Configure remains initialized after Chat failure");
+    await page.locator('.nav-item[data-section="chat"]').click();
+    await page.locator("#section-chat").waitFor({ state: "visible" });
+    await page.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
+    assert.match(await page.locator(`${CHAT_WINDOW_PLACEHOLDER} h3`).textContent(), /Chat unavailable/i);
+    assert.equal(await page.locator("#chat-layout").isVisible(), false, "a failed Chat init cannot expose an editable orphan layout");
+    assert.equal(await page.locator("#chat-input").isEditable(), false, "a failed Chat init leaves the composer inert");
+    assert.equal(await page.locator(CHAT_POP_OUT).isDisabled(), true, "a failed Chat init disables pop-out");
+    assert.equal(await page.locator(CHAT_RETURN).isDisabled(), true, "a failed Chat init disables return");
+    await page.locator('.nav-item[data-section="quick-launch"]').click();
+    await page.locator("#section-quick-launch").waitFor({ state: "visible" });
+    assert.deepEqual(pageErrors, [], "Chat initialization failure is rendered without an uncaught page error");
+});
+
 test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }, async t => {
     const server = await startUiServer();
     const browser = await chromium.launch({ headless: true });
@@ -446,8 +542,22 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     await popup.locator(CHAT_RETURN).waitFor({ state: "visible" });
     assert.equal(new URL(popup.url()).searchParams.get("chat-window"), "1");
     assert.equal(await main.locator(CHAT_WINDOW_PLACEHOLDER).isVisible(), true);
+    assert.equal(await main.locator(CHAT_WINDOW_PLACEHOLDER).getAttribute("role"), "region");
+    const detachedPlaceholderLabelId = await main.locator(CHAT_WINDOW_PLACEHOLDER).getAttribute("aria-labelledby");
+    assert.ok(detachedPlaceholderLabelId, "the detached Chat placeholder must reference its heading");
+    assert.equal(await main.locator(`#${detachedPlaceholderLabelId}`).textContent(), "Chat is open in another window");
+    assert.equal(await main.locator(CHAT_HOST_STATUS).getAttribute("role"), "status");
     assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), true);
     assert.equal(await main.locator(CHAT_RETURN_HERE).isVisible(), true);
+    assert.equal(await main.locator(CHAT_RETURN_HERE).isDisabled(), false, "Return chat here is enabled after handoff");
+    assert.equal(await main.locator(CHAT_RETURN_HERE).getAttribute("aria-disabled"), "false");
+    await main.waitForFunction(() => {
+        const placeholder = document.getElementById("chat-window-placeholder");
+        const active = document.activeElement;
+        const showWindow = document.getElementById("btn-chat-show-window");
+        return Boolean(placeholder && active === showWindow && placeholder.contains(active)
+            && !active.hidden && !active.disabled && active.getAttribute("aria-disabled") !== "true");
+    }, null, { timeout: 10_000 });
     assert.equal(await popup.locator("#chat-messages").textContent().then(text => text.includes("Stored answer selected for the pop-out.")), true);
     assert.equal(await popup.locator("#chat-system-prompt").inputValue(), "Main system prompt survives the detached window.");
     assert.equal(await popup.locator("#chat-input").inputValue(), "Draft survives the detached window.");
@@ -559,6 +669,10 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     await popup.locator(CHAT_RETURN).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
     await main.locator("#chat-input").waitFor({ state: "visible" });
+    await main.waitForFunction(() => {
+        const input = document.getElementById("chat-input");
+        return Boolean(input && document.activeElement === input && !input.disabled);
+    }, null, { timeout: 10_000 });
     if (!popup.isClosed()) await popup.waitForEvent("close", { timeout: 3_000 });
     assert.equal(await main.locator("#btn-chat-focus").getAttribute("aria-pressed"), "true", "focus layout returns to the main window");
     assert.equal(await main.locator("#chat-system-prompt").inputValue(), "Main system prompt survives the detached window.");
@@ -684,12 +798,66 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     const closePopup = await closePopupPromise;
     await closePopup.waitForLoadState("domcontentloaded");
     await closePopup.locator("#chat-input").waitFor({ state: "visible" });
+    await main.waitForFunction(() => document.activeElement?.id === "btn-chat-show-window");
+    await main.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await main.waitForFunction(() => document.visibilityState === "hidden", null, { timeout: 10_000 });
+    await main.waitForFunction(() => Boolean(inferenceStats?.getTargetKey?.()) && inferencePollingActive(), null, { timeout: 10_000 });
+    const statsBeforeClose = await main.evaluate(() => ({
+        target: inferenceStats?.getTargetKey?.() || null,
+        visible: statsDocumentVisible,
+        active: inferencePollingActive(),
+    }));
+    assert.ok(statsBeforeClose.target, "the hidden-close scenario starts with an active inference target");
+    assert.equal(statsBeforeClose.active, true, "the hidden-close scenario starts with polling active");
     await closePopup.close();
-    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
-    await main.waitForFunction(() => document.querySelector("#btn-chat-return-here")?.textContent === "Recover chat here");
+    await main.waitForFunction(() => {
+        const placeholder = document.getElementById("chat-window-placeholder");
+        return window.LlamaGui.chatWindow.hasDetachedView?.() === false
+            && placeholder && !placeholder.hidden
+            && placeholder.querySelector("h3")?.textContent === "The Chat window was closed"
+            && statsDocumentVisible === false
+            && inferenceInitialTimer === null
+            && inferenceTimer === null
+            && statsActiveEpoch === null
+            && statsAbortController === null;
+    }, null, { timeout: 10_000 });
+    const closedPopupState = await main.evaluate(() => ({
+        detached: window.LlamaGui.chatWindow.hasDetachedView?.(),
+        visibility: document.visibilityState,
+        placeholderVisible: !document.getElementById("chat-window-placeholder")?.hidden,
+        statsVisible: statsDocumentVisible,
+        statsPolling: inferencePollingActive(),
+        statsInitialTimer: inferenceInitialTimer,
+        statsTimer: inferenceTimer,
+        statsActiveEpoch,
+        statsAbortController: Boolean(statsAbortController),
+    }));
+    assert.equal(closedPopupState.detached, false, "a closed popup is no longer a live detached view");
+    assert.equal(closedPopupState.visibility, "hidden", "the main document remains hidden while the recovery shell is shown");
+    assert.equal(closedPopupState.placeholderVisible, true, "the recovery placeholder remains visible");
+    assert.equal(closedPopupState.statsVisible, false, "hidden recovery disables inference polling");
+    assert.equal(closedPopupState.statsPolling, false, "hidden recovery has no active inference poll");
+    assert.equal(closedPopupState.statsInitialTimer, null);
+    assert.equal(closedPopupState.statsTimer, null);
+    assert.equal(closedPopupState.statsActiveEpoch, null);
+    assert.equal(closedPopupState.statsAbortController, false);
+    await main.waitForFunction(() => {
+        const action = document.getElementById("btn-chat-return-here");
+        return Boolean(action && document.activeElement === action && !action.hidden && !action.disabled
+            && action.getAttribute("aria-disabled") !== "true");
+    }, null, { timeout: 10_000 });
     assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), false, "closed receiver recovery must hide Show window until a receiver exists");
+    assert.equal(await main.locator(CHAT_RETURN_HERE).isDisabled(), false);
+    assert.equal(await main.locator(CHAT_RETURN_HERE).getAttribute("aria-disabled"), "false");
     await main.locator(CHAT_RETURN_HERE).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    await main.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+        document.dispatchEvent(new Event("visibilitychange"));
+    });
     assert.equal(await main.locator("#chat-input").inputValue(), "Draft survives an idle popup close.");
     assert.equal(await main.locator("#chat-messages").textContent().then(text => text.includes("Popup completion confirmed.")), true);
     assert.equal((await readStoredConversations(main)).length, 1, "explicit close recovery must preserve one conversation");

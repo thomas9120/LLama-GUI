@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Improved separate Chat focus and accessible controls, stopped background inference polling after popup close, and kept main GUI navigation available after Chat startup failures.
 - Bounded Chat ownership waits and hardened transfer cancellation and detached-window startup failures.
 - Hardened separate Chat window recovery and added lifecycle, failure, and compatibility coverage with documented browser limits.
 - Fixed hidden main-window Return styling, cleared stale pop-out/return tooltips after ownership transitions, and added persistent blocked/handshake failure guidance.

@@ -570,38 +570,43 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
         return;
     }
-    await window.LlamaGui.chatWindow.startHostView({
-        chatUi,
-        flagCore,
-        getLatestStatus: () => latestStatus,
-        getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-        getInferenceSnapshot: () => inferenceStats.getSnapshot(),
-        resetInferenceBaseline: () => snapshotStatsBaseline(),
-        getApiAuthorizationHeaders,
-        switchTab,
-        confirmAction,
-        initializeChat: initChatTab,
-        onDetachedChange(detached) {
-            // The hidden main page remains the authoritative inference poller
-            // while its Chat is shown in the detached window. System telemetry
-            // continues to follow ordinary document visibility.
-            statsDocumentVisible = detached || document.visibilityState === "visible";
-            monitorUi.setDocumentVisibility(document.visibilityState === "visible");
-            if (!inferenceStats.getTargetKey()) return;
-            if (statsDocumentVisible) {
-                clearInferenceTimers();
-                pollStats(statsEpoch);
-            } else {
-                statsEpoch += 1;
-                clearInferenceTimers();
-                if (statsAbortController) {
-                    statsAbortController.abort();
-                    statsAbortController = null;
+    try {
+        await window.LlamaGui.chatWindow.startHostView({
+            chatUi,
+            flagCore,
+            getLatestStatus: () => latestStatus,
+            getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+            getInferenceSnapshot: () => inferenceStats.getSnapshot(),
+            resetInferenceBaseline: () => snapshotStatsBaseline(),
+            getApiAuthorizationHeaders,
+            switchTab,
+            confirmAction,
+            initializeChat: initChatTab,
+            onDetachedChange(detached) {
+                // The hidden main page remains the authoritative inference poller
+                // while its Chat is shown in the detached window. System telemetry
+                // continues to follow ordinary document visibility.
+                statsDocumentVisible = (detached && window.LlamaGui.chatWindow?.hasDetachedView?.() === true)
+                    || document.visibilityState === "visible";
+                monitorUi.setDocumentVisibility(document.visibilityState === "visible");
+                if (!inferenceStats.getTargetKey()) return;
+                if (statsDocumentVisible) {
+                    clearInferenceTimers();
+                    pollStats(statsEpoch);
+                } else {
+                    statsEpoch += 1;
+                    clearInferenceTimers();
+                    if (statsAbortController) {
+                        statsAbortController.abort();
+                        statsAbortController = null;
+                    }
+                    statsActiveEpoch = null;
                 }
-                statsActiveEpoch = null;
-            }
-        },
-    });
+            },
+        });
+    } catch (error) {
+        console.warn("Chat host startup failed; continuing shell startup.", error);
+    }
     themeUi.init();
     initTabs();
     initToolSelect();
@@ -1129,7 +1134,7 @@ function snapshotStatsBaseline() {
     // The one and only reset operation. With valid raw counters it re-renders
     // the fixed bar and the Inference card as zero immediately; otherwise the
     // reset stays pending until the next valid sample.
-    return inferenceStats.resetBaseline();
+    return inferenceStats?.resetBaseline?.() ?? false;
 }
 
 function renderInferenceViews(snapshot) {

@@ -1484,8 +1484,16 @@
         if (detail) detail.textContent = message;
         if (layout) layout.hidden = true;
         if (placeholder) placeholder.hidden = false;
-        if (showWindow) showWindow.hidden = true;
-        if (returnHere) returnHere.hidden = true;
+        if (showWindow) {
+            showWindow.hidden = true;
+            showWindow.disabled = true;
+            showWindow.setAttribute("aria-disabled", "true");
+        }
+        if (returnHere) {
+            returnHere.hidden = true;
+            returnHere.disabled = true;
+            returnHere.setAttribute("aria-disabled", "true");
+        }
         headerActions?.forEach(button => {
             button.disabled = true;
             button.setAttribute("aria-disabled", "true");
@@ -1573,8 +1581,74 @@
             return hostAdapter.notify(change);
         }
 
+        function setButtonDisabled(button, disabled) {
+            if (!button) return;
+            const value = Boolean(disabled);
+            button.disabled = value;
+            button.setAttribute("aria-disabled", String(value));
+        }
+
+        function canFocus(element) {
+            if (!element || element.hidden || element.disabled || element.getAttribute?.("aria-disabled") === "true"
+                || element.isConnected === false || typeof element.focus !== "function") return false;
+            if (typeof element.getClientRects === "function") {
+                try {
+                    const rects = element.getClientRects();
+                    if (rects && rects.length === 0) return false;
+                } catch (error) {
+                    logger?.debug?.("Unable to inspect Chat focus target visibility", error);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function focusFirst(...elements) {
+            for (const element of elements) {
+                if (!canFocus(element)) continue;
+                try {
+                    element.focus();
+                    if (!target.document || !target.document.activeElement || target.document.activeElement === element) return true;
+                } catch (error) {
+                    logger?.debug?.("Chat focus target failed", error);
+                }
+            }
+            return false;
+        }
+
+        function focusPlaceholderAction() {
+            return focusFirst(
+                target.document.getElementById("btn-chat-show-window"),
+                target.document.getElementById("btn-chat-return-here"),
+            );
+        }
+
+        function focusMainChatFallback() {
+            const body = target.document?.body;
+            const documentElement = target.document?.documentElement;
+            const previousFocus = originalFocus && originalFocus !== body && originalFocus !== documentElement
+                ? originalFocus : null;
+            return focusFirst(
+                target.document.getElementById("chat-input"),
+                previousFocus,
+                target.document.getElementById("btn-chat-new"),
+                target.document.getElementById("btn-open-history"),
+                target.document.getElementById("btn-chat-popout"),
+            );
+        }
+
+        function isLiveDetached() {
+            return detached && !isClosedWindow(popup);
+        }
+
+        function notifyDetachedChange() {
+            if (typeof options.onDetachedChange !== "function") return;
+            try { options.onDetachedChange(isLiveDetached()); } catch (error) { logger?.warn?.("Chat detached-state callback failed", error); }
+        }
+
         function setDetachedUi(active, reason) {
             detached = Boolean(active);
+            const state = coordinator.getState();
             const placeholder = target.document.getElementById("chat-window-placeholder");
             const layout = target.document.getElementById("chat-layout");
             const popout = target.document.getElementById("btn-chat-popout");
@@ -1583,10 +1657,14 @@
             if (placeholder) placeholder.hidden = !detached;
             if (layout) layout.hidden = detached;
             if (popout) {
-                popout.disabled = detached || !coordinator.isOwner() || !coordinator.getState().popoutAvailable;
+                setButtonDisabled(popout, detached || !coordinator.isOwner() || !state.popoutAvailable);
                 if (reason) popout.title = reason;
             }
-            if (returnHere) returnHere.hidden = !detached;
+            if (returnHere) {
+                returnHere.hidden = !detached;
+                if (detached) setButtonDisabled(returnHere, Boolean(state.transfer
+                    && !isClosedWindow(popup) && state.transfer.phase !== "complete"));
+            }
             if (returnHere && !detached) returnHere.textContent = "Return chat here";
             if (showWindow) showWindow.hidden = !detached;
             if (!detached) {
@@ -1595,9 +1673,8 @@
                 if (heading) heading.textContent = "Chat is open in another window";
                 if (message) message.textContent = "Use the separate Chat window to continue this conversation.";
             }
-            if (typeof options.onDetachedChange === "function") {
-                try { options.onDetachedChange(detached); } catch (error) { logger?.warn?.("Chat detached-state callback failed", error); }
-            }
+            notifyDetachedChange();
+            if (detached) focusPlaceholderAction();
         }
 
         function restoreSourceAfterFailure() {
@@ -1605,10 +1682,12 @@
             if (mainLayout) chatUi.restoreLayout?.(mainLayout);
             mainLayout = null;
             try { target.focus(); } catch (error) { logger?.debug?.("Main Chat focus failed", error); }
-            if (originalFocus && typeof originalFocus.focus === "function") {
-                try { originalFocus.focus(); } catch (error) { logger?.debug?.("Chat control focus failed", error); }
-            }
+            const previousFocus = originalFocus;
             originalFocus = null;
+            focusFirst(target.document.getElementById("chat-input"), previousFocus,
+                target.document.getElementById("btn-chat-new"),
+                target.document.getElementById("btn-open-history"),
+                target.document.getElementById("btn-chat-popout"));
         }
 
         function showRecoveryMessage() {
@@ -1617,14 +1696,16 @@
             const message = placeholder?.querySelector("p");
             const showWindow = target.document.getElementById("btn-chat-show-window");
             const returnHere = target.document.getElementById("btn-chat-return-here");
+            const focusWasOnShowWindow = target.document.activeElement === showWindow;
             if (heading) heading.textContent = "The Chat window was closed";
             if (message) message.textContent = "Recover the saved Chat workspace here when you are ready.";
             if (showWindow) showWindow.hidden = true;
             if (returnHere) {
                 returnHere.hidden = false;
-                returnHere.disabled = false;
+                setButtonDisabled(returnHere, false);
                 returnHere.textContent = "Recover chat here";
             }
+            if (focusWasOnShowWindow) focusPlaceholderAction();
         }
 
         function showObserverRecovery(reason) {
@@ -1641,7 +1722,7 @@
             if (showWindow) showWindow.hidden = true;
             if (returnHere) {
                 returnHere.hidden = false;
-                returnHere.disabled = false;
+                setButtonDisabled(returnHere, false);
                 returnHere.textContent = "Recover chat here";
             }
         }
@@ -1650,23 +1731,24 @@
             const transferState = coordinator.getTransferState();
             const popout = target.document.getElementById("btn-chat-popout");
             if (popout) {
-                popout.disabled = detached || !coordinator.isOwner() || state.popoutAvailable !== true
+                const popoutDisabled = detached || !coordinator.isOwner() || state.popoutAvailable !== true
                     || transferState.allowed !== true;
-                popout.title = popout.disabled
+                setButtonDisabled(popout, popoutDisabled);
+                popout.title = popoutDisabled
                     ? (transferState.reason || state.reason || DEFAULT_POPOUT_TITLE)
                     : DEFAULT_POPOUT_TITLE;
             }
             const returnHere = target.document.getElementById("btn-chat-return-here");
             if (returnHere && detached) {
-                returnHere.disabled = Boolean(state.transfer && !isClosedWindow(popup)
-                    && state.transfer.phase !== "complete");
+                setButtonDisabled(returnHere, Boolean(state.transfer && !isClosedWindow(popup)
+                    && state.transfer.phase !== "complete"));
             }
             if (state.status === "detached" && !detached) setDetachedUi(true);
             if (state.ownership && detached) {
                 detached = false;
                 setDetachedUi(false);
                 if (mainLayout) chatUi.restoreLayout?.(mainLayout);
-                target.document.getElementById("chat-input")?.focus();
+                focusMainChatFallback();
                 mainLayout = null;
             }
         }
@@ -1724,6 +1806,7 @@
                     popup = null;
                     popupProof = null;
                     if (detached) showRecoveryMessage();
+                    notifyDetachedChange();
                     if (closedCheckTimer) { clearInterval(closedCheckTimer); closedCheckTimer = null; }
                 }, 500);
             }
@@ -1779,7 +1862,7 @@
                 if (recoveredInvalid) {
                     setDetachedUi(false);
                     mainLayout = null;
-                    target.document.getElementById("chat-input")?.focus();
+                    focusMainChatFallback();
                 } else {
                     coordinator.releaseOwnership();
                 }
@@ -1802,7 +1885,7 @@
             if (recovered) {
                 setDetachedUi(false);
                 mainLayout = null;
-                target.document.getElementById("chat-input")?.focus();
+                focusMainChatFallback();
             }
             return recovered;
         }
@@ -1846,15 +1929,29 @@
         // coordinator.initialize() then acquires and restores under the lock.
         chatUi.setOwnership?.(false);
         const ready = (async () => {
-            if (typeof options.initializeChat === "function") await options.initializeChat();
-            const outcome = await coordinator.initialize({ acquire: true, recover: true });
-            if (!outcome.ok && (outcome.reason === "lock-busy" || outcome.reason === "recovery-failed"
-                || outcome.reason === "invalid-recovery" || outcome.reason === "recovery-reset-failed")) {
-                showObserverRecovery(outcome.reason === "lock-busy"
-                    ? "Chat is active in another window. Close it, then recover the saved workspace here."
-                    : "The saved Chat workspace needs recovery. Choose Recover chat here to start with a safe workspace.");
+            try {
+                if (typeof options.initializeChat === "function") await options.initializeChat();
+                const outcome = await coordinator.initialize({ acquire: true, recover: true });
+                if (!outcome.ok && (outcome.reason === "lock-busy" || outcome.reason === "recovery-failed"
+                    || outcome.reason === "invalid-recovery" || outcome.reason === "recovery-reset-failed")) {
+                    showObserverRecovery(outcome.reason === "lock-busy"
+                        ? "Chat is active in another window. Close it, then recover the saved workspace here."
+                        : "The saved Chat workspace needs recovery. Choose Recover chat here to start with a safe workspace.");
+                }
+                return outcome;
+            } catch (error) {
+                try { coordinator.dispose(); } catch (disposeError) {
+                    logger?.debug?.("Unable to dispose Chat coordinator after startup failure", disposeError);
+                }
+                setHostStatus("Chat is unavailable in this window. Reload this page to restore Chat.");
+                try {
+                    showDetachedError(target, "Chat unavailable", "Chat could not start in this window. Other GUI sections remain available; reload this page to restore Chat and runtime controls.");
+                } catch (showError) {
+                    logger?.warn?.("Unable to show Chat startup failure", showError);
+                }
+                logger?.warn?.("Chat host startup failed", error);
+                return result(false, "chat-init-failed");
             }
-            return outcome;
         })();
         api._hostView = { coordinator, hostAdapter, openPopout, requestReturn, getBootstrapInfo, notifyHostChange,
             isDetached: () => detached, ready,
@@ -1982,7 +2079,9 @@
             const button = target.document?.getElementById("btn-chat-return");
             if (!button || !coordinator) return;
             const allowed = coordinator.getTransferState();
-            button.disabled = !coordinator.isOwner() || allowed.allowed !== true;
+            const disabled = !coordinator.isOwner() || allowed.allowed !== true;
+            button.disabled = disabled;
+            button.setAttribute("aria-disabled", String(disabled));
             button.title = allowed.reason || "Return Chat to the main window";
         }
         const updateRemote = payload => {
@@ -2097,7 +2196,8 @@
             if (!view || candidate !== view.popup) return null;
             return Object.assign(view.coordinator.getSessionInfo(), { valid: view.hostAdapter.isSessionValid() });
         },
-        hasDetachedView: () => Boolean(api._hostView && api._hostView.isDetached?.()),
+        hasDetachedView: () => Boolean(api._hostView && api._hostView.isDetached?.()
+            && !isClosedWindow(api._hostView.popup)),
         abortActiveStream: () => api._hostView ? api._hostView.coordinator.abortActiveStream() : Promise.resolve(false),
         getBootstrapInfo(candidate) {
             return api._hostView?.getBootstrapInfo(candidate) || null;
