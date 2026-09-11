@@ -64,6 +64,14 @@ node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smo
 
 The smoke test also covers grouped sidebar navigation, current-page semantics, active-versus-pending runtime identity, external server details, duplicate Stop protection during transitions, mobile focus and dismissal, and maintenance access in short windows.
 
+The Phase 1 chat pop-out capability check is intentionally separate from the application smoke test:
+
+```powershell
+node tests/frontend/chat_popout_capabilities.cjs
+```
+
+It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus/close behavior, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
+
 Preset browser coverage includes loading into Configure, mirrored saved/modified identity, browsing without changing the edit source, masked comparisons, cancelling an update with focus restoration, saving the reviewed snapshot while newer edits remain pending, save-name collisions, rename/archive navigation, recoverable save failures, removal during a review, and containment at 390/900/1440px.
 
 Saved-settings coverage checks conditional GUI defaults, numeric-string equality, boolean/enum/Auto labels, unavailable defaults, hidden credentials and custom arguments, count consistency, safe text rendering, and table containment at 390/900/1440px. Preset unit tests cover numeric default comparisons, blank/invalid values, legacy reasoning values, excluded fields, search behavior, and preservation of the saved input.
