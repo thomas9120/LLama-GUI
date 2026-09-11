@@ -41,10 +41,12 @@
     let workspaceHostAvailable = true;
     let workspaceEpoch = 0;
     let workspaceCheckpointTimer = null;
+    let workspaceCheckpointPending = false;
     let workspaceTransferSave = false;
     let confirmationPending = 0;
     let streamingCheckpoint = null;
     let workspaceRestoreInProgress = false;
+    let beforeUnloadInstalled = false;
     const compaction = window.LlamaGui.chatCompaction;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
@@ -143,6 +145,7 @@
     }
 
     function notifyWorkspaceChange() {
+        updateBeforeUnloadGuard();
         if (typeof workspaceConfig.onChange !== "function") return;
         try {
             workspaceConfig.onChange();
@@ -167,6 +170,30 @@
         if (sendPreflightPromise) return "A send is being prepared.";
         if (chatStreaming) return "A response is streaming.";
         return "";
+    }
+
+    function beforeUnloadIsRisky() {
+        return workspaceOwned && workspaceHostAvailable
+            && (chatStreaming || compactionController || sendPreflightPromise || workspaceCheckpointPending);
+    }
+
+    function handleBeforeUnload(event) {
+        if (!beforeUnloadIsRisky()) return;
+        event.preventDefault();
+        event.returnValue = "";
+    }
+
+    function updateBeforeUnloadGuard() {
+        const target = typeof window !== "undefined" ? window : null;
+        if (!target || typeof target.addEventListener !== "function") return;
+        const risky = beforeUnloadIsRisky();
+        if (risky && !beforeUnloadInstalled) {
+            target.addEventListener("beforeunload", handleBeforeUnload);
+            beforeUnloadInstalled = true;
+        } else if (!risky && beforeUnloadInstalled) {
+            target.removeEventListener?.("beforeunload", handleBeforeUnload);
+            beforeUnloadInstalled = false;
+        }
     }
 
     async function requestConfirmation(...args) {
@@ -234,6 +261,7 @@
         workspaceSuspended = !workspaceOwned;
         if (!workspaceOwned) {
             clearWorkspaceCheckpointTimer();
+            workspaceCheckpointPending = false;
             cancelContextPreview();
             if (chatAbortController) chatAbortController.abort();
             if (compactionController) compactionController.abort();
@@ -249,6 +277,7 @@
         workspaceHostAvailable = next;
         if (!workspaceHostAvailable) {
             clearWorkspaceCheckpointTimer();
+            workspaceCheckpointPending = false;
             cancelContextPreview();
             if (compactionController) compactionController.abort();
         }
@@ -625,11 +654,64 @@
         }
     }
 
+    // Recovery can acquire the workspace lock before it knows whether a
+    // valid checkpoint exists. Clear only this in-memory view for the empty
+    // or tombstoned case; callers still decide when durable deletion occurs.
+    function resetWorkspace() {
+        if (!workspaceHostAvailable || !workspaceOwned) return false;
+        workspaceRestoreInProgress = true;
+        try {
+            currentConversationId = null;
+            workspaceConversationTitle = null;
+            workspaceConversationTitleCustom = false;
+            chatMessages = [];
+            chatCompactions = [];
+            streamingCheckpoint = null;
+            workspaceCheckpointPending = false;
+            chatStreaming = false;
+            if (chatAbortController) chatAbortController.abort();
+            if (compactionController) compactionController.abort();
+            chatAbortController = null;
+            discardPendingEdit();
+            const systemPrompt = document.getElementById("chat-system-prompt");
+            const sysCharCount = document.getElementById("chat-sys-char-count");
+            if (systemPrompt) systemPrompt.value = "";
+            if (sysCharCount) sysCharCount.textContent = "0 chars";
+            const chatInput = document.getElementById("chat-input");
+            if (chatInput) {
+                chatInput.value = "";
+                chatInput.selectionStart = 0;
+                chatInput.selectionEnd = 0;
+            }
+            const webSearchToggle = document.getElementById("chat-web-search-toggle");
+            if (webSearchToggle) webSearchToggle.checked = false;
+            const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
+            if (webSearchMaxResults) webSearchMaxResults.value = String(CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS);
+            const autoToggle = document.getElementById("chat-auto-compact-toggle");
+            if (autoToggle) autoToggle.checked = true;
+            setChatThinkingEffort("auto");
+            window.LlamaGui.chatTools.setEnabled(false, { persist: false });
+            renderConversationMessages();
+            renderHistoryList();
+            notifyWorkspaceChange();
+            return true;
+        } finally {
+            workspaceRestoreInProgress = false;
+        }
+    }
+
     function checkpointWorkspaceNow(metadata = {}) {
-        if (typeof workspaceConfig.checkpoint !== "function") return true;
+        if (typeof workspaceConfig.checkpoint !== "function") {
+            workspaceCheckpointPending = false;
+            updateBeforeUnloadGuard();
+            return true;
+        }
         if ((!workspaceOwned || !workspaceHostAvailable || workspaceSuspended) && !workspaceTransferSave) return false;
         try {
-            return workspaceConfig.checkpoint(captureSnapshot(metadata)) !== false;
+            const checkpointed = workspaceConfig.checkpoint(captureSnapshot(metadata)) !== false;
+            if (checkpointed) workspaceCheckpointPending = false;
+            updateBeforeUnloadGuard();
+            return checkpointed;
         } catch (error) {
             console.warn("Chat workspace checkpoint failed", error);
             return false;
@@ -644,6 +726,8 @@
     function requestWorkspaceCheckpoint(metadata = {}) {
         if (typeof workspaceConfig.checkpoint !== "function" || workspaceSuspended || !workspaceOwned || !workspaceHostAvailable) return;
         if (workspaceCheckpointTimer !== null) return;
+        workspaceCheckpointPending = true;
+        updateBeforeUnloadGuard();
         workspaceCheckpointTimer = setTimeout(() => {
             workspaceCheckpointTimer = null;
             checkpointWorkspaceNow(metadata);
@@ -2809,6 +2893,7 @@
         captureSnapshot,
         validateSnapshot,
         restoreSnapshot,
+        resetWorkspace,
         saveForTransfer,
         captureLayout,
         restoreLayout,

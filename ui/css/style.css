@@ -3526,6 +3526,14 @@ body.chat-focus-mode .stats-bar { left: 0; }
 .chat-window-placeholder-card p { color: var(--fg-muted); margin: 0 0 var(--space-4); }
 .chat-window-placeholder-icon { width: 36px; height: 36px; color: var(--accent-text); }
 .chat-window-placeholder-actions { display: flex; justify-content: center; gap: var(--space-2); flex-wrap: wrap; }
+.chat-window-host-status {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    color: var(--fg-muted);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+}
 
 body.chat-window-detached .sidebar,
 body.chat-window-detached #app-sidebar,

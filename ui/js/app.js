@@ -156,9 +156,13 @@ processLifecycle.configure({
     fetchJson,
     refreshStatus: () => fetchJson("/api/status"),
     buildLaunchRequest: buildManualLaunchRequest,
-    abortChat: () => typeof window.LlamaGui.chatWindow?.abortActiveStream === "function"
-        ? window.LlamaGui.chatWindow.abortActiveStream()
-        : chatUi.abortActiveStream(),
+    abortChat: async () => {
+        const stopped = typeof window.LlamaGui.chatWindow?.abortActiveStream === "function"
+            ? await window.LlamaGui.chatWindow.abortActiveStream()
+            : await chatUi.abortActiveStream();
+        if (stopped === false) throw new Error("The active Chat stream could not be stopped.");
+        return stopped;
+    },
     invalidateOutput: stopOutputPolling,
     invalidateStats: stopStatsPolling,
     startOutput: handleLifecycleProcessStarted,
@@ -576,6 +580,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         getApiAuthorizationHeaders,
         switchTab,
         confirmAction,
+        initializeChat: initChatTab,
         onDetachedChange(detached) {
             // The hidden main page remains the authoritative inference poller
             // while its Chat is shown in the detached window. System telemetry
@@ -610,7 +615,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     initPresetLibraryControls();
     presetsApi.initContextControls();
     initQuickLaunch();
-    initChatTab();
     benchmarkUi.init();
     monitorUi.init();
     window.LlamaGui.manager.initModelDirControls();

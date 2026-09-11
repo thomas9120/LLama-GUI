@@ -73,16 +73,17 @@ class FakeLocks {
 function clone(value) { return JSON.parse(JSON.stringify(value)); }
 
 function makeUi(name) {
-    const state = {
+    const initialState = {
         conversationId: "",
         title: `${name} title`,
         draft: `${name} draft`,
         messages: [{ role: "user", content: `${name} message`, reasoning: "reasoning", sources: [{ title: "source", url: "https://example.test" }] }],
         compactions: [{ end: 0, summary: "summary" }],
     };
+    const state = clone(initialState);
     const ui = {
         name, owner: true, suspended: false, busy: false, hostAvailable: true,
-        saves: 0, captures: 0, restores: 0, interrupted: 0,
+        saves: 0, captures: 0, restores: 0, resets: 0, interrupted: 0,
         getTransferState() { return { allowed: this.owner && !this.suspended && !this.busy, reason: this.busy ? "busy" : "not-owner" }; },
         suspendTransfer() {
             if (!this.getTransferState().allowed) return false;
@@ -103,6 +104,14 @@ function makeUi(name) {
             this.suspended = false;
             return true;
         },
+        resetWorkspace() {
+            Object.keys(state).forEach(key => delete state[key]);
+            Object.assign(state, { conversationId: "", title: "", draft: "", messages: [], compactions: [] });
+            this.resets += 1;
+            this.suspended = false;
+            return true;
+        },
+        setSnapshotState(nextState) { Object.assign(state, clone(nextState)); },
         saveForTransfer() {
             this.saves += 1;
             if (!state.conversationId) state.conversationId = `${name}-saved-${this.saves}`;
@@ -125,13 +134,19 @@ function makePeerPair(api, options = {}) {
     const uiB = makeUi("B");
     let a;
     let b;
-    const sendA = message => b.receiveMessage({ data: clone(message), origin, source: peerA });
-    const sendB = message => a.receiveMessage({ data: clone(message), origin, source: peerB });
+    const sent = [];
+    const deliver = (from, message, target, source) => {
+        sent.push({ from, message: clone(message) });
+        if (typeof options.drop === "function" && options.drop(from, message)) return;
+        target.receiveMessage({ data: clone(message), origin, source });
+    };
+    const sendA = message => deliver("A", message, b, peerA);
+    const sendB = message => deliver("B", message, a, peerB);
     a = api.createCoordinator({ instanceId: "A", sessionId, origin, locks, storage, chatUi: uiA, transport: { send: sendA }, transferTimeoutMs: 100 });
     b = api.createCoordinator({ instanceId: "B", sessionId, origin, locks, storage, chatUi: uiB, transport: { send: sendB }, transferTimeoutMs: 100 });
     a.attachPeer(peerB, { peerId: "B", sessionId, origin });
     b.attachPeer(peerA, { peerId: "A", sessionId, origin });
-    return { a, b, uiA, uiB, locks, storage, peerA, peerB, sessionId, origin };
+    return { a, b, uiA, uiB, locks, storage, peerA, peerB, sessionId, origin, sent };
 }
 
 async function flush() { await new Promise(resolve => setImmediate(resolve)); }
@@ -201,6 +216,8 @@ async function preparePair(pair) {
         assert.equal(messages[0].type, "hello");
         assert.equal(c.receiveMessage({ data: messages[0], origin: "https://evil.test", source: peer }), false);
         assert.equal(c.receiveMessage({ data: Object.assign({}, messages[0], { version: 99 }), origin: "https://gui.test", source: peer }), false);
+        assert.equal(c.receiveMessage({ data: Object.assign({}, messages[0], { sessionId: "other-session" }), origin: "https://gui.test", source: peer }), false);
+        assert.equal(c.receiveMessage({ data: Object.assign({}, messages[0], { sourceId: "attacker" }), origin: "https://gui.test", source: peer }), false);
         assert.equal(c.receiveMessage({ data: Object.assign({}, messages[0], { epoch: -1 }), origin: "https://gui.test", source: {} }), false);
     }
 
@@ -247,6 +264,28 @@ async function preparePair(pair) {
         assert.equal(pair.locks.queue.length, 0);
     }
 
+    // A receiver close/reject before readiness resumes the source. A receiver
+    // disappearing after release leaves exactly one owner and requires explicit
+    // recovery; a timeout must never reactivate the source.
+    {
+        const beforeReady = makePeerPair(api, { drop: (from, message) => from === "B" && message.type === "ready" });
+        await preparePair(beforeReady);
+        assert.equal(await beforeReady.a.beginTransfer({ destinationId: "B", timeoutMs: 20 }), false);
+        assert.equal(beforeReady.a.isOwner(), true);
+        assert.equal(beforeReady.uiA.owner, true);
+        assert.equal(beforeReady.b.isOwner(), false);
+        beforeReady.b.dispose();
+
+        const afterRelease = makePeerPair(api, { drop: (from, message) => from === "B" && message.type === "owner-ack" });
+        await preparePair(afterRelease);
+        assert.equal(await afterRelease.a.beginTransfer({ destinationId: "B", timeoutMs: 20 }), false);
+        assert.equal(afterRelease.a.isOwner(), false);
+        assert.equal(afterRelease.b.isOwner(), true);
+        assert.equal(afterRelease.a.getState().status, "recovery-required");
+        assert.equal(afterRelease.uiA.owner, false);
+        assert.equal(afterRelease.uiB.owner, true);
+    }
+
     // Durable tombstones win over an interrupted destructive history write;
     // stale checkpoints and nonowners cannot overwrite them.
     {
@@ -262,13 +301,73 @@ async function preparePair(pair) {
         c.releaseOwnership();
         await flush();
         const recoveredUi = makeUi("recovered");
+        recoveredUi.setSnapshotState({ conversationId: "stale-deleted", title: "Stale chat", draft: "stale draft", messages: [{ role: "user", content: "stale" }], compactions: [{ end: 1, summary: "stale" }] });
         const recovered = api.createCoordinator({ instanceId: "recovered", sessionId: "d", origin: "http://127.0.0.1:5240", locks, storage, chatUi: recoveredUi });
-        await recovered.initialize();
+        assert.equal((await recovered.initialize()).ok, true);
         assert.equal(recoveredUi.restores, 0);
+        assert.equal(recoveredUi.resets, 1, "tombstone recovery resets the existing UI while holding the lock");
+        assert.deepEqual(recoveredUi.snapshotState(), { conversationId: "", title: "", draft: "", messages: [], compactions: [] });
         const freshSnapshot = recovered.captureSnapshot({ sourceId: "recovered", destinationId: "recovered", transferId: "fresh", revision: 3 });
         assert.equal(recovered.validateSnapshot(freshSnapshot), true, JSON.stringify({ state: recovered.getState(), recovery: recovered.readRecovery(), owner: recovered.isOwner() }));
         assert.equal(recovered.checkpoint(freshSnapshot, { sourceId: "recovered", destinationId: "recovered", transferId: "fresh", revision: 3 }), true,
             "a fresh owner can checkpoint above the durable tombstone revision");
+        assert.equal(recovered.invalidateRecovery({ sourceId: "recovered", destinationId: "recovered", transferId: "reset-again", revision: 4 }, "clear").ok, true);
+        recovered.releaseOwnership();
+        await flush();
+
+        const missingResetUi = makeUi("missing-reset");
+        delete missingResetUi.resetWorkspace;
+        const missingReset = api.createCoordinator({ instanceId: "missing-reset", sessionId: "d", origin: "http://127.0.0.1:5240", locks, storage, chatUi: missingResetUi });
+        const missingResetResult = await missingReset.initialize();
+        assert.equal(missingResetResult.ok, false, "tombstone recovery fails closed when the reset hook is unavailable");
+        assert.equal(missingResetResult.reason, "recovery-reset-failed");
+        assert.equal(missingReset.isOwner(), false);
+    }
+
+    // Malformed recovery is discarded only by the explicit recovery action.
+    {
+        const storage = new FakeStorage();
+        const locks = new FakeLocks();
+        const ui = makeUi("malformed");
+        const coordinator = api.createCoordinator({ instanceId: "malformed", sessionId: "m", origin: "http://127.0.0.1:5240", locks, storage, chatUi: ui });
+        storage.setItem(coordinator.storageKey, "{broken");
+        assert.equal((await coordinator.initialize()).reason, "invalid-recovery");
+        assert.equal(coordinator.isOwner(), false);
+        assert.equal(storage.getItem(coordinator.storageKey), "{broken");
+        storage.failRemove = true;
+        assert.equal(await coordinator.recover({ clearInvalid: true }), false);
+        assert.equal(coordinator.isOwner(), false);
+        storage.failRemove = false;
+        assert.equal(await coordinator.recover({ clearInvalid: true }), true);
+        assert.equal(ui.resets, 1);
+        assert.deepEqual(ui.snapshotState().messages, []);
+        assert.equal(coordinator.isOwner(), true);
+        coordinator.dispose();
+    }
+
+    // Reinitializing an owner is idempotent and a remote abort rejection is
+    // propagated as a negative acknowledgment to the requesting coordinator.
+    {
+        const locks = new FakeLocks();
+        const storage = new FakeStorage();
+        const owner = api.createCoordinator({ instanceId: "owner", sessionId: "owner-session", origin: "http://127.0.0.1:5240", locks, storage, chatUi: makeUi("owner") });
+        assert.equal((await owner.initialize({ recover: false })).ok, true);
+        const lockCalls = locks.calls.length;
+        const repeated = await owner.initialize({ recover: false });
+        assert.equal(repeated.ok, true);
+        assert.equal(repeated.reason, "already-owner");
+        assert.equal(owner.isOwner(), true);
+        assert.equal(locks.calls.length, lockCalls, "repeated initialize does not reacquire the owner lock");
+
+        const pair = makePeerPair(api);
+        await preparePair(pair);
+        pair.a.releaseOwnership();
+        await flush();
+        assert.equal((await pair.b.acquireOwnership({ activate: true })), true);
+        pair.uiB.abortActiveStream = () => Promise.reject(new Error("synthetic abort failure"));
+        await assert.rejects(pair.a.abortActiveStream(), /active Chat stream could not be stopped/);
+        const negativeAck = pair.sent.find(item => item.from === "B" && item.message.type === "abort-ack");
+        assert.equal(negativeAck?.message.payload?.ok, false, "remote abort failure is sent as a negative acknowledgment");
     }
 
     // Third page contention and host-session revocation fail closed.

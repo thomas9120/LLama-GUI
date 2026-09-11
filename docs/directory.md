@@ -628,6 +628,8 @@ All reads and writes go through helpers that tolerate blocked storage; failures 
 
 The detached display mode uses the same `index.html` and Chat modules. It bypasses normal application initialization and receives settings, runtime status, and inference snapshots through the original main window. The main window must remain open; it continues to own launch settings and process lifecycle actions. Only the current Chat owner may mutate conversation history. Main-window layout is retained separately, and popup panel choices do not overwrite it.
 
+Chat initializes its controls while inert before restoring a recovery snapshot. Losing the host session pauses the detached view, aborts active work, checkpoints recoverable output, and releases ownership. Explicit recovery reads the latest durable state under the lock; a deletion tombstone clears stale in-memory state instead of restoring deleted history. The user-facing workflow and browser limitations are in [Chat in a separate window](chat-popout.md).
+
 The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface that proxies through the Python backend.
 
 ### Architecture

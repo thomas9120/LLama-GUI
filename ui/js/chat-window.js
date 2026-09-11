@@ -496,8 +496,8 @@
         function setUiOwnership(active) {
             if (typeof ui.setOwnership !== "function") return false;
             try {
-                ui.setOwnership(Boolean(active));
-                return true;
+                const outcome = ui.setOwnership(Boolean(active));
+                return outcome === undefined ? true : outcome === true;
             } catch (error) {
                 warn(config, "Chat UI setOwnership failed", error);
                 return false;
@@ -506,6 +506,21 @@
 
         function setUiHostAvailable(active) {
             uiCall("setHostAvailable", [Boolean(active)], undefined);
+        }
+
+        // Recovery may need to clear a tombstoned or malformed workspace while
+        // this coordinator owns the lock. Keep the UI API owner-gated; the
+        // temporary ownership flag exists only for this synchronous reset.
+        function resetWorkspaceUnderLock() {
+            if (!lockHeld || typeof ui.resetWorkspace !== "function") return false;
+            const wasOwner = ownershipActive;
+            if (!wasOwner && !setUiOwnership(true)) return false;
+            try { return ui.resetWorkspace() === true; }
+            catch (error) {
+                warn(config, "Chat workspace reset failed", error);
+                return false;
+            }
+            finally { if (!wasOwner) setUiOwnership(false); }
         }
 
         function lockSupport() {
@@ -713,14 +728,16 @@
             if (limit <= 0 || typeof setTimeout !== "function") return waiting.promise;
             return new Promise(resolve => {
                 let settled = false;
+                let timer;
                 const finish = value => {
                     if (settled) return;
                     settled = true;
+                    if (timer !== undefined) clearTimeout(timer);
                     if (pending.get(key) === waiting) pending.delete(key);
                     resolve(value);
                 };
                 waiting.promise.then(finish, () => finish(null));
-                setTimeout(() => { waiting.resolve(null); finish(null); }, limit);
+                timer = setTimeout(() => { waiting.resolve(null); finish(null); }, limit);
             });
         }
 
@@ -948,8 +965,8 @@
                     send("abort-ack", { ok: false }, { epoch: localEpoch, requestId });
                     return true;
                 }
-                Promise.resolve(ui.abortActiveStream()).then(() => {
-                    send("abort-ack", { ok: true }, { epoch: localEpoch, requestId });
+                Promise.resolve().then(() => ui.abortActiveStream()).then(ok => {
+                    send("abort-ack", { ok: ok !== false }, { epoch: localEpoch, requestId });
                 }).catch(error => {
                     warn(config, "Chat abort request failed", error);
                     send("abort-ack", { ok: false }, { epoch: localEpoch, requestId });
@@ -984,8 +1001,16 @@
         function attachPeer(nextPeer, options) {
             const peerOptions = Object.assign({}, options || {});
             if (!nextPeer) return result(false, "peer-unavailable");
+            const replacingPeer = peer !== null && peer !== nextPeer;
+            if (replacingPeer) {
+                cancelPendingMessages(null);
+                peerId = null;
+                peerSession = null;
+                peerVerified = false;
+                if (transfer && transfer.phase === "owned" && ownershipActive) transfer = null;
+            }
             peer = nextPeer;
-            peerId = peerOptions.peerId ? String(peerOptions.peerId) : peerId;
+            peerId = peerOptions.peerId ? String(peerOptions.peerId) : null;
             peerOrigin = typeof peerOptions.origin === "string" ? peerOptions.origin : origin;
             peerSession = peerOptions.sessionId ? String(peerOptions.sessionId) : sessionId;
             peerVerified = Boolean(peerOptions.verified === true);
@@ -1002,10 +1027,11 @@
         async function initialize(options) {
             const initOptions = Object.assign({ acquire: true, recover: true }, options || {});
             if (disposed) return result(false, "disposed");
+            if (ownershipActive) return result(true, "already-owner", { popoutAvailable: lockSupport() });
             // chat-ui starts in legacy single-window ownership.  Revoke that
             // optimistic state before any lock attempt, while preserving an
             // already initialized owner's active stream on repeated calls.
-            if (!ownershipActive && !lockHeld) setUiOwnership(false);
+            if (!ownershipActive) setUiOwnership(false);
             installMessageListener();
             if (host && typeof host.subscribe === "function" && !adapterUnsubscribe) {
                 adapterUnsubscribe = host.subscribe(change => {
@@ -1029,18 +1055,48 @@
                 if (!await acquireOwnership({ ifAvailable: true, allowSingleWindow: false, activate: false })) return result(false, "lock-busy");
                 const durable = readRecovery();
                 if (durable.record && Number.isInteger(durable.record.revision)) revision = Math.max(revision, durable.record.revision);
-                if (!(initOptions.recover && await recover())) await activateAfterLock(null, null);
+                if (initOptions.recover && durable.ok && durable.record && !durable.record.invalidated) {
+                    if (!await recover()) {
+                        releaseOwnership();
+                        setState({ status: "recovery-required", ownership: false, reason: "saved Chat workspace could not be restored" });
+                        return result(false, "recovery-failed");
+                    }
+                } else {
+                    if (durable.reason === "invalid-recovery") {
+                        releaseOwnership();
+                        setState({ status: "recovery-required", ownership: false, reason: "saved Chat workspace is invalid" });
+                        return result(false, "invalid-recovery");
+                    }
+                    if (durable.ok && durable.record?.invalidated && !resetWorkspaceUnderLock()) {
+                        releaseOwnership();
+                        setState({ status: "recovery-required", ownership: false, reason: "saved Chat workspace was cleared" });
+                        return result(false, "recovery-reset-failed");
+                    }
+                    if (!await activateAfterLock(null, null)) {
+                        releaseOwnership();
+                        return result(false, "activation-failed");
+                    }
+                }
             }
             if (peer && !peerVerified) beginHandshake();
             return result(true, "initialized", { popoutAvailable: true });
         }
 
-        async function recover() {
+        async function recover(options) {
+            const recoverOptions = options || {};
             if (!ownershipActive && !lockHeld && !await acquireOwnership({ ifAvailable: true, allowSingleWindow: false, activate: false })) return false;
             if (!lockHeld && lockSupport()) return false;
             const stored = readRecovery();
             if (stored.record && Number.isInteger(stored.record.revision)) revision = Math.max(revision, stored.record.revision);
-            if (!stored.ok || !stored.record || stored.record.invalidated) return false;
+            if (!stored.ok || !stored.record || stored.record.invalidated) {
+                if (recoverOptions.clearInvalid !== true || stored.reason !== "invalid-recovery") return false;
+                const removed = storageRemove();
+                if (!removed.ok || !resetWorkspaceUnderLock()) return false;
+                const activated = await activateAfterLock(null, null);
+                if (!activated) return false;
+                setState({ reason: "" });
+                return true;
+            }
             revision = Math.max(revision, stored.record.revision);
             if (!validateSnapshot(stored.record.snapshot)) return false;
             const restored = await activateAfterLock(null, stored.record.snapshot);
@@ -1165,19 +1221,28 @@
             invalidateRecovery,
             clearRecovery,
             recover,
+            resetWorkspace: resetWorkspaceUnderLock,
             invalidateSession,
             abortActiveStream() {
-                if (disposed || !state.hostAvailable) return Promise.resolve(false);
-                if (ownershipActive) return uiAwait("abortActiveStream", [], false).then(() => true);
-                if (!peerVerified) return Promise.resolve(false);
+                const failed = reason => Promise.reject(new Error(reason));
+                if (disposed) return failed("Chat window coordinator is disposed.");
+                if (!state.hostAvailable) return failed("Chat host is unavailable.");
+                if (ownershipActive) return uiAwait("abortActiveStream", [], false).then(ok => {
+                    if (ok === false) throw new Error("The active Chat stream could not be stopped.");
+                    return true;
+                });
+                if (!peerVerified) return failed("The active Chat owner is unavailable.");
                 const requestId = randomId("abort", config);
                 const key = `abort:${requestId}`;
                 addPending(key);
                 if (!send("abort", undefined, { epoch: localEpoch, requestId })) {
                     pending.delete(key);
-                    return Promise.resolve(false);
+                    return failed("The active Chat owner could not be reached.");
                 }
-                return waitForPending(key, 5000).then(message => Boolean(message && message.payload && message.payload.ok));
+                return waitForPending(key, 5000).then(message => {
+                    if (!message || message.payload?.ok !== true) throw new Error("The active Chat stream could not be stopped.");
+                    return true;
+                });
             },
             requestReturn() {
                 if (disposed || !peerVerified || !state.hostAvailable) return false;
@@ -1263,10 +1328,20 @@
 
         function write(patch) {
             if (!host || typeof host.setSettings !== "function") throw new Error("Chat host settings writer is unavailable.");
-            if (typeof host.isSessionValid === "function" && host.isSessionValid() !== true) {
-                throw new Error("Chat host is not connected.");
+            try {
+                if (typeof host.isSessionValid === "function" && host.isSessionValid() !== true) {
+                    throw new Error("Chat host is not connected.");
+                }
+            } catch (error) {
+                options.onUnavailable?.(error);
+                return currentValues();
             }
-            const resultValue = host.setSettings(patch);
+            let resultValue;
+            try { resultValue = host.setSettings(patch); } catch (error) {
+                logger?.warn?.("Chat host settings write failed", error);
+                options.onUnavailable?.(error);
+                return currentValues();
+            }
             refresh(resultValue);
             return values;
         }
@@ -1358,7 +1433,8 @@
             storage,
             flagCore,
             getChatSamplerFlagIds: () => chatUi.getChatSamplerFlagIds?.() || [],
-            getSelectedModel: () => flagCore.getSelectedModel?.() || "",
+            getSelectedModel: () => typeof flagCore.getSelectedModel === "function"
+                ? flagCore.getSelectedModel() : undefined,
             getActiveRuntime: getLifecycle,
             getStatus,
             getInference: () => safeRead(options.getInferenceSnapshot, null, logger),
@@ -1387,6 +1463,13 @@
             verifyPeerProof: payload => Boolean(popupProof && payload && payload.proof
                 && payload.proof.key === popupProof.key && payload.proof.value === popupProof.value),
         });
+
+        function notifyHostChange(change) {
+            if (change && change.type === "session-invalidated") {
+                return hostAdapter.invalidateSession();
+            }
+            return hostAdapter.notify(change);
+        }
 
         function setDetachedUi(active, reason) {
             detached = Boolean(active);
@@ -1434,6 +1517,25 @@
             const returnHere = target.document.getElementById("btn-chat-return-here");
             if (heading) heading.textContent = "The Chat window was closed";
             if (message) message.textContent = "Recover the saved Chat workspace here when you are ready.";
+            if (showWindow) showWindow.hidden = true;
+            if (returnHere) {
+                returnHere.hidden = false;
+                returnHere.disabled = false;
+                returnHere.textContent = "Recover chat here";
+            }
+        }
+
+        function showObserverRecovery(reason) {
+            const placeholder = target.document.getElementById("chat-window-placeholder");
+            const layout = target.document.getElementById("chat-layout");
+            const heading = placeholder?.querySelector("h3");
+            const message = placeholder?.querySelector("p");
+            const showWindow = target.document.getElementById("btn-chat-show-window");
+            const returnHere = target.document.getElementById("btn-chat-return-here");
+            if (layout) layout.hidden = true;
+            if (placeholder) placeholder.hidden = false;
+            if (heading) heading.textContent = "Chat is open in another window";
+            if (message) message.textContent = reason || "Close the other Chat window, then recover the saved workspace here.";
             if (showWindow) showWindow.hidden = true;
             if (returnHere) {
                 returnHere.hidden = false;
@@ -1555,8 +1657,19 @@
             if (!locked) return false;
             const record = coordinator.readRecovery();
             if (!record.ok && record.reason !== "empty" && record.reason !== "invalidated") {
-                coordinator.releaseOwnership();
-                return false;
+                if (record.reason !== "invalid-recovery") {
+                    coordinator.releaseOwnership();
+                    return false;
+                }
+                const recoveredInvalid = await coordinator.recover({ clearInvalid: true });
+                if (recoveredInvalid) {
+                    setDetachedUi(false);
+                    mainLayout = null;
+                    target.document.getElementById("chat-input")?.focus();
+                } else {
+                    coordinator.releaseOwnership();
+                }
+                return recoveredInvalid;
             }
             let recovered = false;
             if (record.ok && record.record && !record.record.invalidated) {
@@ -1566,6 +1679,10 @@
                     return false;
                 }
             } else {
+                if (!coordinator.resetWorkspace()) {
+                    coordinator.releaseOwnership();
+                    return false;
+                }
                 recovered = await coordinator.acquireOwnership({ ifAvailable: true, activate: true });
             }
             if (recovered) {
@@ -1599,12 +1716,33 @@
         target.document.getElementById("btn-chat-show-window")?.addEventListener("click", () => {
             if (!isClosedWindow(popup)) popup.focus();
         });
-        target.document.getElementById("btn-chat-return-here")?.addEventListener("click", () => { void requestReturn(); });
+        target.document.getElementById("btn-chat-return-here")?.addEventListener("click", () => {
+            void (detached ? requestReturn() : recoverMain());
+        });
         if (typeof target.addEventListener === "function") {
-            target.addEventListener("pagehide", () => { void coordinator.invalidateSession(); });
+            target.addEventListener("pagehide", () => { notifyHostChange({ type: "session-invalidated" }); });
+            target.addEventListener("pageshow", event => {
+                // A cached document's host adapter was revoked on pagehide.
+                // Rebuild the host session and reacquire ownership normally.
+                if (event.persisted) target.location.reload();
+            });
         }
-        const ready = coordinator.initialize({ acquire: true, recover: true });
-        api._hostView = { coordinator, hostAdapter, openPopout, requestReturn, getBootstrapInfo,
+        // Chat starts with legacy single-window ownership. Revoke it before
+        // init() so the first render cannot write over a recovery snapshot;
+        // coordinator.initialize() then acquires and restores under the lock.
+        chatUi.setOwnership?.(false);
+        const ready = (async () => {
+            if (typeof options.initializeChat === "function") await options.initializeChat();
+            const outcome = await coordinator.initialize({ acquire: true, recover: true });
+            if (!outcome.ok && (outcome.reason === "lock-busy" || outcome.reason === "recovery-failed"
+                || outcome.reason === "invalid-recovery" || outcome.reason === "recovery-reset-failed")) {
+                showObserverRecovery(outcome.reason === "lock-busy"
+                    ? "Chat is active in another window. Close it, then recover the saved workspace here."
+                    : "The saved Chat workspace needs recovery. Choose Recover chat here to start with a safe workspace.");
+            }
+            return outcome;
+        })();
+        api._hostView = { coordinator, hostAdapter, openPopout, requestReturn, getBootstrapInfo, notifyHostChange,
             isDetached: () => detached, ready,
             get popup() { return popup; } };
         return ready;
@@ -1614,17 +1752,21 @@
         const target = options.window || (typeof window !== "undefined" ? window : null);
         const opener = target && target.opener;
         const chatUi = options.chatUi || target?.LlamaGui?.chatUi;
+        let openerChatWindow = null;
+        try { openerChatWindow = opener?.LlamaGui?.chatWindow || null; } catch (error) {
+            debug({ window: target }, "Unable to inspect Chat opener", error);
+        }
         if (!target) return result(false, "chat-host-unavailable");
-        if (!opener || !chatUi || !opener.LlamaGui?.chatWindow) {
+        if (!opener || !chatUi || !openerChatWindow) {
             await whenDomReady(target);
             showDetachedError(target, "Chat window unavailable", "Return to the main window and open Chat again.");
             return result(false, "chat-host-unavailable");
         }
         let descriptor;
-        try { descriptor = opener.LlamaGui.chatWindow.getBootstrapInfo(target); } catch (error) { descriptor = null; }
+        try { descriptor = openerChatWindow.getBootstrapInfo(target); } catch (error) { descriptor = null; }
         if (!descriptor || descriptor.origin !== getOrigin({ window: target }) || !descriptor.proofKey || !descriptor.proofValue) {
             await whenDomReady(target);
-            showDetachedError(target, "Chat window unavailable", "Return to the main window and open Chat again.");
+            showDetachedError(target, "Chat window unavailable", "Close this window, then choose Recover chat here in the main Chat window.");
             return result(false, "chat-host-unavailable");
         }
         const storage = getStorage({ window: target });
@@ -1638,27 +1780,60 @@
         target.document.body?.classList.add("chat-window-detached");
         const remoteState = { settings: {}, runtime: null, status: null, inference: null };
         let remoteAdapter = null;
+        let hostLossStarted = false;
+        let hostCheckTimer = null;
+        let coordinator;
+        function markHostUnavailable(error) {
+            remoteAdapter = null;
+            if (hostCheckTimer !== null) {
+                clearInterval(hostCheckTimer);
+                hostCheckTimer = null;
+            }
+            const hostStatus = target.document?.getElementById("chat-window-host-status");
+            if (hostStatus) {
+                hostStatus.textContent = "The main Chat window is unavailable. This workspace is paused; return to the main window to recover. Interrupted data may be checkpointed; messages will not be resent automatically.";
+                hostStatus.hidden = false;
+            }
+            if (error && target.console?.debug) target.console.debug("Chat host bridge became unavailable", error);
+            if (coordinator && !hostLossStarted) {
+                hostLossStarted = true;
+                void coordinator.invalidateSession().catch(reason => target.console?.debug?.("Chat host quarantine failed", reason));
+            } else {
+                chatUi.setHostAvailable?.(false);
+            }
+        }
+        function hasCurrentHostSession() {
+            if (!remoteAdapter || hostLossStarted) return false;
+            try {
+                const current = !isClosedWindow(opener)
+                    ? opener?.LlamaGui?.chatWindow?.getSessionInfo?.(target) : null;
+                if (current && current.origin === descriptor.origin && current.sessionId === descriptor.sessionId
+                    && current.valid === true && remoteAdapter.isSessionValid?.() === true) return true;
+            } catch (error) {
+                target.console?.debug?.("Unable to verify current Chat host session", error);
+            }
+            markHostUnavailable(new Error("The main Chat session changed or closed."));
+            return false;
+        }
         const remoteHost = {
-            getSettings: () => remoteAdapter ? remoteAdapter.getSettings() : Object.assign({}, remoteState.settings),
+            getSettings: () => hasCurrentHostSession() ? remoteAdapter.getSettings() : Object.assign({}, remoteState.settings),
             setSettings: patch => {
-                if (!remoteAdapter) throw new Error("Chat host is not connected.");
+                if (!hasCurrentHostSession()) throw new Error("Chat host is not connected.");
                 return remoteAdapter.setSettings(patch);
             },
-            getRuntime: () => remoteAdapter ? remoteAdapter.getRuntime() : remoteState.runtime,
-            getActiveRuntime: () => remoteAdapter ? remoteAdapter.getActiveRuntime() : remoteState.runtime,
-            getStatus: () => remoteAdapter ? remoteAdapter.getStatus() : remoteState.status,
-            getInference: () => remoteAdapter ? remoteAdapter.getInference() : remoteState.inference,
-            getAuthorizationHeaders: (...args) => remoteAdapter ? remoteAdapter.getAuthorizationHeaders(...args) : {},
-            navigate: (...args) => remoteAdapter ? remoteAdapter.navigate(...args) : false,
-            bringToFront: (...args) => remoteAdapter ? remoteAdapter.bringToFront(...args) : false,
-            isSessionValid: () => Boolean(remoteAdapter && remoteAdapter.isSessionValid?.()),
+            getAuthorizationHeaders: (...args) => {
+                if (!hasCurrentHostSession()) throw new Error("Chat host is not connected.");
+                return remoteAdapter.getAuthorizationHeaders(...args);
+            },
+            resetInferenceBaseline: () => hasCurrentHostSession() ? remoteAdapter.resetInferenceBaseline() : undefined,
+            navigate: (...args) => hasCurrentHostSession() ? remoteAdapter.navigate(...args) : false,
+            isSessionValid: hasCurrentHostSession,
         };
-        const bridge = createFlagCoreBridge(remoteHost, { window: target });
-        let coordinator;
+        const bridge = createFlagCoreBridge(remoteHost, { window: target, onUnavailable: markHostUnavailable });
         let returnPromise = null;
         async function transferToMain() {
             if (returnPromise) return returnPromise;
-            if (!coordinator || !coordinator.isOwner()) return false;
+            if (!coordinator || !coordinator.isOwner() || !hasCurrentHostSession()) return false;
             const allowed = coordinator.getTransferState();
             if (!allowed || allowed.allowed !== true) return false;
             returnPromise = coordinator.beginTransfer({ destinationId: descriptor.instanceId, timeoutMs: 10000 })
@@ -1689,8 +1864,7 @@
             if (Object.prototype.hasOwnProperty.call(next, "status")) remoteState.status = next.status;
             if (Object.prototype.hasOwnProperty.call(next, "inference")) remoteState.inference = next.inference;
             if (next.change?.type === "session-invalidated") {
-                remoteAdapter = null;
-                chatUi.setHostAvailable?.(false);
+                markHostUnavailable();
             }
             chatUi.refreshSidebarUI?.();
             chatUi.updateStatusBadge?.();
@@ -1706,14 +1880,21 @@
             onHostUpdate: updateRemote,
             onReturnRequest: () => { void transferToMain(); },
         });
+        if (typeof target.addEventListener === "function") {
+            target.addEventListener("pagehide", () => {
+                const transferState = coordinator.getState().transfer;
+                if (transferState?.phase === "complete") return;
+                void coordinator.invalidateSession().catch(error => target.console?.debug?.("Chat popup quarantine failed", error));
+            });
+        }
         chatUi.configure({
             flagCore: bridge,
             confirmAction: options.confirmAction || target.confirmAction || ((title, message) => target.confirm(title, message)),
             getLatestStatus: () => remoteState.status,
             getLifecycleSnapshot: () => remoteState.runtime,
-            snapshotStatsBaseline: () => remoteAdapter?.resetInferenceBaseline?.(),
-            switchTab: tabId => remoteAdapter?.navigate?.(tabId) || false,
-            getApiAuthorizationHeaders: (...args) => remoteAdapter?.getAuthorizationHeaders?.(...args) || {},
+            snapshotStatsBaseline: remoteHost.resetInferenceBaseline,
+            switchTab: remoteHost.navigate,
+            getApiAuthorizationHeaders: remoteHost.getAuthorizationHeaders,
         });
         chatUi.configureWorkspace({
             checkpoint: snapshot => coordinator.checkpoint(snapshot),
@@ -1745,10 +1926,10 @@
             showDetachedError(target, "Chat host unavailable", "Return to the main window and open Chat again.");
             return result(false, "host-handshake-failed");
         }
-        remoteAdapter = opener.LlamaGui.chatWindow.getPeerHostAdapter(target);
+        remoteAdapter = openerChatWindow.getPeerHostAdapter(target);
         if (!remoteAdapter) {
             chatUi.setHostAvailable?.(false);
-            showDetachedError(target, "Chat host unavailable", "The main Chat window is no longer available.");
+            showDetachedError(target, "Chat host unavailable", "Close this window, then choose Recover chat here in the main Chat window.");
             return result(false, "host-adapter-unavailable");
         }
         updateRemote({
@@ -1756,9 +1937,12 @@
             status: remoteAdapter.getStatus(), inference: remoteAdapter.getInference(),
         });
         chatUi.setHostAvailable?.(true);
+        const hostStatus = target.document.getElementById("chat-window-host-status");
+        if (hostStatus) hostStatus.hidden = true;
         updateReturnControl();
         options.monitorUi?.renderInferenceSnapshot?.(remoteState.inference);
         options.monitorUi?.renderStatsBarFromSnapshot?.(remoteState.inference, target.document);
+        hostCheckTimer = setInterval(hasCurrentHostSession, 500);
         return Object.assign(result(true, "detached-ready"), { coordinator, hostAdapter: remoteAdapter, initialized });
     }
 
@@ -1770,10 +1954,15 @@
         startHostView,
         startDetachedView,
         notifyHostChange(change) {
-            return api._hostView ? api._hostView.hostAdapter.notify(change) : false;
+            return api._hostView ? api._hostView.notifyHostChange(change) : false;
         },
         getPeerHostAdapter(candidate) {
             return api._hostView?.coordinator.getPeerHostAdapter(candidate) || null;
+        },
+        getSessionInfo(candidate) {
+            const view = api._hostView;
+            if (!view || candidate !== view.popup) return null;
+            return Object.assign(view.coordinator.getSessionInfo(), { valid: view.hostAdapter.isSessionValid() });
         },
         hasDetachedView: () => Boolean(api._hostView && api._hostView.isDetached?.()),
         abortActiveStream: () => api._hostView ? api._hostView.coordinator.abortActiveStream() : Promise.resolve(false),
