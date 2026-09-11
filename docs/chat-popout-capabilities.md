@@ -71,3 +71,9 @@ The tested evidence is limited to a normal Chromium browser using loopback HTTP 
 The Pinokio audit supplied for this phase found that the current launcher runs `node ../scripts/supervise.js` from its `app` directory with `LLAMA_GUI_SUPERVISED=1` and `PYTHONUNBUFFERED`, captures the dynamic local URL, and exposes **Open Web UI** as a link to that URL. Its static `check-app-compat.js` check passed against the existing frontend file/script/lifecycle expectations. Those facts show that the dynamic loopback URL and current script entrypoint are launcher-compatible by inspection; they do not establish embedded popup/opener/partition behavior. The native check remains pending.
 
 The accepted first-version lifetime boundary remains that the original GUI page stays open as the settings and runtime authority while Chat is detached. The current app also pauses visibility-driven polling when a document is hidden; integration work must preserve the host's authoritative runtime/status behavior while the main page is backgrounded and ensure abort/recovery reaches the detached owner. Neither concern is solved by this capability fixture.
+
+## Native follow-up: Windows Pinokio, 2026-09-11
+
+The implemented application was launched through Pinokio in a disposable test checkout. A direct **Pop out** click in the embedded GUI returned no window reference, displayed the popup-blocked fallback reason, and opened no separate Pinokio window. Pop-out is therefore unavailable in that tested embedded surface; the original Chat remains the fallback. This observation does not establish opener retention or shared storage for a popup that the host refused to open.
+
+Separately requesting a popup through `pterm open` selected an external browser surface (Firefox). That is not evidence of a same-origin, same-partition application handoff from the embedded GUI. The entire GUI must be opened in one supported browser context before testing its own Pop out action.

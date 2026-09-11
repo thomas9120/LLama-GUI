@@ -21,6 +21,7 @@ const CHAT_WINDOW_PLACEHOLDER = "#chat-window-placeholder";
 const CHAT_SHOW_WINDOW = "#btn-chat-show-window";
 const CHAT_RETURN_HERE = "#btn-chat-return-here";
 const CHAT_RETURN = "#btn-chat-return";
+const CHAT_HOST_STATUS = "#chat-window-host-status";
 const API_SECRET = "fixture-api-secret-must-not-persist";
 
 function json(value) {
@@ -323,6 +324,8 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     main = await context.newPage();
     await main.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
     await selectChat(main);
+    assert.equal(await main.locator(CHAT_RETURN).isVisible(), false, "main Return control is hidden before opening a pop-out");
+    assert.equal(await main.locator(CHAT_POP_OUT).getAttribute("title"), "Open Chat in a separate window");
     if (await main.locator("#chat-history-panel").evaluate(element => element.classList.contains("collapsed"))) {
         await main.locator("#btn-open-history").click();
     }
@@ -484,8 +487,83 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     })), layoutStorageBefore, "popup panel changes must not overwrite main preferences");
     assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), false, "return restores the normal pop-out action");
     assert.equal(await main.locator(CHAT_RETURN_HERE).isVisible(), false, "return hides detached-only controls from the main view");
+    assert.equal(await main.locator(CHAT_RETURN).isVisible(), false, "main Return control remains hidden after returning");
+    assert.equal(await main.locator(CHAT_POP_OUT).isDisabled(), false, "Pop out is enabled after returning");
+    const popoutTitleAfterReturn = await main.locator(CHAT_POP_OUT).getAttribute("title");
+    assert.equal(popoutTitleAfterReturn, "Open Chat in a separate window");
+    assert.doesNotMatch(popoutTitleAfterReturn || "", /owned|busy|unavailable/i, "Pop out does not retain an old disabled reason");
     for (const [pathname, count] of forbiddenBefore) assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run while returning Chat`);
     await assertNoSecret(main, "returned main window");
+
+    // A blocked direct window.open leaves the current Chat usable and explains
+    // the single-window fallback without changing the durable conversation.
+    await main.locator("#chat-input").fill("Draft survives a blocked pop-out.");
+    const historyBeforeBlockedPopout = await readStoredConversations(main);
+    const snapshotBeforeBlockedPopout = await main.evaluate(() => {
+        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
+        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
+    });
+    await main.evaluate(() => {
+        window.__phase4OriginalOpen = window.open;
+        window.open = () => null;
+    });
+    await main.locator(CHAT_POP_OUT).click();
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible" });
+    assert.match(await main.locator(CHAT_HOST_STATUS).textContent(), /remains available|Allow popups/i);
+    assert.equal(await main.locator("#chat-input").isVisible(), true, "blocked pop-out keeps the source Chat usable");
+    assert.equal(await main.locator("#chat-input").isDisabled(), false, "blocked pop-out keeps source input enabled");
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true, "blocked pop-out leaves the source as owner");
+    assert.deepEqual(await main.evaluate(() => {
+        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
+        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
+    }), snapshotBeforeBlockedPopout, "blocked pop-out preserves the source workspace");
+    assert.deepEqual(await readStoredConversations(main), historyBeforeBlockedPopout, "blocked pop-out preserves history");
+    await main.evaluate(() => window.LlamaGui.chatWindow.notifyHostChange({ type: "status" }));
+    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "blocked pop-out banner survives a host status update");
+    await main.evaluate(() => {
+        window.open = window.__phase4OriginalOpen;
+        delete window.__phase4OriginalOpen;
+    });
+    const retryPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    await main.locator(CHAT_POP_OUT).click();
+    const retryPopup = await retryPopupPromise;
+    await retryPopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
+    await retryPopup.locator(CHAT_RETURN).click();
+    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "hidden" });
+    if (!retryPopup.isClosed()) await retryPopup.waitForEvent("close", { timeout: 3_000 });
+
+    // A real blank popup exercises the bounded handshake failure path. The
+    // source remains owner and the failure closes only the unusable receiver.
+    await main.locator("#chat-input").fill("Draft survives a blank popup.");
+    const historyBeforeBlankPopup = await readStoredConversations(main);
+    const snapshotBeforeBlankPopup = await main.evaluate(() => {
+        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
+        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
+    });
+    await main.evaluate(() => {
+        window.__phase4OriginalOpen = window.open;
+        window.open = (_url, name, features) => window.__phase4OriginalOpen("about:blank", name, features);
+    });
+    const blankPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    await main.locator(CHAT_POP_OUT).click();
+    const blankPopup = await blankPopupPromise;
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible", timeout: 15_000 });
+    assert.match(await main.locator(CHAT_HOST_STATUS).textContent(), /could not connect|preserved/i);
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true, "failed handshake preserves source ownership");
+    assert.deepEqual(await main.evaluate(() => {
+        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
+        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
+    }), snapshotBeforeBlankPopup, "failed handshake preserves the source workspace");
+    assert.deepEqual(await readStoredConversations(main), historyBeforeBlankPopup, "failed handshake preserves history");
+    await main.evaluate(() => window.LlamaGui.chatWindow.notifyHostChange({ type: "status" }));
+    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "failed handshake banner survives a host status update");
+    if (!blankPopup.isClosed()) await blankPopup.waitForEvent("close", { timeout: 3_000 });
+    assert.equal(blankPopup.isClosed(), true, "failed handshake closes the unusable popup");
+    await main.evaluate(() => {
+        window.open = window.__phase4OriginalOpen;
+        delete window.__phase4OriginalOpen;
+    });
 
     // A new popup document gets a new WindowProxy after the first return. The
     // host must replace the peer identity and complete a fresh transfer rather
@@ -504,6 +582,7 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     assert.equal(secondSnapshot.messages.filter(message => message.role === "assistant").length, 4);
     await secondPopup.locator(CHAT_RETURN).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "hidden" });
     if (!secondPopup.isClosed()) await secondPopup.waitForEvent("close", { timeout: 3_000 });
     assert.equal((await readStoredConversations(main)).length, 1, "reopening and returning must not duplicate history");
     for (const [pathname, count] of forbiddenBefore) assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run while reopening Chat`);

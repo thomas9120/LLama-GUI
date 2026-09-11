@@ -1267,6 +1267,7 @@
     const DETACHED_QUERY_PARAM = "chat-window";
     const POPUP_NAME = "llama-gui-chat";
     const POPUP_FEATURES = "popup=yes,width=960,height=760,resizable=yes,scrollbars=yes";
+    const DEFAULT_POPOUT_TITLE = "Open Chat in a separate window";
 
     function isDetachedView(target) {
         const current = target || (typeof window !== "undefined" ? window : null);
@@ -1428,6 +1429,12 @@
         const logger = target.console;
         const getStatus = () => safeRead(options.getLatestStatus, null, logger);
         const getLifecycle = () => safeRead(options.getLifecycleSnapshot, null, logger);
+        function setHostStatus(message) {
+            const status = target.document?.getElementById("chat-window-host-status");
+            if (!status) return;
+            status.textContent = message || "";
+            status.hidden = !message;
+        }
         const hostAdapter = createHostAdapter({
             window: target,
             storage,
@@ -1550,7 +1557,9 @@
             if (popout) {
                 popout.disabled = detached || !coordinator.isOwner() || state.popoutAvailable !== true
                     || transferState.allowed !== true;
-                if (transferState.reason || state.reason) popout.title = transferState.reason || state.reason;
+                popout.title = popout.disabled
+                    ? (transferState.reason || state.reason || DEFAULT_POPOUT_TITLE)
+                    : DEFAULT_POPOUT_TITLE;
             }
             const returnHere = target.document.getElementById("btn-chat-return-here");
             if (returnHere && detached) {
@@ -1572,6 +1581,7 @@
                 try { popup.focus(); } catch (error) { logger?.debug?.("Chat popout focus failed", error); }
                 return true;
             }
+            setHostStatus("");
             const state = coordinator.getState();
             const transferState = coordinator.getTransferState();
             if (!state.popoutAvailable || !coordinator.isOwner() || transferState.allowed !== true) {
@@ -1580,6 +1590,7 @@
             }
             if (!storage || typeof storage.setItem !== "function") {
                 setDetachedUi(false, "Chat popout requires available same-origin storage.");
+                setHostStatus("Chat remains available in this window. Separate Chat windows require available same-origin storage.");
                 return false;
             }
             const key = `llama-gui:chat-window-probe:${randomId("probe", { window: target })}`;
@@ -1587,6 +1598,7 @@
             try { storage.setItem(key, value); } catch (error) {
                 logger?.debug?.("Chat popout storage probe failed", error);
                 setDetachedUi(false, "Chat popout requires available same-origin storage.");
+                setHostStatus("Chat remains available in this window. Separate Chat windows require available same-origin storage.");
                 return false;
             }
             popupProof = { key, value };
@@ -1603,6 +1615,7 @@
                 try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
                 popupProof = null;
                 setDetachedUi(false, "Allow popups for this page to open Chat in a separate window.");
+                setHostStatus("Chat remains available in this window. Allow popups for this page to open Chat in a separate window.");
                 return false;
             }
             popup = opened;
@@ -1626,6 +1639,7 @@
                 }
                 popup = null;
                 restoreSourceAfterFailure();
+                setHostStatus("Chat remains available in this window. The separate Chat window could not connect, so the current workspace was preserved.");
                 return false;
             }
             try { storage.removeItem(key); } catch (error) { logger?.debug?.("Chat popout probe cleanup failed", error); }
@@ -1638,10 +1652,12 @@
                     try { popup?.close?.(); } catch (error) { logger?.debug?.("Failed Chat popup close", error); }
                     popup = null;
                     restoreSourceAfterFailure();
+                    setHostStatus("Chat remains available in this window. The separate Chat window could not take ownership, so the current workspace was preserved.");
                 }
                 return false;
             }
             popupProof = null;
+            setHostStatus("");
             setDetachedUi(true);
             return true;
         }
@@ -1852,7 +1868,7 @@
             if (!button || !coordinator) return;
             const allowed = coordinator.getTransferState();
             button.disabled = !coordinator.isOwner() || allowed.allowed !== true;
-            if (allowed.reason) button.title = allowed.reason;
+            button.title = allowed.reason || "Return Chat to the main window";
         }
         const updateRemote = payload => {
             const next = payload && typeof payload === "object" ? payload : {};
