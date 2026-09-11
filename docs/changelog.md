@@ -2,6 +2,10 @@
 
 Please give a brief summary of changes made to the program (excluding documentation changes), include the date the changes were made.
 
+## 2026-09-11
+
+- Removed unused CSS for retired controls and preset chips, including an unused status-dot animation.
+
 ## 2026-09-10
 
 - Moved each conversation's Delete button beside Rename and Export, replacing the trash icon with text.

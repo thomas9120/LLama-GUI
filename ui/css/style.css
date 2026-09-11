@@ -606,19 +606,6 @@ body.chat-focus-mode .sidebar {
 .theme-menu-check { visibility: hidden; }
 .theme-menu-item.active .theme-menu-check { visibility: visible; }
 
-.status-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--green);
-    animation: pulse-dot 2s ease infinite;
-}
-
-@keyframes pulse-dot {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.4; }
-}
-
 /* ════════════════════════════════════════════
    MAIN CONTENT
    ════════════════════════════════════════════ */
@@ -1026,8 +1013,6 @@ select.ss-native {
 }
 
 /* Toggle */
-.toggle.toggle-sm { font-size: 11px; }
-
 .toggle {
     position: relative;
     display: inline-flex;
@@ -1039,61 +1024,6 @@ select.ss-native {
     font-weight: 500;
 }
 .toggle input { display: none; }
-.toggle-track {
-    width: 36px;
-    height: 20px;
-    border-radius: 10px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-strong);
-    position: relative;
-    transition: all var(--ease-fast);
-}
-.toggle-thumb {
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--fg-muted);
-    transition: all var(--ease-fast);
-}
-.toggle input:checked + .toggle-track {
-    background: var(--accent-subtle);
-    border-color: var(--accent-border);
-}
-.toggle input:checked + .toggle-track .toggle-thumb {
-    transform: translateX(16px);
-    background: var(--accent);
-}
-
-/* Segmented control */
-.seg-control {
-    display: inline-flex;
-    background: var(--bg-raised);
-    border: 1px solid var(--border-strong);
-    border-radius: var(--radius-sm);
-    padding: 2px;
-    gap: 2px;
-}
-.seg-btn {
-    padding: var(--space-1) var(--space-3);
-    border: none;
-    border-radius: var(--radius-xs);
-    background: transparent;
-    color: var(--fg-muted);
-    font-family: var(--font);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--ease-fast);
-}
-.seg-btn:hover { color: var(--fg); }
-.seg-btn.active {
-    background: var(--bg-elevated);
-    color: var(--fg-bright);
-    box-shadow: var(--shadow-sm);
-}
 
 /* ════════════════════════════════════════════
    BUTTONS
@@ -1765,20 +1695,6 @@ input[type="range"].sampler-range::-moz-range-thumb {
 /* ════════════════════════════════════════════
    CONFIGURE
    ════════════════════════════════════════════ */
-.config-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-bottom: var(--space-4);
-    padding-bottom: var(--space-3);
-    border-bottom: 1px solid var(--border);
-}
-
-.config-header h2 { margin: 0; }
-.config-header .input-row { flex-wrap: wrap; }
-
 .config-controls {
     display: flex;
     flex-wrap: wrap;
@@ -3230,34 +3146,6 @@ dialog.preset-update-dialog { margin: auto; width: min(720px, calc(100% - 32px))
     font-weight: 800;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-}
-
-.preset-flag-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: var(--space-5);
-}
-
-.preset-flag-chip {
-    font-family: var(--mono);
-    font-size: 10.5px;
-    padding: 3px 8px;
-    border-radius: var(--radius-xs);
-    background: var(--bg-elevated);
-    color: var(--fg);
-    border: 1px solid var(--border-strong);
-}
-
-.preset-flag-chip b {
-    color: var(--cyan);
-    font-weight: 500;
-}
-
-.preset-flag-chip.more {
-    color: var(--fg-faint);
-    background: transparent;
-    border-style: dashed;
 }
 
 .preset-warning {
@@ -4753,7 +4641,6 @@ body.chat-focus-mode .mobile-toggle { display: none !important; }
     .flag-baseline-value { text-align: left; }
     .flag-input { justify-content: flex-start; }
     .flag-multi-options { grid-template-columns: 1fr; }
-    .config-header { flex-direction: column; align-items: flex-start; }
     .config-controls { flex-direction: column; align-items: stretch; }
     .config-controls input[type="text"] { min-width: 0; }
     .sampler-presets-row { flex-direction: column; align-items: stretch; }
