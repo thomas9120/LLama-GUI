@@ -22,6 +22,7 @@ const CHAT_SHOW_WINDOW = "#btn-chat-show-window";
 const CHAT_RETURN_HERE = "#btn-chat-return-here";
 const CHAT_RETURN = "#btn-chat-return";
 const CHAT_HOST_STATUS = "#chat-window-host-status";
+const CHAT_OPEN_FULL_GUI = "#chat-window-open-full-gui";
 const API_SECRET = "fixture-api-secret-must-not-persist";
 
 function json(value) {
@@ -302,6 +303,38 @@ async function assertNoSecret(page, label) {
     }
     return state;
 }
+
+test("direct Chat window URL without an opener shows a safe unavailable shell", { timeout: 120_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const callsResult = await installApiRoutes(context);
+    const pageErrors = [];
+    const page = await context.newPage();
+    page.on("pageerror", error => pageErrors.push(error.message));
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+
+    await page.goto(`${server.baseUrl}?${POPUP_QUERY}`, { waitUntil: "domcontentloaded" });
+    await page.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
+    assert.match(await page.locator(`${CHAT_WINDOW_PLACEHOLDER} h3`).textContent(), /Chat window unavailable/i);
+    assert.match(await page.locator(`${CHAT_WINDOW_PLACEHOLDER} p`).textContent(), /same browser|cannot share/i);
+    assert.equal(await page.locator("#section-quick-launch").isVisible(), false);
+    assert.equal(await page.locator("#app-sidebar").isVisible(), false);
+    assert.equal(await page.locator(CHAT_POP_OUT).isDisabled(), true);
+    assert.equal(await page.locator(CHAT_RETURN).isDisabled(), true);
+    assert.equal(await page.locator(CHAT_OPEN_FULL_GUI).isVisible(), true);
+    const fullGuiUrl = await page.locator(CHAT_OPEN_FULL_GUI).getAttribute("href");
+    const parsedFullGuiUrl = new URL(fullGuiUrl, server.baseUrl);
+    assert.equal(parsedFullGuiUrl.origin, new URL(server.baseUrl).origin);
+    assert.equal(parsedFullGuiUrl.searchParams.has("chat-window"), false);
+    assert.deepEqual(callsResult.calls, [], "an orphan detached page must not start app requests");
+    assert.deepEqual(await page.evaluate(() => Object.keys(localStorage)), [], "an orphan detached page must not write storage");
+    assert.deepEqual(pageErrors, [], "an orphan detached page must not raise uncaught errors");
+});
 
 test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }, async t => {
     const server = await startUiServer();
@@ -600,6 +633,7 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     await closePopup.close();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
     await main.waitForFunction(() => document.querySelector("#btn-chat-return-here")?.textContent === "Recover chat here");
+    assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), false, "closed receiver recovery must hide Show window until a receiver exists");
     await main.locator(CHAT_RETURN_HERE).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
     assert.equal(await main.locator("#chat-input").inputValue(), "Draft survives an idle popup close.");

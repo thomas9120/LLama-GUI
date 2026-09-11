@@ -1394,7 +1394,7 @@
         return new Promise(resolve => target.document.addEventListener("DOMContentLoaded", resolve, { once: true }));
     }
 
-    function showDetachedError(target, title, message) {
+    function showDetachedError(target, title, message, options = {}) {
         const doc = target && target.document;
         const placeholder = doc?.getElementById("chat-window-placeholder");
         const layout = doc?.getElementById("chat-layout");
@@ -1402,12 +1402,34 @@
         const detail = placeholder?.querySelector("p");
         const showWindow = doc?.getElementById("btn-chat-show-window");
         const returnHere = doc?.getElementById("btn-chat-return-here");
-        if (heading) heading.textContent = title;
+        const fullGui = doc?.getElementById("chat-window-open-full-gui");
+        const headerActions = doc?.querySelectorAll("#section-chat .chat-header-actions button");
+        if (heading) {
+            heading.textContent = title;
+            heading.tabIndex = -1;
+        }
         if (detail) detail.textContent = message;
         if (layout) layout.hidden = true;
         if (placeholder) placeholder.hidden = false;
         if (showWindow) showWindow.hidden = true;
         if (returnHere) returnHere.hidden = true;
+        headerActions?.forEach(button => {
+            button.disabled = true;
+            button.setAttribute("aria-disabled", "true");
+        });
+        if (fullGui) {
+            fullGui.hidden = options.fullGuiLink !== true;
+            if (options.fullGuiLink === true) {
+                try {
+                    const url = new URL(target.location.href);
+                    url.searchParams.delete(DETACHED_QUERY_PARAM);
+                    fullGui.href = url.href;
+                } catch (error) {
+                    fullGui.hidden = true;
+                    target.console?.debug?.("Unable to build full GUI recovery link", error);
+                }
+            }
+        }
         doc?.body?.setAttribute("data-chat-window-error", "true");
         heading?.focus?.();
     }
@@ -1766,22 +1788,22 @@
 
     async function startDetachedView(options = {}) {
         const target = options.window || (typeof window !== "undefined" ? window : null);
+        if (!target) return result(false, "chat-host-unavailable");
+        await whenDomReady(target);
+        target.document?.body?.classList.add("chat-window-detached");
         const opener = target && target.opener;
         const chatUi = options.chatUi || target?.LlamaGui?.chatUi;
         let openerChatWindow = null;
         try { openerChatWindow = opener?.LlamaGui?.chatWindow || null; } catch (error) {
             debug({ window: target }, "Unable to inspect Chat opener", error);
         }
-        if (!target) return result(false, "chat-host-unavailable");
         if (!opener || !chatUi || !openerChatWindow) {
-            await whenDomReady(target);
-            showDetachedError(target, "Chat window unavailable", "Return to the main window and open Chat again.");
+            showDetachedError(target, "Chat window unavailable", "This page was opened without a verified connection to the main GUI. Open the full GUI in this browser, then choose Chat and Pop out; a GUI opened in another browser cannot share this Chat.", { fullGuiLink: true });
             return result(false, "chat-host-unavailable");
         }
         let descriptor;
         try { descriptor = openerChatWindow.getBootstrapInfo(target); } catch (error) { descriptor = null; }
         if (!descriptor || descriptor.origin !== getOrigin({ window: target }) || !descriptor.proofKey || !descriptor.proofValue) {
-            await whenDomReady(target);
             showDetachedError(target, "Chat window unavailable", "Close this window, then choose Recover chat here in the main Chat window.");
             return result(false, "chat-host-unavailable");
         }
@@ -1789,11 +1811,9 @@
         let proofMatches = false;
         try { proofMatches = storage && storage.getItem(descriptor.proofKey) === descriptor.proofValue; } catch (error) { proofMatches = false; }
         if (!proofMatches) {
-            await whenDomReady(target);
             showDetachedError(target, "Chat window unavailable", "This window could not verify the main Chat storage partition.");
             return result(false, "storage-partition-mismatch");
         }
-        target.document.body?.classList.add("chat-window-detached");
         const remoteState = { settings: {}, runtime: null, status: null, inference: null };
         let remoteAdapter = null;
         let hostLossStarted = false;

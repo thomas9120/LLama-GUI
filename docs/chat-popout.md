@@ -16,6 +16,8 @@ If the separate window closes, use **Recover chat here** in the main page. Recov
 
 Reloading the separate window ends its verified connection. If it displays an unavailable message, close that window and use **Recover chat here** in the main page before opening Chat separately again.
 
+Some launchers forward the separate-window URL into another browser without its connection to the original page. That page cannot receive the original workspace. Use **Open full GUI in this browser**, then open Chat and choose **Pop out** from that browser's main GUI. This opens a new main page; it does not transfer history between browser profiles or automatically send a message.
+
 If the original main page closes or reloads, the separate Chat pauses because its settings connection is no longer valid. Preserve any visible text you need and follow the recovery instruction in the page. Opening another GUI page does not make it a second editable Chat while another participating page still owns the workspace.
 
 Closing the main browser page breaks that connection but does not itself request backend shutdown. **Quit Llama GUI** uses the existing backend shutdown action; a separate Chat window cannot keep the backend running after Quit.
@@ -29,6 +31,8 @@ If browser storage is unavailable or full, a transfer that cannot save its check
 The automated application tests use Chromium, an ephemeral loopback HTTP server, fresh browser contexts, synthetic conversations, and mock API responses. They do not start a model process or use an existing browser profile. The separate window must retain same-origin opener access and share the browser storage partition with the main page. Web Locks provide ownership where available; there is no timestamp-based substitute.
 
 The Pinokio launcher's static compatibility check passes with the added frontend script. In the Windows Pinokio embedded view tested on 2026-09-11, a direct Pop out click did not receive a window reference and no separate Pinokio window opened. That embedded view therefore uses the single-window fallback. Its popup opener/storage behavior could not be tested beyond that blocked opening. HTTPS tunnels and native macOS/browser window behavior still require manual checks. Opening an unrelated external browser or another profile does not establish a shared workspace. Plain HTTP origins outside trusted loopback normally lack the secure-context capabilities required for pop-out; the ordinary single-window Chat remains the fallback.
+
+Opening the full GUI directly in Chrome on Windows was also tested on 2026-09-11: Pop out, the main page's **Return chat here**, reopening, and popup-close recovery worked with an empty workspace. Native automation could not operate the popup's own Return button, so that control is covered by the automated Chromium suite. These native checks did not run model generation.
 
 Only pages running this implementation in the same browser storage partition participate in ownership coordination. Already-open older builds do not obey its lock. Version-mismatched peers refuse transfer and need a reload.
 
