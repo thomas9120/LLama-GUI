@@ -4,6 +4,12 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### Legacy load flags removed in favor of --load-mode - - - Done
+
+- **Upstream:** b10875, Sep 9 (PR #28334): `--mmap` / `--no-mmap`, `--mlock`, and `-dio` / `-ndio` / `--direct-io` / `--no-direct-io` removed from `llama-cli` / `llama-server` in favor of `--load-mode`. Installed b10917 `--help` output confirms `llama-bench` / `llama-perplexity` also only advertise `--load-mode`.
+- **Status:** Implemented (2026-09-11). `--load-mode` was already the default (`auto`); the legacy `mmap`, `mlock`, and `direct_io` definitions are retained for builds at or below b10874 with updated descriptions pointing at `--load-mode`. Explicit load-mode selection still suppresses the legacy arguments via `shouldOmitLegacyLoadFlag()`. On b10875+ (gated by the installed build tag from `/api/status`, like the reasoning-effort gate), emitting a removed flag — via Legacy controls or custom args — adds a warn-only hint to select a `--load-mode` instead; older, custom, and unknown tags stay silent. Benchmark commands translate the legacy toggles on b10875+: perplexity Memory Mapping off emits `--load-mode none` instead of `--no-mmap`; llama-bench mmap on/off emits `--load-mode mmap` / `none` instead of `-mmp 1/0`; Direct I/O on emits `--load-mode dio` instead of `-dio 1`, and off emits nothing. The legacy definitions carry `removed_in: "b10875"`, which `llama_flags_supported_unit.cjs` honors by exempting them when the probed binary's build (parsed from `--version`) is at or above the tag.
+- **Remaining:** removal of the legacy definitions and their `removed_in` exemptions once the supported binary floor is past b10875.
+
 ### Native reasoning-effort support — residual compatibility window - - - Done
 
 - **Upstream:** [ggml-org/llama.cpp#26941](https://github.com/ggml-org/llama.cpp/pull/26941), merged on 2026-08-14 as commit `7e4c0a9`, first release `b10434`.

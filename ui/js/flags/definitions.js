@@ -196,9 +196,12 @@ const FLAGS = [
 		category: "context",
 		type: "bool",
 		label: "Lock Model in RAM",
-		desc: "Deprecated by llama.cpp in favor of --load-mode mlock. Force the OS to keep the memory-mapped model in physical RAM and never swap it to disk.",
+		desc: "Legacy — removed in llama.cpp b10875 (PR #28334); retained for older builds. Use --load-mode mlock on newer builds. Force the OS to keep the memory-mapped model in physical RAM and never swap it to disk.",
 		tool: "both",
 		default: false,
+		// Removed upstream (docs/upstream-changes.md): the installed-binary
+		// compatibility check exempts this flag on builds at or above the tag.
+		removed_in: "b10875",
 	},
 	{
 		id: "mmap",
@@ -207,9 +210,12 @@ const FLAGS = [
 		category: "context",
 		type: "bool",
 		label: "Memory Map Model",
-		desc: "Deprecated by llama.cpp in favor of --load-mode mmap. Load the model using memory-mapped files for faster loading and lower RAM usage.",
+		desc: "Legacy — removed in llama.cpp b10875 (PR #28334); retained for older builds. Use --load-mode mmap on newer builds. --mmap / --no-mmap no longer exist in llama-server / llama-cli. Load the model using memory-mapped files for faster loading and lower RAM usage.",
 		tool: "both",
 		default: false,
+		// Removed upstream (docs/upstream-changes.md): the installed-binary
+		// compatibility check exempts this flag on builds at or above the tag.
+		removed_in: "b10875",
 	},
 	{
 		id: "direct_io",
@@ -217,9 +223,12 @@ const FLAGS = [
 		category: "context",
 		type: "bool",
 		label: "Direct I/O",
-		desc: "Deprecated by llama.cpp in favor of --load-mode dio. Bypass the OS page cache when loading the model, when supported.",
+		desc: "Legacy — removed in llama.cpp b10875 (PR #28334); retained for older builds. Use --load-mode dio on newer builds. -dio / -ndio / --direct-io / --no-direct-io no longer exist in llama-server / llama-cli. Bypass the OS page cache when loading the model, when supported.",
 		tool: "both",
 		default: false,
+		// Removed upstream (docs/upstream-changes.md): the installed-binary
+		// compatibility check exempts this flag on builds at or above the tag.
+		removed_in: "b10875",
 	},
 	{
 		id: "load_mode",
@@ -228,7 +237,7 @@ const FLAGS = [
 		type: "enum",
 		label: "Model Load Mode",
 		short_desc: "Choose llama.cpp's model loading strategy.",
-		desc: "Preferred replacement for the deprecated mmap, mlock, and Direct I/O switches. Selecting a mode suppresses those legacy arguments in the generated command.",
+		desc: "Preferred replacement for the removed mmap, mlock, and Direct I/O switches (removed in llama.cpp b10875). Selecting a mode suppresses those legacy arguments in the generated command. Select Legacy controls only for older builds that lack --load-mode.",
 		tool: "both",
 		default: "auto",
 		options: [

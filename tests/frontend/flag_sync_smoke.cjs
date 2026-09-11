@@ -123,7 +123,7 @@ async function verifyConfigurePresentation(page) {
     assert.equal(numberColumns.length, 3);
     assert.ok(numberColumns.every(rect => Math.abs(rect.left - numberColumns[0].left) < 1
         && Math.abs(rect.right - numberColumns[0].right) < 1), "numeric controls share an aligned column");
-    assert.match(await page.locator('.flag-row[data-flag-id="mlock"] .flag-desc').textContent(), /Deprecated/);
+    assert.match(await page.locator('.flag-row[data-flag-id="mlock"] .flag-desc').textContent(), /Legacy.*b10875/);
 
     await page.fill("#config-search", "sampling");
     const submenu = page.locator('.accordion[data-category-id="sampling"] .flag-submenu-header').first();

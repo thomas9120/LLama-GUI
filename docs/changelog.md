@@ -12,6 +12,10 @@ Please give a brief summary of changes made to the program (excluding documentat
 - Added a separate Chat window with shared main-window settings, an ownership-safe return action, and a dedicated Chat bootstrap.
 - Added Chat transfer snapshots, ownership guards, and recovery boundaries for the pop-out integration.
 - Removed unused CSS for retired controls and preset chips, including an unused status-dot animation.
+- Marked the legacy mmap/no-mmap, mlock, and Direct I/O flags as removed in llama.cpp b10875 (PR #28334); they stay available for older builds with --load-mode as the replacement.
+- Added a warn-only hint on b10875+ when Legacy load controls or custom args would emit a removed flag, covering the -ndio spelling too.
+- Translated benchmark legacy load toggles to --load-mode on b10875+ because llama-bench and llama-perplexity also dropped --no-mmap, -mmp, and -dio.
+- Exempted flags marked removed_in from the installed-binary compatibility check on builds at or above the removal tag, keeping npm test green on b10875+ installs.
 
 ## 2026-09-10
 
