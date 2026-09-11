@@ -576,6 +576,8 @@
         return true;
     }
 
+    // Stage a validated workspace before ownership is activated. Restoring does
+    // not grant permission to send or persist; those paths retain owner guards.
     function restoreSnapshot(snapshot) {
         if (!validateSnapshot(snapshot)) return false;
         workspaceRestoreInProgress = true;

@@ -20,8 +20,8 @@ The runner launches Playwright Chromium with fresh browser contexts and an ephem
 | Exact messaging contract | The receiver sends protocol version `1`, the nonce, and its hello through `postMessage(..., location.origin)`. The source accepts only the exact origin, the opened popup reference (`event.source`), version, and nonce. A wrong version from the popup is rejected; a `localhost` attacker page is rejected for origin and source. | Origin, source, version, and nonce checks are practical in the same browser context. |
 | Storage partition | The source writes only the nonce key. The same-context receiver reads the same value and has the same single key. A page in a separate browser context reads `null`. | Same-context pages share the storage partition; isolated contexts do not. Storage is a capability probe, not an ownership mechanism. |
 | Web Locks | One page holds `chat-popout:<nonce>` in `exclusive` mode. A second page remains queued until the first releases it, then acquires it. `navigator.locks.query()` reports the held lock and mode. | Exclusive coordination works for participating same-origin pages in the tested secure loopback context. |
-| Focus and close | Playwright brings the receiver forward; `window.focus()` reports `document.hasFocus() === true`. After the receiver is closed, the source observes `WindowProxy.closed`. | Focus and close can be exercised in the browser fixture. Browser chrome and user focus policy remain host decisions. |
-| Lifecycle isolation | The fixture records every request and asserts there are no `/api/*` requests and no URL containing the real conversation storage key. | The Phase 1 exit path has no model, backend, launch, stop, reconnect, shutdown, or chat-history side effects. |
+| Close and focus messaging | The receiver acknowledges the verified focus request. After it is closed, the source observes `WindowProxy.closed`. | This checks the focus message contract and close detection, not native window activation. Browser chrome and user focus policy remain host decisions. |
+| Lifecycle isolation | The fixture records every request and asserts there are no `/api/*` requests. Storage assertions permit only the disposable nonce key. | The Phase 1 exit path has no model, backend, launch, stop, reconnect, shutdown, or chat-history side effects. |
 
 The exact protocol values are intentionally small and synthetic. The fixture does not transfer prompts, messages, credentials, draft text, files, or a production snapshot.
 
@@ -34,7 +34,7 @@ Every fallback case uses a fresh browser context and keeps the source page recov
 - Popup blocked: an initialization script makes `window.open()` return `null`; the source reports that the popup was blocked or did not return a window reference.
 - Storage blocked: an initialization script makes the Storage methods throw `SecurityError`; the source refuses a handoff because its storage partition cannot be probed.
 
-The blocked-popup, blocked-storage, missing-Web-Locks, and missing-opener conditions are controlled browser-context simulations. The normal popup, opener reference, same-context storage sharing, Web Locks contention, secure-context result, focus, and close checks run against Chromium itself. A real embedded host that strips or changes these capabilities still needs a native check.
+The blocked-popup, blocked-storage, missing-Web-Locks, and missing-opener conditions are controlled browser-context simulations. The normal popup, opener reference, same-context storage sharing, Web Locks contention, secure-context result, and close checks run against Chromium itself. Native window activation is not asserted by the headless fixture. A real embedded host that strips or changes these capabilities still needs a native check.
 
 ## Bootstrap and request-setting audit
 

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { character, cardFile } = require("./character_card_fixtures.cjs");
+const { FakeLocks } = require("./fake_locks.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
@@ -412,45 +413,6 @@ class IntegrationRecoveryStorage {
     getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
     setItem(key, value) { this.values.set(key, String(value)); }
     removeItem(key) { this.values.delete(key); }
-}
-
-class IntegrationLocks {
-    constructor() { this.held = null; this.queue = []; }
-    request(name, options, callback) {
-        assert.equal(options.mode, "exclusive");
-        return new Promise((resolve, reject) => {
-            const request = { name, options, callback, resolve, reject, cancelled: false };
-            const enqueue = () => {
-                if (request.cancelled) return;
-                if (this.held) {
-                    if (options.ifAvailable) {
-                        Promise.resolve().then(() => callback(null)).then(resolve, reject);
-                    } else {
-                        this.queue.push(request);
-                        options.signal?.addEventListener("abort", () => {
-                            request.cancelled = true;
-                            this.queue = this.queue.filter(item => item !== request);
-                            reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-                        }, { once: true });
-                    }
-                    return;
-                }
-                this.grant(request);
-            };
-            Promise.resolve().then(enqueue);
-        });
-    }
-    grant(request) {
-        if (request.cancelled) return;
-        this.held = request;
-        Promise.resolve().then(() => request.callback({ name: request.name, mode: "exclusive" }))
-            .then(request.resolve, request.reject)
-            .finally(() => {
-                if (this.held === request) this.held = null;
-                const next = this.queue.shift();
-                if (next) this.grant(next);
-            });
-    }
 }
 
 // flush() never blocks the event loop, so an unbounded wait on a condition that
@@ -1980,7 +1942,9 @@ async function runAbortScenario(action) {
     }
 
     // Workspace snapshots preserve the supported conversation shape and local
-    // recovery preferences while dropping unknown fields and live state.
+    // recovery preferences while dropping unknown fields and live state. The
+    // raw restoreSnapshot API is inert staging for an observer before its
+    // coordinator grants ownership; durable history remains owner-gated.
     {
         const original = [{ id: "snapshot", title: "Saved title", titleCustom: true,
             systemPrompt: "Saved rules", thinkingEffort: "high", messages: [
@@ -1991,7 +1955,11 @@ async function runAbortScenario(action) {
                     versions: [{ content: "Old answer", status: "failed", metadata: { stop_reason: "error" } }],
                 },
             ] }];
-        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: original,
+        let requests = 0;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (String(url).includes("/api/chat/completions")) requests += 1;
+            return makeFetch("complete")(url, options);
+        }, seedConversations: original,
             flagValues: { temperature: 0.4, top_p: 0.9 }, extraElementIds: [
                 "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
                 "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate",
@@ -2027,6 +1995,7 @@ async function runAbortScenario(action) {
         await ctx.api._testStartNewChat();
         const storedBeforeRestore = ctx.getStoredConversations();
         const checkpointsBeforeRestore = checkpoints;
+        assert.equal(ctx.api.setOwnership(false), true);
         assert.equal(ctx.api.restoreSnapshot(snapshot), true);
         assert.equal(ctx.api._testGetState().currentConversationId, "snapshot");
         assert.equal(ctx.elements.get("chat-system-prompt").value, "Live rules");
@@ -2034,6 +2003,9 @@ async function runAbortScenario(action) {
         assert.equal(ctx.tools.isEnabled(), true);
         assert.deepEqual(ctx.getStoredConversations(), storedBeforeRestore, "restore is inert and does not write history");
         assert.equal(checkpoints, checkpointsBeforeRestore, "restore does not checkpoint by itself");
+        assert.equal(await ctx.api._testSendMessage("observer restore"), false);
+        assert.equal(requests, 0, "observer restore cannot send through the host");
+        assert.deepEqual(ctx.getStoredConversations(), storedBeforeRestore, "observer restore cannot save history");
     }
 
     // Ownership, host availability, and suspension gate sends; the intentional
@@ -2136,7 +2108,7 @@ async function runAbortScenario(action) {
     {
         const sharedUiStorage = new Map();
         const recoveryStorage = new IntegrationRecoveryStorage();
-        const locks = new IntegrationLocks();
+        const locks = new FakeLocks();
         const fixtureConversation = [{ id: "roundtrip", title: "Fixture title", titleCustom: true,
             systemPrompt: "Fixture system", thinkingEffort: "medium", timestamp: Date.now(),
             messages: [
@@ -2199,6 +2171,16 @@ async function runAbortScenario(action) {
         assert.equal(coordinatorB.isOwner(), true);
         assert.equal(ctxB.elements.get("chat-input").value, "Draft survives both transfers");
         assert.equal(ctxB.elements.get("chat-system-prompt").value, "Updated fixture system");
+        const firstRecord = JSON.parse(recoveryStorage.getItem(coordinatorA.storageKey));
+        assert.equal(firstRecord.phase, "prepared", "A → B leaves a durable prepared checkpoint");
+        assert.ok(Number.isInteger(firstRecord.revision) && firstRecord.revision > 0,
+            "A → B checkpoint has a positive durable revision");
+        assert.equal(firstRecord.revision, coordinatorA.getState().revision,
+            "A → B checkpoint revision matches the completed source transfer");
+        assert.deepEqual(firstRecord.transfer, {
+            sourceId: "A", destinationId: "B", sourceInstanceId: "A", destinationInstanceId: "B",
+            transferId: "a-to-b", revision: firstRecord.revision,
+        }, "A → B checkpoint identifies both transfer endpoints");
         const second = await coordinatorB.beginTransfer({ destinationId: "A", transferId: "b-to-a", timeoutMs: 500 });
         assert.equal(second, true, `B → A transfer failed: ${JSON.stringify(coordinatorB.getState())}`);
         assert.equal(coordinatorA.isOwner(), true);
@@ -2206,8 +2188,16 @@ async function runAbortScenario(action) {
         assert.equal(ctxA.elements.get("chat-input").value, "Draft survives both transfers");
         assert.equal(ctxA.api._testGetState().chatMessages.at(-1).content, "Fixture answer");
         assert.equal(ctxA.api._testGetState().chatMessages.at(-1).metadata.timings.predicted_per_second, 3);
-        assert.equal(ctxA.getStoredConversations().filter(item => item.id === "roundtrip").length, 1);
-        assert.equal(ctxA.getStoredConversations().length, 1, "round trip never creates duplicate history");
+        const secondRecord = JSON.parse(recoveryStorage.getItem(coordinatorA.storageKey));
+        assert.equal(secondRecord.phase, "prepared", "B → A leaves a durable prepared checkpoint");
+        assert.ok(secondRecord.revision > firstRecord.revision, "B → A advances the durable revision");
+        assert.deepEqual(secondRecord.transfer, {
+            sourceId: "B", destinationId: "A", sourceInstanceId: "B", destinationInstanceId: "A",
+            transferId: "b-to-a", revision: secondRecord.revision,
+        }, "B → A checkpoint identifies the reversed endpoints");
+        const finalConversations = ctxA.getStoredConversations();
+        assert.equal(finalConversations.length, 1, "A → B → A never duplicates durable history");
+        assert.equal(finalConversations[0].id, "roundtrip");
         for (const entry of sent) {
             assert.equal(entry.origin, origin);
             assert.equal(entry.target, entry.from === "A" ? peerB : peerA, "transport keeps the registered peer reference");

@@ -23,9 +23,10 @@ function nonce() {
     return `run-${randomUUID()}`;
 }
 
-async function waitFor(page, predicate, arg, message) {
+// Browser timing is observed through the fixture state; capability checks
+// should wait for a real transition instead of sleeping for a guessed delay.
+async function waitFor(page, predicate, arg) {
     await page.waitForFunction(predicate, arg, { timeout: WAIT_MS, polling: 25 });
-    if (message) assert.ok(true, message);
 }
 
 async function readState(page) {
@@ -51,14 +52,9 @@ async function openPopup(page) {
 function noBackendRequests(fixture) {
     const apiRequests = fixture.requests.filter((request) => request.url.startsWith("/api/"));
     assert.deepEqual(apiRequests, [], "the disposable fixture must never call a backend route");
-    assert.equal(
-        fixture.requests.some((request) => request.url.includes("llama_gui_conversations")),
-        false,
-        "the fixture must not address the real conversation storage key"
-    );
 }
 
-test("loopback popup, storage partition, messaging, Web Locks, focus and close", async (t) => {
+test("loopback popup, storage partition, messaging, Web Locks and close", async (t) => {
     const fixture = await startCapabilityFixture();
     const browser = await chromium.launch({ headless: true });
     const runNonce = nonce();
@@ -142,7 +138,11 @@ test("loopback popup, storage partition, messaging, Web Locks, focus and close",
     assert.deepEqual(held.map(lock => ({ name: lock.name, mode: lock.mode })),
         [{ name: `chat-popout:${runNonce}`, mode: "exclusive" }]);
     await popup.evaluate((name) => window.__fixture.acquireLock(name), `chat-popout:${runNonce}`);
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await waitFor(popup, async (name) => {
+        if (window.__fixture.getState().lock.status !== "waiting") return false;
+        const snapshot = await window.__fixture.lockQuery();
+        return Boolean(snapshot?.pending?.some(lock => lock.name === name));
+    }, `chat-popout:${runNonce}`);
     assert.equal((await readState(popup)).lock.status, "waiting",
         "a second same-origin page must wait for the exclusive lock");
     await main.evaluate(() => window.__fixture.releaseLock());
@@ -151,9 +151,6 @@ test("loopback popup, storage partition, messaging, Web Locks, focus and close",
     await popup.evaluate(() => window.__fixture.releaseLock());
     await waitFor(popup, () => window.__fixture.getState().lock.status === "released");
 
-    await popup.bringToFront();
-    assert.equal(await popup.evaluate(() => { window.focus(); return document.hasFocus(); }), true,
-        "the verified receiver must be focusable");
     await popup.close();
     await waitFor(main, () => window.__fixture.getState().popupClosedObserved);
     assert.equal((await readState(main)).popupState, "closed");

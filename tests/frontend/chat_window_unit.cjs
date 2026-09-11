@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { FakeLocks } = require("./fake_locks.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
@@ -26,48 +27,6 @@ class FakeStorage {
     getItem(key) { if (this.failRead) throw new Error("blocked"); return this.values.has(key) ? this.values.get(key) : null; }
     setItem(key, value) { if (this.failWrite) throw new Error("quota"); this.values.set(key, value); }
     removeItem(key) { if (this.failRemove) throw new Error("blocked"); this.values.delete(key); }
-}
-
-class FakeLocks {
-    constructor() { this.held = null; this.queue = []; this.calls = []; }
-    request(name, options, callback) {
-        assert.equal(options.mode, "exclusive");
-        assert.equal(options.ifAvailable && Boolean(options.signal), false,
-            "ifAvailable requests must not carry AbortSignal");
-        this.calls.push({ name, options });
-        return new Promise((resolve, reject) => {
-            const request = { name, options, callback, resolve, reject, cancelled: false };
-            const enqueue = () => {
-                if (request.cancelled) return;
-                if (this.held) {
-                    if (options.ifAvailable) {
-                        Promise.resolve().then(() => callback(null)).then(resolve, reject);
-                    } else {
-                        this.queue.push(request);
-                        if (options.signal) options.signal.addEventListener("abort", () => {
-                            request.cancelled = true;
-                            this.queue = this.queue.filter(item => item !== request);
-                            reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-                        }, { once: true });
-                    }
-                    return;
-                }
-                this.grant(request);
-            };
-            Promise.resolve().then(enqueue);
-        });
-    }
-    grant(request) {
-        if (request.cancelled) return;
-        this.held = request;
-        Promise.resolve().then(() => request.callback({ name: request.name, mode: "exclusive" }))
-            .then(request.resolve, request.reject)
-            .finally(() => {
-                if (this.held === request) this.held = null;
-                const next = this.queue.shift();
-                if (next) this.grant(next);
-            });
-    }
 }
 
 function clone(value) { return JSON.parse(JSON.stringify(value)); }

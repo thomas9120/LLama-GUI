@@ -596,7 +596,8 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     assert.equal(completionCalls[0].headers.authorization, "Bearer " + API_SECRET);
     assert.equal(completionCalls[0].body.messages.at(-1).content, "Send from the real popup.");
     assert.equal(completionCalls[0].body.messages[0].content.includes("Main system prompt"), true);
-    assert.equal(completionCalls[0].body.messages.some(message => message.content === API_SECRET), false);
+    assert.equal(JSON.stringify(completionCalls[0].body).includes(API_SECRET), false,
+        "the serialized completion body must exclude the API secret at every nesting level");
 
     await popup.setViewportSize({ width: 1280, height: 900 });
     if (await popup.locator("#chat-history-panel").evaluate(element => element.classList.contains("collapsed"))) {
@@ -695,15 +696,52 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     assert.doesNotMatch(popoutTitleAfterReturn || "", /owned|busy|unavailable/i, "Pop out does not retain an old disabled reason");
     for (const [pathname, count] of forbiddenBefore) assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run while returning Chat`);
     await assertNoSecret(main, "returned main window");
+    assert.deepEqual(pageErrors, [], "the complete pop-out lifecycle remains free of uncaught errors");
+    t.diagnostic(`Phase 4 popup screenshots: ${desktopScreenshotPath}, ${screenshotPath}`);
 
-    // A blocked direct window.open leaves the current Chat usable and explains
-    // the single-window fallback without changing the durable conversation.
-    await main.locator("#chat-input").fill("Draft survives a blocked pop-out.");
-    const historyBeforeBlockedPopout = await readStoredConversations(main);
-    const snapshotBeforeBlockedPopout = await main.evaluate(() => {
-        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
-        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
+});
+
+test("blocked and blank pop-outs preserve ownership and a fresh transfer identity", { timeout: 120_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const pageErrors = [];
+    context.on("page", page => page.on("pageerror", error => pageErrors.push(error.message)));
+    const conversation = representativeConversation();
+    const runNonce = `phase4-reopen-${randomUUID()}`;
+    await installInitScript(context, conversation, runNonce);
+    await context.addInitScript(() => {
+        window.__phase4BufferedOwnerAcks = [];
+        window.addEventListener("message", event => {
+            if (!window.__phase4HoldOwnerAck || event.data?.type !== "owner-ack") return;
+            window.__phase4BufferedOwnerAcks.push(event);
+            event.stopImmediatePropagation();
+        });
     });
+    const { calls } = await installApiRoutes(context);
+    let main;
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+
+    main = await context.newPage();
+    await main.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
+    await selectChat(main);
+    if (await main.locator("#chat-history-panel").evaluate(element => element.classList.contains("collapsed"))) {
+        await main.locator("#btn-open-history").click();
+    }
+    await main.locator(".chat-history-item-title").filter({ hasText: conversation.title }).click();
+    const forbiddenBefore = new Map(["/api/launch", "/api/stop", "/api/shutdown", "/api/restart", "/api/chat/target"]
+        .map(pathname => [pathname, callsFor(calls, pathname).length]));
+
+    // A blocked or blank receiver must leave the original owner and transcript usable.
+    await main.locator("#chat-input").fill("Draft survives a blocked pop-out.");
+    const beforeBlocked = await main.evaluate(() => ({
+        snapshot: window.LlamaGui.chatUi.captureSnapshot(),
+        history: localStorage.getItem("llama_gui_conversations"),
+    }));
     await main.evaluate(() => {
         window.__phase4OriginalOpen = window.open;
         window.open = () => null;
@@ -711,39 +749,17 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     await main.locator(CHAT_POP_OUT).click();
     await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible" });
     assert.match(await main.locator(CHAT_HOST_STATUS).textContent(), /remains available|Allow popups/i);
-    assert.equal(await main.locator("#chat-input").isVisible(), true, "blocked pop-out keeps the source Chat usable");
-    assert.equal(await main.locator("#chat-input").isDisabled(), false, "blocked pop-out keeps source input enabled");
-    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true, "blocked pop-out leaves the source as owner");
-    assert.deepEqual(await main.evaluate(() => {
-        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
-        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
-    }), snapshotBeforeBlockedPopout, "blocked pop-out preserves the source workspace");
-    assert.deepEqual(await readStoredConversations(main), historyBeforeBlockedPopout, "blocked pop-out preserves history");
+    assert.equal(await main.locator("#chat-input").isVisible(), true);
+    assert.equal(await main.locator("#chat-input").isDisabled(), false);
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true);
+    assert.deepEqual(await main.evaluate(() => ({
+        snapshot: window.LlamaGui.chatUi.captureSnapshot(),
+        history: localStorage.getItem("llama_gui_conversations"),
+    })), beforeBlocked, "blocked pop-out preserves the current owner and transcript");
     await main.evaluate(() => window.LlamaGui.chatWindow.notifyHostChange({ type: "status" }));
-    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "blocked pop-out banner survives a host status update");
-    await main.evaluate(() => {
-        window.open = window.__phase4OriginalOpen;
-        delete window.__phase4OriginalOpen;
-    });
-    const retryPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
-    await main.locator(CHAT_POP_OUT).click();
-    const retryPopup = await retryPopupPromise;
-    await retryPopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
-    await retryPopup.locator(CHAT_RETURN).click();
-    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
-    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "hidden" });
-    if (!retryPopup.isClosed()) await retryPopup.waitForEvent("close", { timeout: 3_000 });
+    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "blocked pop-out status survives a host update");
 
-    // A real blank popup exercises the bounded handshake failure path. The
-    // source remains owner and the failure closes only the unusable receiver.
-    await main.locator("#chat-input").fill("Draft survives a blank popup.");
-    const historyBeforeBlankPopup = await readStoredConversations(main);
-    const snapshotBeforeBlankPopup = await main.evaluate(() => {
-        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
-        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
-    });
     await main.evaluate(() => {
-        window.__phase4OriginalOpen = window.open;
         window.open = (_url, name, features) => window.__phase4OriginalOpen("about:blank", name, features);
     });
     const blankPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
@@ -751,53 +767,171 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     const blankPopup = await blankPopupPromise;
     await main.locator(CHAT_HOST_STATUS).waitFor({ state: "visible", timeout: 15_000 });
     assert.match(await main.locator(CHAT_HOST_STATUS).textContent(), /could not connect|preserved/i);
-    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true, "failed handshake preserves source ownership");
-    assert.deepEqual(await main.evaluate(() => {
-        const snapshot = window.LlamaGui.chatUi.captureSnapshot();
-        return { conversation: snapshot.conversation, messages: snapshot.messages, draft: snapshot.inputs.draft };
-    }), snapshotBeforeBlankPopup, "failed handshake preserves the source workspace");
-    assert.deepEqual(await readStoredConversations(main), historyBeforeBlankPopup, "failed handshake preserves history");
+    assert.equal(await main.locator("#chat-input").isVisible(), true);
+    assert.equal(await main.locator("#chat-input").isDisabled(), false);
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), true);
+    assert.deepEqual(await main.evaluate(() => ({
+        snapshot: window.LlamaGui.chatUi.captureSnapshot(),
+        history: localStorage.getItem("llama_gui_conversations"),
+    })), beforeBlocked, "blank popup preserves the current owner and transcript");
     await main.evaluate(() => window.LlamaGui.chatWindow.notifyHostChange({ type: "status" }));
-    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "failed handshake banner survives a host status update");
+    assert.equal(await main.locator(CHAT_HOST_STATUS).isVisible(), true, "blank popup status survives a host update");
     if (!blankPopup.isClosed()) await blankPopup.waitForEvent("close", { timeout: 3_000 });
-    assert.equal(blankPopup.isClosed(), true, "failed handshake closes the unusable popup");
+    assert.equal(blankPopup.isClosed(), true);
     await main.evaluate(() => {
         window.open = window.__phase4OriginalOpen;
         delete window.__phase4OriginalOpen;
     });
 
-    // A new popup document gets a new WindowProxy after the first return. The
-    // host must replace the peer identity and complete a fresh transfer rather
-    // than reusing the closed receiver's source reference.
-    const secondPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    // Capture the first completed handoff before any popup streaming/checkpoint work.
+    const firstPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
     await main.locator(CHAT_POP_OUT).click();
-    const secondPopup = await secondPopupPromise;
-    await secondPopup.waitForLoadState("domcontentloaded");
-    await secondPopup.locator("#chat-input").waitFor({ state: "visible" });
-    await secondPopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
-    assert.notEqual(secondPopup, popup, "a repeated pop-out must use a new popup document");
-    assert.equal(new URL(secondPopup.url()).searchParams.get("chat-window"), "1");
-    assert.equal(await secondPopup.locator("#chat-messages").textContent().then(text => text.includes("Popup completion confirmed.")), true);
-    const secondSnapshot = await secondPopup.evaluate(() => window.LlamaGui.chatUi.captureSnapshot({ source: "phase4-reopen" }));
-    assert.equal(secondSnapshot.conversation.id, conversation.id);
-    assert.equal(secondSnapshot.messages.filter(message => message.role === "assistant").length, 4);
-    await secondPopup.locator(CHAT_RETURN).click();
+    const firstPopup = await firstPopupPromise;
+    await firstPopup.waitForLoadState("domcontentloaded");
+    await firstPopup.locator("#chat-input").waitFor({ state: "visible" });
+    await firstPopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.coordinator?.getState?.().transfer?.phase === "complete");
+    const firstTransfer = await main.evaluate(() => {
+        const state = window.LlamaGui.chatWindow._hostView.coordinator.getState();
+        const transfer = state.transfer || {};
+        return {
+            sourceId: state.instanceId,
+            sessionId: state.sessionId,
+            destinationId: transfer.destinationId,
+            transferId: transfer.id,
+            revision: transfer.revision,
+            phase: transfer.phase,
+        };
+    });
+    assert.equal(firstTransfer.phase, "complete");
+    assert.ok(firstTransfer.sourceId && firstTransfer.sessionId && firstTransfer.destinationId && firstTransfer.transferId);
+    assert.equal(await firstPopup.locator("#chat-messages").textContent().then(text => text.includes("Stored answer selected for the pop-out.")), true);
+    await firstPopup.locator(CHAT_RETURN).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
-    await main.locator(CHAT_HOST_STATUS).waitFor({ state: "hidden" });
-    if (!secondPopup.isClosed()) await secondPopup.waitForEvent("close", { timeout: 3_000 });
-    assert.equal((await readStoredConversations(main)).length, 1, "reopening and returning must not duplicate history");
-    for (const [pathname, count] of forbiddenBefore) assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run while reopening Chat`);
-    await assertNoSecret(main, "main window after repeated return");
+    if (!firstPopup.isClosed()) await firstPopup.waitForEvent("close", { timeout: 3_000 });
 
-    // Closing an idle receiver leaves its newest checkpoint recoverable in the
-    // source. Recovery is explicit and must restore the draft without opening
-    // a third owner or issuing any lifecycle request.
-    await main.locator("#chat-input").fill("Draft survives an idle popup close.");
-    const closePopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    // Hold the exact owner-ack event while the main source is released. Closing
+    // the real popup must leave explicit recovery when the late ack settles.
+    // The inert listener was installed before application message listeners.
+    await main.evaluate(() => { window.__phase4HoldOwnerAck = true; });
+    const midTransferPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    const pendingOpen = main.evaluate(() => window.LlamaGui.chatWindow._hostView.openPopout());
+    const midTransferPopup = await midTransferPopupPromise;
+    await midTransferPopup.waitForLoadState("domcontentloaded");
+    await midTransferPopup.locator("#chat-input").waitFor({ state: "visible" });
+    await main.waitForFunction(() => {
+        const coordinator = window.LlamaGui.chatWindow._hostView?.coordinator;
+        const state = coordinator?.getState?.();
+        return state?.transfer?.phase === "awaiting-ack" && state.ownership === false;
+    }, null, { timeout: 15_000 });
+    await midTransferPopup.close();
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.popup === null, null, { timeout: 15_000 });
+    await main.waitForFunction(async () => {
+        if (!navigator.locks?.query) return false;
+        const locks = await navigator.locks.query();
+        return locks.held.length === 0;
+    }, null, { timeout: 15_000 });
+    assert.equal(await main.evaluate(() => window.__phase4BufferedOwnerAcks.length), 1,
+        "the receiver owner-ack must be retained for the close-race replay");
+    const lateAckResult = await main.evaluate(() => {
+        const event = window.__phase4BufferedOwnerAcks[0];
+        const coordinator = window.LlamaGui.chatWindow._hostView.coordinator;
+        const handled = coordinator.receiveMessage(event);
+        const state = coordinator.getState();
+        return { handled, owner: coordinator.isOwner(), status: state.status, transfer: state.transfer };
+    });
+    assert.equal(await pendingOpen, true, "the buffered ack may settle only the inert source handoff");
+    assert.equal(lateAckResult.owner, false, "a late owner-ack cannot restore ownership after popup close");
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.popup === null
+        && window.LlamaGui.chatWindow.hasDetachedView?.() === false
+        && document.querySelector("#chat-window-placeholder h3")?.textContent === "The Chat window was closed"
+        && document.querySelector("#btn-chat-return-here")?.textContent === "Recover chat here", null, { timeout: 15_000 });
+    assert.equal(await main.evaluate(() => window.LlamaGui.chatUi.getTransferState().allowed), false,
+        "the closed handoff cannot mutate Chat until explicit recovery");
+    assert.equal(await main.locator(CHAT_RETURN_HERE).isVisible(), true);
+    await main.locator(CHAT_RETURN_HERE).click();
+    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView.coordinator.isOwner());
+    const recoveredState = await main.evaluate(() => window.LlamaGui.chatWindow._hostView.coordinator.getState());
+    const replayResult = await main.evaluate(() => {
+        const event = window.__phase4BufferedOwnerAcks[0];
+        const coordinator = window.LlamaGui.chatWindow._hostView.coordinator;
+        coordinator.receiveMessage(event);
+        return { owner: coordinator.isOwner(), state: coordinator.getState() };
+    });
+    assert.equal(replayResult.owner, true, "replaying an old owner-ack cannot unset recovered ownership");
+    assert.deepEqual(replayResult.state.transfer, recoveredState.transfer, "an old owner-ack cannot alter the recovered transfer");
+    await main.evaluate(() => { window.__phase4HoldOwnerAck = false; });
+
+    const retryPopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
     await main.locator(CHAT_POP_OUT).click();
-    const closePopup = await closePopupPromise;
-    await closePopup.waitForLoadState("domcontentloaded");
-    await closePopup.locator("#chat-input").waitFor({ state: "visible" });
+    const retryPopup = await retryPopupPromise;
+    await retryPopup.waitForLoadState("domcontentloaded");
+    await retryPopup.locator("#chat-input").waitFor({ state: "visible" });
+    await retryPopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView.coordinator.getState().transfer?.phase === "complete");
+    const freshTransfer = await main.evaluate(() => {
+        const state = window.LlamaGui.chatWindow._hostView.coordinator.getState();
+        const transfer = state.transfer || {};
+        return {
+            sourceId: state.instanceId,
+            sessionId: state.sessionId,
+            destinationId: transfer.destinationId,
+            transferId: transfer.id,
+            revision: transfer.revision,
+            phase: transfer.phase,
+        };
+    });
+    assert.equal(freshTransfer.sourceId, firstTransfer.sourceId);
+    assert.equal(freshTransfer.sessionId, firstTransfer.sessionId);
+    assert.notEqual(freshTransfer.destinationId, firstTransfer.destinationId, "a fresh receiver gets a new destination identity");
+    assert.notEqual(freshTransfer.transferId, firstTransfer.transferId, "a fresh receiver gets a new transfer identity");
+    assert.ok(freshTransfer.revision > firstTransfer.revision, "a fresh handoff advances the durable revision");
+    assert.equal(await retryPopup.locator("#chat-messages").textContent().then(text => text.includes("Stored answer selected for the pop-out.")), true);
+    await retryPopup.locator(CHAT_RETURN).click();
+    await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
+    if (!retryPopup.isClosed()) await retryPopup.waitForEvent("close", { timeout: 3_000 });
+    assert.equal((await readStoredConversations(main)).length, 1);
+    assert.equal(calls.some(call => call.pathname === "/api/chat/completions"), false,
+        "blocked, blank, close-race, and retry coverage need no generated completion");
+    for (const [pathname, count] of forbiddenBefore) {
+        assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run during failure recovery`);
+    }
+    await assertNoSecret(main, "main window after close-race retry");
+    assert.deepEqual(pageErrors, [], "failed handoffs and late acknowledgements remain free of uncaught errors");
+});
+
+test("idle popup close and deletion recovery use an independently seeded transcript", { timeout: 120_000 }, async t => {
+    const server = await startUiServer();
+    const browser = await chromium.launch({ headless: true });
+    const context = await browser.newContext();
+    const pageErrors = [];
+    context.on("page", page => page.on("pageerror", error => pageErrors.push(error.message)));
+    const conversation = representativeConversation();
+    await installInitScript(context, conversation, `phase4-idle-${randomUUID()}`);
+    const { calls } = await installApiRoutes(context);
+    t.after(async () => {
+        await context.close();
+        await browser.close();
+        await server.close();
+    });
+
+    const main = await context.newPage();
+    await main.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
+    await selectChat(main);
+    if (await main.locator("#chat-history-panel").evaluate(element => element.classList.contains("collapsed"))) {
+        await main.locator("#btn-open-history").click();
+    }
+    await main.locator(".chat-history-item-title").filter({ hasText: conversation.title }).click();
+    await main.locator("#chat-input").fill("Draft survives an idle popup close.");
+    const forbiddenBefore = new Map(["/api/launch", "/api/stop", "/api/shutdown", "/api/restart", "/api/chat/target"]
+        .map(pathname => [pathname, callsFor(calls, pathname).length]));
+    const popupPromise = main.waitForEvent("popup", { timeout: 10_000 });
+    await main.locator(CHAT_POP_OUT).click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState("domcontentloaded");
+    await popup.locator("#chat-input").waitFor({ state: "visible" });
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.coordinator?.getState?.().transfer?.phase === "complete");
     await main.waitForFunction(() => document.activeElement?.id === "btn-chat-show-window");
     await main.evaluate(() => {
         Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -810,20 +944,17 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
         visible: statsDocumentVisible,
         active: inferencePollingActive(),
     }));
-    assert.ok(statsBeforeClose.target, "the hidden-close scenario starts with an active inference target");
-    assert.equal(statsBeforeClose.active, true, "the hidden-close scenario starts with polling active");
-    await closePopup.close();
-    await main.waitForFunction(() => {
-        const placeholder = document.getElementById("chat-window-placeholder");
-        return window.LlamaGui.chatWindow.hasDetachedView?.() === false
-            && placeholder && !placeholder.hidden
-            && placeholder.querySelector("h3")?.textContent === "The Chat window was closed"
-            && statsDocumentVisible === false
-            && inferenceInitialTimer === null
-            && inferenceTimer === null
-            && statsActiveEpoch === null
-            && statsAbortController === null;
-    }, null, { timeout: 10_000 });
+    assert.ok(statsBeforeClose.target, "the idle-close scenario starts with an active inference target");
+    assert.equal(statsBeforeClose.active, true, "the idle-close scenario starts with polling active");
+    await popup.close();
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.popup === null
+        && window.LlamaGui.chatWindow.hasDetachedView?.() === false
+        && document.querySelector("#chat-window-placeholder h3")?.textContent === "The Chat window was closed"
+        && statsDocumentVisible === false
+        && inferenceInitialTimer === null
+        && inferenceTimer === null
+        && statsActiveEpoch === null
+        && statsAbortController === null, null, { timeout: 15_000 });
     const closedPopupState = await main.evaluate(() => ({
         detached: window.LlamaGui.chatWindow.hasDetachedView?.(),
         visibility: document.visibilityState,
@@ -835,11 +966,11 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
         statsActiveEpoch,
         statsAbortController: Boolean(statsAbortController),
     }));
-    assert.equal(closedPopupState.detached, false, "a closed popup is no longer a live detached view");
-    assert.equal(closedPopupState.visibility, "hidden", "the main document remains hidden while the recovery shell is shown");
-    assert.equal(closedPopupState.placeholderVisible, true, "the recovery placeholder remains visible");
-    assert.equal(closedPopupState.statsVisible, false, "hidden recovery disables inference polling");
-    assert.equal(closedPopupState.statsPolling, false, "hidden recovery has no active inference poll");
+    assert.equal(closedPopupState.detached, false);
+    assert.equal(closedPopupState.visibility, "hidden");
+    assert.equal(closedPopupState.placeholderVisible, true);
+    assert.equal(closedPopupState.statsVisible, false);
+    assert.equal(closedPopupState.statsPolling, false);
     assert.equal(closedPopupState.statsInitialTimer, null);
     assert.equal(closedPopupState.statsTimer, null);
     assert.equal(closedPopupState.statsActiveEpoch, null);
@@ -849,9 +980,8 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
         return Boolean(action && document.activeElement === action && !action.hidden && !action.disabled
             && action.getAttribute("aria-disabled") !== "true");
     }, null, { timeout: 10_000 });
-    assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), false, "closed receiver recovery must hide Show window until a receiver exists");
+    assert.equal(await main.locator(CHAT_SHOW_WINDOW).isVisible(), false);
     assert.equal(await main.locator(CHAT_RETURN_HERE).isDisabled(), false);
-    assert.equal(await main.locator(CHAT_RETURN_HERE).getAttribute("aria-disabled"), "false");
     await main.locator(CHAT_RETURN_HERE).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
     await main.evaluate(() => {
@@ -859,14 +989,13 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
         document.dispatchEvent(new Event("visibilitychange"));
     });
     assert.equal(await main.locator("#chat-input").inputValue(), "Draft survives an idle popup close.");
-    assert.equal(await main.locator("#chat-messages").textContent().then(text => text.includes("Popup completion confirmed.")), true);
-    assert.equal((await readStoredConversations(main)).length, 1, "explicit close recovery must preserve one conversation");
-    for (const [pathname, count] of forbiddenBefore) assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run while recovering closed Chat`);
-    await assertNoSecret(main, "main window after close recovery");
+    assert.equal(await main.locator("#chat-messages").textContent().then(text => text.includes("Stored answer selected for the pop-out.")), true);
+    assert.equal((await readStoredConversations(main)).length, 1);
 
-    const deletePopupPromise = main.waitForEvent("popup");
+    const deletePopupPromise = main.waitForEvent("popup", { timeout: 10_000 });
     await main.locator(CHAT_POP_OUT).click();
     const deletePopup = await deletePopupPromise;
+    await deletePopup.waitForLoadState("domcontentloaded");
     await deletePopup.locator(CHAT_RETURN).waitFor({ state: "visible" });
     if (await deletePopup.locator("#chat-history-panel").evaluate(element => element.classList.contains("collapsed"))) {
         await deletePopup.locator("#btn-open-history").click();
@@ -875,16 +1004,19 @@ test("real same-context Chat pop-out use and return cycle", { timeout: 120_000 }
     await deletePopup.locator("#confirm-modal-ok").click();
     await deletePopup.waitForFunction(() => JSON.parse(localStorage.getItem("llama_gui_conversations") || "[]").length === 0);
     await deletePopup.close();
-    await main.waitForFunction(() => document.querySelector("#btn-chat-return-here")?.textContent === "Recover chat here");
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.popup === null
+        && document.querySelector("#btn-chat-return-here")?.textContent === "Recover chat here", null, { timeout: 15_000 });
     await main.locator(CHAT_RETURN_HERE).click();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "hidden" });
     const afterDelete = await main.evaluate(() => window.LlamaGui.chatUi.captureSnapshot());
-    assert.equal(afterDelete.conversation.id, null, "recovery cannot reuse the deleted conversation identity");
-    assert.deepEqual(afterDelete.messages, [], "a stale source transcript cannot survive deletion recovery");
+    assert.equal(afterDelete.conversation.id, null, "deletion recovery cannot reuse the deleted conversation identity");
+    assert.deepEqual(afterDelete.messages, [], "deletion recovery clears the stale transcript");
     assert.equal((await readStoredConversations(main)).length, 0);
-    assert.deepEqual(pageErrors, [], "both application bootstraps remain free of uncaught errors");
-
-    t.diagnostic(`Phase 4 popup screenshots: ${desktopScreenshotPath}, ${screenshotPath}`);
+    await assertNoSecret(main, "main window after deletion recovery");
+    for (const [pathname, count] of forbiddenBefore) {
+        assert.equal(callsFor(calls, pathname).length, count, `${pathname} must not run during idle/deletion recovery`);
+    }
+    assert.deepEqual(pageErrors, [], "idle and deletion recovery remain free of uncaught errors");
 });
 
 test("popup reload and main reload recover the newest checkpoint without resend", { timeout: 120_000 }, async t => {
@@ -924,15 +1056,12 @@ test("popup reload and main reload recover the newest checkpoint without resend"
     await popup.locator("#chat-input").waitFor({ state: "visible" });
     assert.equal(await popup.locator("#chat-input").inputValue(), "Draft before popup reload.");
 
-    // Reloading the detached document may lose the verified host session. It
-    // must show the safe recovery state and never submit the recovered draft.
+    // A detached reload consumes the one-shot proof and must show the safe
+    // unavailable shell. Recovery is explicit in the main window.
     await popup.reload({ waitUntil: "domcontentloaded" });
     await popup.waitForFunction(() => {
-        const input = document.getElementById("chat-input");
         const placeholder = document.getElementById("chat-window-placeholder");
-        return document.body.dataset.chatWindowError === "true"
-            || Boolean(input && input.offsetParent)
-            || Boolean(placeholder && !placeholder.hidden);
+        return document.body.dataset.chatWindowError === "true" && Boolean(placeholder && !placeholder.hidden);
     });
     const reloadView = await popup.evaluate(() => ({
         error: document.body.dataset.chatWindowError === "true",
@@ -941,14 +1070,11 @@ test("popup reload and main reload recover the newest checkpoint without resend"
         draft: document.getElementById("chat-input")?.value || "",
         transcript: document.getElementById("chat-messages")?.textContent || "",
     }));
-    if (reloadView.error || !reloadView.inputVisible) {
-        assert.equal(reloadView.error, true, "an unrecovered popup reload must expose an explicit error state");
-        assert.equal(reloadView.placeholderVisible, true);
-        assert.match(await popup.locator("#chat-window-placeholder h3").textContent(), /Chat window unavailable/i);
-    } else {
-        assert.equal(reloadView.draft, "Draft before popup reload.");
-        assert.equal(reloadView.transcript.includes("Stored answer selected for the pop-out."), true);
-    }
+    assert.equal(reloadView.error, true, "an unrecovered popup reload must expose an explicit error state");
+    assert.equal(reloadView.placeholderVisible, true);
+    assert.equal(reloadView.inputVisible, false, "the unavailable reload shell must not expose an editable composer");
+    assert.equal(reloadView.draft, "");
+    assert.match(await popup.locator("#chat-window-placeholder h3").textContent(), /Chat window unavailable/i);
     assert.equal(await popup.evaluate(() => localStorage.getItem("phase4-completion-count")), null);
     await popup.close();
     await main.locator(CHAT_WINDOW_PLACEHOLDER).waitFor({ state: "visible" });
@@ -965,6 +1091,20 @@ test("popup reload and main reload recover the newest checkpoint without resend"
     popup = await secondPopupPromise;
     await popup.waitForLoadState("domcontentloaded");
     await popup.locator("#chat-input").waitFor({ state: "visible" });
+    await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.coordinator?.getState?.().transfer?.phase === "complete");
+    const transferIdentity = await main.evaluate(() => {
+        const state = window.LlamaGui.chatWindow._hostView.coordinator.getState();
+        const transfer = state.transfer || {};
+        return {
+            sourceId: state.instanceId,
+            sessionId: state.sessionId,
+            destinationId: transfer.destinationId,
+            transferId: transfer.id,
+            revision: transfer.revision,
+            phase: transfer.phase,
+        };
+    });
+    assert.equal(transferIdentity.phase, "complete");
     if (await popup.locator("#chat-sidebar").evaluate(element => element.classList.contains("collapsed"))) {
         await popup.locator("#btn-open-sidebar").click();
     }
@@ -972,10 +1112,32 @@ test("popup reload and main reload recover the newest checkpoint without resend"
     await popup.locator("#chat-input").fill("Partial stream request.");
     await popup.locator("#btn-chat-send").click();
     await popup.waitForFunction(() => document.querySelector("#chat-messages")?.textContent.includes("Partial response survives host reload."));
-    await new Promise(resolve => setTimeout(resolve, 900));
+    await popup.waitForFunction(({ sourceId, destinationId, transferId, revision }) => {
+        const raw = localStorage.getItem("llama-gui:chat-recovery:v1");
+        if (!raw) return false;
+        let record;
+        try { record = JSON.parse(raw); } catch (error) { return false; }
+        const stream = record.snapshot?.streaming;
+        const transfer = record.transfer;
+        return record.invalidated === false
+            && record.phase === "checkpoint"
+            && Number.isInteger(record.revision) && record.revision > revision
+            && transfer && transfer.sourceId && transfer.destinationId
+            && transfer.sourceId === destinationId && transfer.destinationId === destinationId
+            && transfer.transferId !== transferId
+            && stream?.active === true
+            && stream.content?.includes("Partial response survives host reload.")
+            && stream.toolMessages?.some(message => JSON.stringify(message).includes("get_datetime") || JSON.stringify(message).includes("phase4-clock-1"));
+    }, transferIdentity, { timeout: 15_000 });
     const checkpoint = await popup.evaluate(() => JSON.parse(localStorage.getItem("llama-gui:chat-recovery:v1") || "null"));
-    assert.match(JSON.stringify(checkpoint), /Partial response survives host reload/);
-    assert.match(JSON.stringify(checkpoint), /get_datetime|phase4-clock-1/, "tool round is included in the recoverable checkpoint");
+    assert.equal(checkpoint.phase, "checkpoint");
+    assert.equal(checkpoint.invalidated, false);
+    assert.ok(Number.isInteger(checkpoint.revision) && checkpoint.revision > transferIdentity.revision);
+    assert.equal(checkpoint.transfer.sourceId, transferIdentity.destinationId);
+    assert.equal(checkpoint.transfer.destinationId, transferIdentity.destinationId);
+    assert.notEqual(checkpoint.transfer.transferId, transferIdentity.transferId);
+    assert.match(JSON.stringify(checkpoint.snapshot), /Partial response survives host reload/);
+    assert.match(JSON.stringify(checkpoint.snapshot), /get_datetime|phase4-clock-1/, "tool round is included in the recoverable checkpoint");
     assert.equal(await popup.evaluate(() => localStorage.getItem("phase4-completion-count")), "2");
 
     await main.reload({ waitUntil: "domcontentloaded" });
