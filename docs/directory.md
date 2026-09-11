@@ -618,6 +618,11 @@ All reads and writes go through helpers that tolerate blocked storage; failures 
 
 ## Chat Tab
 
+### Window ownership and transfer boundaries
+
+`chat-ui.js` owns the versioned workspace snapshot and guards conversation mutations with an ownership epoch. Its transfer interface suspends idle Chat, saves the existing conversation, captures/restores supported transcript and draft state without creating a second history entry, and keeps main-window layout separate. Shared sampler settings remain authoritative in the host and are never restored from a conversation transfer.
+
+`chat-window.js` provides the host adapter and a feature-specific coordinator for an exclusive origin-scoped Web Lock, verified peers, and one separate versioned recovery record. Recovery invalidation precedes destructive history writes. A timer or missed message never grants ownership. The Phase 2 module is inert until explicitly initialized; display-mode and application bootstrap wiring follow in Phase 3.
 The Chat tab (`section-chat`) is a streaming OpenAI-compatible chat interface that proxies through the Python backend.
 
 ### Architecture

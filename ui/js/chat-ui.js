@@ -16,6 +16,8 @@
     let sendPreflightPromise = null;
     let sendAttemptToken = 0;
     let currentConversationId = null;
+    let workspaceConversationTitle = null;
+    let workspaceConversationTitleCustom = false;
     let chatFocusMode = false;
     const chatPanelLayouts = [];
     let contextTimer = null;
@@ -33,6 +35,16 @@
     let autoCompactionAttempted = false;
     let chatHistoryFilter = "";
     let characterImportPending = false;
+    let workspaceConfig = { checkpoint: null, invalidate: null, onChange: null, detachedView: false };
+    let workspaceOwned = true;
+    let workspaceSuspended = false;
+    let workspaceHostAvailable = true;
+    let workspaceEpoch = 0;
+    let workspaceCheckpointTimer = null;
+    let workspaceTransferSave = false;
+    let confirmationPending = 0;
+    let streamingCheckpoint = null;
+    let workspaceRestoreInProgress = false;
     const compaction = window.LlamaGui.chatCompaction;
 
     const CHAT_CONVERSATIONS_STORAGE_KEY = "llama_gui_conversations";
@@ -47,6 +59,32 @@
     const CHAT_THINKING_EFFORTS = ["auto", "off", "low", "medium", "high", "xhigh"];
     const CHAT_MAX_STORED_CONVERSATIONS = 50;
     const CHAT_CONSTRAINED_LAYOUT_QUERY = "(max-width: 1320px)";
+    const CHAT_WORKSPACE_SCHEMA_VERSION = 1;
+    const CHAT_WORKSPACE_KIND = "llama-gui-chat-workspace";
+    const CHAT_MESSAGE_KEYS = [
+        "role", "content", "reasoning", "reasoning_content", "sources", "status", "error", "metadata",
+        "toolMessages", "tool_calls", "tool_call_id", "name", "id", "function", "versions", "versionIndex",
+    ];
+    const CHAT_MESSAGE_ROLES = ["user", "assistant", "tool", "system", "developer"];
+    const CHAT_SOURCE_KEYS = ["url", "title", "index", "snippet", "domain", "date"];
+    const CHAT_TOOL_CALL_KEYS = ["id", "type", "function"];
+    const CHAT_TOOL_FUNCTION_KEYS = ["name", "arguments"];
+    const CHAT_METADATA_KEYS = [
+        "usage", "timings", "stop_reason", "stopReason", "finish_reason", "finishReason",
+        "prompt_tokens", "completion_tokens", "total_tokens", "promptTokens", "completionTokens", "totalTokens",
+        "tokens_per_second", "tokensPerSecond", "completion_tokens_per_second", "completionTokensPerSecond",
+        "predicted_per_second", "predictedPerSecond", "prompt_per_second", "promptPerSecond",
+        "prompt_n", "predicted_n", "prompt_ms", "predicted_ms", "time_to_first_token",
+    ];
+    const CHAT_METADATA_NESTED_KEYS = [
+        "prompt_tokens", "completion_tokens", "total_tokens", "promptTokens", "completionTokens", "totalTokens",
+        "tokens_per_second", "tokensPerSecond", "completion_tokens_per_second", "completionTokensPerSecond",
+        "predicted_per_second", "predictedPerSecond", "prompt_per_second", "promptPerSecond",
+        "prompt_n", "predicted_n", "prompt_ms", "predicted_ms", "time_to_first_token",
+    ];
+    const CHAT_TRANSFER_METADATA_KEYS = [
+        "transferId", "sourceInstanceId", "destinationInstanceId", "revision", "epoch", "reason",
+    ];
     const CHAT_NUMERIC_INPUTS = {
         "chat-num-temp": { flag: "temperature", integer: false },
         "chat-num-top-p": { flag: "top_p", integer: false },
@@ -102,6 +140,537 @@
         snapshotStatsBaseline = options.snapshotStatsBaseline;
         getApiAuthorizationHeaders = options.getApiAuthorizationHeaders || getApiAuthorizationHeaders;
         switchTab = options.switchTab || switchTab;
+    }
+
+    function notifyWorkspaceChange() {
+        if (typeof workspaceConfig.onChange !== "function") return;
+        try {
+            workspaceConfig.onChange();
+        } catch (error) {
+            console.warn("Chat workspace change callback failed", error);
+        }
+    }
+
+    function workspaceMutationAllowed(expectedEpoch = workspaceEpoch) {
+        return workspaceOwned && !workspaceSuspended && workspaceHostAvailable && expectedEpoch === workspaceEpoch;
+    }
+
+    function workspacePersistentWriteAllowed() {
+        return workspaceOwned && workspaceHostAvailable && (!workspaceSuspended || workspaceTransferSave);
+    }
+
+    function workspaceBusyReason() {
+        if (confirmationPending) return "A confirmation is pending.";
+        if (characterImportPending) return "A character card is being imported.";
+        if (pendingEdit) return "An edit is pending.";
+        if (compactionController) return "Compaction is in progress.";
+        if (sendPreflightPromise) return "A send is being prepared.";
+        if (chatStreaming) return "A response is streaming.";
+        return "";
+    }
+
+    async function requestConfirmation(...args) {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
+        confirmationPending += 1;
+        updateChatAvailability(isServerRunning());
+        notifyWorkspaceChange();
+        try {
+            const confirmed = typeof confirmAction === "function" ? await confirmAction(...args) : true;
+            return Boolean(confirmed) && workspaceMutationAllowed(ownerEpoch);
+        } finally {
+            confirmationPending = Math.max(0, confirmationPending - 1);
+            updateChatAvailability(isServerRunning());
+            notifyWorkspaceChange();
+        }
+    }
+
+    function getTransferState() {
+        if (!workspaceOwned) return { allowed: false, reason: "Chat is owned by another window." };
+        if (!workspaceHostAvailable) return { allowed: false, reason: "The chat host is unavailable." };
+        if (workspaceSuspended) return { allowed: false, reason: "Chat transfer is already suspended." };
+        const reason = workspaceBusyReason();
+        if (reason) return { allowed: false, reason };
+        return { allowed: true, reason: "" };
+    }
+
+    function configureWorkspace(options = {}) {
+        workspaceConfig = {
+            checkpoint: typeof options.checkpoint === "function" ? options.checkpoint : null,
+            invalidate: typeof options.invalidate === "function" ? options.invalidate : null,
+            onChange: typeof options.onChange === "function" ? options.onChange : null,
+            detachedView: options.detachedView === true,
+        };
+        window.LlamaGui.chatTools.configureWorkspace?.({
+            detachedView: workspaceConfig.detachedView,
+            canMutate: () => workspaceMutationAllowed() || workspaceRestoreInProgress,
+            onChange: notifyWorkspaceChange,
+        });
+        notifyWorkspaceChange();
+        if (flagCore) updateChatAvailability(isServerRunning());
+    }
+
+    function suspendTransfer() {
+        if (!getTransferState().allowed) return false;
+        workspaceSuspended = true;
+        clearWorkspaceCheckpointTimer();
+        cancelContextPreview();
+        updateChatAvailability(isServerRunning());
+        notifyWorkspaceChange();
+        return true;
+    }
+
+    function resumeTransfer() {
+        if (!workspaceOwned) return false;
+        workspaceSuspended = false;
+        updateChatAvailability(isServerRunning());
+        notifyWorkspaceChange();
+        return true;
+    }
+
+    function setOwnership(active) {
+        workspaceEpoch += 1;
+        workspaceOwned = active === true;
+        workspaceSuspended = !workspaceOwned;
+        if (!workspaceOwned) {
+            clearWorkspaceCheckpointTimer();
+            cancelContextPreview();
+            if (chatAbortController) chatAbortController.abort();
+            if (compactionController) compactionController.abort();
+        }
+        updateChatAvailability(isServerRunning());
+        notifyWorkspaceChange();
+        return true;
+    }
+
+    function setHostAvailable(available) {
+        const next = available === true;
+        if (next !== workspaceHostAvailable) workspaceEpoch += 1;
+        workspaceHostAvailable = next;
+        if (!workspaceHostAvailable) {
+            clearWorkspaceCheckpointTimer();
+            cancelContextPreview();
+            if (compactionController) compactionController.abort();
+        }
+        updateChatAvailability(isServerRunning());
+        notifyWorkspaceChange();
+    }
+
+    function getChatSamplerValues() {
+        const values = flagCore?.getFlagValues?.() || {};
+        const result = {};
+        for (const meta of Object.values(CHAT_NUMERIC_INPUTS)) {
+            const value = normalizeSamplerNumber(values[meta.flag]);
+            if (value !== null) result[meta.flag] = value;
+        }
+        return result;
+    }
+
+    function getChatSamplerFlagIds() {
+        return Object.values(CHAT_NUMERIC_INPUTS).map(meta => meta.flag);
+    }
+
+    function setChatSamplerValue(flag, value) {
+        const meta = Object.values(CHAT_NUMERIC_INPUTS).find(item => item.flag === flag);
+        const normalized = normalizeSamplerNumber(value);
+        if (!meta || normalized === null || (meta.integer && !Number.isInteger(normalized)) || !workspaceMutationAllowed()) return false;
+        flagCore?.setFlagValue?.(flag, normalized);
+        refreshSidebarUI();
+        requestWorkspaceCheckpoint({ reason: "sampler" });
+        return true;
+    }
+
+    function captureLayout() {
+        return {
+            focusMode: Boolean(chatFocusMode),
+            settingsCollapsed: getStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY) !== "false",
+            historyCollapsed: getStoredItem(CHAT_HISTORY_COLLAPSED_STORAGE_KEY) !== "false",
+        };
+    }
+
+    function restoreLayout(layout) {
+        if (!layout || typeof layout !== "object") return false;
+        if (typeof layout.focusMode !== "boolean"
+            || typeof layout.settingsCollapsed !== "boolean"
+            || typeof layout.historyCollapsed !== "boolean") return false;
+        chatFocusMode = layout.focusMode;
+        document.body?.classList.toggle("chat-focus-mode", chatFocusMode);
+        updateChatFocusButton();
+        if (!workspaceConfig.detachedView && workspaceMutationAllowed()) {
+            setStoredItem(CHAT_SETTINGS_COLLAPSED_STORAGE_KEY, String(layout.settingsCollapsed));
+            setStoredItem(CHAT_HISTORY_COLLAPSED_STORAGE_KEY, String(layout.historyCollapsed));
+        }
+        chatPanelLayouts.forEach(applyLayout => applyLayout());
+        return true;
+    }
+
+    function copyScalar(value) {
+        if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+        if (typeof value === "number" && Number.isFinite(value)) return value;
+        return undefined;
+    }
+
+    function copyKnownObject(value, keys) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        const result = {};
+        for (const key of keys) {
+            const copied = copyScalar(value[key]);
+            if (copied !== undefined) result[key] = copied;
+        }
+        return result;
+    }
+
+    function copyMetadata(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        const result = {};
+        for (const key of CHAT_METADATA_KEYS) {
+            const source = value[key];
+            if ((key === "usage" || key === "timings") && source && typeof source === "object" && !Array.isArray(source)) {
+                const nested = copyKnownObject(source, CHAT_METADATA_NESTED_KEYS);
+                if (Object.keys(nested).length) result[key] = nested;
+            } else {
+                const copied = copyScalar(source);
+                if (copied !== undefined) result[key] = copied;
+            }
+        }
+        return result;
+    }
+
+    function copySource(value) {
+        return copyKnownObject(value, CHAT_SOURCE_KEYS);
+    }
+
+    function copyToolCall(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        const result = copyKnownObject(value, ["id", "type"]);
+        const fn = copyKnownObject(value.function, CHAT_TOOL_FUNCTION_KEYS);
+        if (fn && Object.keys(fn).length) result.function = fn;
+        return result;
+    }
+
+    function copyMessage(value) {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+        const result = {};
+        for (const key of CHAT_MESSAGE_KEYS) {
+            const source = value[key];
+            if (key === "sources" && Array.isArray(source)) {
+                result.sources = source.map(copySource).filter(Boolean);
+            } else if (key === "metadata") {
+                const metadata = copyMetadata(source);
+                if (metadata && Object.keys(metadata).length) result.metadata = metadata;
+            } else if (key === "toolMessages" && Array.isArray(source)) {
+                result.toolMessages = source.map(copyMessage).filter(Boolean);
+            } else if (key === "tool_calls" && Array.isArray(source)) {
+                result.tool_calls = source.map(copyToolCall).filter(Boolean);
+            } else if (key === "versions" && Array.isArray(source)) {
+                result.versions = source.map(copyMessage).filter(Boolean);
+            } else {
+                const copied = copyScalar(source);
+                if (copied !== undefined) result[key] = copied;
+            }
+        }
+        return result;
+    }
+
+    function copyCompaction(value) {
+        return copyKnownObject(value, ["end", "summary", "savedTokens"]);
+    }
+
+    function copyStreamingCheckpoint(value) {
+        if (!value || typeof value !== "object") return null;
+        const result = copyKnownObject(value, ["active", "replacementIndex", "content", "reasoning", "status", "error", "userText"]);
+        if (Array.isArray(value.sources)) result.sources = value.sources.map(copySource).filter(Boolean);
+        const metadata = copyMetadata(value.metadata);
+        if (metadata && Object.keys(metadata).length) result.metadata = metadata;
+        if (Array.isArray(value.toolMessages)) result.toolMessages = value.toolMessages.map(copyMessage).filter(Boolean);
+        return result;
+    }
+
+    function sanitizeTransferMetadata(value) {
+        const result = {};
+        if (!value || typeof value !== "object" || Array.isArray(value)) return result;
+        for (const key of CHAT_TRANSFER_METADATA_KEYS) {
+            const copied = copyScalar(value[key]);
+            if (copied !== undefined) result[key] = copied;
+        }
+        return result;
+    }
+
+    function validateTransferMetadata(value) {
+        return hasOnlyKnownKeys(value, CHAT_TRANSFER_METADATA_KEYS)
+            && Object.values(value).every(item => isSafeScalar(item));
+    }
+
+    function getConversationTitleState() {
+        const active = currentConversationId && getStoredConversations().find(item => item.id === currentConversationId);
+        return {
+            id: currentConversationId || null,
+            title: active?.title || workspaceConversationTitle || (chatMessages.length ? generateConversationTitle(chatMessages) : null),
+            titleCustom: Boolean(active?.titleCustom ?? workspaceConversationTitleCustom),
+        };
+    }
+
+    function captureSnapshot(metadata = {}) {
+        const container = getChatMessagesContainer();
+        const input = document.getElementById("chat-input");
+        return {
+            kind: CHAT_WORKSPACE_KIND,
+            schemaVersion: CHAT_WORKSPACE_SCHEMA_VERSION,
+            metadata: sanitizeTransferMetadata(metadata),
+            conversation: getConversationTitleState(),
+            messages: chatMessages.map(copyMessage).filter(Boolean),
+            compactions: chatCompactions.map(copyCompaction).filter(Boolean),
+            inputs: {
+                systemPrompt: String(document.getElementById("chat-system-prompt")?.value || ""),
+                thinkingEffort: getChatThinkingEffort(),
+                draft: String(input?.value || ""),
+                webSearchEnabled: isChatWebSearchEnabled(),
+                webSearchMaxResults: getChatWebSearchMaxResults(),
+                datetimeEnabled: Boolean(window.LlamaGui.chatTools.isEnabled?.()),
+                autoCompaction: isAutoCompactionEnabled(),
+            },
+            view: {
+                scroll: {
+                    follow: Boolean(chatScrollState?.follow ?? isChatNearBottom(container)),
+                    top: Number.isFinite(chatScrollState?.top) ? chatScrollState.top : Number(container?.scrollTop) || 0,
+                },
+                draftSelection: input && Number.isInteger(input.selectionStart) && Number.isInteger(input.selectionEnd)
+                    ? { start: input.selectionStart, end: input.selectionEnd } : null,
+            },
+            streaming: copyStreamingCheckpoint(streamingCheckpoint),
+        };
+    }
+
+    function hasOnlyKnownKeys(value, keys) {
+        return value && typeof value === "object" && !Array.isArray(value)
+            && Object.keys(value).every(key => keys.includes(key));
+    }
+
+    function isSafeScalar(value) {
+        return value === null || typeof value === "string" || typeof value === "boolean"
+            || (typeof value === "number" && Number.isFinite(value));
+    }
+
+    function validateMetadata(value) {
+        if (!hasOnlyKnownKeys(value, CHAT_METADATA_KEYS)) return false;
+        for (const [key, item] of Object.entries(value)) {
+            if (key === "usage" || key === "timings") {
+                if (!hasOnlyKnownKeys(item, CHAT_METADATA_NESTED_KEYS)
+                    || Object.values(item).some(nested => !isSafeScalar(nested))) return false;
+            } else if (!isSafeScalar(item)) return false;
+        }
+        return true;
+    }
+
+    function validateSource(value) {
+        return hasOnlyKnownKeys(value, CHAT_SOURCE_KEYS)
+            && Object.values(value).every(item => isSafeScalar(item));
+    }
+
+    function validateToolCall(value) {
+        if (!hasOnlyKnownKeys(value, CHAT_TOOL_CALL_KEYS)
+            || (value.id !== undefined && !isSafeScalar(value.id))
+            || (value.type !== undefined && !isSafeScalar(value.type))) return false;
+        if (value.function === undefined) return true;
+        return hasOnlyKnownKeys(value.function, CHAT_TOOL_FUNCTION_KEYS)
+            && Object.values(value.function).every(item => isSafeScalar(item));
+    }
+
+    function validateMessage(value, allowMissingRole = false) {
+        if (!hasOnlyKnownKeys(value, CHAT_MESSAGE_KEYS)) return false;
+        if ((!allowMissingRole && !CHAT_MESSAGE_ROLES.includes(value.role))
+            || (allowMissingRole && value.role !== undefined && !CHAT_MESSAGE_ROLES.includes(value.role))
+            || typeof value.content !== "string") return false;
+        for (const [key, item] of Object.entries(value)) {
+            if (["sources"].includes(key)) {
+                if (!Array.isArray(item) || item.some(source => !validateSource(source))) return false;
+            } else if (["toolMessages", "versions"].includes(key)) {
+                if (!Array.isArray(item) || item.some(message => !validateMessage(message, key === "versions"))) return false;
+            } else if (key === "tool_calls") {
+                if (!Array.isArray(item) || item.some(call => !validateToolCall(call))) return false;
+            } else if (key === "metadata") {
+                if (!validateMetadata(item)) return false;
+            } else if (!isSafeScalar(item)) return false;
+        }
+        return true;
+    }
+
+    function validateSnapshot(snapshot) {
+        const topKeys = ["kind", "schemaVersion", "metadata", "conversation", "messages", "compactions", "inputs", "view", "streaming"];
+        if (!hasOnlyKnownKeys(snapshot, topKeys)
+            || snapshot.kind !== CHAT_WORKSPACE_KIND
+            || snapshot.schemaVersion !== CHAT_WORKSPACE_SCHEMA_VERSION
+            || !validateTransferMetadata(snapshot.metadata)
+            || !Array.isArray(snapshot.messages) || snapshot.messages.some(message => !validateMessage(message))
+            || !Array.isArray(snapshot.compactions)
+            || snapshot.compactions.some(record => !hasOnlyKnownKeys(record, ["end", "summary", "savedTokens"])
+                || typeof record.end !== "number" || !Number.isInteger(record.end) || record.end < 0
+                || typeof record.summary !== "string"
+                || (record.savedTokens !== undefined && !isSafeScalar(record.savedTokens)))) return false;
+
+        const conversation = snapshot.conversation;
+        if (!hasOnlyKnownKeys(conversation, ["id", "title", "titleCustom"])
+            || (conversation.id !== null && typeof conversation.id !== "string")
+            || (conversation.title !== null && typeof conversation.title !== "string")
+            || typeof conversation.titleCustom !== "boolean") return false;
+
+        const inputs = snapshot.inputs;
+        const inputKeys = ["systemPrompt", "thinkingEffort", "draft", "webSearchEnabled", "webSearchMaxResults", "datetimeEnabled", "autoCompaction"];
+        if (!hasOnlyKnownKeys(inputs, inputKeys)
+            || typeof inputs.systemPrompt !== "string"
+            || !CHAT_THINKING_EFFORTS.includes(inputs.thinkingEffort)
+            || typeof inputs.draft !== "string"
+            || typeof inputs.webSearchEnabled !== "boolean"
+            || !Number.isInteger(inputs.webSearchMaxResults) || inputs.webSearchMaxResults < CHAT_WEB_SEARCH_MIN_RESULTS || inputs.webSearchMaxResults > CHAT_WEB_SEARCH_MAX_RESULTS
+            || typeof inputs.datetimeEnabled !== "boolean"
+            || typeof inputs.autoCompaction !== "boolean") return false;
+
+        const view = snapshot.view;
+        if (!hasOnlyKnownKeys(view, ["scroll", "draftSelection"])
+            || !hasOnlyKnownKeys(view.scroll, ["follow", "top"])
+            || typeof view.scroll.follow !== "boolean" || typeof view.scroll.top !== "number" || !Number.isFinite(view.scroll.top)) return false;
+        if (view.draftSelection !== null
+            && (!hasOnlyKnownKeys(view.draftSelection, ["start", "end"])
+                || !Number.isInteger(view.draftSelection.start) || view.draftSelection.start < 0
+                || !Number.isInteger(view.draftSelection.end) || view.draftSelection.end < view.draftSelection.start)) return false;
+
+        if (snapshot.streaming !== null) {
+            const streamingKeys = ["active", "replacementIndex", "content", "reasoning", "status", "error", "userText", "sources", "metadata", "toolMessages"];
+            if (!hasOnlyKnownKeys(snapshot.streaming, streamingKeys)
+                || (snapshot.streaming.active !== undefined && typeof snapshot.streaming.active !== "boolean")
+                || (snapshot.streaming.replacementIndex !== undefined && (!Number.isInteger(snapshot.streaming.replacementIndex) || snapshot.streaming.replacementIndex < -1))
+                || Object.entries(snapshot.streaming).some(([key, value]) => ["active", "replacementIndex", "content", "reasoning", "status", "error", "userText"].includes(key) && !isSafeScalar(value))) return false;
+            if (snapshot.streaming.sources && (!Array.isArray(snapshot.streaming.sources) || snapshot.streaming.sources.some(source => !validateSource(source)))) return false;
+            if (snapshot.streaming.metadata && !validateMetadata(snapshot.streaming.metadata)) return false;
+            if (snapshot.streaming.toolMessages && (!Array.isArray(snapshot.streaming.toolMessages) || snapshot.streaming.toolMessages.some(message => !validateMessage(message)))) return false;
+        }
+        return true;
+    }
+
+    function restoreSnapshot(snapshot) {
+        if (!validateSnapshot(snapshot)) return false;
+        workspaceRestoreInProgress = true;
+        try {
+            currentConversationId = snapshot.conversation.id;
+            workspaceConversationTitle = snapshot.conversation.title;
+            workspaceConversationTitleCustom = snapshot.conversation.titleCustom;
+            chatMessages = snapshot.messages.map(copyMessage).filter(Boolean);
+            chatCompactions = snapshot.compactions.map(copyCompaction).filter(Boolean);
+            const inputs = snapshot.inputs;
+            const systemPrompt = document.getElementById("chat-system-prompt");
+            const sysCharCount = document.getElementById("chat-sys-char-count");
+            if (systemPrompt) systemPrompt.value = inputs.systemPrompt;
+            if (sysCharCount) sysCharCount.textContent = `${inputs.systemPrompt.length} chars`;
+            const chatInput = document.getElementById("chat-input");
+            if (chatInput) {
+                chatInput.value = inputs.draft;
+                if (snapshot.view.draftSelection) {
+                    chatInput.selectionStart = snapshot.view.draftSelection.start;
+                    chatInput.selectionEnd = snapshot.view.draftSelection.end;
+                }
+            }
+            setChatThinkingEffort(inputs.thinkingEffort);
+            const webSearchToggle = document.getElementById("chat-web-search-toggle");
+            if (webSearchToggle) webSearchToggle.checked = inputs.webSearchEnabled;
+            const webSearchMaxResults = document.getElementById("chat-web-search-max-results");
+            if (webSearchMaxResults) webSearchMaxResults.value = String(inputs.webSearchMaxResults);
+            const autoToggle = document.getElementById("chat-auto-compact-toggle");
+            if (autoToggle) autoToggle.checked = inputs.autoCompaction;
+            window.LlamaGui.chatTools.setEnabled(inputs.datetimeEnabled, { persist: false });
+            chatScrollState = { ...snapshot.view.scroll };
+            streamingCheckpoint = copyStreamingCheckpoint(snapshot.streaming);
+            if (streamingCheckpoint?.active) {
+                const partial = {
+                    role: "assistant",
+                    content: streamingCheckpoint.content || "",
+                    reasoning: streamingCheckpoint.reasoning || "",
+                    sources: streamingCheckpoint.sources || [],
+                    status: "stopped",
+                    error: streamingCheckpoint.error || "",
+                    metadata: streamingCheckpoint.metadata || {},
+                    ...(streamingCheckpoint.toolMessages ? { toolMessages: streamingCheckpoint.toolMessages } : {}),
+                };
+                if (Number.isInteger(streamingCheckpoint.replacementIndex)
+                    && streamingCheckpoint.replacementIndex >= 0
+                    && streamingCheckpoint.replacementIndex < chatMessages.length) {
+                    const previous = chatMessages[streamingCheckpoint.replacementIndex];
+                    const previousVersions = Array.isArray(previous.versions)
+                        ? previous.versions.map(copyMessage).filter(Boolean)
+                        : [copyMessage(previous)];
+                    const attempted = { ...partial };
+                    delete attempted.role;
+                    const selected = Math.min(
+                        Math.max(0, Number.isInteger(previous.versionIndex) ? previous.versionIndex : 0),
+                        Math.max(0, previousVersions.length - 1),
+                    );
+                    previousVersions.push(attempted);
+                    chatMessages[streamingCheckpoint.replacementIndex] = {
+                        role: "assistant", ...previousVersions[selected], versions: previousVersions, versionIndex: selected,
+                    };
+                } else if (partial.content || partial.reasoning || partial.toolMessages?.length) {
+                    chatMessages.push(partial);
+                }
+                streamingCheckpoint.active = false;
+            }
+            chatStreaming = false;
+            chatAbortController = null;
+            cancelContextPreview();
+            renderConversationMessages();
+            renderHistoryList();
+            restoreChatScrollPosition();
+            return true;
+        } finally {
+            workspaceRestoreInProgress = false;
+            notifyWorkspaceChange();
+        }
+    }
+
+    function checkpointWorkspaceNow(metadata = {}) {
+        if (typeof workspaceConfig.checkpoint !== "function") return true;
+        if ((!workspaceOwned || !workspaceHostAvailable || workspaceSuspended) && !workspaceTransferSave) return false;
+        try {
+            return workspaceConfig.checkpoint(captureSnapshot(metadata)) !== false;
+        } catch (error) {
+            console.warn("Chat workspace checkpoint failed", error);
+            return false;
+        }
+    }
+
+    function clearWorkspaceCheckpointTimer() {
+        if (workspaceCheckpointTimer !== null) clearTimeout(workspaceCheckpointTimer);
+        workspaceCheckpointTimer = null;
+    }
+
+    function requestWorkspaceCheckpoint(metadata = {}) {
+        if (typeof workspaceConfig.checkpoint !== "function" || workspaceSuspended || !workspaceOwned || !workspaceHostAvailable) return;
+        if (workspaceCheckpointTimer !== null) return;
+        workspaceCheckpointTimer = setTimeout(() => {
+            workspaceCheckpointTimer = null;
+            checkpointWorkspaceNow(metadata);
+        }, 750);
+    }
+
+    function invalidateWorkspace() {
+        clearWorkspaceCheckpointTimer();
+        if (typeof workspaceConfig.invalidate !== "function") return true;
+        try {
+            return workspaceConfig.invalidate() !== false;
+        } catch (error) {
+            console.warn("Chat workspace invalidation failed", error);
+            return false;
+        }
+    }
+
+    function saveForTransfer() {
+        if (!workspaceOwned || !workspaceSuspended || !workspaceHostAvailable) return false;
+        workspaceTransferSave = true;
+        try {
+            const saved = saveCurrentConversation({ skipCheckpoint: true });
+            const checkpointed = checkpointWorkspaceNow({ reason: "transfer-save" });
+            return saved && checkpointed;
+        } finally {
+            workspaceTransferSave = false;
+        }
     }
 
     // Flag values can arrive as numeric strings or NaN (imported sampler presets
@@ -215,6 +784,16 @@
         if (select) select.value = normalizeChatThinkingEffort(value);
     }
 
+    function setChatPreference(storageKey, value) {
+        if (!workspaceMutationAllowed()) return false;
+        const saved = setStoredItem(storageKey, value);
+        if (saved) {
+            notifyWorkspaceChange();
+            requestWorkspaceCheckpoint({ reason: "chat-preference" });
+        }
+        return saved;
+    }
+
     function getChatThinkingParams() {
         const effort = getChatThinkingEffort();
         if (effort === "auto") return {};
@@ -300,13 +879,16 @@
             && lifecycle.activeRuntime.tool === "llama-server"
             && (lifecycle.phase === "starting" || lifecycle.phase === "loading")
         );
-        const canSend = Boolean(isRunning) && !chatStreaming && !compactionController && !sendPreflightPromise;
+        const canOperate = workspaceMutationAllowed();
+        const canSend = Boolean(isRunning) && canOperate && !chatStreaming && !compactionController && !sendPreflightPromise;
         const characterButton = document.getElementById("btn-chat-load-character");
-        if (characterButton) characterButton.disabled = characterImportPending || chatStreaming || Boolean(compactionController) || Boolean(sendPreflightPromise);
+        if (characterButton) characterButton.disabled = !canOperate || characterImportPending || chatStreaming || Boolean(compactionController) || Boolean(sendPreflightPromise);
 
         if (chatInput) {
-            chatInput.disabled = !isRunning;
-            chatInput.placeholder = isRunning
+            chatInput.disabled = !isRunning || !canOperate;
+            chatInput.placeholder = !canOperate
+                ? (workspaceOwned ? "Chat is temporarily unavailable while the other window is active." : "Chat is open in another window.")
+                : isRunning
                 ? "Type a message..."
                 : isLoading
                     ? "Waiting for the model to finish loading..."
@@ -314,12 +896,12 @@
         }
         if (sendBtn) {
             sendBtn.disabled = !canSend;
-            sendBtn.title = isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
+            sendBtn.title = !canOperate ? "Chat is currently owned by another window or transfer is in progress." : isRunning ? "" : "Start llama-server, or connect to a running one on the API tab, before sending chat messages.";
         }
         const container = document.getElementById("chat-messages");
         if (container) {
             for (const button of container.querySelectorAll(".chat-response-action")) {
-                button.disabled = chatStreaming || Boolean(compactionController) || (button.dataset.requiresServer === "true" && !isRunning);
+                button.disabled = !canOperate || chatStreaming || Boolean(compactionController) || (button.dataset.requiresServer === "true" && !isRunning);
             }
         }
         updateCompactionControls();
@@ -456,7 +1038,7 @@
         openButton.addEventListener("click", () => {
             if (!chatFocusMode) {
                 preferredCollapsed = false;
-                setStoredItem(storageKey, "false");
+                if (!workspaceConfig.detachedView && workspaceMutationAllowed()) setStoredItem(storageKey, "false");
             }
             setChatPanelCollapsed(panel, openButton, collapseButton, false);
             collapseButton.focus();
@@ -464,7 +1046,7 @@
         collapseButton.addEventListener("click", () => {
             if (!chatFocusMode) {
                 preferredCollapsed = true;
-                setStoredItem(storageKey, "true");
+                if (!workspaceConfig.detachedView && workspaceMutationAllowed()) setStoredItem(storageKey, "true");
             }
             setChatPanelCollapsed(panel, openButton, collapseButton, true);
             openButton.focus();
@@ -560,12 +1142,12 @@
         const button = document.getElementById("btn-chat-compact");
         if (!button) return;
         const available = compaction.boundary(chatMessages) > (chatCompactions.at(-1)?.end || 0);
-        button.disabled = !compactionController && (!available || chatStreaming || !isServerRunning());
+        button.disabled = !compactionController && (!available || chatStreaming || !isServerRunning() || !workspaceMutationAllowed());
         button.textContent = compactionController ? "Cancel compaction" : "Compact conversation";
         button.title = "Summarize older messages; keep the transcript and last two turns unchanged.";
         for (const id of ["btn-chat-undo-compaction", "btn-chat-tools-undo-compaction"]) {
             const undo = document.getElementById(id);
-            if (undo) undo.disabled = chatStreaming || Boolean(compactionController);
+            if (undo) undo.disabled = !workspaceMutationAllowed() || chatStreaming || Boolean(compactionController);
         }
         for (const id of ["btn-chat-view-summary", "btn-chat-tools-undo-compaction"]) {
             const action = document.getElementById(id);
@@ -602,16 +1184,24 @@
     }
 
     function undoCompaction() {
-        if (chatStreaming || compactionController || !chatCompactions.length) return;
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || !chatCompactions.length) return false;
+        if (!invalidateWorkspace()) return false;
+        const previous = chatCompactions.slice();
         chatCompactions.pop();
-        saveCurrentConversation();
+        if (!saveCurrentConversation()) {
+            chatCompactions = previous;
+            return false;
+        }
+        requestWorkspaceCheckpoint({ reason: "undo-compaction" });
         renderCompactionMarker();
         updateCompactionControls();
         scheduleContextPreview(true);
+        return true;
     }
 
     function compactConversation(draftOverride = null) {
-        if (chatStreaming || compactionController || !isServerRunning()) return Promise.resolve();
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || !isServerRunning()) return Promise.resolve(false);
+        const ownerEpoch = workspaceEpoch;
         const controller = new AbortController();
         compactionController = controller;
         compactionKey = getCompactionKey();
@@ -630,11 +1220,15 @@
                     draft, signal: controller.signal,
                     headers: getApiAuthorizationHeaders({ "Content-Type": "application/json" }), onProgress: report,
                 });
-                if (controller.signal.aborted || !isServerRunning() || compactionKey !== getCompactionKey()) {
+                if (controller.signal.aborted || !workspaceMutationAllowed(ownerEpoch) || !isServerRunning() || compactionKey !== getCompactionKey()) {
                     throw Object.assign(new Error("Chat changed"), { name: "AbortError" });
                 }
                 chatCompactions.push(record);
-                saveCurrentConversation();
+                if (!saveCurrentConversation()) {
+                    chatCompactions.pop();
+                    throw new Error("Could not save the compaction.");
+                }
+                requestWorkspaceCheckpoint({ reason: "compaction" });
                 renderCompactionMarker();
                 report("");
                 applied = true;
@@ -753,11 +1347,17 @@
         return getStoredItem(CHAT_AUTO_COMPACTION_STORAGE_KEY) === "true";
     }
 
-    function setAutoCompactionEnabled(enabled) {
+    function setAutoCompactionEnabled(enabled, options = {}) {
+        if (!workspaceMutationAllowed() && options.force !== true) return false;
         const value = Boolean(enabled);
         const toggle = document.getElementById("chat-auto-compact-toggle");
         if (toggle) toggle.checked = value;
-        setStoredItem(CHAT_AUTO_COMPACTION_STORAGE_KEY, String(value));
+        if (options.persist !== false && workspaceMutationAllowed()) {
+            setStoredItem(CHAT_AUTO_COMPACTION_STORAGE_KEY, String(value));
+        }
+        notifyWorkspaceChange();
+        requestWorkspaceCheckpoint({ reason: "auto-compaction" });
+        return true;
     }
 
     function ensureAutoCompactionControl() {
@@ -812,6 +1412,13 @@
 
     function scheduleContextPreview(force = false) {
         if (!document.getElementById("chat-context-label") || !flagCore) return;
+        if (!workspaceMutationAllowed()) {
+            cancelContextPreview();
+            latestContextBudget = null;
+            latestContextBodyKey = null;
+            renderContextBudget({ message: workspaceOwned ? "Chat context preview is paused during transfer." : "Chat is open in another window." });
+            return;
+        }
         const status = getLatestStatus ? getLatestStatus() : null;
         const body = buildChatBody(chatMessages, document.getElementById("chat-input")?.value || "");
         const key = JSON.stringify([getTemplateCapsKey(), status?.active_runtime,
@@ -845,6 +1452,8 @@
     }
 
     async function refreshContextPreview(body, revision) {
+        if (!workspaceMutationAllowed()) return null;
+        const ownerEpoch = workspaceEpoch;
         const controller = new AbortController();
         contextController = controller;
         try {
@@ -854,7 +1463,7 @@
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const budget = await response.json();
-            if (revision === contextRevision && !chatStreaming) {
+            if (workspaceMutationAllowed(ownerEpoch) && revision === contextRevision && !chatStreaming) {
                 renderContextBudget(budget, contextBodyKey(body));
                 return budget;
             }
@@ -870,8 +1479,8 @@
         }
     }
 
-    async function maybeCompactBeforeSend(userText, attemptToken, retry = false) {
-        if (attemptToken !== sendAttemptToken) return false;
+    async function maybeCompactBeforeSend(userText, attemptToken, retry = false, ownerEpoch = workspaceEpoch) {
+        if (!workspaceMutationAllowed(ownerEpoch) || attemptToken !== sendAttemptToken) return false;
         if (!isAutoCompactionEnabled() || autoCompactionAttempted || pendingEdit) return true;
         const replacementIndex = retry && chatMessages[chatMessages.length - 1]?.role === "assistant"
             ? chatMessages.length - 1 : -1;
@@ -879,7 +1488,7 @@
         const draft = replacementIndex >= 0 ? "" : userText;
         const body = buildChatBody(history, draft);
         const runtimeKey = getChatRuntimeKey();
-        const stale = () => attemptToken !== sendAttemptToken || runtimeKey !== getChatRuntimeKey();
+        const stale = () => !workspaceMutationAllowed(ownerEpoch) || attemptToken !== sendAttemptToken || runtimeKey !== getChatRuntimeKey();
         cancelContextPreview();
         const revision = contextRevision;
         const budget = await refreshContextPreview(body, revision);
@@ -920,10 +1529,11 @@
     }
 
     function sendMessage(userText, retry = false) {
-        if (chatStreaming || compactionController || sendPreflightPromise || !userText.trim()) return Promise.resolve();
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || sendPreflightPromise || !userText.trim()) return Promise.resolve(false);
         autoCompactionAttempted = false;
         const attemptToken = ++sendAttemptToken;
-        const pending = runMessage(userText, retry, attemptToken);
+        const ownerEpoch = workspaceEpoch;
+        const pending = runMessage(userText, retry, attemptToken, ownerEpoch);
         sendPreflightPromise = pending;
         chatStreamPromise = pending;
         const clearPending = () => {
@@ -1012,14 +1622,13 @@
     }
 
     async function editUserMessage(index) {
-        if (chatStreaming || compactionController || !chatMessages[index] || chatMessages[index].role !== "user") return false;
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || !chatMessages[index] || chatMessages[index].role !== "user") return false;
+        const ownerEpoch = workspaceEpoch;
         const stored = getStoredConversations();
         const active = currentConversationId && stored.find(item => item.id === currentConversationId);
         const backupTitle = `${active?.title || generateConversationTitle(chatMessages)} — before edit`;
-        const confirmed = typeof confirmAction === "function"
-            ? await confirmAction("Edit and resend", `A selectable history copy named “${backupTitle}” will preserve the current conversation and later turns. The active conversation will be truncated only when you resend. Continue?`, "Edit message")
-            : true;
-        if (!confirmed) return false;
+        const confirmed = await requestConfirmation("Edit and resend", `A selectable history copy named “${backupTitle}” will preserve the current conversation and later turns. The active conversation will be truncated only when you resend. Continue?`, "Edit message");
+        if (!confirmed || !workspaceMutationAllowed(ownerEpoch)) return false;
         const input = document.getElementById("chat-input");
         if (!input) return false;
         pendingEdit = {
@@ -1062,7 +1671,7 @@
     }
 
     function persistEditBranch(edit) {
-        if (!edit) return false;
+        if (!workspacePersistentWriteAllowed() || !edit) return false;
         const conversations = getStoredConversations();
         const existing = currentConversationId && conversations.find(item => item.id === currentConversationId);
         if (!existing) return false;
@@ -1082,7 +1691,8 @@
         return saveConversationsToStorage([backup, ...conversations]);
     }
 
-    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex, metadata = {}, toolMessages = []) {
+    function finalizeAssistantResponse(content, reasoning, sources, status, error, replacementIndex, metadata = {}, toolMessages = [], expectedEpoch = workspaceEpoch) {
+        if (!workspaceMutationAllowed(expectedEpoch)) return false;
         let finalContent = content;
         let finalReasoning = reasoning;
         if (!finalReasoning && shouldExtractEmbeddedReasoning()) {
@@ -1115,6 +1725,10 @@
         }
         saveCurrentConversation();
         renderConversationMessages(replacementIndex >= 0 ? replacementIndex : chatMessages.length - 1);
+        streamingCheckpoint = null;
+        requestWorkspaceCheckpoint({ reason: "response-finalized" });
+        notifyWorkspaceChange();
+        return true;
     }
 
     function renderConversationMessages(startIndex = 0) {
@@ -1169,7 +1783,7 @@
                 button.textContent = text;
                 button.dataset.requiresServer = String(requiresServer);
                 button.addEventListener("click", () => {
-                    if (!chatStreaming && !compactionController && chatMessages[index] === msg) return action();
+                    if (workspaceMutationAllowed() && !chatStreaming && !compactionController && chatMessages[index] === msg) return action();
                 });
                 footer.appendChild(button);
             };
@@ -1185,9 +1799,16 @@
                 // Choosing a different answer after later turns would rewrite
                 // their context. Branch/edit support is a separate change.
                 const selectVersion = (value) => {
+                    if (!workspaceMutationAllowed()) return false;
+                    const previous = chatMessages[index];
                     chatMessages[index] = { role: "assistant", ...msg.versions[value], versions: msg.versions, versionIndex: value };
-                    saveCurrentConversation();
+                    if (!saveCurrentConversation()) {
+                        chatMessages[index] = previous;
+                        return false;
+                    }
                     renderConversationMessages(index);
+                    requestWorkspaceCheckpoint({ reason: "select-version" });
+                    return true;
                 };
                 if (latest && selected > 0) addAction("Previous answer", () => selectVersion(selected - 1));
                 if (latest && selected < msg.versions.length - 1) addAction("Next answer", () => selectVersion(selected + 1));
@@ -1204,15 +1825,16 @@
         scheduleContextPreview();
     }
 
-    async function runMessage(userText, retry = false, attemptToken = sendAttemptToken) {
-        if (chatStreaming || compactionController || !userText.trim()) return;
+    async function runMessage(userText, retry = false, attemptToken = sendAttemptToken, ownerEpoch = workspaceEpoch) {
+        if (!workspaceMutationAllowed(ownerEpoch) || chatStreaming || compactionController || !userText.trim()) return false;
         if (!isServerRunning()) {
             updateStatusBadge();
             return;
         }
 
         const trimmedText = userText.trim();
-        if (!await maybeCompactBeforeSend(trimmedText, attemptToken, retry) || attemptToken !== sendAttemptToken) return;
+        if (!await maybeCompactBeforeSend(trimmedText, attemptToken, retry, ownerEpoch)
+            || !workspaceMutationAllowed(ownerEpoch) || attemptToken !== sendAttemptToken) return false;
         const editing = pendingEdit && !retry ? pendingEdit : null;
         if (editing && (editing.index >= chatMessages.length || chatMessages[editing.index]?.role !== "user")) {
             cancelEdit();
@@ -1224,6 +1846,7 @@
         const replacementIndex = retry && chatMessages[chatMessages.length - 1]?.role === "assistant"
             ? chatMessages.length - 1 : -1;
         if (editing) {
+            if (!invalidateWorkspace()) return false;
             if (!persistEditBranch(editing)) {
                 const editStatus = document.getElementById("chat-edit-status");
                 if (editStatus) {
@@ -1253,6 +1876,12 @@
         }
 
         chatStreaming = true;
+        streamingCheckpoint = {
+            active: true, replacementIndex, content: "", reasoning: "", sources: [], status: "streaming", error: "",
+            userText: trimmedText, metadata: {}, toolMessages: [],
+        };
+        requestWorkspaceCheckpoint({ reason: "response-started" });
+        notifyWorkspaceChange();
         showChatSendButton(false);
         renderChatTypingIndicator();
         restoreChatScrollPosition();
@@ -1284,6 +1913,8 @@
                     signal: chatAbortController.signal,
                 });
 
+                if (!workspaceMutationAllowed(ownerEpoch)) throw Object.assign(new Error("Chat ownership changed"), { name: "AbortError" });
+
                 removeChatTypingIndicator();
 
                 if (!resp.ok) {
@@ -1303,6 +1934,7 @@
 
                 while (!streamDone) {
                     const { done, value } = await reader.read();
+                    if (!workspaceMutationAllowed(ownerEpoch)) throw Object.assign(new Error("Chat ownership changed"), { name: "AbortError" });
                     buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
                     const lines = buffer.split("\n");
                     buffer = lines.pop() || "";
@@ -1338,6 +1970,8 @@
                         }
                         if (parsed.type === "web_sources") {
                             responseSources = parsed.sources || [];
+                            streamingCheckpoint.sources = responseSources;
+                            requestWorkspaceCheckpoint({ reason: "response-progress" });
                             renderChatSources(bubble, responseSources);
                             continue;
                         }
@@ -1351,9 +1985,11 @@
                             roundFinishReason = finishReason;
                             receivedFinish = true;
                             updateResponseMetadata(responseMetadata, parsed, finishReason);
+                            streamingCheckpoint.status = finishReason === "length" ? "length" : "complete";
                             if (finishReason === "length") status = "length";
                         }
                         updateResponseMetadata(responseMetadata, parsed);
+                        streamingCheckpoint.metadata = responseMetadata;
                         if (delta?.tool_calls !== undefined) {
                             if (!body.tools?.length) throw new Error("The model requested a tool while Chat tools are disabled.");
                             window.LlamaGui.chatTools.collectCalls(toolCalls, delta.tool_calls);
@@ -1361,15 +1997,18 @@
                         const reasoningDelta = getChatDeltaText(delta, ["reasoning_content", "reasoning"]);
                         if (reasoningDelta) {
                             fullReasoning += reasoningDelta;
+                            streamingCheckpoint.reasoning = fullReasoning;
                             appendChatReasoningStreamToken(bubble, reasoningDelta);
                             followChatOutput();
                         }
                         const contentDelta = getChatDeltaText(delta, ["content"]);
                         if (contentDelta) {
                             fullContent += contentDelta;
+                            streamingCheckpoint.content = fullContent;
                             appendChatStreamToken(bubble, contentDelta);
                             followChatOutput();
                         }
+                        if (reasoningDelta || contentDelta) requestWorkspaceCheckpoint({ reason: "response-progress" });
                     }
                     if (done) {
                         if (!streamDone && !receivedFinish) throw new Error("Connection closed before the response completed.");
@@ -1382,6 +2021,7 @@
                 // Conversation changes await this stream. Check abort after the last
                 // await before executing tools and removing the provisional message.
                 chatAbortController.signal.throwIfAborted();
+                if (!workspaceMutationAllowed(ownerEpoch)) throw Object.assign(new Error("Chat ownership changed"), { name: "AbortError" });
                 if (toolCalls.length || roundFinishReason === "tool_calls") {
                     if (round > 0) throw new Error("The model requested more tools instead of answering. Retry the reply.");
                     if (!toolCalls.length || roundFinishReason !== "tool_calls") {
@@ -1392,10 +2032,14 @@
                         role: "assistant", content: fullContent, tool_calls: toolCalls,
                         ...(fullReasoning ? { reasoning_content: fullReasoning } : {}),
                     }, ...results);
+                    streamingCheckpoint.toolMessages = toolMessages;
+                    requestWorkspaceCheckpoint({ reason: "response-progress" });
                     body.messages.push(...toolMessages);
                     body.tool_choice = "none";
                     fullContent = "";
                     fullReasoning = "";
+                    streamingCheckpoint.content = "";
+                    streamingCheckpoint.reasoning = "";
                     for (const key of Object.keys(responseMetadata)) delete responseMetadata[key];
                     bubble.closest(".chat-message").remove();
                     bubble = null;
@@ -1417,7 +2061,11 @@
         } finally {
             if (reader) await reader.cancel().catch((e) => console.debug("Failed to close chat stream reader", e));
             removeChatTypingIndicator();
-            finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex, responseMetadata, toolMessages);
+            if (workspaceMutationAllowed(ownerEpoch)) {
+                streamingCheckpoint.status = status;
+                streamingCheckpoint.error = error;
+                finalizeAssistantResponse(fullContent, fullReasoning, responseSources, status, error, replacementIndex, responseMetadata, toolMessages, ownerEpoch);
+            }
             chatStreaming = false;
             chatAbortController = null;
             showChatSendButton(true);
@@ -1427,7 +2075,9 @@
             if (status !== "failed") scheduleContextPreview(true);
             const chatInput = document.getElementById("chat-input");
             if (chatInput) chatInput.focus();
+            notifyWorkspaceChange();
         }
+        return workspaceMutationAllowed(ownerEpoch);
     }
 
     function stopStream() {
@@ -1468,7 +2118,10 @@
     }
 
     function undoMessage() {
-        if (chatStreaming || compactionController || chatMessages.length === 0) return;
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || chatMessages.length === 0) return false;
+        if (currentConversationId && !invalidateWorkspace()) return false;
+        const previousMessages = chatMessages.slice();
+        const previousCompactions = chatCompactions.slice();
         chatMessages.pop();
         while (chatCompactions.length && !compaction.valid(chatCompactions.at(-1), chatMessages)) chatCompactions.pop();
         const container = document.getElementById("chat-messages");
@@ -1480,18 +2133,31 @@
             if (empty) empty.style.display = "";
             if (currentConversationId) {
                 const conversations = getStoredConversations();
-                saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId));
+                if (!saveConversationsToStorage(conversations.filter(c => c.id !== currentConversationId))) {
+                    chatMessages = previousMessages;
+                    chatCompactions = previousCompactions;
+                    return false;
+                }
                 currentConversationId = null;
+                workspaceConversationTitle = null;
+                workspaceConversationTitleCustom = false;
                 renderHistoryList();
             }
         } else {
-            saveCurrentConversation();
+            if (!saveCurrentConversation()) {
+                chatMessages = previousMessages;
+                chatCompactions = previousCompactions;
+                return false;
+            }
         }
         renderConversationMessages(Math.max(0, chatMessages.length - 1));
+        requestWorkspaceCheckpoint({ reason: "undo-message" });
+        notifyWorkspaceChange();
+        return true;
     }
 
     function regenerateResponse() {
-        if (chatStreaming || compactionController || !isServerRunning() || chatMessages.length === 0) return Promise.resolve();
+        if (!workspaceMutationAllowed() || chatStreaming || compactionController || !isServerRunning() || chatMessages.length === 0) return Promise.resolve(false);
         const lastIndex = chatMessages.length - 1;
         const userIndex = chatMessages[lastIndex].role === "assistant" ? lastIndex - 1 : lastIndex;
         const userMessage = chatMessages[userIndex];
@@ -1520,6 +2186,7 @@
     let historyRetentionNotice = false;
 
     function saveConversationsToStorage(list) {
+        if (!workspacePersistentWriteAllowed()) return false;
         const all = Array.isArray(list) ? list : [];
         const pruned = all.slice(0, CHAT_MAX_STORED_CONVERSATIONS);
         const saved = setStoredItem(CHAT_CONVERSATIONS_STORAGE_KEY, JSON.stringify(pruned));
@@ -1531,7 +2198,8 @@
         return saved;
     }
 
-    function saveCurrentConversation() {
+    function saveCurrentConversation(options = {}) {
+        if (!workspacePersistentWriteAllowed()) return false;
         if (chatMessages.length === 0 && !currentConversationId) return true;
         const sysPrompt = document.getElementById("chat-system-prompt");
         const conversations = getStoredConversations();
@@ -1547,9 +2215,11 @@
             existing.timestamp = Date.now();
             if (!existing.title) existing.title = generateConversationTitle(chatMessages);
         } else {
+            const newId = currentConversationId || createConversationId();
             const convo = {
-                id: createConversationId(),
-                title: generateConversationTitle(chatMessages),
+                id: newId,
+                title: workspaceConversationTitle || generateConversationTitle(chatMessages),
+                titleCustom: workspaceConversationTitleCustom,
                 messages: chatMessages.slice(),
                 compactions: chatCompactions.slice(),
                 systemPrompt: sysPrompt ? sysPrompt.value : "",
@@ -1557,11 +2227,13 @@
                 timestamp: Date.now()
             };
             conversations.unshift(convo);
-            currentConversationId = convo.id;
         }
 
         const saved = saveConversationsToStorage(conversations);
+        if (saved && !currentConversationId) currentConversationId = conversations[0].id;
         renderHistoryList();
+        if (saved && !options.skipCheckpoint) requestWorkspaceCheckpoint({ reason: "conversation-save" });
+        if (saved) notifyWorkspaceChange();
         return saved;
     }
 
@@ -1573,6 +2245,8 @@
     }
 
     async function loadConversation(id) {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
         reportCharacterImport();
         setChatToolsOpen(false);
         // Must await: abort() rejects the pending read on a later microtask, so a
@@ -1584,11 +2258,16 @@
         // Read storage only after the abort has settled: finalizing the aborted
         // reply writes to storage, so a snapshot taken earlier would be stale and
         // reloading the streaming conversation would drop the in-flight turn.
+        if (!workspaceMutationAllowed(ownerEpoch)) return false;
         const conversations = getStoredConversations();
         const convo = conversations.find(c => c.id === id);
-        if (!convo) return;
+        if (!convo || !workspaceMutationAllowed(ownerEpoch)) return false;
+        if (!invalidateWorkspace()) return false;
 
         currentConversationId = convo.id;
+        workspaceConversationTitle = convo.title || null;
+        workspaceConversationTitleCustom = Boolean(convo.titleCustom);
+        streamingCheckpoint = null;
         const compactStatus = document.getElementById("chat-compaction-status");
         if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
         chatMessages = convo.messages.slice();
@@ -1607,9 +2286,13 @@
 
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
+        requestWorkspaceCheckpoint({ reason: "conversation-load" });
+        notifyWorkspaceChange();
+        return true;
     }
 
     function renameConversation(id, title) {
+        if (!workspaceMutationAllowed()) return false;
         const normalized = String(title || "").trim().replace(/\s+/g, " ");
         if (!normalized) return false;
         const conversations = getStoredConversations();
@@ -1622,15 +2305,22 @@
             convo.title = previous;
             return false;
         }
+        if (id === currentConversationId) {
+            workspaceConversationTitle = convo.title;
+            workspaceConversationTitleCustom = true;
+        }
         renderHistoryList();
+        requestWorkspaceCheckpoint({ reason: "rename" });
         return true;
     }
 
     function requestConversationRename(id) {
+        if (!workspaceMutationAllowed()) return false;
         const convo = getStoredConversations().find(item => item.id === id);
-        if (!convo) return;
+        if (!convo) return false;
         const prompt = typeof window.prompt === "function" ? window.prompt("Conversation name", convo.title || "") : "";
         if (prompt !== null && prompt !== undefined) renameConversation(id, prompt);
+        return true;
     }
 
     function exportConversation(id, format = "json") {
@@ -1653,8 +2343,11 @@
 
     function resetActiveChatState() {
         currentConversationId = null;
+        workspaceConversationTitle = null;
+        workspaceConversationTitleCustom = false;
         chatMessages = [];
         chatCompactions = [];
+        streamingCheckpoint = null;
         discardPendingEdit();
         const container = document.getElementById("chat-messages");
         container?.querySelectorAll(".chat-message").forEach(el => el.remove());
@@ -1673,37 +2366,53 @@
     }
 
     async function deleteConversation(id) {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
         if (currentConversationId === id && (chatStreaming || compactionController || sendPreflightPromise)) await abortActiveStream();
+        if (!workspaceMutationAllowed(ownerEpoch)) return false;
         const conversations = getStoredConversations();
         const deleted = conversations.find(c => c.id === id);
         if (!deleted) return false;
         const filtered = conversations.filter(c => c.id !== id);
+        if (!invalidateWorkspace()) return false;
         if (!saveConversationsToStorage(filtered)) return false;
         if (currentConversationId === id) resetActiveChatState();
 
         renderHistoryList();
+        notifyWorkspaceChange();
         return true;
     }
 
     async function deleteAllConversations() {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
         if (chatStreaming || compactionController || sendPreflightPromise) await abortActiveStream();
+        if (!workspaceMutationAllowed(ownerEpoch) || !invalidateWorkspace()) return false;
         if (!saveConversationsToStorage([])) return false;
         resetActiveChatState();
         renderHistoryList();
+        notifyWorkspaceChange();
         return true;
     }
 
     async function startNewChat() {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
         reportCharacterImport();
         setChatToolsOpen(false);
         // Stop before saving: an in-flight stream would otherwise keep appending
         // tokens into the fresh chat and leave the composer disabled.
         if (chatStreaming || compactionController || sendPreflightPromise) await abortActiveStream();
+        if (!workspaceMutationAllowed(ownerEpoch)) return false;
         discardPendingEdit();
-        saveCurrentConversation();
+        if (!saveCurrentConversation()) return false;
+        if (!invalidateWorkspace()) return false;
         currentConversationId = null;
+        workspaceConversationTitle = null;
+        workspaceConversationTitleCustom = false;
         chatMessages = [];
         chatCompactions = [];
+        streamingCheckpoint = null;
         const compactStatus = document.getElementById("chat-compaction-status");
         if (compactStatus) { compactStatus.textContent = ""; compactStatus.hidden = true; }
         renderCompactionMarker();
@@ -1720,6 +2429,8 @@
         scheduleContextPreview(true);
         renderHistoryList();
         if (snapshotStatsBaseline) snapshotStatsBaseline();
+        notifyWorkspaceChange();
+        return true;
     }
 
     function renderHistoryList() {
@@ -1761,7 +2472,7 @@
             deleteBtn.setAttribute("aria-label", "Delete conversation");
             deleteBtn.addEventListener("click", async (e) => {
                 e.stopPropagation();
-                const confirmed = await confirmAction("Delete Conversation", `Delete "${convo.title || "Untitled"}"? This cannot be undone.`, "Delete");
+                const confirmed = await requestConfirmation("Delete Conversation", `Delete "${convo.title || "Untitled"}"? This cannot be undone.`, "Delete");
                 if (confirmed) return deleteConversation(convo.id);
             });
 
@@ -1823,15 +2534,19 @@
     }
 
     async function clearChat() {
+        if (!workspaceMutationAllowed()) return false;
+        const ownerEpoch = workspaceEpoch;
         setChatToolsOpen(false);
         if (chatStreaming || compactionController || sendPreflightPromise) await abortActiveStream();
+        if (!workspaceMutationAllowed(ownerEpoch)) return false;
         discardPendingEdit();
         if (currentConversationId) {
             const deleted = await deleteConversation(currentConversationId);
             if (!deleted) return;
             if (snapshotStatsBaseline) snapshotStatsBaseline();
-            return;
+            return true;
         }
+        if (!invalidateWorkspace()) return false;
         chatMessages = [];
         chatCompactions = [];
         const compactStatus = document.getElementById("chat-compaction-status");
@@ -1849,6 +2564,8 @@
         setChatThinkingEffort("auto");
         scheduleContextPreview(true);
         if (snapshotStatsBaseline) snapshotStatsBaseline();
+        notifyWorkspaceChange();
+        return true;
     }
 
     function reportCharacterImport(message = "") {
@@ -1857,7 +2574,8 @@
     }
 
     async function importCharacterCard(file) {
-        if (!file || characterImportPending || chatStreaming || compactionController || sendPreflightPromise) return;
+        if (!workspaceMutationAllowed() || !file || characterImportPending || chatStreaming || compactionController || sendPreflightPromise) return false;
+        const ownerEpoch = workspaceEpoch;
         characterImportPending = true;
         updateChatAvailability(isServerRunning());
         reportCharacterImport("Reading character card…");
@@ -1868,7 +2586,7 @@
             const card = await window.LlamaGui.characterCards.readFile(file);
             if (chatMessages !== originalMessages || chatMessages.length !== originalLength
                 || document.getElementById("chat-system-prompt").value !== originalPrompt
-                || chatStreaming || compactionController || sendPreflightPromise) {
+                || !workspaceMutationAllowed(ownerEpoch) || chatStreaming || compactionController || sendPreflightPromise) {
                 throw new Error("Chat changed while reading the card. Please load it again.");
             }
             if (!saveCurrentConversation()) throw new Error("Could not save the current conversation. The character was not loaded.");
@@ -1879,8 +2597,11 @@
             };
             const conversations = getStoredConversations();
             conversations.unshift(conversation);
+            if (!invalidateWorkspace()) throw new Error("The chat changed while importing the character. Please try again.");
             if (!saveConversationsToStorage(conversations)) throw new Error("Could not save the character chat. The current conversation is still open.");
-            await loadConversation(conversation.id);
+            if (!workspaceMutationAllowed(ownerEpoch) || !(await loadConversation(conversation.id))) {
+                throw new Error("The chat changed while loading the character. Please try again.");
+            }
             reportCharacterImport([`Started a chat with ${card.name}.`, ...card.notices].join(" "));
         } catch (error) {
             console.debug("Character card import did not complete", error);
@@ -1888,12 +2609,17 @@
         } finally {
             characterImportPending = false;
             updateChatAvailability(isServerRunning());
+            notifyWorkspaceChange();
         }
+        return true;
     }
 
     function init() {
         initChatTools();
-        window.LlamaGui.chatTools.init(() => scheduleContextPreview(true));
+        window.LlamaGui.chatTools.init(() => {
+            scheduleContextPreview(true);
+            requestWorkspaceCheckpoint({ reason: "datetime-preference" });
+        });
         ensureAutoCompactionControl();
         ensureEditStatusControl();
         wireChatScrollControls();
@@ -1922,7 +2648,8 @@
         if (webSearchToggle) {
             webSearchToggle.checked = getStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY) === "true";
             webSearchToggle.addEventListener("change", () => {
-                setStoredItem(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
+                if (!workspaceMutationAllowed()) return;
+                setChatPreference(CHAT_WEB_SEARCH_STORAGE_KEY, String(webSearchToggle.checked));
                 scheduleContextPreview();
             });
         }
@@ -1934,11 +2661,11 @@
             webSearchMaxResults.addEventListener("change", () => {
                 const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
                 webSearchMaxResults.value = String(value);
-                setStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+                setChatPreference(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
             });
             webSearchMaxResults.addEventListener("input", () => {
                 const value = clampChatWebSearchMaxResults(webSearchMaxResults.value);
-                setStoredItem(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
+                setChatPreference(CHAT_WEB_SEARCH_MAX_RESULTS_STORAGE_KEY, String(value));
             });
         }
 
@@ -1946,6 +2673,7 @@
             thinkingEffort.title = "Auto lets the loaded model choose. Off asks for a direct answer; levels request more or less reasoning when supported.";
             setChatThinkingEffort(thinkingEffort.value);
             thinkingEffort.addEventListener("change", () => {
+                if (!workspaceMutationAllowed()) return;
                 setChatThinkingEffort(thinkingEffort.value);
                 refreshSidebarUI();
                 saveCurrentConversation();
@@ -1955,6 +2683,7 @@
 
         chatInput.addEventListener("input", () => {
             scheduleContextPreview();
+            requestWorkspaceCheckpoint({ reason: "draft" });
             chatInput.style.height = "auto";
             chatInput.style.height = Math.min(chatInput.scrollHeight, 220) + "px";
         });
@@ -1983,8 +2712,10 @@
         }
 
         sysPrompt.addEventListener("input", () => {
+            if (!workspaceMutationAllowed()) return;
             scheduleContextPreview();
             sysCharCount.textContent = sysPrompt.value.length + " chars";
+            requestWorkspaceCheckpoint({ reason: "system-prompt" });
         });
         sysCharCount.textContent = "0 chars";
 
@@ -2000,7 +2731,7 @@
         if (deleteAllBtn) {
             deleteAllBtn.addEventListener("click", async () => {
                 if (getStoredConversations().length === 0) return;
-                const confirmed = await confirmAction("Delete All Conversations", "Delete all saved conversations? This cannot be undone.", "Delete All");
+                const confirmed = await requestConfirmation("Delete All Conversations", "Delete all saved conversations? This cannot be undone.", "Delete All");
                 if (confirmed) {
                     await deleteAllConversations();
                 }
@@ -2023,11 +2754,11 @@
             if (!slider || !display) continue;
 
             slider.addEventListener("input", () => {
+                if (!workspaceMutationAllowed()) return;
                 const raw = parseFloat(slider.value);
                 display.textContent = raw.toFixed(meta.decimals);
                 const val = meta.flag === "top_k" ? parseInt(slider.value, 10) : parseFloat(slider.value);
-                flagCore.setFlagValue(meta.flag, val);
-                if (meta.flag === "n_predict") refreshSidebarUI();
+                setChatSamplerValue(meta.flag, val);
             });
         }
 
@@ -2035,18 +2766,20 @@
             const input = document.getElementById(inputId);
             if (!input) continue;
             input.addEventListener("change", () => {
+                if (!workspaceMutationAllowed()) return;
                 const raw = String(input.value || "").trim();
                 const parsed = Number(raw);
                 if (raw && Number.isFinite(parsed) && (!meta.integer || Number.isInteger(parsed))) {
-                    flagCore.setFlagValue(meta.flag, parsed);
+                    setChatSamplerValue(meta.flag, parsed);
                 }
                 refreshSidebarUI();
             });
             input.addEventListener("input", () => {
+                if (!workspaceMutationAllowed()) return;
                 const raw = String(input.value || "").trim();
                 const parsed = Number(raw);
                 if (raw && Number.isFinite(parsed) && (!meta.integer || Number.isInteger(parsed))) {
-                    flagCore.setFlagValue(meta.flag, parsed);
+                    setChatSamplerValue(meta.flag, parsed);
                 }
                 scheduleContextPreview();
             });
@@ -2055,7 +2788,7 @@
         const clearBtn = document.getElementById("btn-chat-clear");
         if (clearBtn) {
             clearBtn.addEventListener("click", async () => {
-                const confirmed = await confirmAction("Clear Current Chat", "Clear this chat, including its saved conversation and system prompt? This cannot be undone.", "Clear Chat");
+                const confirmed = await requestConfirmation("Clear Current Chat", "Clear this chat, including its saved conversation and system prompt? This cannot be undone.", "Clear Chat");
                 if (confirmed) await clearChat();
             });
         }
@@ -2065,6 +2798,21 @@
 
     window.LlamaGui.chatUi = {
         configure,
+        configureWorkspace,
+        getTransferState,
+        suspendTransfer,
+        resumeTransfer,
+        setOwnership,
+        setHostAvailable,
+        captureSnapshot,
+        validateSnapshot,
+        restoreSnapshot,
+        saveForTransfer,
+        captureLayout,
+        restoreLayout,
+        getChatSamplerValues,
+        getChatSamplerFlagIds,
+        setChatSamplerValue,
         init,
         onTabChanged,
         refreshSidebarUI,

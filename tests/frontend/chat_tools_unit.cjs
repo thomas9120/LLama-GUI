@@ -97,4 +97,11 @@ assert.equal(wire[2].tool_call_id, wire[1].tool_calls[0].id);
 assert.equal(transcript.length, 2, "request expansion must not change transcript indices");
 assert.equal(tools.requestMessages([{ role: "assistant", content: "", toolMessages: exchange }]).length, 2,
     "a failed continuation keeps the completed tool exchange in context");
+let toolChanges = 0;
+tools.configureWorkspace({ canMutate: () => false, onChange: () => { toolChanges += 1; } });
+assert.equal(tools.setEnabled(false), false, "workspace ownership gates tool preference mutation");
+assert.equal(tools.isEnabled(), true);
+tools.configureWorkspace({ canMutate: () => true, onChange: () => { toolChanges += 1; } });
+assert.equal(tools.setEnabled(false), true);
+assert.equal(toolChanges, 1);
 console.log("chat_tools_unit.cjs: all tests passed");

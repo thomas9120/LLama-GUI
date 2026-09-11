@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Added Chat transfer snapshots, ownership guards, and recovery boundaries for the pop-out integration.
 - Removed unused CSS for retired controls and preset chips, including an unused status-dot animation.
 
 ## 2026-09-10
