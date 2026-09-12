@@ -178,32 +178,87 @@ Status legend: `[ ]` open · `[x]` done (add date + commit) · `[~]` in progress
   non-existent files (verified below; W3 will enforce it mechanically).
 - **Effort**: ~1 hour.
 
-### W2 (P0) — Align `maintenance.md` test commands with `AGENTS.md`
+### W2 (P0) — Align `maintenance.md` test commands with `AGENTS.md` — DONE 2026-09-11
 
-- [ ] Replace the plain `python -m unittest discover tests -v` with the
-  project-venv invocation (`.venv\Scripts\python.exe` on Windows,
-  `.venv/bin/python` on Unix) and mention the misleading
-  missing-`huggingface_hub` failure mode; point at `docs/tests.md`.
-- **Acceptance**: no living doc recommends plain system Python for backend
-  tests.
-- **Verify**: `grep -rn "python -m unittest" docs/ README.md` shows only
-  venv-qualified guidance.
-- **Effort**: ~15 minutes.
+- [x] Replaced the plain backend test command in `docs/maintenance.md` with
+  both venv invocations (`.venv\Scripts\python.exe` on Windows,
+  `.venv/bin/python` on Unix) plus the missing-`huggingface_hub` warning,
+  matching `docs/tests.md`'s wording; the `docs/tests.md` pointer was already
+  present and kept.
+- [x] Scope addition found during implementation: `docs/architecture.html`
+  carried the same bare command in two places (Tests card `<pre>`,
+  backend-route recipe `<li>`) — both now venv-qualified, and the Tests card
+  gained a project-venv note mirroring the frontend card's style. Covered by
+  W2's acceptance criterion ("no living doc recommends plain system Python").
+- **Acceptance**: verified — the only remaining bare `python -m unittest`
+  strings in docs are this file's own audit quotes (they describe the problem,
+  not prescribe it; exempt from W3's checker like archived plan docs).
+- **Side finding**: architecture.html's Tests card counts/lists are stale
+  (says "Backend — 10 files", actual 17; "Frontend — 25 `.cjs` files",
+  actual 35; verified 2026-09-11) — tracked as a new W5 bullet.
+- **Effort**: ~15 minutes planned; ~30 with the architecture.html scope.
+
+### W2b (P0) — Retire `docs/architecture.html` — DONE 2026-09-11
+
+Decision made 2026-09-11 during the D4/W3 design discussion (user-approved):
+retire rather than slim or keep. Evidence:
+
+- 13 of the 14 commits touching it were feature catch-up ("sync architecture
+  docs" literally appears in commit subjects) — a per-feature tax on top of
+  `directory.md`, which must be updated anyway.
+- Unenforced content rotted: test-file counts ("10 files"/"25 `.cjs`" vs
+  actual 17/35), duplicated bare test commands, "1.7k lines" for a
+  1,891-line `index.html`, "15 routes modules / 13 services" vs actual 17/15.
+- Content was ~90% duplicated from `directory.md` (layer map ≈ Architecture
+  section, ladder ≈ Script Loading Order, API table ≈ Route Modules,
+  recipes ≈ AGENTS.md, Tests ≈ tests.md).
+- README never linked it — contributor-facing only, so retirement has no
+  user-facing impact.
+
+Work done:
+
+- [x] Salvage pass. Ported what `directory.md` lacked: the `config.py`
+  no-optional-imports constraint (module table), the 10 MB request-body cap /
+  `Transfer-Encoding`-refused / 408-timeout contract, and the no-WebSocket
+  live-update design statement (Architecture bullets). The generation-cursor
+  contract was already documented (`directory.md`, process-output section);
+  the lock inventory and polling-cadence table were deliberately not ported
+  (self-documenting in `backend/state.py` and per-feature docs — porting them
+  would recreate the sync burden just removed).
+- [x] Deleted `docs/architecture.html` (1,488 lines).
+- [x] Halved `tests/backend/test_docs_sync.py` — dropped the HTML table
+  check, its regex/helpers, and updated the docstring and comments.
+- [x] Updated `AGENTS.md` (route rule), `docs/tests.md` (drift-test
+  description), and `docs/directory.md` (index row; also fixed the stale
+  `docs/` directory-map description that still named deleted docs).
+- Archived plan docs' historical `architecture.html` mentions were left
+  as-is (implementation records; exempt from the W3 checker).
+- **Effort**: ~1.5 hours.
 
 ### W3 (P0) — Add a docs-reference checker test
 
-- [ ] New `tests/backend/test_docs_links.py` (or extend
-  `tests/backend/test_docs_sync.py`): scan **living docs** for (a) relative
-  markdown links and (b) backtick-quoted repo-relative paths
+Design resolved 2026-09-11 (D4): **scan all tracked docs with explicit
+exemptions** (denylist), not a living-docs allowlist — new docs are protected
+by default, the failure direction is loud (false positive) rather than silent
+(unprotected doc), and W2b removed `architecture.html` so the scope is
+markdown only.
+
+- [ ] New `tests/backend/test_docs_links.py`: scan every tracked `.md` file
+  (repo-root `README.md`, `AGENTS.md`, everything under `docs/`) for
+  (a) relative markdown links and (b) backtick-quoted repo-relative paths
   (`docs/…`, `ui/…`, `backend/…`, `tests/…`, `scripts/…`), and assert each
-  resolves to a tracked file.
-- [ ] Handle the two non-drift categories from F2: archived plan docs
-  (intentional pre-rename references) and llama.cpp upstream paths in
-  `docs/upstream-changes.md`. Approach is open decision D4 — suggested default:
-  define a "living docs" scope list (README.md, AGENTS.md, and the durable
-  guides) and check only those; leave archived plan docs out of scope.
-- **Acceptance**: fails on W1's inventory if W1 is not done first; passes
-  after; adding a reference to a deleted file fails CI.
+  resolves to an existing file. Runtime-created directories (`llama/`,
+  `models/`, `presets/`, `tools/`) are deliberately outside the prefix list.
+- [ ] `EXEMPT_DOCS`, each entry with a reason comment: the two archived plan
+  docs (intentional pre-rename references) and this tracking doc (quotes dead
+  paths as audit evidence). Self-verifying: every exempted doc must exist on
+  disk, so deleting an exempted doc flags its stale exemption.
+- [ ] `UPSTREAM_PATHS` allowlist for llama.cpp's own files that collide with
+  repo prefixes: `tests/CMakeLists.txt`, `tests/test-arg-parser.cpp`,
+  `tests/test-speculative-adaptive.cpp` (referenced by
+  `docs/upstream-changes.md` fork notes).
+- **Acceptance**: passes today (W1 cleaned living docs); adding a reference
+  to a deleted file — or deleting a referenced file — fails CI.
 - **Verify**: `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
   (or the whole suite: `.venv/Scripts/python.exe -m unittest discover tests -v`).
 - **Effort**: ~2–3 hours.
@@ -230,6 +285,8 @@ Status legend: `[ ]` open · `[x]` done (add date + commit) · `[~]` in progress
 - [ ] Top-Level Directory Map: mark `tools/` as runtime-created, add the
   omitted top-level entries (`online_installers/`, `Linux_compile_toolkit/`,
   `release.bat`/`release.ps1`, `stash-updates.bat`).
+- [x] ~~`docs/architecture.html` Tests card stale counts~~ — moot: the file
+  was retired in W2b (2026-09-11).
 - (The index prune itself happens in W1.)
 - **Acceptance**: a newcomer can answer "what do I read first" in one glance.
 - **Effort**: ~1 hour.
@@ -295,7 +352,7 @@ Status legend: `[ ]` open · `[x]` done (add date + commit) · `[~]` in progress
 | D1 | Execution order of W1–W10 | W1 → W2 → W3 first: make existing docs truthful and mechanically protected *before* adding new docs (W4–W7) that could rot the same way. |
 | D2 | Quickstart location: root `CONTRIBUTING.md` vs `docs/dev-guide.md` | Root `CONTRIBUTING.md` (GitHub surfaces it); index it in `directory.md`. |
 | D3 | ESLint: yes / no / middle ground | Middle ground (tiny config, no plugins), if the maintainer accepts the devDependency. |
-| D4 | Link-checker scope: living-docs allowlist vs all docs with per-file exemptions | Living-docs scope list, explicitly excluding archived plan docs and upstream-path mentions. |
+| D4 | Link-checker scope: living-docs allowlist vs all docs with per-file exemptions | **RESOLVED 2026-09-11:** all-docs scan with explicit exemptions (denylist) — see W3. New docs are protected by default; the failure direction is loud rather than silent; self-verifying exemptions catch their own staleness. W2b removed `architecture.html` from scope. |
 | D5 | Whether to split `directory.md` at all | Defer until it grows again after W4–W7 land. |
 
 ## Things the audit checked and found OK (do not re-check)

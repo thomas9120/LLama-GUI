@@ -14,6 +14,8 @@
 - **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads).
 - **State persistence:** `config.json` (installed version, active backend, tag).
 - **Thread safety:** All stateful operations (process, download, tunnel, install) use threading locks.
+- **Request bodies:** JSON only via `read_body()` — capped at 10 MB (`MAX_REQUEST_BODY_SIZE`, HTTP 413), `Transfer-Encoding` refused (501), read timeouts answered with 408.
+- **Live updates:** No WebSocket — one SSE stream (chat completions) plus polling loops that reconcile against authoritative server state; the `runtime_generation` carried by `/api/output` responses lets stale tabs discard superseded output.
 
 ### Companion Repositories
 
@@ -35,7 +37,7 @@
 | `ui/templates/` | 15 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `.github/workflows/` | Continuous integration and the manual stable-release workflow |
-| `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
+| `docs/` | Documentation: project reference, tests, maintenance, security, troubleshooting, and upstream-change guides |
 | `llama/` | Downloaded `llama.cpp` binaries at runtime |
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
@@ -55,7 +57,7 @@
 | Module | Role |
 |--------|------|
 | `backend/app.py` | HTTP handler, CORS, proxy, route registry, main() |
-| `backend/config.py` | Path constants, env var parsing, web search limits |
+| `backend/config.py` | Path constants, env var parsing, web search limits; deliberately free of optional third-party imports so startup diagnostics work on a minimal Python environment |
 | `backend/context.py` | `AppContext`, `AppPaths`, `ServerConfig`, `BackendServices` dataclasses |
 | `backend/state.py` | `ServerState` dataclass, `AtomicDict` (lock-protected dict) |
 | `backend/http.py` | `Request`/`Response`/`SseWriter`, CORS validation, `sanitize_error()` |
@@ -1089,7 +1091,6 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
 | `docs/directory.md` | This file — project structure and feature reference |
-| `docs/architecture.html` | Visual architecture guide — diagrams of the layers, request lifecycle, script-order dependency ladder, and key flows |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/gpu-monitoring.md` | User setup guide for NVIDIA SMI, AMD SMI, and the optional cross-vendor all-smi collector |
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
