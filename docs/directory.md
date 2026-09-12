@@ -618,7 +618,7 @@ The list is one composite widget rather than a few hundred tab stops. At the ref
 
 ### Duplicate And Rename
 
-`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames need care on Windows — see the notes in `docs/design-docs/preset-todo.md`.
+`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames (`my preset` → `My Preset`) are supported: Windows `Path` equality and `resolve()` are case-insensitive and would collapse the rename onto its source, so the route renames against the requested spelling and uses `samefile()` to tell a case-only rename from a genuine collision with a different preset.
 
 ### Local Storage Keys
 
@@ -1095,15 +1095,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
-| `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
-| `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
 | `docs/frontend-maintainability-tier-2-plan.md` | Proposed Tier-2 frontend maintainability scope, module boundaries, implementation order, and verification gates |
-| `docs/todo.md` | Known planned work |
-| `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
-| `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
-| `docs/ui-ux-polish.md` | UI/UX polish direction for experienced llama.cpp users, open decisions, implementation slices, and saved Configure/Quick Launch mockups |
-| `docs/design-docs/router-mode.md` | Router mode design notes |
-| `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
-| `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |
+| `docs/developer-onboarding-plan.md` | New-developer onboarding audit — verified findings and tracked improvement work items |
 | `docs/images/` | Screenshots used by README.md |
