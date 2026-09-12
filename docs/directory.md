@@ -1153,6 +1153,10 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
+| `docs/chat-popout.md` | Chat pop-out user guide: transfer, recovery, and browser/launcher support |
+| `docs/chat-popout-capabilities.md` | Phase 1 pop-out capability fixture evidence |
+| `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
+| `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
 | `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–1 complete, Session 2 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

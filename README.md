@@ -294,6 +294,6 @@ For port conflicts, missing models, backend/driver mismatches, antivirus quarant
 
 For local-use boundaries, API key handling, tunnel exposure, proxy registration, and web-search fetch limits, see [`docs/security.md`](docs/security.md).
 
-Test inventory and how to run the suite: [`docs/maintenance.md`](docs/maintenance.md).
+Test inventory and how to run the suite: [`docs/tests.md`](docs/tests.md).
 
 Contributing — dev setup, tests, and PR checklist: [`CONTRIBUTING.md`](CONTRIBUTING.md).
