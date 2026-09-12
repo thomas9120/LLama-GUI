@@ -4,6 +4,7 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Split the 2,954-line `ui/js/chat-ui.js` into an ordered 8-file `ui/js/chat/` package — `chat-internal.js` (shared state, constants, storage helpers), `chat-workspace.js`, `chat-sidebar.js`, `chat-request.js`, `chat-context.js`, `chat-stream.js`, `chat-history.js`, and `chat-main.js` (`init()` plus the `window.LlamaGui.chatUi` assembly) — with no behavior change: the public `chatUi` API, script dependency order, and test hooks are identical. Retargeted the chat unit VM and the popout integration fixture from `chat-ui.js` to the package files.
 - Fixed combined mmap/mlock benchmark translation, made Chat settings inert when workspace mutation is unavailable, and synchronized the date/time checkbox after workspace restoration.
 - Fixed detached Chat recovery race: a popup that loses its host keeps the workspace lock while paused, so a reloading main page always observes lock-busy with explicit recovery instead of sometimes silently adopting the quarantined checkpoint.
 - Fixed detached Chat starting with ownership before the verified handoff; the popup now starts as an observer like the host path.

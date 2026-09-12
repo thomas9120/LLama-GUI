@@ -448,9 +448,9 @@ test("Chat initialization failure leaves an unavailable shell without breaking t
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
     let chatUiRouteHit = false;
-    await context.route(/\/js\/chat-ui\.js(?:\?|$)/, async route => {
+    await context.route(/\/js\/chat\/chat-main\.js(?:\?|$)/, async route => {
         chatUiRouteHit = true;
-        const source = fs.readFileSync(path.join(UI_ROOT, "js", "chat-ui.js"), "utf8");
+        const source = fs.readFileSync(path.join(UI_ROOT, "js", "chat", "chat-main.js"), "utf8");
         await route.fulfill({
             contentType: "text/javascript; charset=utf-8",
             body: `${source}\nwindow.__phase4ChatInitFailureFixture = true; window.LlamaGui.chatUi.init = () => { throw new Error("fixture Chat init failure"); };`,
@@ -468,7 +468,7 @@ test("Chat initialization failure leaves an unavailable shell without breaking t
 
     await page.goto(server.baseUrl, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => window.__phase4ChatInitFailureFixture === true);
-    assert.equal(chatUiRouteHit, true, "the Chat init failure fixture replaced the versioned chat-ui script");
+    assert.equal(chatUiRouteHit, true, "the Chat init failure fixture replaced the versioned chat-main script");
     await page.locator("#section-quick-launch").waitFor({ state: "visible" });
     await page.locator('.nav-item[data-section="configure"]').click();
     await page.locator("#section-configure").waitFor({ state: "visible" });

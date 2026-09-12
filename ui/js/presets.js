@@ -914,8 +914,9 @@ function appendDetailStat(container, label, value, valueClass = "") {
     container.appendChild(stat);
 }
 
-// Same wording as formatHistoryTime() in chat-ui.js, which is closure-private
-// there. Kept as a local copy rather than widening that module's surface.
+// Same wording as formatHistoryTime() in the Chat package (chat-history.js),
+// which stays private there. Kept as a local copy rather than widening that
+// module's surface.
 function formatPresetTimestamp(ts) {
     if (!ts) return "";
     const then = new Date(ts);

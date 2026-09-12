@@ -1065,7 +1065,7 @@
 
     // Test-only hook. pollOutput drives the live benchmark watcher, so it stays
     // off the shipped namespace unless the harness opts in before this file is
-    // evaluated. Same gate as chat-ui.js.
+    // evaluated. Same gate as chat-main.js.
     if (window.__LLAMA_GUI_TEST_HOOKS__) {
         root.benchmarkUi._testPollOutput = pollOutput;
         root.benchmarkUi._testLoadModelsForSelect = loadModelsForSelect;

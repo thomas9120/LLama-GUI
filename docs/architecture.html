@@ -833,7 +833,7 @@ ctx.services   <span class="c"># injected BackendServices — platform + IO call
         <div class="rung"><div class="lvl">22–26</div><div class="items">
             <div class="chip cyan"><b>quick-launch-ui.js</b><i>Quick Launch tab</i></div>
             <div class="chip"><b>chat-compaction.js</b><i>counted, reversible summaries</i></div>
-            <div class="chip cyan"><b>chat-ui.js</b><i>Chat tab, streaming, history</i></div>
+            <div class="chip cyan"><b>chat/*.js</b><i>Chat tab, streaming, history</i></div>
             <div class="chip cyan"><b>benchmark-ui.js</b><i>Benchmarking tab</i></div>
             <div class="chip cyan"><b>monitor-ui.js</b><i>Monitor tab, telemetry, card state</i></div>
         </div></div>
@@ -990,7 +990,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><strong>Quick Launch</strong></td><td class="mono">#section-quick-launch<br>quick-launch-ui.js</td><td>The beginner path: model, profile, context, GPU layers, template, sampler preset, readiness chips, and a sticky launch bar. Also hosts the Hugging Face downloader and the Model Switcher.</td></tr>
 <tr><td><strong>Configure</strong></td><td class="mono">#section-configure<br>config-flags-ui.js</td><td>The full flag surface with live search, collapsible categories and submenus, beginner tips, high-risk warnings, the command preview, and Custom Launch Args.</td></tr>
 <tr><td><strong>Monitor</strong></td><td class="mono">#section-monitor<br>monitor-ui.js</td><td>The live process terminal (moved out of Configure), CPU/RAM/disk cards from <code>/api/system-stats</code> polled only while visible, per-GPU NVIDIA/AMD telemetry with evidence-gated setup guidance, and an optional Inference card fed by the shared llama-server snapshot.</td></tr>
-<tr><td><strong>Chat</strong></td><td class="mono">#section-chat<br>chat-ui.js</td><td>Streaming OpenAI-compatible chat with markdown, collapsed reasoning, Focus mode, conversation history, sampler sliders, and optional zero-key web search.</td></tr>
+<tr><td><strong>Chat</strong></td><td class="mono">#section-chat<br>ui/js/chat/*</td><td>Streaming OpenAI-compatible chat with markdown, collapsed reasoning, Focus mode, conversation history, sampler sliders, and optional zero-key web search.</td></tr>
 <tr><td><strong>API</strong></td><td class="mono">#section-api<br>api-tab.js</td><td>Endpoint reference and copyable snippets, connecting to a llama-server started outside the GUI, and Cloudflare tunnel start/stop.</td></tr>
 <tr><td><strong>Benchmarking</strong></td><td class="mono">#section-benchmarking<br>benchmark-ui.js</td><td><code>llama-bench</code> throughput and <code>llama-perplexity</code> runs sourced from current Configure state, a saved preset, or a manual model — reading that state without mutating it.</td></tr>
 <tr><td><strong>Presets</strong></td><td class="mono">#section-presets<br>presets.js</td><td>The launch-configuration library: grouped by model, searchable, with favorites, warnings, bulk actions, duplicate/rename, Windows shortcut export, and a health summary.</td></tr>
@@ -1351,7 +1351,7 @@ npm run test:frontend <span class="c"># Playwright smoke</span></pre>
 <tr><td>Shared flag state, launch args, custom-arg parser</td><td class="mono">ui/js/flag-core.js</td></tr>
 <tr><td>Configure tab</td><td class="mono">ui/js/config-flags-ui.js</td></tr>
 <tr><td>Quick Launch UI and profiles</td><td class="mono">ui/js/quick-launch-ui.js · app-data.js</td></tr>
-<tr><td>Chat UI and sidebar samplers</td><td class="mono">ui/js/chat-ui.js</td></tr>
+<tr><td>Chat UI and sidebar samplers</td><td class="mono">ui/js/chat/*</td></tr>
 <tr><td>Chat markdown rendering</td><td class="mono">ui/js/chat-rendering.js</td></tr>
 <tr><td>Chat template presets</td><td class="mono">ui/js/flags/chat-templates.js</td></tr>
 <tr><td>Sampler presets</td><td class="mono">ui/js/sampler-presets.js · app-data.js</td></tr>
