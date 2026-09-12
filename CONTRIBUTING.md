@@ -66,7 +66,7 @@ in-app (see [Getting Models](README.md#getting-models) in the README).
 
 There is no bundler and no import system: `ui/index.html` loads every
 script as an ordered global `<script>` tag, and modules attach to
-`window.LlamaGui`. A new module is three edits plus a test run:
+`window.LlamaGui`. Follow these steps when adding a module:
 
 1. **Create the module** (for example `my-module.js` under `ui/js/`) from
    the skeleton below. Every file starts with a role header comment;
@@ -79,7 +79,15 @@ script as an ordered global `<script>` tag, and modules attach to
    to the other `configure()` calls, and `myModule.init()` (if the module
    has DOM wiring) in the startup sequence. No new top-level globals in
    `app.js`.
-4. **Document it**: add a row to the Script Loading Order list and the
+4. **Register its contracts** in `tests/frontend/module_namespace_unit.cjs`:
+   add the namespace to the expected top-level keys and namespace checks, and
+   check its public entry points. Use `facadeKeyContracts` when the complete
+   method set is an intended compatibility contract; it verifies both exact
+   keys and callable methods. Register any underscore-private namespace with
+   its owning package in `privateNamespaceOwners`. Package VM tests should
+   reuse `tests/frontend/script_order.cjs` for canonical script order. Add new
+   unit suites to `test:unit` in `package.json`.
+5. **Document it**: add a row to the Script Loading Order list and the
    Frontend Module Reference in
    [`docs/directory.md`](docs/directory.md).
 
@@ -116,6 +124,9 @@ npm run test:frontend                # when DOM wiring is touched
 ```bash
 # Backend — 800+ tests, a few seconds
 .venv\Scripts\python.exe -m unittest discover tests -v
+
+# Frontend fast stage — syntax and Node unit/contract tests, no browser or binary required
+npm run test:unit
 
 # Frontend — syntax check, unit suites, flag checks, Playwright smoke tests
 npm test

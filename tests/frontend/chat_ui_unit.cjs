@@ -4,18 +4,16 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { character, cardFile } = require("./character_card_fixtures.cjs");
 const { FakeLocks } = require("./fake_locks.cjs");
+const { getPackageScripts } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
 const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js"), "utf8");
 const chatWindowSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
-const chatPackageFiles = [
-    "chat-internal.js", "chat-workspace.js", "chat-sidebar.js", "chat-request.js",
-    "chat-context.js", "chat-stream.js", "chat-history.js", "chat-main.js",
-];
-const chatPackageSources = chatPackageFiles.map(
-    file => fs.readFileSync(path.join(ROOT, "ui", "js", "chat", file), "utf8"),
-);
+// Ordered from ui/index.html via the shared loader helper (script_order.cjs).
+const chatPackageScripts = getPackageScripts("js/chat");
+const chatPackageFiles = chatPackageScripts.map((script) => script.fileName);
+const chatPackageSources = chatPackageScripts.map((script) => script.source);
 
 const STORAGE_KEY = "llama_gui_conversations";
 const DELETED_STORAGE_KEY = "llama_gui_deleted_conversations";

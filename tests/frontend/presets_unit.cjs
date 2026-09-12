@@ -2,16 +2,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { getPackageScripts } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const presetPackageFiles = [
-    "presets-internal.js", "presets-apply.js", "presets-models.js", "presets-local.js",
-    "presets-library.js", "presets-detail.js", "presets-roving.js", "presets-groups.js",
-    "presets-crud.js", "presets-main.js",
-];
-const presetPackageSources = presetPackageFiles.map(
-    file => fs.readFileSync(path.join(ROOT, "ui", "js", "presets", file), "utf8"),
-);
+// Ordered from ui/index.html via the shared loader helper (script_order.cjs).
+const presetPackageScripts = getPackageScripts("js/presets");
+const presetPackageFiles = presetPackageScripts.map((script) => script.fileName);
+const presetPackageSources = presetPackageScripts.map((script) => script.source);
 function runPresetPackage(ctx) {
     // Per-file evaluation mirrors the browser's script boundaries.
     presetPackageSources.forEach((pkgSource, i) => {

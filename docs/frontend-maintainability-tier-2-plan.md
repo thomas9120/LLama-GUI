@@ -1,6 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: proposed (2026-09-11).** Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–1 are complete; Session 2
+> (flag-definition package) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -34,6 +35,8 @@ behavior a maintainer must understand for one change.
   suite to green before starting the next session.
 - Keep diffs mechanical inside movement sessions. Do not combine a package split
   with unrelated behavior changes or visual redesigns.
+- Treat candidate file lists as provisional. Split where ownership becomes clearer;
+  combine concerns where separation would merely add forwarding methods.
 
 ## Baseline and priority signals
 
@@ -109,11 +112,54 @@ focused `window.LlamaGui.chatTemplateSelection` facade.
   `setFlagValue`, `setMultipleFlagValues`, or `applyFlagValues`.
 - Inject the new facade methods into Configure and Quick Launch from `app.js`.
 
+### Pitfalls to preserve during extraction
+
+- **Dropdown choices are not the compatibility allowlist.** Keep accepting legacy
+  built-in names such as `phi4` through `isSupportedChatTemplateValue()` even when
+  absent from the curated options. Preserve the controls' temporary legacy option
+  handling. Synthetic bundled values such as `__alpaca__` map to file paths and
+  must never be emitted as `--chat-template` names. Unsupported stored values must
+  retain the existing launch warning/omission behavior; rendering must not erase
+  them or silently migrate saved presets.
+- **Template changes must be atomic.** Use one `setMultipleFlagValues()` patch to
+  set one template field and clear the other with `undefined`, which deletes the
+  stored override. Auto clears both. Preserve the existing
+  `preserveCustomTemplateFile` option only in the raw-value fallback branch;
+  named builtin, bundled, and Auto selections still clear the competing value.
+- **The manual-path rule is outside the extracted helper block.** The
+  `flagCore.configure()` `beforePathPatch` hook in `app.js` currently clears
+  `chat_template` whenever `chat_template_custom` is edited, including clearing
+  the path. Delegate that template-specific rule to the new module while keeping
+  the shared hook wiring and unrelated projector logic in `app.js`. Cover both
+  typing and file-picker updates without adding another state write/broadcast.
+- **Reverse mapping is read-only and must use live state.** Read
+  `flagCore.getFlagValues()` on each lookup; preset application can replace the
+  state object. Preserve lookup precedence: matching bundled path, direct named
+  preset, builtin-name mapping, then supported raw value. For mixed stored values,
+  preserve the separate launch rule that a nonblank custom path suppresses
+  `--chat-template`; neither rendering nor extraction should repair state.
+- **Path normalization is for comparison only.** Preserve trimming and backslash
+  conversion without rewriting the user's stored path. Do not add case folding,
+  basename matching, absolute-path resolution, or filesystem access. An unrelated
+  file named `alpaca.jinja` must not become the bundled Alpaca preset.
+- **Loading a module must not apply a selection.** Configure dependencies before
+  consumers invoke the facade, and keep evaluation/configuration free of flag
+  writes or DOM initialization, including on the detached Chat page. Extend the
+  Session 0 namespace and callable-method contracts for the new facade and add
+  the new unit suite to `test:unit` so it also runs under `npm test`.
+
 ### Tests
 
 Add `tests/frontend/chat_template_selection_unit.cjs` for auto, builtin, bundled,
 custom, unsupported, and Windows-path normalization cases. Retain shared-state and
 browser coverage for the rendered dropdowns.
+
+Cover transitions between selection modes, both template fields initially set,
+the preservation option's branch behavior, manual-path clearing, and lookups after
+`applyFlagValues()` replaces state. Assert complete patches and shared-state
+notifications, read-only getters, legacy preset round trips, and emitted launch
+arguments (at most one of `--chat-template` and `--chat-template-file`). Keep
+initialization and Configure/Quick Launch synchronization covered in the browser.
 
 ### Success criteria
 
@@ -199,8 +245,11 @@ A candidate package is:
 | `manager-app-update.js` | Git update status and application update flow |
 | `manager-model-dir.js` | Active model-directory controls and operation state |
 | `manager-models.js` | Model refresh race guards and known-name cache |
-| `manager-lifecycle.js` | Stop/restart/reconnect behavior |
+| `manager-lifecycle.js` | GUI-server shutdown, restart, and reconnection |
 | `manager-main.js` | Configuration, initialization, and public facade assembly |
+
+Keep llama-process launch, stop, switching, and readiness orchestration owned by
+the existing `ui/js/process-lifecycle.js`.
 
 Each concern should own its mutable state where practical. If a private internal
 namespace is needed for ordered classic scripts, use named sub-objects or narrow
@@ -227,7 +276,8 @@ application services currently housed in `monitor-ui.js`. Move them to
   `window.LlamaGui.inferenceStats`.
 - Make `app.js` depend on the inference facade directly instead of obtaining its
   engine from Monitor UI.
-- Let Monitor consume rendered snapshots from the same facade.
+- Have the pure engine emit data snapshots; UI modules render the same shared
+  snapshot in Monitor and the fixed stats bar.
 - Temporarily preserve the existing Monitor exports as compatibility delegates if
   that keeps the session behavior-only and reduces blast radius.
 - Move the pure inference cases from `monitor_ui_unit.cjs` into
@@ -236,8 +286,12 @@ application services currently housed in `monitor-ui.js`. Move them to
 ### Success criteria
 
 - The inference core can be evaluated and tested without a DOM stub.
-- Exactly one polling controller and one target-keyed inference engine remain in
-  the main application.
+- Exactly one inference polling controller and one target-keyed inference engine
+  remain in the main application, separate from Monitor system telemetry polling.
+- Preserve and test the visibility distinction: the hidden host continues inference
+  polling while detached Chat is open; system telemetry retains its existing
+  panel/document visibility gates. The detached window consumes host snapshots
+  without starting another inference poller.
 
 ## Session 6 — split Monitor UI and its tests
 
@@ -246,7 +300,7 @@ Candidate package boundaries:
 | Module | State / behavior owner |
 |---|---|
 | Monitor internal/main | Dependencies, initialization, stable public facade |
-| Polling | Panel/document visibility, timer, abort controller, last sample |
+| System telemetry polling | Panel/document visibility, timer, abort controller, last sample |
 | System cards | CPU, RAM, disk, and shared metric-card rendering |
 | GPU cards | GPU identity, reconciliation, state/setup cards |
 | Card preferences | Hidden-card storage, order, keyboard and drag state |
@@ -266,7 +320,8 @@ Manager and inference extraction should remove a significant amount of implicit
 coupling first. Then reassess `app.js` and extract only the remaining cohesive
 mechanisms:
 
-- inference polling, target reconciliation, and abort/timer generations;
+- inference polling, target reconciliation, and abort/timer generations, preserving
+  the hidden-host/detached-Chat behavior specified in Session 5;
 - memory-estimate request and rendering state;
 - process-output polling if it does not belong in `process-lifecycle.js` or the
   existing output cursor;
@@ -282,7 +337,12 @@ not to hit an arbitrary line-count target.
 `ui/css/style.css` is the highest-churn frontend file and should be treated as a
 maintainability target, not merely an asset.
 
-### Candidate order
+### Candidate feature groups
+
+These are eventual grouping targets, not the required load order for the first
+split. Start with contiguous sections in their current source order. Existing
+responsive blocks mix several features, and Monitor styles follow them; preserving
+that order takes precedence over grouping by feature.
 
 1. base, typography, shell, and layout;
 2. shared controls, surfaces, dialogs, and toasts;
@@ -298,8 +358,10 @@ maintainability target, not merely an asset.
 - Keep `tokens.css` first and as the only source of theme palettes and color
   literals.
 - Load component styles with ordered `<link>` elements; do not use CSS `@import`.
-- Keep feature media queries with their feature where cascade behavior permits.
-- Mechanically preserve selector declarations and order during the first split.
+- Mechanically preserve selector declarations, enclosing at-rules, and their order
+  across the concatenated stylesheets during the first split.
+- After verifying equivalence of the initial split, regroup rules and colocate
+  feature media queries only in a separate change with cascade and visual checks.
 - Extend theme/style tests to inspect every non-token stylesheet, not only the old
   `style.css` path.
 - Update backend static-asset/cache-buster expectations and Pinokio compatibility
@@ -359,10 +421,17 @@ and keep the real browser transfer/reload suite as the acceptance gate.
 3. Run `npm run test:frontend:modules` for script order and facade availability.
 4. Run `npm run test:frontend` for DOM wiring, mirrored state, and pop-out behavior
    when those areas are touched.
-5. Run full `npm test` before completing the session.
-6. Update `docs/directory.md`, `docs/architecture.html`, and the dated changelog
-   entry required for program changes.
-7. Check Pinokio compatibility whenever static asset paths, script/style loading,
+5. Run `npm test` before completing the session; this is the full frontend gate,
+   not the backend suite.
+6. Update `docs/directory.md` for ownership and load-order changes,
+   `docs/tests.md` for test coverage and commands, and this plan's completion
+   checklist and status as sessions finish.
+7. Run `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
+   after documentation-reference changes.
+8. When backend code changes, including static-asset or cache-buster handling, run
+   `.venv/Scripts/python.exe -m unittest discover tests -v`. Use the project venv
+   (`.venv/bin/python` on Unix).
+9. Check Pinokio compatibility whenever static asset paths, script/style loading,
    startup, shutdown, or cache busting changes.
 
 ## Explicit non-goals for Tier 2
@@ -389,8 +458,8 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 
 ## Completion checklist
 
-- [ ] Session 0: refactor guardrails
-- [ ] Session 1: Chat-template selection
+- [x] Session 0: refactor guardrails
+- [x] Session 1: Chat-template selection
 - [ ] Session 2: flag-definition package
 - [ ] Session 3: shared services and Manager boundary
 - [ ] Session 4: Manager package split

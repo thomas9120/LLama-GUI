@@ -8,6 +8,10 @@ function debounce(fn, ms) {
 const flagCore = window.LlamaGui.flagCore;
 const configFlagsUi = window.LlamaGui.configFlagsUi;
 const themeUi = window.LlamaGui.themeUi;
+// Chat-template mapping and mutation rules live in their own module; configure()
+// only stores dependencies, so this stays inert on the detached Chat page.
+const chatTemplateSelection = window.LlamaGui.chatTemplateSelection;
+chatTemplateSelection.configure({ flagCore });
 // A detached page keeps the shared module declarations available, but must not
 // create the main page's cursor, defaults, or polling engines.
 const processOutputCursor = window.LlamaGui.chatWindow?.isDetachedView?.() === true
@@ -113,9 +117,9 @@ quickLaunchUi.configure({
     stopLlama,
     copyQuickServerUrl: () => copyServerUrl("quick-server-url"),
     updateQuickServerAddressPreview,
-    setChatTemplateValue,
-    getSelectedChatTemplateDropdownValue,
-    getQuickTemplateSummaryText,
+    setChatTemplateValue: chatTemplateSelection.setChatTemplateValue,
+    getSelectedChatTemplateDropdownValue: chatTemplateSelection.getSelectedChatTemplateDropdownValue,
+    getQuickTemplateSummaryText: chatTemplateSelection.getQuickTemplateSummaryText,
     getAllSamplerPresets: samplerPresets.getAllSamplerPresets,
     applySamplerPresetValues: samplerPresets.applySamplerPresetValues,
     loadSamplerPresetStore: samplerPresets.loadSamplerPresetStore,
@@ -373,8 +377,8 @@ configFlagsUi.configure({
     refreshQuickLaunchUI,
     browseForPathFlag,
     showStatus,
-    setChatTemplateValue,
-    getSelectedChatTemplateDropdownValue,
+    setChatTemplateValue: chatTemplateSelection.setChatTemplateValue,
+    getSelectedChatTemplateDropdownValue: chatTemplateSelection.getSelectedChatTemplateDropdownValue,
     copyText,
     showToast,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
@@ -391,9 +395,7 @@ flagCore.configure({
     shouldOmitSpeculativeFlag: (flag, values) => (
         typeof shouldOmitSpeculativeFlag === "function" && shouldOmitSpeculativeFlag(flag, values)
     ),
-    isSupportedChatTemplateValue: (value) => (
-        typeof isSupportedChatTemplateValue === "function" ? isSupportedChatTemplateValue(value) : true
-    ),
+    isSupportedChatTemplateValue: chatTemplateSelection.isSupportedChatTemplateValue,
     getToolBinaryName,
     renderCommandPreview(command, result) {
         const preview = document.getElementById("command-preview-text");
@@ -413,9 +415,8 @@ flagCore.configure({
         if (flagId === "mmproj" && value) {
             patch.no_mmproj = false;
         }
-        if (flagId === "chat_template_custom") {
-            patch.chat_template = undefined;
-        }
+        // The manual custom-template-path rule is owned by the selection module.
+        chatTemplateSelection.beforePathPatch(flagId, value, patch);
     },
     afterPatch(patch, options) {
         quickLaunchUi.afterPatch(patch, options);
@@ -442,107 +443,6 @@ async function browseForPathFlag(flag) {
     });
     if (!result || !result.selected || !result.path) return "";
     return String(result.path);
-}
-
-function normalizeTemplatePathValue(value) {
-    return String(value || "").trim().replace(/\\/g, "/");
-}
-
-function getChatTemplatePresetByValue(value) {
-    return CHAT_TEMPLATE_PRESETS.find((preset) => preset.value === String(value || "")) || null;
-}
-
-function getChatTemplatePresetByBuiltinName(value) {
-    const normalized = String(value || "");
-    return CHAT_TEMPLATE_PRESETS.find((preset) => preset.mode === "builtin" && preset.builtin === normalized) || null;
-}
-
-function getChatTemplatePresetByPath(path) {
-    const normalizedPath = normalizeTemplatePathValue(path);
-    if (!normalizedPath) return null;
-    return CHAT_TEMPLATE_PRESETS.find((preset) =>
-        preset.mode === "bundled"
-        && normalizeTemplatePathValue(preset.path) === normalizedPath
-    ) || null;
-}
-
-function getSelectedChatTemplateDropdownValue() {
-    const values = flagCore.getFlagValues();
-
-    const bundledPreset = getChatTemplatePresetByPath(values.chat_template_custom);
-    if (bundledPreset) {
-        return bundledPreset.value;
-    }
-
-    const directPreset = getChatTemplatePresetByValue(values.chat_template);
-    if (directPreset && directPreset.mode !== "auto") {
-        return directPreset.value;
-    }
-
-    const builtinPreset = getChatTemplatePresetByBuiltinName(values.chat_template);
-    if (builtinPreset) {
-        return builtinPreset.value;
-    }
-
-    return isSupportedChatTemplateValue(values.chat_template) ? String(values.chat_template ?? "") : "";
-}
-
-function getQuickTemplateSummaryText() {
-    const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
-    const preset = getChatTemplatePresetByValue(selectedTemplateValue);
-    if (preset) {
-        if (preset.mode === "bundled") {
-            return `Using bundled template preset: ${preset.label}.`;
-        }
-        if (preset.mode === "builtin") {
-            return `Using preset: ${preset.label}.`;
-        }
-    }
-    if (selectedTemplateValue) {
-        return `Using llama.cpp built-in template: ${selectedTemplateValue}`;
-    }
-    const values = flagCore.getFlagValues();
-    if (values.chat_template_custom) {
-        return `Using custom template file: ${values.chat_template_custom}`;
-    }
-    return "Use the template embedded in the model metadata when available.";
-}
-
-function setChatTemplateValue(value, options = {}) {
-    const normalizedValue = String(value || "");
-    const preset = getChatTemplatePresetByValue(normalizedValue);
-
-    if (preset && preset.mode === "bundled") {
-        flagCore.setMultipleFlagValues({
-            chat_template: undefined,
-            chat_template_custom: preset.path,
-        });
-        return;
-    }
-
-    if (preset && preset.mode === "auto") {
-        flagCore.setMultipleFlagValues({
-            chat_template: undefined,
-            chat_template_custom: undefined,
-        });
-        return;
-    }
-
-    if (preset && preset.mode === "builtin") {
-        flagCore.setMultipleFlagValues({
-            chat_template: preset.builtin,
-            chat_template_custom: undefined,
-        });
-        return;
-    }
-
-    const patch = {
-        chat_template: normalizedValue || undefined,
-    };
-    if (!options.preserveCustomTemplateFile) {
-        patch.chat_template_custom = undefined;
-    }
-    flagCore.setMultipleFlagValues(patch);
 }
 
 function updateQuickLaunchActionButtons() {
