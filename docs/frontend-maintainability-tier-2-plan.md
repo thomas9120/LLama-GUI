@@ -1,6 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: proposed (2026-09-11).** Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–1 are complete; Session 2
+> (flag-definition package) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -422,8 +423,9 @@ and keep the real browser transfer/reload suite as the acceptance gate.
    when those areas are touched.
 5. Run `npm test` before completing the session; this is the full frontend gate,
    not the backend suite.
-6. Update `docs/directory.md`, `docs/architecture.html`, and the dated changelog
-   entry required for program changes.
+6. Update `docs/directory.md` for ownership and load-order changes,
+   `docs/tests.md` for test coverage and commands, and this plan's completion
+   checklist and status as sessions finish.
 7. Run `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
    after documentation-reference changes.
 8. When backend code changes, including static-asset or cache-buster handling, run
