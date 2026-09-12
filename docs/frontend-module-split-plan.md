@@ -75,12 +75,21 @@ Steps:
 
 ## Session B — split `ui/js/presets.js`
 
-Same recipe. Expected package `ui/js/presets/`: internal/state + configure ·
-normalization/validation/sensitive scrubbing · model-matching/warnings · local state
-(favorites/last-used/group/sort) · library rendering (groups/search/detail/summary/
-saved-settings table) · roving focus · CRUD ops + context bar · `presets-main.js`.
+Unlike `chat-ui.js`, presets.js declares everything top-level (script globals, no IIFE),
+and the VM harnesses rely on that (`preset_roving_focus_unit.cjs` mutates module state
+via bare `presetRovingKey = …` assignments; `presets_unit.cjs` calls internals bare).
+So the split is **pure code movement**: ordered slices keeping every declaration
+ top-level, state in `presets-internal.js`, and the `Object.assign` namespace in
+`presets-main.js` — no renames. Final package (10 files): `presets-internal.js`
+(state/configure/sensitive scrubbing/fetch/normalize/import validation) ·
+`presets-apply.js` (apply/compare/context bar) · `presets-models.js` (matching/warnings) ·
+`presets-local.js` (favorites/last-used/sort) · `presets-library.js` (grouping/search/labels) ·
+`presets-detail.js` (summary/detail/bulk/entry rendering) · `presets-roving.js` ·
+`presets-groups.js` (list rendering/toasts/loadPresets/controls init) · `presets-crud.js` ·
+`presets-main.js` (namespace assembly, loaded last).
 Harness updates: `presets_unit.cjs`, `preset_roving_focus_unit.cjs`,
-`launch_args_unit.cjs` (loads `presets.js` + `config-flags-ui.js`). Same index.html slot
+`launch_args_unit.cjs` (loads the package + `config-flags-ui.js`), all evaluating the
+package per file to mirror browser script boundaries. Same index.html slot
 (position 7, after `manager.js`, before `searchable-select.js`), same docs, same
 verification bar.
 
@@ -114,7 +123,7 @@ verification bar.
 - [x] Session A: `ui/js/chat/` package created, index.html updated
 - [x] Session A: test harnesses updated, old file deleted
 - [x] Session A: docs updated, changelog entry, full `npm test` green
-- [ ] Session B: presets.js mapping produced
-- [ ] Session B: `ui/js/presets/` package created, index.html updated
-- [ ] Session B: test harnesses updated, old file deleted
-- [ ] Session B: docs updated, changelog entry, full `npm test` green
+- [x] Session B: presets.js mapping produced
+- [x] Session B: `ui/js/presets/` package created, index.html updated
+- [x] Session B: test harnesses updated, old file deleted
+- [x] Session B: docs updated, changelog entry, full `npm test` green

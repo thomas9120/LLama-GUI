@@ -1103,7 +1103,16 @@ vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', 
     context.localStorage = { getItem: () => null, setItem: () => {} };
     byId.set("flags-container", makeElement());
 
-    for (const file of ["ui/js/config-flags-ui.js", "ui/js/presets.js"]) {
+    const presetPackageFiles = [
+        "presets-internal.js", "presets-apply.js", "presets-models.js", "presets-local.js",
+        "presets-library.js", "presets-detail.js", "presets-roving.js", "presets-groups.js",
+        "presets-crud.js", "presets-main.js",
+    ];
+    const files = [
+        "ui/js/config-flags-ui.js",
+        ...presetPackageFiles.map(file => `ui/js/presets/${file}`),
+    ];
+    for (const file of files) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
     }
 

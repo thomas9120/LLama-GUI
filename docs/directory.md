@@ -148,7 +148,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 4. `chat-tools.js` — browser date/time preference, tool execution, and saved tool exchanges (`window.LlamaGui.chatTools`)
 5. `config-flags-ui.js` — Configure tab rendering
 6. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
-7. `presets.js` — preset CRUD
+7. `presets/*` package, loaded in order: `presets-internal.js` (state, configure, sensitive-arg scrubbing, fetch/normalize), `presets-apply.js` (apply/compare, context bar), `presets-models.js` (model matching/warnings), `presets-local.js` (favorites, last-used, sort modes), `presets-library.js` (grouping, search text, flag labels, icons), `presets-detail.js` (summary, detail/bulk panels, entry rendering), `presets-roving.js` (roving focus), `presets-groups.js` (list rendering, status toasts, `loadPresets`), `presets-crud.js` (save/load/rename/delete/export/import), `presets-main.js` (`window.LlamaGui.presets` assembly)
 8. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
 9. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
 10. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
@@ -188,7 +188,16 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/chat-tools.js` | `window.LlamaGui.chatTools` | Opt-in browser date/time tool preference, schema, bounded streamed-call assembly, local execution, and tool-exchange request/display helpers |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
-| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; an archive view that hides unused presets until restored; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
+| `ui/js/presets/presets-internal.js` | script globals (private) | Package foundation, loaded before its siblings: module state, `configure()`, sensitive-argument scrubbing (`--api-key`/`--hf-token`), preset API fetch helpers, normalization, and import-name validation. Declarations stay top-level script globals exactly like the former single file |
+| `ui/js/presets/presets-apply.js` | script globals (private) | Preset apply/compare flow, saved-settings change rows, loaded-preset reconciliation, and the saved-settings context bar |
+| `ui/js/presets/presets-models.js` | script globals (private) | Model-name matching, known-model presence checks, and missing-model warnings |
+| `ui/js/presets/presets-local.js` | script globals (private) | Storage-backed favorites, last-used timestamps, sort/favorites modes, local renames/deletes, and duplicate-name generation |
+| `ui/js/presets/presets-library.js` | script globals (private) | Group-by-model keying, search text, flag-label cache, icons, preset buttons, and shared render helpers |
+| `ui/js/presets/presets-detail.js` | script globals (private) | Library summary, health message, detail panel, bulk/archive controls, selection state, and per-entry row rendering |
+| `ui/js/presets/presets-roving.js` | script globals (private) | Roving arrow-key focus across group headers and rows |
+| `ui/js/presets/presets-groups.js` | script globals (private) | Group/list rendering, status toasts, model-presence refresh, `loadPresets`, and library control wiring |
+| `ui/js/presets/presets-crud.js` | script globals (private) | Save, update, duplicate, rename, load, delete, archive, favorite, export, and import operations |
+| `ui/js/presets/presets-main.js` | `window.LlamaGui.presets` | Public `presets` namespace assembly; loaded last in the package |
 | `ui/js/searchable-select.js` | `window.LlamaGui.searchableSelect` | Searchable combobox wrapper that visually replaces a native `<select>` (button + popup with search) while keeping the select in the DOM as the source of truth for options, value, and change events |
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |
@@ -531,7 +540,7 @@ Windows collects raw `PhysicalDisk(_Total)` byte counters through [language-neut
 
 ## Presets Tab
 
-The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in `ui/js/presets.js`; styling is under `.presets-browser` in `ui/css/style.css`.
+The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in the `ui/js/presets/` package; styling is under `.presets-browser` in `ui/css/style.css`.
 
 The tab is built for libraries of scale. The reference case is 58 presets across 33 model groups, and several design decisions below only make sense at that size.
 

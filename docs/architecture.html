@@ -809,7 +809,7 @@ ctx.services   <span class="c"># injected BackendServices — platform + IO call
         <div class="rung"><div class="lvl">8–10</div><div class="items">
             <div class="chip accent"><b>config-flags-ui.js</b><i>Configure tab rendering</i></div>
             <div class="chip accent"><b>manager.js</b><i>releases · install · fetchJson · model cache</i></div>
-            <div class="chip accent"><b>presets.js</b><i>preset library, search, warnings</i></div>
+            <div class="chip accent"><b>presets/*.js</b><i>preset library, search, warnings</i></div>
         </div></div>
         <div class="rung"><div class="lvl">11–14</div><div class="items">
             <div class="chip"><b>searchable-select.js</b><i>combobox over a native select</i></div>
@@ -993,7 +993,7 @@ flagCore.setFlagValue("temperature", 0.5);
 <tr><td><strong>Chat</strong></td><td class="mono">#section-chat<br>ui/js/chat/*</td><td>Streaming OpenAI-compatible chat with markdown, collapsed reasoning, Focus mode, conversation history, sampler sliders, and optional zero-key web search.</td></tr>
 <tr><td><strong>API</strong></td><td class="mono">#section-api<br>api-tab.js</td><td>Endpoint reference and copyable snippets, connecting to a llama-server started outside the GUI, and Cloudflare tunnel start/stop.</td></tr>
 <tr><td><strong>Benchmarking</strong></td><td class="mono">#section-benchmarking<br>benchmark-ui.js</td><td><code>llama-bench</code> throughput and <code>llama-perplexity</code> runs sourced from current Configure state, a saved preset, or a manual model — reading that state without mutating it.</td></tr>
-<tr><td><strong>Presets</strong></td><td class="mono">#section-presets<br>presets.js</td><td>The launch-configuration library: grouped by model, searchable, with favorites, warnings, bulk actions, duplicate/rename, Windows shortcut export, and a health summary.</td></tr>
+<tr><td><strong>Presets</strong></td><td class="mono">#section-presets<br>ui/js/presets/*</td><td>The launch-configuration library: grouped by model, searchable, with favorites, warnings, bulk actions, duplicate/rename, Windows shortcut export, and a health summary.</td></tr>
 </tbody>
 </table>
 </div>
@@ -1355,7 +1355,7 @@ npm run test:frontend <span class="c"># Playwright smoke</span></pre>
 <tr><td>Chat markdown rendering</td><td class="mono">ui/js/chat-rendering.js</td></tr>
 <tr><td>Chat template presets</td><td class="mono">ui/js/flags/chat-templates.js</td></tr>
 <tr><td>Sampler presets</td><td class="mono">ui/js/sampler-presets.js · app-data.js</td></tr>
-<tr><td>Preset save/load/library</td><td class="mono">ui/js/presets.js</td></tr>
+<tr><td>Preset save/load/library</td><td class="mono">ui/js/presets/*</td></tr>
 <tr><td>Themes, palettes, theme menu</td><td class="mono">ui/css/tokens.css · ui/js/theme-ui.js</td></tr>
 <tr><td>Models, install UI, <code>fetchJson</code></td><td class="mono">ui/js/manager.js</td></tr>
 <tr><td>HF downloader / tunnel / API tab / benchmarks</td><td class="mono">ui/js/hf-download-ui.js · remote-tunnel-ui.js · api-tab.js · benchmark-ui.js</td></tr>
