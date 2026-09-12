@@ -367,12 +367,12 @@ Completion record (2026-09-11):
 - **Effort**: ~45 minutes.
 - **Effort**: ~1 hour.
 
-### W6 (P2) — Standardize role headers in `ui/js/` + new-module walkthrough
+### W6 (P2) — Standardize role headers in `ui/js/` + new-module walkthrough — DONE 2026-09-11
 
-- [ ] Add a 1–3 line role header to the 26 no-header files; package members
+- [x] Add a 1–3 line role header to the 26 no-header files; package members
   get position markers matching the existing convention
   ("Presets package (9/10): …", "Chat package (6/8): …").
-- [ ] Add an "Adding a new frontend module" walkthrough (in the W4 page or
+- [x] Add an "Adding a new frontend module" walkthrough (in the W4 page or
   `directory.md`): `index.html` placement rules (after dependencies, before
   consumers), a `configure()`-injection skeleton, and which checks to run
   (`npm run test:frontend:modules`, `npm run test:frontend` when DOM wiring
@@ -382,9 +382,36 @@ Completion record (2026-09-11):
 - **Verify**: `node --check` on touched files; `npm run test:frontend:modules`.
 - **Effort**: ~3–4 hours (mostly mechanical; review for accurate descriptions).
 
-### W7 (P2) — llama.cpp compatibility-model primer
+Completion record (2026-09-11):
 
-- [ ] One half-page section (inside `directory.md`'s Flag System area or a
+- All 26 spec'd files headered, plus two beyond the list:
+  `flags/definitions.js` (its "header" was a coincidental tab-indented data
+  comment) and `flags/categories.js` (had a NOTE, no role line — NOTE
+  preserved under the new header). Every description was condensed from
+  `directory.md`'s Frontend Module Reference so the headers cannot drift
+  from the canonical roles.
+- The `flags/` package now carries `(N/5)` position markers matching the
+  existing `chat/` (N/8) and `presets/` (N/10) conventions; numbering
+  taken from the actual `ui/index.html` load order. Top-level files use
+  plain role headers (the pre-existing `monitor-ui.js` style).
+- Diff verified insertions-only: 51 lines across 28 files, 0 deletions.
+- Walkthrough placed in `CONTRIBUTING.md` (spec allowed either location;
+  chose the W4 page as first-change guidance), with a pointer added at
+  the end of `directory.md`'s Script Loading Order. The skeleton matches
+  house style: `output-cursor.js`'s IIFE shape and `app.js`'s actual
+  `configure()`/`init()` wiring.
+- W3 checker interaction: references to the hypothetical `my-module.js`
+  are phrased as a bare filename in prose plus fenced commands, so
+  `test_docs_links` cannot false-positive on them. Noted limitation: the
+  checker cannot distinguish hypothetical backtick paths in prose.
+- **Verification**: `node --check` on all 28 files,
+  `npm run test:frontend:modules` (47 scripts), full backend suite
+  811 OK, `npm test` 22/22 Playwright.
+- **Effort**: ~1.5 hours actual (vs 3–4 estimated).
+
+### W7 (P2) — llama.cpp compatibility-model primer — DONE 2026-09-11
+
+- [x] One half-page section (inside `directory.md`'s Flag System area or a
   standalone doc) tying together: `ui/js/flags/definitions.js` ↔ upstream
   `common/arg.cpp` verification; `false_flag`; `fork_only` +
   `docs/upstream-changes.md`; `removed_in` build-tag gating and
@@ -393,6 +420,33 @@ Completion record (2026-09-11):
   duplicating it.
 - **Acceptance**: a new dev can safely make a first flag change from one place.
 - **Effort**: ~2 hours.
+
+Completion record (2026-09-11):
+
+- Placed inside `directory.md`'s Flag System section, replacing the old
+  checklist-style llama.cpp Compatibility bullets (their content was
+  redundant with the Single Source of Truth subsection, covered by the
+  AGENTS.md checklist, or by the AGENTS.md Verification table).
+- Opens with the curated-subset philosophy per maintainer guidance:
+  the GUI deliberately surfaces only the most common and useful flags,
+  with Custom Launch Args as the escape hatch — not every upstream flag.
+- The marker table covers `fork_only`, `removed_in`, and build-tag gates,
+  with the pipeline verified against source: `/api/status`'s `version`
+  (config.json `"tag"`, `"custom"` for custom slots) → `manager.js:384`
+  → `flagCore.setBinaryTag()` → `/^b(\d+)/` threshold helpers
+  (`supportsLoadModeOnly()`, `supportsNativeReasoningEffort()`);
+  unrecognized tags fall back to legacy behavior.
+- Mechanical-enforcement paragraph documents the permissive/required
+  modes verified in `llama_flags_supported_unit.cjs:8-9`
+  (`REQUIRE_BINARIES = --require-binaries || LLAMA_GUI_LLAMA_BIN_DIR`)
+  and the CI pin flow from `tests/llama-cpp-pin.json` through
+  `LLAMA_GUI_LLAMA_BIN_DIR` into `npm test`.
+- AGENTS.md's new-flag checklist is linked
+  (`../AGENTS.md#feature-pitfalls`), not duplicated, per spec.
+- **Verification**: `test_docs_links` + `test_docs_sync` green — the
+  section adds several links and backtick paths now guarded by the
+  checker.
+- **Effort**: ~45 minutes actual (vs 2 hours estimated).
 
 ### W8 (P3) — One-command local check
 

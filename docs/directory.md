@@ -188,7 +188,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 26. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
 27. `app.js` — main orchestration (wires everything together)
 
-**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
+**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
 `flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules access shared state through this namespace, not by importing or referencing private closure variables.
 
@@ -344,13 +344,49 @@ A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to co
 
 ### llama.cpp Compatibility
 
-- `ui/js/flags/definitions.js` is the single source of truth for all CLI flags exposed in the UI.
-- Before adding, removing, or modifying any flag definition, verify the flag still exists and works as documented in the upstream `llama.cpp` repository at `https://github.com/ggerganov/llama.cpp`.
-- Cross-reference every flag against upstream documentation: flag name and shorthand, expected value type, valid option values for enum types, default values, and whether the flag has been renamed, deprecated, or removed.
-- After any flag-related changes, confirm the generated command preview produces valid arguments that `llama-server` will accept.
-- Verify that enum dropdowns only contain values still recognized by the current `llama.cpp` version.
-- Check that chat template names in `ui/js/flags/chat-templates.js` match templates bundled with the installed `llama.cpp` release.
-- Run `tests/frontend/flag_sync_smoke.cjs` after mirrored-control, flag-state, or command-preview changes when Playwright is available.
+**Curated subset, not a mirror.** Upstream exposes far more flags than a
+usable UI can show, so `FLAGS` deliberately surfaces only the most common
+and useful ones; everything else stays reachable through Custom Launch
+Args. The model below keeps that curated list honest as upstream moves.
+
+**Where truth lives.** Upstream defines the CLI surface in `common/arg.cpp`
+(plus `server.cpp`); `ui/js/flags/definitions.js` mirrors the curated
+subset. Enum values must match upstream exactly, and a boolean whose
+"off" state is a separate flag declares `false_flag` (unchecked `--mmap`
+emits `--no-mmap`). The step-by-step checklist for adding or changing a
+flag lives in [AGENTS.md](../AGENTS.md#feature-pitfalls) — follow that,
+not this prose.
+
+**Lifecycle markers.** Three mechanisms keep definitions compatible with
+binaries that drift in different directions:
+
+| Marker | Meaning | Effect |
+|---|---|---|
+| `fork_only: true` | Flag exists only in a llama.cpp fork (e.g. `--spec-draft-adaptive`), not upstream | Default-off boolean with a `docs/upstream-changes.md` entry; binary compatibility checks skip it |
+| `removed_in: "bNNNNN"` | Upstream removed the flag in that build (e.g. legacy `--mmap` / `--mlock` / direct-IO, removed in b10875) | Definition stays for older builds; the installed-binary check exempts it at or above the tag |
+| Build-tag gates | Behavior must differ by installed build | `manager.js` feeds `/api/status`'s `version` (config.json's installed release tag; custom slots report `"custom"`) into `flagCore.setBinaryTag()`; helpers like `supportsLoadModeOnly()` and `supportsNativeReasoningEffort()` match `/^b(\d+)/` against a threshold. Unrecognized tags fall back to legacy behavior, so older and custom builds keep working |
+
+**The ledger.** `docs/upstream-changes.md` tracks every announced upstream
+change that may need a coordinated GUI update — fork-only flags, removals,
+pending PRs — each with upstream reference, status, and remaining work.
+Entries are deleted once handled or deliberately declined.
+
+**Mechanical enforcement.** `tests/frontend/llama_flags_supported_unit.cjs`
+compares every non-`fork_only` definition against an installed binary's
+`--help`, parsing the build from `--version` to honor `removed_in`
+exemptions. Locally (`npm run test:flags`) it runs without a binary;
+setting `LLAMA_GUI_LLAMA_BIN_DIR` — or passing `--require-binaries` —
+makes it fail loudly instead. CI does exactly that:
+`.github/workflows/tests.yml` downloads the release pinned in
+`tests/llama-cpp-pin.json` (tag, asset, sha256 — bump all three fields
+together to pin a newer release), exports `LLAMA_GUI_LLAMA_BIN_DIR`, and
+runs `npm test` under it, so every PR proves the flag list against one
+known binary.
+
+After any flag change, also confirm the command preview emits arguments
+`llama-server` accepts, and that chat-template names in
+`ui/js/flags/chat-templates.js` still match the installed release (see
+[Chat Template Presets](#chat-template-presets) below).
 
 ---
 

@@ -1,3 +1,5 @@
+// Theme system: THEMES registry (single source of truth for shipped themes), persisted
+// selection, root theme attribute, color-scheme hints, and the sidebar theme menu.
 (function () {
     "use strict";
 

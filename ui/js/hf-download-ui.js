@@ -1,3 +1,5 @@
+// Quick Launch Hugging Face downloader: controls, status rendering, progress polling,
+// cancel handling, and completion flow.
 (function () {
     "use strict";
 

@@ -1,3 +1,5 @@
+// Sampler presets: storage, normalization, apply behavior, import/export, and Configure
+// tab controls; writes sampler values through the injected flagCore.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

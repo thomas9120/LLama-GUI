@@ -1,3 +1,5 @@
+// API tab external-server controls: connect/disconnect for a llama-server started
+// outside this GUI, target rendering, and the status refresh that unlocks Chat.
 (function () {
     "use strict";
 

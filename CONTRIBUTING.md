@@ -58,6 +58,59 @@ in-app (see [Getting Models](README.md#getting-models) in the README).
   them; a test enforces the order.
 - **Backend (`backend/`)**: stop the server (`Ctrl+C`) and start it again.
 
+- **Adding a module** rather than editing one? See
+  [Adding a new frontend module](#adding-a-new-frontend-module) below for
+  the skeleton and placement rules.
+
+## Adding a new frontend module
+
+There is no bundler and no import system: `ui/index.html` loads every
+script as an ordered global `<script>` tag, and modules attach to
+`window.LlamaGui`. A new module is three edits plus a test run:
+
+1. **Create the module** (for example `my-module.js` under `ui/js/`) from
+   the skeleton below. Every file starts with a role header comment;
+   shared utilities (`showToast`, `fetchJson`, `flagCore`, …) arrive via
+   `configure()` from `app.js` — never reach for them as globals.
+2. **Add the `<script>` tag in `ui/index.html`** after the module's
+   dependencies and before its consumers. Never reorder existing tags; a
+   test enforces the order.
+3. **Wire it in `ui/js/app.js`**: call `myModule.configure({ ... })` next
+   to the other `configure()` calls, and `myModule.init()` (if the module
+   has DOM wiring) in the startup sequence. No new top-level globals in
+   `app.js`.
+4. **Document it**: add a row to the Script Loading Order list and the
+   Frontend Module Reference in
+   [`docs/directory.md`](docs/directory.md).
+
+```js
+// My module: one-line role description.
+(function () {
+    "use strict";
+
+    const root = window.LlamaGui = window.LlamaGui || {};
+
+    let shared = null; // injected by app.js
+
+    function configure(deps) {
+        // app.js injects shared utilities here: { showToast, fetchJson, ... }
+        shared = deps;
+    }
+
+    function init() {
+        // One-time DOM wiring; runs from app.js after configure().
+    }
+
+    root.myModule = { configure, init };
+})();
+```
+
+```bash
+node --check ui/js/my-module.js      # syntax
+npm run test:frontend:modules        # module/namespace contract
+npm run test:frontend                # when DOM wiring is touched
+```
+
 ## Tests
 
 ```bash

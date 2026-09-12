@@ -1,3 +1,6 @@
+// Model Switcher: versioned two-slot preset references, strict storage normalization,
+// duplicate detection, session-only fallback, Quick Launch card rendering, and the
+// drag-to-confirm sidebar shortcut.
 (function () {
     "use strict";
 

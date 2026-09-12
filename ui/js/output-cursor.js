@@ -1,3 +1,5 @@
+// Shared monotonic process-output cursor for main and benchmark polling; invalidate()
+// advances the epoch while preserving the cursor so clearing the terminal replays nothing.
 (function () {
     const root = window.LlamaGui = window.LlamaGui || {};
 

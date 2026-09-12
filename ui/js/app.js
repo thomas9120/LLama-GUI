@@ -1,3 +1,5 @@
+// Main orchestration, loaded last after all modules: configure()/init() sequencing,
+// shared utility injection (showToast, fetchJson), polling engines, and tab wiring.
 function debounce(fn, ms) {
     let t;
     return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
