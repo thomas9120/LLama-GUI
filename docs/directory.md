@@ -163,30 +163,31 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
 2. `theme-ui.js` — theme registry, persisted selection, and the sidebar theme menu (`window.LlamaGui.themeUi`)
 3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
-4. `chat-tools.js` — browser date/time preference, tool execution, and saved tool exchanges (`window.LlamaGui.chatTools`)
-5. `config-flags-ui.js` — Configure tab rendering
-6. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
-7. `presets/*` package, loaded in order: `presets-internal.js` (state, configure, sensitive-arg scrubbing, fetch/normalize), `presets-apply.js` (apply/compare, context bar), `presets-models.js` (model matching/warnings), `presets-local.js` (favorites, last-used, sort modes), `presets-library.js` (grouping, search text, flag labels, icons), `presets-detail.js` (summary, detail/bulk panels, entry rendering), `presets-roving.js` (roving focus), `presets-groups.js` (list rendering, status toasts, `loadPresets`), `presets-crud.js` (save/load/rename/delete/export/import), `presets-main.js` (`window.LlamaGui.presets` assembly)
-8. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
-9. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
-10. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
-11. `output-cursor.js` — shared process-output cursor consumer (`window.LlamaGui.outputCursor`)
-12. `process-lifecycle.js` — guarded launch, stop, switch, restore, and health-readiness orchestration (`window.LlamaGui.processLifecycle`)
-13. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
-14. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
-15. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
-16. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
-17. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
-18. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
-19. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
-20. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
-21. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
-22. `chat/*` package, loaded in order: `chat-internal.js` (shared state, constants, storage helpers, `configure()`), `chat-workspace.js` (ownership, transfer snapshots), `chat-sidebar.js` (sidebar controls, samplers, status badge), `chat-request.js` (request building), `chat-context.js` (compaction controls, context preview), `chat-stream.js` (send/stream, edit, undo), `chat-history.js` (conversation persistence, history), `chat-main.js` (`init()` and the `window.LlamaGui.chatUi` assembly)
-23. `chat-window.js` — verified Chat window, ownership/recovery coordination, and dedicated display bootstrap (`window.LlamaGui.chatWindow`)
-24. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-25. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-26. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
-27. `app.js` — main orchestration (wires everything together)
+4. `chat-template-selection.js` — chat-template preset lookup, reverse mapping, selection application, summary text, and the manual custom-path clearing rule (`window.LlamaGui.chatTemplateSelection`)
+5. `chat-tools.js` — browser date/time preference, tool execution, and saved tool exchanges (`window.LlamaGui.chatTools`)
+6. `config-flags-ui.js` — Configure tab rendering
+7. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
+8. `presets/*` package, loaded in order: `presets-internal.js` (state, configure, sensitive-arg scrubbing, fetch/normalize), `presets-apply.js` (apply/compare, context bar), `presets-models.js` (model matching/warnings), `presets-local.js` (favorites, last-used, sort modes), `presets-library.js` (grouping, search text, flag labels, icons), `presets-detail.js` (summary, detail/bulk panels, entry rendering), `presets-roving.js` (roving focus), `presets-groups.js` (list rendering, status toasts, `loadPresets`), `presets-crud.js` (save/load/rename/delete/export/import), `presets-main.js` (`window.LlamaGui.presets` assembly)
+9. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
+10. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
+11. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
+12. `output-cursor.js` — shared process-output cursor consumer (`window.LlamaGui.outputCursor`)
+13. `process-lifecycle.js` — guarded launch, stop, switch, restore, and health-readiness orchestration (`window.LlamaGui.processLifecycle`)
+14. `sampler-presets.js` — sampler preset storage, import/export, apply behavior, and Configure controls (`window.LlamaGui.samplerPresets`)
+15. `chat-rendering.js` — markdown and low-level chat DOM rendering helpers (`window.LlamaGui.chatRendering`)
+16. `api-tab.js` — API endpoint/snippet rendering helpers (`window.LlamaGui.apiTab`)
+17. `hf-download-ui.js` — Quick Launch Hugging Face downloader UI (`window.LlamaGui.hfDownloadUi`)
+18. `remote-tunnel-ui.js` — API tab Cloudflare tunnel UI (`window.LlamaGui.remoteTunnelUi`)
+19. `external-server-ui.js` — API tab controls for connecting to an externally started llama-server (`window.LlamaGui.externalServerUi`)
+20. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
+21. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
+22. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
+23. `chat/*` package, loaded in order: `chat-internal.js` (shared state, constants, storage helpers, `configure()`), `chat-workspace.js` (ownership, transfer snapshots), `chat-sidebar.js` (sidebar controls, samplers, status badge), `chat-request.js` (request building), `chat-context.js` (compaction controls, context preview), `chat-stream.js` (send/stream, edit, undo), `chat-history.js` (conversation persistence, history), `chat-main.js` (`init()` and the `window.LlamaGui.chatUi` assembly)
+24. `chat-window.js` — verified Chat window, ownership/recovery coordination, and dedicated display bootstrap (`window.LlamaGui.chatWindow`)
+25. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
+26. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+27. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
+28. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
@@ -203,6 +204,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/flags/helpers.js` | (data) | `getFlagsForTool()`, `getFlagsByCategory()`, speculative helpers |
 | `ui/js/theme-ui.js` | `window.LlamaGui.themeUi` | `THEMES` registry (the single source of truth for shipped themes), preference persistence, root theme attribute application, color-scheme hints, and the sidebar theme menu — rendered from the registry, with roving arrow-key focus |
 | `ui/js/flag-core.js` | `window.LlamaGui.flagCore` | Shared frontend flag state and launch-argument core. Owns `currentTool`, selected model, `flagValues`, shared setters, custom launch args parsing, preset apply/collect helpers, `getLaunchArgs()`, and command preview generation |
+| `ui/js/chat-template-selection.js` | `window.LlamaGui.chatTemplateSelection` | Chat-template selection: preset lookup and reverse mapping from shared flag state, atomic selection application, Quick Launch summary text, the supported-value allowlist delegate, and the manual custom-path clearing rule; reads template data from the flags package and writes only through the configured `flagCore` |
 | `ui/js/chat-tools.js` | `window.LlamaGui.chatTools` | Opt-in browser date/time tool preference, schema, bounded streamed-call assembly, local execution, and tool-exchange request/display helpers |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
@@ -241,7 +243,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/chat-window.js` | `window.LlamaGui.chatWindow` | Dedicated Chat display, verified main/popup bridge, exclusive workspace ownership, handoff, and recovery checkpoints |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
-| `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, shared template helpers, toasts, module initialization, and cache-busting reload |
+| `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Shared page headings/action bars, controls, surfaces, and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
 | `ui/js/shell-ui.js` | `window.LlamaGui.shellUi` | Workspace/maintenance navigation, current-page semantics, mobile drawer focus and dismissal, and the shared sidebar summary of the authoritative local runtime or registered external server |
 | `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, control heights, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
@@ -421,15 +423,17 @@ Quick Launch does not maintain its own template list. It clones the shared optio
 
 ### State Mapping
 
-Template dropdown mapping helpers live in `ui/js/app.js`, while launch-relevant template values are stored in `window.LlamaGui.flagCore`.
+Template dropdown mapping helpers live in `ui/js/chat-template-selection.js` (`window.LlamaGui.chatTemplateSelection`), while launch-relevant template values are stored in `window.LlamaGui.flagCore`.
 
-Important helpers:
+Important helpers (all on `window.LlamaGui.chatTemplateSelection`):
 - `getChatTemplatePresetByValue(...)`
 - `getChatTemplatePresetByBuiltinName(...)`
 - `getChatTemplatePresetByPath(...)`
 - `getSelectedChatTemplateDropdownValue()`
 - `getQuickTemplateSummaryText()`
 - `setChatTemplateValue(...)`
+- `isSupportedChatTemplateValue(...)` — the legacy-name allowlist delegate consumed by `flagCore`
+- `beforePathPatch(flagId, value, patch)` — manual-path clearing rule, called from `app.js`'s `flagCore` hook
 
 **Behavior:**
 - **Built-in preset**: sets `chat_template`, clears `chat_template_custom`

@@ -111,11 +111,54 @@ focused `window.LlamaGui.chatTemplateSelection` facade.
   `setFlagValue`, `setMultipleFlagValues`, or `applyFlagValues`.
 - Inject the new facade methods into Configure and Quick Launch from `app.js`.
 
+### Pitfalls to preserve during extraction
+
+- **Dropdown choices are not the compatibility allowlist.** Keep accepting legacy
+  built-in names such as `phi4` through `isSupportedChatTemplateValue()` even when
+  absent from the curated options. Preserve the controls' temporary legacy option
+  handling. Synthetic bundled values such as `__alpaca__` map to file paths and
+  must never be emitted as `--chat-template` names. Unsupported stored values must
+  retain the existing launch warning/omission behavior; rendering must not erase
+  them or silently migrate saved presets.
+- **Template changes must be atomic.** Use one `setMultipleFlagValues()` patch to
+  set one template field and clear the other with `undefined`, which deletes the
+  stored override. Auto clears both. Preserve the existing
+  `preserveCustomTemplateFile` option only in the raw-value fallback branch;
+  named builtin, bundled, and Auto selections still clear the competing value.
+- **The manual-path rule is outside the extracted helper block.** The
+  `flagCore.configure()` `beforePathPatch` hook in `app.js` currently clears
+  `chat_template` whenever `chat_template_custom` is edited, including clearing
+  the path. Delegate that template-specific rule to the new module while keeping
+  the shared hook wiring and unrelated projector logic in `app.js`. Cover both
+  typing and file-picker updates without adding another state write/broadcast.
+- **Reverse mapping is read-only and must use live state.** Read
+  `flagCore.getFlagValues()` on each lookup; preset application can replace the
+  state object. Preserve lookup precedence: matching bundled path, direct named
+  preset, builtin-name mapping, then supported raw value. For mixed stored values,
+  preserve the separate launch rule that a nonblank custom path suppresses
+  `--chat-template`; neither rendering nor extraction should repair state.
+- **Path normalization is for comparison only.** Preserve trimming and backslash
+  conversion without rewriting the user's stored path. Do not add case folding,
+  basename matching, absolute-path resolution, or filesystem access. An unrelated
+  file named `alpaca.jinja` must not become the bundled Alpaca preset.
+- **Loading a module must not apply a selection.** Configure dependencies before
+  consumers invoke the facade, and keep evaluation/configuration free of flag
+  writes or DOM initialization, including on the detached Chat page. Extend the
+  Session 0 namespace and callable-method contracts for the new facade and add
+  the new unit suite to `test:unit` so it also runs under `npm test`.
+
 ### Tests
 
 Add `tests/frontend/chat_template_selection_unit.cjs` for auto, builtin, bundled,
 custom, unsupported, and Windows-path normalization cases. Retain shared-state and
 browser coverage for the rendered dropdowns.
+
+Cover transitions between selection modes, both template fields initially set,
+the preservation option's branch behavior, manual-path clearing, and lookups after
+`applyFlagValues()` replaces state. Assert complete patches and shared-state
+notifications, read-only getters, legacy preset round trips, and emitted launch
+arguments (at most one of `--chat-template` and `--chat-template-file`). Keep
+initialization and Configure/Quick Launch synchronization covered in the browser.
 
 ### Success criteria
 
@@ -414,7 +457,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 ## Completion checklist
 
 - [x] Session 0: refactor guardrails
-- [ ] Session 1: Chat-template selection
+- [x] Session 1: Chat-template selection
 - [ ] Session 2: flag-definition package
 - [ ] Session 3: shared services and Manager boundary
 - [ ] Session 4: Manager package split
