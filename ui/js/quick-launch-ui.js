@@ -1,3 +1,5 @@
+// Quick Launch tab: profile, context, GPU, template, sampler, and metrics controls,
+// command preview mirror, and action buttons; reads and writes launch state via flagCore.
 (function () {
     const ns = window.LlamaGui = window.LlamaGui || {};
 

@@ -1,3 +1,5 @@
+// Chat compaction: reversible working-context summaries, chunk budgeting, summary
+// stream validation, and preserved recent turns.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

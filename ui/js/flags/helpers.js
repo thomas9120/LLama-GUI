@@ -1,3 +1,4 @@
+// Flags package (5/5): getFlagsForTool(), getFlagsByCategory(), and speculative helpers.
 function getFlagsForTool(tool) {
     const toolBase = String(tool).replace("llama-", "");
     if (toolBase !== "server" && toolBase !== "cli" && toolBase !== "both") {

@@ -1,3 +1,5 @@
+// API tab Cloudflare tunnel: controls, status/URL rendering, copy wiring, start/stop
+// actions, and polling.
 (function () {
     "use strict";
 

@@ -2,6 +2,15 @@
 
 > **Companion to `AGENTS.md`.** This file is the reference manual for the codebase: architecture, data flow, feature details, and API contracts. `AGENTS.md` contains agent workflow rules, pitfalls, and task recipes.
 
+> **New here?** For clone-to-green-tests setup, start with [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+> To learn the codebase, read in this order:
+>
+> 1. [`AGENTS.md`](../AGENTS.md) — the rulebook: ownership, pitfalls, and the change-type → required-test table
+> 2. This file's [Architecture](#architecture) and [Frontend](#frontend) sections
+> 3. [`docs/tests.md`](tests.md) — [Common Commands](tests.md#common-commands)
+>
+> Everything else in this file is reference material, read on demand.
+
 ---
 
 ## Architecture
@@ -11,9 +20,11 @@
 - **Entry point:** `python server.py` → 26-line compat wrapper → delegates to `backend/app.py`.
 - **GUI server:** `127.0.0.1:5240` by default; `LLAMA_GUI_HOST` and `LLAMA_GUI_PORT` can override the bind address for headless/LAN access.
 - **llama-server:** Runs separately (default port 8080) as a subprocess.
-- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads).
+- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads), `hf-xet` (Xet-accelerated HF transfers).
 - **State persistence:** `config.json` (installed version, active backend, tag).
 - **Thread safety:** All stateful operations (process, download, tunnel, install) use threading locks.
+- **Request bodies:** JSON only via `read_body()` — capped at 10 MB (`MAX_REQUEST_BODY_SIZE`, HTTP 413), `Transfer-Encoding` refused (501), read timeouts answered with 408.
+- **Live updates:** No WebSocket — one SSE stream (chat completions) plus polling loops that reconcile against authoritative server state; the `runtime_generation` carried by `/api/output` responses lets stale tabs discard superseded output.
 
 ### Companion Repositories
 
@@ -32,19 +43,26 @@
 | `backend/` | Python package: HTTP server, routes, services, state |
 | `ui/` | Static frontend: `index.html`, `js/`, `css/`, `templates/` |
 | `ui/js/flags/` | Ordered pure-data modules for flag definitions |
-| `ui/templates/` | 15 bundled Jinja chat template files |
+| `ui/templates/` | 14 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `.github/workflows/` | Continuous integration and the manual stable-release workflow |
-| `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
-| `llama/` | Downloaded `llama.cpp` binaries at runtime |
+| `docs/` | Documentation — cataloged in the [Documentation Index](#documentation-index) at the end of this file |
+| `llama/` | Downloaded `llama.cpp` binaries; empty in a fresh clone |
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
-| `tools/` | Auto-downloaded `cloudflared` binary |
+| `tools/` | Auto-downloaded `cloudflared` binary — runtime-created, absent until a tunnel is first used |
 | `scripts/` | Windows shortcut helper (`create_windows_shortcuts.ps1`) and Linux/macOS launcher helper (`create_unix_shortcuts.py`, called by `install.sh`) |
+| `install.sh`, `windows_install.bat` | One-command installers: create the venv, install dependencies, add shortcuts |
+| `windows_start.bat`, `windows_startsilent.bat`, `mac_linux_start.sh`, `mac_linux_silent_start.sh` | User-facing launchers (silent variants hide the console window) |
+| `online_installers/` | Remote one-command installers behind the README Quick Start (`install-online.ps1` / `install-online.sh`) |
+| `Linux_compile_toolkit/` | `build_llama_cpp_cuda.sh`: builds a portable CUDA `llama.cpp` tarball from source (see `description.md`) |
 | `.launcher/` | Pinokio launcher integration (`launch-llama-gui.ps1`) |
 | `assets/` | App icon in Windows `.ico`, Linux `.png`, and macOS `.icns` formats (PNG/ICNS reuse the ICO's embedded 256px artwork) |
-| `requirements.txt` | `certifi`, `ddgs`, `huggingface_hub` |
+| `requirements.txt` | Python runtime dependencies (annotated list in [Architecture](#architecture)) |
 | `package.json` | Playwright devDependency + test scripts |
+| `ruff.toml` | Ruff lint policy (py39 floor; deliberate ignores documented inline) |
+| `release.ps1`, `release.bat` | Local release-packaging helpers — build a versioned release zip (`.bat` wraps `.ps1`) |
+| `stash-updates.bat` | One-shot `git stash -u` helper: stash local changes before an app update |
 
 ---
 
@@ -55,7 +73,7 @@
 | Module | Role |
 |--------|------|
 | `backend/app.py` | HTTP handler, CORS, proxy, route registry, main() |
-| `backend/config.py` | Path constants, env var parsing, web search limits |
+| `backend/config.py` | Path constants, env var parsing, web search limits; deliberately free of optional third-party imports so startup diagnostics work on a minimal Python environment |
 | `backend/context.py` | `AppContext`, `AppPaths`, `ServerConfig`, `BackendServices` dataclasses |
 | `backend/state.py` | `ServerState` dataclass, `AtomicDict` (lock-protected dict) |
 | `backend/http.py` | `Request`/`Response`/`SseWriter`, CORS validation, `sanitize_error()` |
@@ -148,7 +166,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 4. `chat-tools.js` — browser date/time preference, tool execution, and saved tool exchanges (`window.LlamaGui.chatTools`)
 5. `config-flags-ui.js` — Configure tab rendering
 6. `manager.js` — GitHub releases, install, update, shared `fetchJson()`
-7. `presets.js` — preset CRUD
+7. `presets/*` package, loaded in order: `presets-internal.js` (state, configure, sensitive-arg scrubbing, fetch/normalize), `presets-apply.js` (apply/compare, context bar), `presets-models.js` (model matching/warnings), `presets-local.js` (favorites, last-used, sort modes), `presets-library.js` (grouping, search text, flag labels, icons), `presets-detail.js` (summary, detail/bulk panels, entry rendering), `presets-roving.js` (roving focus), `presets-groups.js` (list rendering, status toasts, `loadPresets`), `presets-crud.js` (save/load/rename/delete/export/import), `presets-main.js` (`window.LlamaGui.presets` assembly)
 8. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
 9. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
 10. `app-data.js` — shared Quick Launch, context, sampler, and chat slider data
@@ -163,14 +181,14 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 19. `quick-launch-ui.js` — Quick Launch controls and shared-state UI sync (`window.LlamaGui.quickLaunchUi`)
 20. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
 21. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
-22. `chat-ui.js` — Chat tab state, streaming, history, web search, and sampler controls (`window.LlamaGui.chatUi`)
+22. `chat/*` package, loaded in order: `chat-internal.js` (shared state, constants, storage helpers, `configure()`), `chat-workspace.js` (ownership, transfer snapshots), `chat-sidebar.js` (sidebar controls, samplers, status badge), `chat-request.js` (request building), `chat-context.js` (compaction controls, context preview), `chat-stream.js` (send/stream, edit, undo), `chat-history.js` (conversation persistence, history), `chat-main.js` (`init()` and the `window.LlamaGui.chatUi` assembly)
 23. `chat-window.js` — verified Chat window, ownership/recovery coordination, and dedicated display bootstrap (`window.LlamaGui.chatWindow`)
 24. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
 25. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
 26. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
 27. `app.js` — main orchestration (wires everything together)
 
-**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
+**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
 `flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules access shared state through this namespace, not by importing or referencing private closure variables.
 
@@ -188,7 +206,16 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/chat-tools.js` | `window.LlamaGui.chatTools` | Opt-in browser date/time tool preference, schema, bounded streamed-call assembly, local execution, and tool-exchange request/display helpers |
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/manager.js` | `window.LlamaGui.manager` | GitHub release fetching, backend selection, installation progress UI, app update (git status/pull/restart), the shared `fetchJson()` utility, accepted-status observer wiring for runtime reconciliation, and the shared known-model-name cache (`getKnownModelNames()`) populated by `refreshModels()` |
-| `ui/js/presets.js` | `window.LlamaGui.presets` | Preset normalization, validation, saving, loading, updating, deleting, duplicating, renaming, exporting, and importing; group-by-model library rendering with search across names, models, tools and overridden flags; favorites, warning and bulk-selection filters; an archive view that hides unused presets until restored; the detail panel and library summary; missing-model detection; and roving arrow-key focus |
+| `ui/js/presets/presets-internal.js` | script globals (private) | Package foundation, loaded before its siblings: module state, `configure()`, sensitive-argument scrubbing (`--api-key`/`--hf-token`), preset API fetch helpers, normalization, and import-name validation. Declarations stay top-level script globals exactly like the former single file |
+| `ui/js/presets/presets-apply.js` | script globals (private) | Preset apply/compare flow, saved-settings change rows, loaded-preset reconciliation, and the saved-settings context bar |
+| `ui/js/presets/presets-models.js` | script globals (private) | Model-name matching, known-model presence checks, and missing-model warnings |
+| `ui/js/presets/presets-local.js` | script globals (private) | Storage-backed favorites, last-used timestamps, sort/favorites modes, local renames/deletes, and duplicate-name generation |
+| `ui/js/presets/presets-library.js` | script globals (private) | Group-by-model keying, search text, flag-label cache, icons, preset buttons, and shared render helpers |
+| `ui/js/presets/presets-detail.js` | script globals (private) | Library summary, health message, detail panel, bulk/archive controls, selection state, and per-entry row rendering |
+| `ui/js/presets/presets-roving.js` | script globals (private) | Roving arrow-key focus across group headers and rows |
+| `ui/js/presets/presets-groups.js` | script globals (private) | Group/list rendering, status toasts, model-presence refresh, `loadPresets`, and library control wiring |
+| `ui/js/presets/presets-crud.js` | script globals (private) | Save, update, duplicate, rename, load, delete, archive, favorite, export, and import operations |
+| `ui/js/presets/presets-main.js` | `window.LlamaGui.presets` | Public `presets` namespace assembly; loaded last in the package |
 | `ui/js/searchable-select.js` | `window.LlamaGui.searchableSelect` | Searchable combobox wrapper that visually replaces a native `<select>` (button + popup with search) while keeping the select in the DOM as the source of truth for options, value, and change events |
 | `ui/js/model-switch-ui.js` | `window.LlamaGui.modelSwitchUi` | Versioned two-slot saved-preset references, strict storage normalization, duplicate detection, session-only fallback, accessible Quick Launch card state/rendering, and the drag-to-confirm sidebar shortcut wired through injected preset/runtime dependencies |
 | `ui/js/app-data.js` | (data) | `QUICK_PROFILES`, `BUILTIN_SAMPLER_PRESETS`, `CHAT_SAMPLER_SLIDER_MAP` |
@@ -203,7 +230,14 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 | `ui/js/quick-launch-ui.js` | `window.LlamaGui.quickLaunchUi` | Quick Launch profile, context, GPU, template, sampler, metrics, command preview mirror, action buttons, and event wiring; reads and writes launch state through injected `flagCore` |
 | `ui/js/chat-compaction.js` | `window.LlamaGui.chatCompaction` | Manual summary generation with counted chunks, selected context, and preserved recent turns |
 | `ui/js/character-cards.js` | `window.LlamaGui.characterCards` | Bounded local JSON/PNG character-card parsing, field validation, basic name macros, and conversion to an editable prompt and greeting |
-| `ui/js/chat-ui.js` | `window.LlamaGui.chatUi` | Chat tab state, streaming/abort flow, web search settings, conversation history, sidebar controls, sampler sliders, status badge updates, and the reasoning-effort template-capability hint; reads and writes launch-relevant sampler state through injected `flagCore` |
+| `ui/js/chat/chat-internal.js` | `window.LlamaGui._chatInternal` (private) | Chat package foundation, loaded before its siblings: the shared state object (`I.state`), package constants (`I.consts`), tolerant localStorage helpers, and `configure()` |
+| `ui/js/chat/chat-workspace.js` | `window.LlamaGui._chatInternal` (private) | Chat workspace ownership epochs, transfer snapshot capture/validate/restore, and sampler value plumbing |
+| `ui/js/chat/chat-sidebar.js` | `window.LlamaGui._chatInternal` (private) | Chat sidebar rendering, sampler inputs, web-search and thinking-effort controls, status badge, template-capability hint, focus mode, and panel layout |
+| `ui/js/chat/chat-request.js` | `window.LlamaGui._chatInternal` (private) | Chat request construction: thinking params, message shaping, delta text, and body assembly |
+| `ui/js/chat/chat-context.js` | `window.LlamaGui._chatInternal` (private) | Chat compaction controls, chat tools menu, context budget preview, and pre-send auto-compaction |
+| `ui/js/chat/chat-stream.js` | `window.LlamaGui._chatInternal` (private) | Chat send/stream pipeline, scroll handling, edit flow, assistant rendering, and undo/regenerate |
+| `ui/js/chat/chat-history.js` | `window.LlamaGui._chatInternal` (private) | Chat conversation persistence, history list rendering, clearChat, and character-card import |
+| `ui/js/chat/chat-main.js` | `window.LlamaGui.chatUi` | Chat `init()`, the public `chatUi` namespace assembly, and test-only hooks; loaded last in the package. The package reads and writes launch-relevant sampler state through the `flagCore` injected via `configure()` |
 | `ui/js/chat-window.js` | `window.LlamaGui.chatWindow` | Dedicated Chat display, verified main/popup bridge, exclusive workspace ownership, handoff, and recovery checkpoints |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
@@ -236,7 +270,7 @@ The sidebar runtime disclosure shows lifecycle state and active model, with laun
 
 - Monitor's active-runtime summary reads lifecycle identity and `flagCore.compareLaunchSettings()`, with Open Configure and focused launch-change review. System telemetry is explicitly scoped to this machine and kept separate from inference activity. Vendor probe setup/state cards sit in a native disclosure with Recheck; hardware/inference card visibility and order preferences remain intact. Inference availability notes distinguish loading, non-server tools, and independently unavailable metrics/slots. Empty idle output is hidden, while retained logs are labeled **Last run output**. Changing an inference target invalidates the previous polling epoch before setting the new baseline, including external reconnects to the same address.
 
-- Chat opens Conversations and Settings from its header. `chat-ui.js` stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At wide widths, expanded panels participate in the normal layout beside Chat; at narrow widths they stack without covering the transcript or composer, and the panel contents retain their own scrolling. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary: entering collapses both panels but keeps their header buttons available, opening panels keeps focus mode active, and exiting restores the normal panel preferences. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
+- Chat opens Conversations and Settings from its header. The Chat package stores explicit choices under `llama_gui_chat_history_collapsed` and `llama_gui_chat_settings_collapsed`; absent preferences default to collapsed. At wide widths, expanded panels participate in the normal layout beside Chat; at narrow widths they stack without covering the transcript or composer, and the panel contents retain their own scrolling. At or below 1320px, panels collapse temporarily; widening restores the user's choice. Hidden panels are inert, and focus transfers between the open/close controls. Focus mode remains temporary: entering collapses both panels but keeps their header buttons available, opening panels keeps focus mode active, and exiting restores the normal panel preferences. Routine sampler descriptions live under **Sampler reference** and all controls continue to use shared flag state.
 - Chat's **Context** button opens an inline panel above the composer for usage and compaction controls. The panel scrolls internally, leaves Send accessible, and closes through the button, Escape, or focus/click outside. Narrow layouts can grow vertically to keep the panel and composer reachable.
 - Chat uses the shared confirmation dialog before deleting one conversation, deleting all saved conversations, or clearing the current chat (including its saved entry and system prompt). Delete All and Clear each ask once. Cancel leaves the active chat and any generation running; deleting an inactive conversation also leaves the current generation running. Confirmed deletions remove entries directly from saved history, with no restore-deleted control or new trash copies. Legacy deleted-history storage is left unused. History still keeps at most 50 conversations and removes overflow entries. Storage failures retain the active chat. The shared dialog treats Enter on Cancel as cancellation.
 - **Load character card**, below Chat's System Prompt, reads local JSON or PNG files without uploading the file. Supports legacy Tavern fields and the core fields in [V2](https://github.com/malfoyslastname/character-card-spec-v2/blob/main/spec_v2.md) and [V3](https://github.com/kwaroran/character-card-spec-v3/blob/main/SPEC_V3.md) cards. PNG decoding reads base64 UTF-8 `tEXt` metadata (`ccv3` preferred over `chara`), checks chunk bounds and metadata checksums, and limits files to 20 MB and card data to 1 MB. Import saves the current conversation before opening a saved character chat, including cards without a greeting; storage or parse failure keeps the current chat open. Description, personality, scenario, and example dialogue become an editable System Prompt; `first_mes` becomes the initial assistant message. Card system prompts replace the helpful-assistant fallback, with `{{original}}` expanding to that fallback. `{{char}}`/`{{user}}` and legacy name markers expand to the character name (V3 nickname if supplied) and `User`. Post-history instructions are included in System Prompt and reported as such. Import notices identify omitted lorebooks, alternate greetings, assets, extensions, and remaining unsupported macros. Creator metadata is excluded from the prompt. This is a core-field importer, not a SillyTavern prompt/lorebook engine or character-card editor. The resulting prompt and transcript use normal conversation persistence and request/context-preview paths; importing does not generate a reply.
@@ -310,13 +344,49 @@ A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to co
 
 ### llama.cpp Compatibility
 
-- `ui/js/flags/definitions.js` is the single source of truth for all CLI flags exposed in the UI.
-- Before adding, removing, or modifying any flag definition, verify the flag still exists and works as documented in the upstream `llama.cpp` repository at `https://github.com/ggerganov/llama.cpp`.
-- Cross-reference every flag against upstream documentation: flag name and shorthand, expected value type, valid option values for enum types, default values, and whether the flag has been renamed, deprecated, or removed.
-- After any flag-related changes, confirm the generated command preview produces valid arguments that `llama-server` will accept.
-- Verify that enum dropdowns only contain values still recognized by the current `llama.cpp` version.
-- Check that chat template names in `ui/js/flags/chat-templates.js` match templates bundled with the installed `llama.cpp` release.
-- Run `tests/frontend/flag_sync_smoke.cjs` after mirrored-control, flag-state, or command-preview changes when Playwright is available.
+**Curated subset, not a mirror.** Upstream exposes far more flags than a
+usable UI can show, so `FLAGS` deliberately surfaces only the most common
+and useful ones; everything else stays reachable through Custom Launch
+Args. The model below keeps that curated list honest as upstream moves.
+
+**Where truth lives.** Upstream defines the CLI surface in `common/arg.cpp`
+(plus `server.cpp`); `ui/js/flags/definitions.js` mirrors the curated
+subset. Enum values must match upstream exactly, and a boolean whose
+"off" state is a separate flag declares `false_flag` (unchecked `--mmap`
+emits `--no-mmap`). The step-by-step checklist for adding or changing a
+flag lives in [AGENTS.md](../AGENTS.md#feature-pitfalls) — follow that,
+not this prose.
+
+**Lifecycle markers.** Three mechanisms keep definitions compatible with
+binaries that drift in different directions:
+
+| Marker | Meaning | Effect |
+|---|---|---|
+| `fork_only: true` | Flag exists only in a llama.cpp fork (e.g. `--spec-draft-adaptive`), not upstream | Default-off boolean with a `docs/upstream-changes.md` entry; binary compatibility checks skip it |
+| `removed_in: "bNNNNN"` | Upstream removed the flag in that build (e.g. legacy `--mmap` / `--mlock` / direct-IO, removed in b10875) | Definition stays for older builds; the installed-binary check exempts it at or above the tag |
+| Build-tag gates | Behavior must differ by installed build | `manager.js` feeds `/api/status`'s `version` (config.json's installed release tag; custom slots report `"custom"`) into `flagCore.setBinaryTag()`; helpers like `supportsLoadModeOnly()` and `supportsNativeReasoningEffort()` match `/^b(\d+)/` against a threshold. Unrecognized tags fall back to legacy behavior, so older and custom builds keep working |
+
+**The ledger.** `docs/upstream-changes.md` tracks every announced upstream
+change that may need a coordinated GUI update — fork-only flags, removals,
+pending PRs — each with upstream reference, status, and remaining work.
+Entries are deleted once handled or deliberately declined.
+
+**Mechanical enforcement.** `tests/frontend/llama_flags_supported_unit.cjs`
+compares every non-`fork_only` definition against an installed binary's
+`--help`, parsing the build from `--version` to honor `removed_in`
+exemptions. Locally (`npm run test:flags`) it runs without a binary;
+setting `LLAMA_GUI_LLAMA_BIN_DIR` — or passing `--require-binaries` —
+makes it fail loudly instead. CI does exactly that:
+`.github/workflows/tests.yml` downloads the release pinned in
+`tests/llama-cpp-pin.json` (tag, asset, sha256 — bump all three fields
+together to pin a newer release), exports `LLAMA_GUI_LLAMA_BIN_DIR`, and
+runs `npm test` under it, so every PR proves the flag list against one
+known binary.
+
+After any flag change, also confirm the command preview emits arguments
+`llama-server` accepts, and that chat-template names in
+`ui/js/flags/chat-templates.js` still match the installed release (see
+[Chat Template Presets](#chat-template-presets) below).
 
 ---
 
@@ -524,7 +594,7 @@ Windows collects raw `PhysicalDisk(_Total)` byte counters through [language-neut
 
 ## Presets Tab
 
-The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in `ui/js/presets.js`; styling is under `.presets-browser` in `ui/css/style.css`.
+The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in the `ui/js/presets/` package; styling is under `.presets-browser` in `ui/css/style.css`.
 
 The tab is built for libraries of scale. The reference case is 58 presets across 33 model groups, and several design decisions below only make sense at that size.
 
@@ -602,7 +672,7 @@ The list is one composite widget rather than a few hundred tab stops. At the ref
 
 ### Duplicate And Rename
 
-`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames need care on Windows — see the notes in `docs/design-docs/preset-todo.md`.
+`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames (`my preset` → `My Preset`) are supported: Windows `Path` equality and `resolve()` are case-insensitive and would collapse the rename onto its source, so the route renames against the requested spelling and uses `samefile()` to tell a case-only rename from a genuine collision with a different preset.
 
 ### Local Storage Keys
 
@@ -622,7 +692,7 @@ All reads and writes go through helpers that tolerate blocked storage; failures 
 
 ### Window ownership and transfer boundaries
 
-`chat-ui.js` owns the versioned workspace snapshot and guards conversation mutations with an ownership epoch. Its transfer interface suspends idle Chat, saves the existing conversation, captures/restores supported transcript and draft state without creating a second history entry, and keeps main-window layout separate. Shared sampler settings remain authoritative in the host and are never restored from a conversation transfer.
+`chat-workspace.js` owns the versioned workspace snapshot and guards conversation mutations with an ownership epoch. Its transfer interface suspends idle Chat, saves the existing conversation, captures/restores supported transcript and draft state without creating a second history entry, and keeps main-window layout separate. Shared sampler settings remain authoritative in the host and are never restored from a conversation transfer.
 
 `chat-window.js` provides the host adapter and a feature-specific coordinator for an exclusive origin-scoped Web Lock, verified peers, and one separate versioned recovery record. Recovery invalidation precedes destructive history writes. A timer or missed message never grants ownership. The module has no startup side effects until explicitly initialized.
 
@@ -1072,20 +1142,13 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
+| `CONTRIBUTING.md` | Developer quickstart: setup, run, dev loop, tests, and PR checklist |
 | `docs/directory.md` | This file — project structure and feature reference |
-| `docs/architecture.html` | Visual architecture guide — diagrams of the layers, request lifecycle, script-order dependency ladder, and key flows |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/gpu-monitoring.md` | User setup guide for NVIDIA SMI, AMD SMI, and the optional cross-vendor all-smi collector |
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
-| `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
-| `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
-| `docs/todo.md` | Known planned work |
-| `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
-| `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
-| `docs/ui-ux-polish.md` | UI/UX polish direction for experienced llama.cpp users, open decisions, implementation slices, and saved Configure/Quick Launch mockups |
-| `docs/design-docs/router-mode.md` | Router mode design notes |
-| `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
-| `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |
+| `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
+| `docs/frontend-maintainability-tier-2-plan.md` | Proposed Tier-2 frontend maintainability scope, module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

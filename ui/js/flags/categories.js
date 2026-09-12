@@ -1,3 +1,4 @@
+// Flags package (1/5): the FLAG_CATEGORIES array - display grouping for the FLAGS entries.
 // NOTE: "lora" and "grammar" are used as both category ids and flag ids.
 // This is intentional and harmless: categories and flags occupy separate data domains
 // (FLAG_CATEGORIES vs FLAGS). The structural definition test explicitly allows these collisions.

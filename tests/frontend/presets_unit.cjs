@@ -4,7 +4,20 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "presets.js"), "utf8");
+const presetPackageFiles = [
+    "presets-internal.js", "presets-apply.js", "presets-models.js", "presets-local.js",
+    "presets-library.js", "presets-detail.js", "presets-roving.js", "presets-groups.js",
+    "presets-crud.js", "presets-main.js",
+];
+const presetPackageSources = presetPackageFiles.map(
+    file => fs.readFileSync(path.join(ROOT, "ui", "js", "presets", file), "utf8"),
+);
+function runPresetPackage(ctx) {
+    // Per-file evaluation mirrors the browser's script boundaries.
+    presetPackageSources.forEach((pkgSource, i) => {
+        vm.runInContext(pkgSource, ctx, { filename: `ui/js/presets/${presetPackageFiles[i]}` });
+    });
+}
 const storageWarnings = [];
 const context = {
     window: {},
@@ -37,7 +50,7 @@ context.window.LlamaGui = {};
 
 vm.createContext(context);
 vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), context);
-assert.doesNotThrow(() => vm.runInContext(source, context, { filename: "presets.js" }));
+assert.doesNotThrow(() => runPresetPackage(context));
 assert.doesNotThrow(() => vm.runInContext("markPresetUsed('Blocked Storage Preset')", context));
 assert.ok(storageWarnings.length > 0, "storage write failures should be logged without breaking preset actions");
 
@@ -261,7 +274,7 @@ function createStoredContext(initialStorage = {}) {
     favoritesContext.window.LlamaGui = {};
     vm.createContext(favoritesContext);
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), favoritesContext);
-    vm.runInContext(source, favoritesContext, { filename: "presets.js" });
+    runPresetPackage(favoritesContext);
     return favoritesContext;
 }
 
@@ -440,7 +453,7 @@ function createWriteCountingContext(initialStorage = {}) {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     ctx.__writes = 0;
     return ctx;
 }
@@ -507,7 +520,7 @@ function createModelContext(knownModelNames, initialStorage = {}) {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     return ctx;
 }
 
@@ -614,7 +627,7 @@ function createSelectContext(optionValues, knownModelNames) {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     return { ctx, select, selected };
 }
 
@@ -860,10 +873,10 @@ function createSearchContext() {
     }
     // A top-level `const` in a vm script lives in the shared global lexical
     // scope, which later scripts see but the context object does not expose.
-    // presets.js therefore resolves FLAGS fine; the test has to ask for it.
+    // the presets package therefore resolves FLAGS fine; the test has to ask for it.
     const flagCount = vm.runInContext("Array.isArray(FLAGS) ? FLAGS.length : -1", ctx);
     assert.ok(flagCount > 100, `expected the real FLAGS list, got ${flagCount}`);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     return ctx;
 }
 
@@ -987,7 +1000,7 @@ function createPresenceContext(sectionDisplay) {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     // Count rebuilds without performing one; loadPresets would hit the network.
     vm.runInContext("__rebuilds = 0; loadPresets = () => { __rebuilds++; }", ctx);
     return ctx;
@@ -1060,7 +1073,7 @@ async function testPresetRefreshPreservesMissingFavorite() {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     vm.runInContext("renderPresetGroups = () => {}", ctx);
 
     await vm.runInContext("loadPresets()", ctx);
@@ -1109,7 +1122,7 @@ async function testPresetLoadFailureClearsAuxiliaryState() {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     vm.runInContext(
         "currentPresetGroups = [{ key: 'stale', entries: [] }]; selectedPresetName = 'stale'; selectedPresetNames.add('stale')",
         ctx

@@ -1,3 +1,5 @@
+// Process lifecycle: race-resistant launch/stop/switch/restore, authoritative-status
+// reconciliation, generation-keyed readiness, and one-shot prolonged-load diagnostics.
 (function () {
     "use strict";
 

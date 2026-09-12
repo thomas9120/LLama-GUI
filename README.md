@@ -48,6 +48,7 @@ Special thanks to ggml-org for [llama.cpp](https://github.com/ggml-org/llama.cpp
 - [Data Locations](#data-locations)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Security Notes](docs/security.md)
+- [Contributing](CONTRIBUTING.md)
 
 ## Requirements
 
@@ -294,3 +295,5 @@ For port conflicts, missing models, backend/driver mismatches, antivirus quarant
 For local-use boundaries, API key handling, tunnel exposure, proxy registration, and web-search fetch limits, see [`docs/security.md`](docs/security.md).
 
 Test inventory and how to run the suite: [`docs/maintenance.md`](docs/maintenance.md).
+
+Contributing — dev setup, tests, and PR checklist: [`CONTRIBUTING.md`](CONTRIBUTING.md).

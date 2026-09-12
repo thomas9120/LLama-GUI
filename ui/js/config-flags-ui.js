@@ -1,3 +1,5 @@
+// Configure tab: flag rendering, search/filter, expand/collapse state, type-specific
+// input builders, input restoration, and high-risk multi_enum warnings.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

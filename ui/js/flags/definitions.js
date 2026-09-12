@@ -1,3 +1,4 @@
+// Flags package (4/5): the FLAGS array - single source of truth for all exposed llama.cpp flags. Never reorder for display.
 const FLAGS = [
 	// Model
 	{

@@ -135,7 +135,7 @@ function createContext({ models, failFetch = false } = {}) {
         "a later failure must drop the previously cached names"
     );
 
-    // The notification is optional wiring: presets.js may not be loaded.
+    // The notification is optional wiring: the presets package may not be loaded.
     const noPresets = createContext({ models: [] });
     noPresets.context.window.LlamaGui.presets = undefined;
     await assert.doesNotReject(

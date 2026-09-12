@@ -1,3 +1,6 @@
+// GitHub releases and backend management: release fetching, installation/update flows,
+// the shared fetchJson() utility, the known-model-name cache, and accepted-status
+// runtime reconciliation.
 let cachedReleases = null;
 let releasesBackend = null;
 let releasesBackendInFlight = null;
@@ -1360,7 +1363,7 @@ function openFolder(folder) {
 
 // Lowercased .gguf file names last seen in the models/ folder, shared with any
 // module that needs to know whether a saved model still exists (see the missing
-// model warning in presets.js). `null` means "not known yet" - never fetched, or
+// model warning in the presets package). `null` means "not known yet" - never fetched, or
 // the fetch failed - which callers must treat differently from a known-empty
 // folder, since an unavailable list is not evidence that a model is gone.
 let knownModelNames = null;

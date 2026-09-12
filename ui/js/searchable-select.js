@@ -1,3 +1,5 @@
+// Searchable combobox: visually replaces a native <select> with a button and searchable
+// popup while keeping the select as the source of truth for options, value, and events.
 /* Searchable combobox wrapper for native <select> elements.
  *
  * The native select stays in the DOM as the single source of truth:

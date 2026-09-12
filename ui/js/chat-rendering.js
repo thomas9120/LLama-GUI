@@ -1,3 +1,4 @@
+// Chat rendering: markdown and low-level chat DOM rendering helpers.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

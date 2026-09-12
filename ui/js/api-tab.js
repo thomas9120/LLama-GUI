@@ -1,3 +1,5 @@
+// API tab: endpoint/snippet data, base URL and authorization helpers, and rendering;
+// reads shared state through the injected flagCore.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 
