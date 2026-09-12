@@ -328,18 +328,43 @@ Completion record (2026-09-11):
   `git add -N` (the file scans as tracked from the first commit).
 - **Effort**: ~45 minutes.
 
-### W5 (P1) — Reading-order path at the top of `directory.md`
+### W5 (P1) — Reading-order path at the top of `directory.md` — DONE 2026-09-11
 
-- [ ] Small "New here? Read in this order" box: 1) `AGENTS.md`, 2) this file's
+- [x] Small "New here? Read in this order" box: 1) `AGENTS.md`, 2) this file's
   Architecture + Frontend Module Reference sections, 3) `docs/tests.md` Common
   Commands, then everything else on demand.
-- [ ] Top-Level Directory Map: mark `tools/` as runtime-created, add the
+- [x] Top-Level Directory Map: mark `tools/` as runtime-created, add the
   omitted top-level entries (`online_installers/`, `Linux_compile_toolkit/`,
   `release.bat`/`release.ps1`, `stash-updates.bat`).
 - [x] ~~`docs/architecture.html` Tests card stale counts~~ — moot: the file
   was retired in W2b (2026-09-11).
 - (The index prune itself happens in W1.)
 - **Acceptance**: a newcomer can answer "what do I read first" in one glance.
+
+Completion record (2026-09-11):
+
+- The box leads with a pointer to `CONTRIBUTING.md` for setup (W4 landed
+  after this spec was written), then the spec's order: `AGENTS.md` → this
+  file's Architecture and Frontend sections → `docs/tests.md` Common
+  Commands → everything else on demand.
+- Map fixes beyond the audit list, every description verified against
+  `git ls-files` and the scripts' own sources: added the user-facing
+  installers (`install.sh`, `windows_install.bat`), launchers
+  (`windows_start*.bat`, `mac_linux_*.sh`), and `ruff.toml` — all missed
+  by the audit — alongside the spec'd `online_installers/`,
+  `Linux_compile_toolkit/`, `release.ps1`/`release.bat`, and
+  `stash-updates.bat`.
+- More drift found and fixed while in the file: template count 15 → 14
+  (actual `ui/templates/*.jinja`); `hf-xet` added to the Architecture
+  dependency list; the `requirements.txt` map row deduplicated to point at
+  that list; the `docs/` row now points at the Documentation Index instead
+  of enumerating docs (enumerations rot).
+- `tools/` and `llama/` rows now state fresh-clone reality (absent /
+  empty).
+- **Acceptance**: the box answers "what do I read first" at a glance;
+  `test_docs_links`, `test_docs_sync`, and the full backend suite are
+  green.
+- **Effort**: ~45 minutes.
 - **Effort**: ~1 hour.
 
 ### W6 (P2) — Standardize role headers in `ui/js/` + new-module walkthrough

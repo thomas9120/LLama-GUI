@@ -2,6 +2,15 @@
 
 > **Companion to `AGENTS.md`.** This file is the reference manual for the codebase: architecture, data flow, feature details, and API contracts. `AGENTS.md` contains agent workflow rules, pitfalls, and task recipes.
 
+> **New here?** For clone-to-green-tests setup, start with [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+> To learn the codebase, read in this order:
+>
+> 1. [`AGENTS.md`](../AGENTS.md) — the rulebook: ownership, pitfalls, and the change-type → required-test table
+> 2. This file's [Architecture](#architecture) and [Frontend](#frontend) sections
+> 3. [`docs/tests.md`](tests.md) — [Common Commands](tests.md#common-commands)
+>
+> Everything else in this file is reference material, read on demand.
+
 ---
 
 ## Architecture
@@ -11,7 +20,7 @@
 - **Entry point:** `python server.py` → 26-line compat wrapper → delegates to `backend/app.py`.
 - **GUI server:** `127.0.0.1:5240` by default; `LLAMA_GUI_HOST` and `LLAMA_GUI_PORT` can override the bind address for headless/LAN access.
 - **llama-server:** Runs separately (default port 8080) as a subprocess.
-- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads).
+- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads), `hf-xet` (Xet-accelerated HF transfers).
 - **State persistence:** `config.json` (installed version, active backend, tag).
 - **Thread safety:** All stateful operations (process, download, tunnel, install) use threading locks.
 - **Request bodies:** JSON only via `read_body()` — capped at 10 MB (`MAX_REQUEST_BODY_SIZE`, HTTP 413), `Transfer-Encoding` refused (501), read timeouts answered with 408.
@@ -34,19 +43,26 @@
 | `backend/` | Python package: HTTP server, routes, services, state |
 | `ui/` | Static frontend: `index.html`, `js/`, `css/`, `templates/` |
 | `ui/js/flags/` | Ordered pure-data modules for flag definitions |
-| `ui/templates/` | 15 bundled Jinja chat template files |
+| `ui/templates/` | 14 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `.github/workflows/` | Continuous integration and the manual stable-release workflow |
-| `docs/` | Documentation: project reference, tests, maintenance, security, troubleshooting, and upstream-change guides |
-| `llama/` | Downloaded `llama.cpp` binaries at runtime |
+| `docs/` | Documentation — cataloged in the [Documentation Index](#documentation-index) at the end of this file |
+| `llama/` | Downloaded `llama.cpp` binaries; empty in a fresh clone |
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
-| `tools/` | Auto-downloaded `cloudflared` binary |
+| `tools/` | Auto-downloaded `cloudflared` binary — runtime-created, absent until a tunnel is first used |
 | `scripts/` | Windows shortcut helper (`create_windows_shortcuts.ps1`) and Linux/macOS launcher helper (`create_unix_shortcuts.py`, called by `install.sh`) |
+| `install.sh`, `windows_install.bat` | One-command installers: create the venv, install dependencies, add shortcuts |
+| `windows_start.bat`, `windows_startsilent.bat`, `mac_linux_start.sh`, `mac_linux_silent_start.sh` | User-facing launchers (silent variants hide the console window) |
+| `online_installers/` | Remote one-command installers behind the README Quick Start (`install-online.ps1` / `install-online.sh`) |
+| `Linux_compile_toolkit/` | `build_llama_cpp_cuda.sh`: builds a portable CUDA `llama.cpp` tarball from source (see `description.md`) |
 | `.launcher/` | Pinokio launcher integration (`launch-llama-gui.ps1`) |
 | `assets/` | App icon in Windows `.ico`, Linux `.png`, and macOS `.icns` formats (PNG/ICNS reuse the ICO's embedded 256px artwork) |
-| `requirements.txt` | `certifi`, `ddgs`, `huggingface_hub` |
+| `requirements.txt` | Python runtime dependencies (annotated list in [Architecture](#architecture)) |
 | `package.json` | Playwright devDependency + test scripts |
+| `ruff.toml` | Ruff lint policy (py39 floor; deliberate ignores documented inline) |
+| `release.ps1`, `release.bat` | Local release-packaging helpers — build a versioned release zip (`.bat` wraps `.ps1`) |
+| `stash-updates.bat` | One-shot `git stash -u` helper: stash local changes before an app update |
 
 ---
 
