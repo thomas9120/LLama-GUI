@@ -154,6 +154,8 @@ Or download in-app from **Quick Launch**:
 
 Downloads land under `<active models folder>/<owner_repo>/` (repo id with `/` → `_`). For vision/multimodal models, also download the matching `mmproj` file when the repo provides one. The projector lands beside its model in the same folder, and the Multimodal Projector setting is applied automatically.
 
+> **Hugging Face privacy note:** The in-app downloader uses `huggingface_hub`. Recent versions can identify an AI coding tool from the app process's environment variables and include its name in Hub request metadata ([upstream source](https://github.com/huggingface/huggingface_hub/blob/main/src/huggingface_hub/utils/_headers.py)). This mechanism does not send your chat messages or local GGUF inference activity. To opt out while keeping downloads available, set `HF_HUB_DISABLE_TELEMETRY=1` in the environment that starts Llama GUI, then restart the app ([Hugging Face documentation](https://huggingface.co/docs/huggingface_hub/main/package_reference/environment_variables#hfhubdisabletelemetry)). Normal download requests still reach Hugging Face.
+
 ## First Run
 
 1. Install a backend in **Install** and confirm the badge shows an installed version (not `Not Installed`).
