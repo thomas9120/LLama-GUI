@@ -235,7 +235,7 @@ Work done:
   as-is (implementation records; exempt from the W3 checker).
 - **Effort**: ~1.5 hours.
 
-### W3 (P0) — Add a docs-reference checker test
+### W3 (P0) — Add a docs-reference checker test — DONE 2026-09-11
 
 Design resolved 2026-09-11 (D4): **scan all tracked docs with explicit
 exemptions** (denylist), not a living-docs allowlist — new docs are protected
@@ -243,17 +243,17 @@ by default, the failure direction is loud (false positive) rather than silent
 (unprotected doc), and W2b removed `architecture.html` so the scope is
 markdown only.
 
-- [ ] New `tests/backend/test_docs_links.py`: scan every tracked `.md` file
+- [x] New `tests/backend/test_docs_links.py`: scan every tracked `.md` file
   (repo-root `README.md`, `AGENTS.md`, everything under `docs/`) for
   (a) relative markdown links and (b) backtick-quoted repo-relative paths
   (`docs/…`, `ui/…`, `backend/…`, `tests/…`, `scripts/…`), and assert each
   resolves to an existing file. Runtime-created directories (`llama/`,
   `models/`, `presets/`, `tools/`) are deliberately outside the prefix list.
-- [ ] `EXEMPT_DOCS`, each entry with a reason comment: the two archived plan
+- [x] `EXEMPT_DOCS`, each entry with a reason comment: the two archived plan
   docs (intentional pre-rename references) and this tracking doc (quotes dead
   paths as audit evidence). Self-verifying: every exempted doc must exist on
   disk, so deleting an exempted doc flags its stale exemption.
-- [ ] `UPSTREAM_PATHS` allowlist for llama.cpp's own files that collide with
+- [x] `UPSTREAM_PATHS` allowlist for llama.cpp's own files that collide with
   repo prefixes: `tests/CMakeLists.txt`, `tests/test-arg-parser.cpp`,
   `tests/test-speculative-adaptive.cpp` (referenced by
   `docs/upstream-changes.md` fork notes).
@@ -262,6 +262,37 @@ markdown only.
 - **Verify**: `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
   (or the whole suite: `.venv/Scripts/python.exe -m unittest discover tests -v`).
 - **Effort**: ~2–3 hours.
+
+Completion record (2026-09-11):
+
+- Implemented as four tests: reference resolution, exemption existence,
+  upstream-allowlist currency, and a discovery sanity guard (core docs
+  present, double-digit file set) so a broken `git ls-files` cannot make
+  the scan pass vacuously.
+- Discovery uses `git ls-files`, which scans all tracked `.md` files
+  anywhere in the repo — broader than the spec's root-plus-`docs/` list,
+  also covering `.github/` templates and
+  `Linux_compile_toolkit/description.md`. Tracked-only matches CI's view
+  and honors the maintainer's rule that `docs/design-docs/` is untracked
+  local reference material: it is skipped by prefix and deliberately not
+  existence-checked (fresh clones lack it).
+- Refinement during verification: the checker flagged the new
+  `docs/tests.md` catalog entry's own `docs/design-docs/` mention — CI can
+  never verify machine-local paths — so references *into* local-only
+  directories are now skipped like files inside them. The loud false
+  positive forced a conscious decision, which is the denylist design
+  working as intended.
+- Fenced code blocks are skipped — examples in fences routinely name
+  files that do not exist.
+- `UPSTREAM_PATHS` is equality-checked against what the docs still
+  reference, so allowlist entries rot as loudly as exemptions.
+- Mutation-verified: a dead link and a dead backtick path appended to
+  `README.md` were both flagged with file:line; a dead path inside a
+  fence was correctly ignored. Reverted afterward; suite green.
+- Documented in `docs/tests.md` (catalog entry plus a
+  follows-the-same-principle note) and added a "Documentation references"
+  row to `AGENTS.md`'s verification table.
+- **Effort**: ~1 hour.
 
 ### W4 (P1) — Developer quickstart (CONTRIBUTING.md or docs/dev-guide.md)
 

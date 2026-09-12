@@ -54,6 +54,7 @@ Run checks appropriate to the change; use `docs/tests.md` to select focused unit
 | Themes | `node tests/frontend/theme_ui_unit.cjs` |
 | Mirrored controls, shared state, command preview, or DOM wiring | `npm run test:frontend` |
 | Backend | `.venv/Scripts/python.exe -m unittest discover tests -v` |
+| Documentation references | `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v` |
 | Full frontend suite | `npm test` |
 
 Use the **project venv** for backend tests (`.venv/bin/python` on Unix). System Python may lack runtime dependencies and produce misleading failures.
