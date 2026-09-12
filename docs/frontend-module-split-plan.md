@@ -1,7 +1,9 @@
 # Frontend Module Split Plan
 
-> **Status: in progress.** Tracking document for the maintainability refactor agreed on 2026-09-11.
-> Scope: Tier 1 only — split `ui/js/chat-ui.js` and `ui/js/presets.js`. Stay inside the
+> **Status: Tier 1 complete (2026-09-11).** Both sessions landed and the full suite is green.
+> This document now records the recipe (mechanism + session notes below) and the
+> future targets we will pick up at a later date.
+> Scope was Tier 1 only — split `ui/js/chat-ui.js` and `ui/js/presets.js`. Stay inside the
 > current global-script architecture (no ES modules, no bundler). One module per session,
 > full test suite green before the next.
 
@@ -20,9 +22,8 @@ hundreds of lines deep.
 | `ui/js/chat-window.js` | 2,231 | 108 | 9 |
 | `ui/js/monitor-ui.js` | 2,052 | 101 | 22 |
 
-Session A targets `chat-ui.js` (highest churn × size). Session B applies the same recipe
-to `presets.js`. `chat-window.js` and `monitor-ui.js` are deliberately out of scope for
-now; revisit after the first two land.
+Session A split `chat-ui.js` (highest churn × size). Session B applied the same recipe to
+`presets.js`. The remaining large modules are tracked as future targets below.
 
 ## Mechanism (both sessions)
 
@@ -92,6 +93,33 @@ Harness updates: `presets_unit.cjs`, `preset_roving_focus_unit.cjs`,
 package per file to mirror browser script boundaries. Same index.html slot
 (position 7, after `manager.js`, before `searchable-select.js`), same docs, same
 verification bar.
+
+## Future targets (Tier 2) — not scheduled
+
+Pick these up in later sessions, one module per session, same bar as Tier 1: map first,
+move second, full `npm test` green, docs updated in the same session, old file deleted
+only after green. Choose the recipe by module shape — both are proven and recorded
+above:
+
+- **Session A recipe** — IIFE with closure state → ordered package with a private
+  internal namespace, explicit state object, and `I.`/`S.` renames.
+- **Session B recipe** — top-level script globals → ordered slices, pure movement,
+  no renames (the VM harnesses may rely on bare global access — check first).
+
+Candidates from the original review, in rough priority order (churn × payoff):
+
+| Candidate | Lines | Functions | Churn (90d) | Recipe | Notes |
+|---|---|---|---|---|---|
+| `app.js` chat-template helpers | ~70 | 5 | (app.js: 45) | — | Not a split: a quick win. Move the chat-template mapping helpers (`getChatTemplatePresetByValue`/`ByBuiltinName`/`ByPath` plus the reverse-mapping helpers, ~lines 449–520) out of the orchestrator into a focused module beside `flags/chat-templates.js`. `app.js` is the highest-churn file in the repo, so shrinking it pays off first. |
+| `manager.js` | 1,481 | 61 | 29 | B | Five separable concerns: backend/release install UI, app-update UI, Python server lifecycle (`stopPythonServer`/`restartPythonServer`/`waitForServerReady`), model-dir controls, and the model-name cache; plus shared utilities (`fetchJson`, `confirmAction`, `promptAction`, `openFolder`). Top-level globals → pure movement. Update the `manager releases`/`model cache`/`model directory` unit harness source lists per file. |
+| `monitor-ui.js` | 2,052 | 101 | 22 | A | Monitor polling with visibility gating, process-output terminal, reconciled GPU cards, and the shared inference snapshot engine (`createInferenceStats`). IIFE → Session A recipe. `monitor_ui_unit.cjs` reads the file directly — extend its VM source list. |
+| `chat-window.js` | 2,231 | 108 | 9 | A | Verified Chat pop-out window and ownership/handoff/recovery coordination; already strict-mode. Largest remaining file but low churn since the pop-out rebuild, so lowest urgency. `chat_window_unit.cjs` reads it directly; `chat_popout_integration.cjs` loads it via the browser (its init-failure fixture intercepts `chat-main.js`, unaffected by this split). |
+
+From the original review's later tiers (Tier 3+), whenever they get picked up: backend
+packages (`system_stats.py` per-platform collectors + GPU probes with `__init__` re-exports,
+`process_manager.py` launch-args/estimates extraction), splitting the largest test files
+(`flag_sync_smoke.cjs`, `monitor_ui_unit.cjs`, `test_extracted_routes.py`), and an
+aggregate `test:units` script for faster focused runs.
 
 ## Success criteria
 

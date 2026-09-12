@@ -1097,7 +1097,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
 | `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
 | `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
-| `docs/frontend-module-split-plan.md` | Tier-1 frontend module-split plan and progress checklist (chat-ui/presets god-module split) |
+| `docs/frontend-module-split-plan.md` | Frontend module-split session recipe record, Tier-1 progress, and future Tier-2 targets |
 | `docs/todo.md` | Known planned work |
 | `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
 | `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
