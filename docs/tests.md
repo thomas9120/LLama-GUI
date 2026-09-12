@@ -13,7 +13,13 @@ The goal is not exhaustive coverage. Tests should make common regressions easier
 npm test
 ```
 
-Runs the full frontend suite: JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, flag compatibility checks, module loading checks, and the Playwright smoke test.
+Runs the full frontend suite in three stages: `test:unit` (JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
+
+```powershell
+npm run test:unit
+```
+
+Runs the aggregate fast stage only — every Node unit suite plus `test:syntax`, `test:frontend:modules`, and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
 
 ```powershell
 npm run test:syntax
@@ -25,7 +31,7 @@ Checks every frontend JavaScript file with `node --check`.
 npm run test:frontend:modules
 ```
 
-Loads scripts in the same order as `ui/index.html` inside a Node VM and verifies expected `window.LlamaGui.*` namespaces exist.
+Loads scripts in the same order as `ui/index.html` inside a Node VM (via the shared `tests/frontend/script_order.cjs` helper) and verifies the Session 0 refactor guardrail contracts from `docs/frontend-maintainability-tier-2-plan.md`: every active local script tag resolves on disk with no orphaned `ui/js` files and no external scripts; local scripts use blocking classic-script execution (no `async`, `defer`, `nomodule`, or unsupported `type`); the top-level `window.LlamaGui` key set matches exactly; `flagCore`, `manager`, `chatUi`, and `presets` expose exactly their contract keys, all callable methods; private namespaces such as `_chatInternal` are referenced only inside their owning package; and each package's `*-main.js` assembler loads after its internal contributors. Negative fixtures verify rejection of altered execution attributes, a commented-out contributor, and an undefined facade method.
 
 ```powershell
 npm run test:flag-definitions
@@ -142,7 +148,8 @@ Fast Node tests:
   - 3:1 for `--fg-faint` (non-essential text, deliberately below AA so it stays a distinct tier from `--fg-muted`) and for the fill-only `-solid` tokens.
   - Measured against `--bg-surface`, `--bg-raised` and `--bg-elevated` — text lands on all three — plus each semantic color's own `-subtle` chip and the composited favourite-row rest/hover washes.
   - Two usage invariants that keep the lower floors honest: `--yellow-solid`/`--favorite-solid` must never appear as a `color:`, and placeholder text must never use `--fg-faint`.
-- `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
+- `module_namespace_unit.cjs`: frontend script load order and exported namespaces, plus the Tier 2 Session 0 guardrail contracts described under [Common Commands](#common-commands).
+- `script_order.cjs`: shared test helper, not a suite. Parses active `<script>` tags from `ui/index.html`, ignores HTML comments, and validates local script execution attributes before returning the canonical ordered path list. Selects a package by path prefix (e.g. `getPackageScripts("js/presets")`) and reads its sources. Used by `module_namespace_unit.cjs` and the Chat/Presets VM harnesses (`chat_ui_unit.cjs`, `presets_unit.cjs`, `preset_roving_focus_unit.cjs`, `launch_args_unit.cjs`) so package file lists have exactly one source of truth: `ui/index.html`. `ui/index.html` stays the canonical frontend script order. New tests that need the load order should require this helper instead of hard-coding lists.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
 - `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.

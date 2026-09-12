@@ -413,7 +413,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 
 ## Completion checklist
 
-- [ ] Session 0: refactor guardrails
+- [x] Session 0: refactor guardrails
 - [ ] Session 1: Chat-template selection
 - [ ] Session 2: flag-definition package
 - [ ] Session 3: shared services and Manager boundary
