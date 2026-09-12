@@ -1090,6 +1090,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
+| `CONTRIBUTING.md` | Developer quickstart: setup, run, dev loop, tests, and PR checklist |
 | `docs/directory.md` | This file — project structure and feature reference |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/gpu-monitoring.md` | User setup guide for NVIDIA SMI, AMD SMI, and the optional cross-vendor all-smi collector |

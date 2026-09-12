@@ -294,19 +294,39 @@ Completion record (2026-09-11):
   row to `AGENTS.md`'s verification table.
 - **Effort**: ~1 hour.
 
-### W4 (P1) — Developer quickstart (CONTRIBUTING.md or docs/dev-guide.md)
+### W4 (P1) — Developer quickstart — DONE 2026-09-11 (root `CONTRIBUTING.md`)
 
-- [ ] One page: prerequisites; setup (venv → `pip install -r requirements.txt` →
+- [x] One page: prerequisites; setup (venv → `pip install -r requirements.txt` →
   `npm ci` → `npx playwright install chromium`); run (`python server.py` →
   `http://127.0.0.1:5240`); dev loop (edit `ui/` → refresh; edit `backend/`
   → restart); test commands incl. a pointer to `AGENTS.md`'s change-type →
   required-test table; a "read `AGENTS.md` — it is for human contributors too"
   note; reading order for the docs.
-- Location is open decision D2 — root `CONTRIBUTING.md` is GitHub-conventional
-  and shows up in PR UIs; `docs/dev-guide.md` fits the docs index.
+- Location is open decision D2 — resolved: root `CONTRIBUTING.md`,
+  cross-listed in the Documentation Index (see below).
 - **Acceptance**: a new dev following only this page gets from clone to a
   running app and green tests without reading any other doc first.
 - **Effort**: ~2 hours.
+
+Completion record (2026-09-11):
+
+- D2 resolved in favor of the GitHub-conventional root `CONTRIBUTING.md`:
+  GitHub auto-links it when opening PRs and issues — exactly where a new
+  contributor looks — and the Documentation Index already lists root files
+  (`AGENTS.md`), so it cross-lists cleanly.
+- Every stated fact was verified before writing: clone URL from
+  `git remote`, Python 3.9 floor and Node 18 (Playwright ^1.60) from
+  package metadata, the CI matrix from `.github/workflows/tests.yml`, the
+  smoke tests spawning their own `python -m http.server` (with `PYTHON`
+  override) from the test source, and the flag-compat suites running in
+  unit mode without a llama.cpp binary (the pinned-binary check is a
+  separate CI job).
+- Acceptance validated end to end on the dev machine: `npm test` green
+  (22 Playwright tests, ~88 s) and the backend suite green (811 tests).
+- Wired in: Documentation Index row in `docs/directory.md`, README tail
+  pointer plus Contents entry, and `test_docs_links.py` coverage via
+  `git add -N` (the file scans as tracked from the first commit).
+- **Effort**: ~45 minutes.
 
 ### W5 (P1) — Reading-order path at the top of `directory.md`
 
@@ -381,7 +401,7 @@ Completion record (2026-09-11):
 | # | Question | Default suggestion |
 |---|---|---|
 | D1 | Execution order of W1–W10 | W1 → W2 → W3 first: make existing docs truthful and mechanically protected *before* adding new docs (W4–W7) that could rot the same way. |
-| D2 | Quickstart location: root `CONTRIBUTING.md` vs `docs/dev-guide.md` | Root `CONTRIBUTING.md` (GitHub surfaces it); index it in `directory.md`. |
+| D2 | Quickstart location: root `CONTRIBUTING.md` vs `docs/dev-guide.md` | **RESOLVED 2026-09-11:** root `CONTRIBUTING.md` — GitHub auto-links it in PR/issue UIs where contributors look; cross-listed in the Documentation Index. |
 | D3 | ESLint: yes / no / middle ground | Middle ground (tiny config, no plugins), if the maintainer accepts the devDependency. |
 | D4 | Link-checker scope: living-docs allowlist vs all docs with per-file exemptions | **RESOLVED 2026-09-11:** all-docs scan with explicit exemptions (denylist) — see W3. New docs are protected by default; the failure direction is loud rather than silent; self-verifying exemptions catch their own staleness. W2b removed `architecture.html` from scope. |
 | D5 | Whether to split `directory.md` at all | Defer until it grows again after W4–W7 land. |
