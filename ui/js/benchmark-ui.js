@@ -1,3 +1,4 @@
+// Benchmarking tab: controls, argument adapter, output polling, and session-only summaries.
 (function () {
     const root = window.LlamaGui = window.LlamaGui || {};
 

@@ -67,8 +67,9 @@ Steps:
      `chat-main.js` path.
    - Verify `chat_window_unit.cjs` needs no change (it loads `chat-window.js`).
 5. Docs: `docs/directory.md` (Script Loading Order, Frontend Module Reference, Chat Tab
-   references), `docs/architecture.html` script-order ladder, `docs/changelog.md` dated
-   entry. No route changes, so `tests/backend/test_docs_sync.py` is unaffected.
+   references), `docs/architecture.html` script-order ladder, and a dated changelog
+   entry (the changelog file has since been removed). No route changes, so
+   `tests/backend/test_docs_sync.py` is unaffected.
 6. Delete `ui/js/chat-ui.js` only after green.
 7. Verify: `node --check` per new file → chat-focused units (`chat_ui_unit`,
    `chat_window_unit`, `chat_compaction_unit`, `chat_rendering_unit`, `chat_tools_unit`,

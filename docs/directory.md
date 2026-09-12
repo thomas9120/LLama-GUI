@@ -2,6 +2,15 @@
 
 > **Companion to `AGENTS.md`.** This file is the reference manual for the codebase: architecture, data flow, feature details, and API contracts. `AGENTS.md` contains agent workflow rules, pitfalls, and task recipes.
 
+> **New here?** For clone-to-green-tests setup, start with [`CONTRIBUTING.md`](../CONTRIBUTING.md).
+> To learn the codebase, read in this order:
+>
+> 1. [`AGENTS.md`](../AGENTS.md) — the rulebook: ownership, pitfalls, and the change-type → required-test table
+> 2. This file's [Architecture](#architecture) and [Frontend](#frontend) sections
+> 3. [`docs/tests.md`](tests.md) — [Common Commands](tests.md#common-commands)
+>
+> Everything else in this file is reference material, read on demand.
+
 ---
 
 ## Architecture
@@ -11,9 +20,11 @@
 - **Entry point:** `python server.py` → 26-line compat wrapper → delegates to `backend/app.py`.
 - **GUI server:** `127.0.0.1:5240` by default; `LLAMA_GUI_HOST` and `LLAMA_GUI_PORT` can override the bind address for headless/LAN access.
 - **llama-server:** Runs separately (default port 8080) as a subprocess.
-- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads).
+- **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads), `hf-xet` (Xet-accelerated HF transfers).
 - **State persistence:** `config.json` (installed version, active backend, tag).
 - **Thread safety:** All stateful operations (process, download, tunnel, install) use threading locks.
+- **Request bodies:** JSON only via `read_body()` — capped at 10 MB (`MAX_REQUEST_BODY_SIZE`, HTTP 413), `Transfer-Encoding` refused (501), read timeouts answered with 408.
+- **Live updates:** No WebSocket — one SSE stream (chat completions) plus polling loops that reconcile against authoritative server state; the `runtime_generation` carried by `/api/output` responses lets stale tabs discard superseded output.
 
 ### Companion Repositories
 
@@ -32,19 +43,26 @@
 | `backend/` | Python package: HTTP server, routes, services, state |
 | `ui/` | Static frontend: `index.html`, `js/`, `css/`, `templates/` |
 | `ui/js/flags/` | Ordered pure-data modules for flag definitions |
-| `ui/templates/` | 15 bundled Jinja chat template files |
+| `ui/templates/` | 14 bundled Jinja chat template files |
 | `tests/` | Frontend (Node/Playwright) + backend (unittest) tests |
 | `.github/workflows/` | Continuous integration and the manual stable-release workflow |
-| `docs/` | Documentation: todo, flag audit, architecture, bugtracker |
-| `llama/` | Downloaded `llama.cpp` binaries at runtime |
+| `docs/` | Documentation — cataloged in the [Documentation Index](#documentation-index) at the end of this file |
+| `llama/` | Downloaded `llama.cpp` binaries; empty in a fresh clone |
 | `models/` | User model files (.gguf), in any subfolder; downloaded projectors live beside their models |
 | `presets/` | Saved launcher preset JSON files |
-| `tools/` | Auto-downloaded `cloudflared` binary |
+| `tools/` | Auto-downloaded `cloudflared` binary — runtime-created, absent until a tunnel is first used |
 | `scripts/` | Windows shortcut helper (`create_windows_shortcuts.ps1`) and Linux/macOS launcher helper (`create_unix_shortcuts.py`, called by `install.sh`) |
+| `install.sh`, `windows_install.bat` | One-command installers: create the venv, install dependencies, add shortcuts |
+| `windows_start.bat`, `windows_startsilent.bat`, `mac_linux_start.sh`, `mac_linux_silent_start.sh` | User-facing launchers (silent variants hide the console window) |
+| `online_installers/` | Remote one-command installers behind the README Quick Start (`install-online.ps1` / `install-online.sh`) |
+| `Linux_compile_toolkit/` | `build_llama_cpp_cuda.sh`: builds a portable CUDA `llama.cpp` tarball from source (see `description.md`) |
 | `.launcher/` | Pinokio launcher integration (`launch-llama-gui.ps1`) |
 | `assets/` | App icon in Windows `.ico`, Linux `.png`, and macOS `.icns` formats (PNG/ICNS reuse the ICO's embedded 256px artwork) |
-| `requirements.txt` | `certifi`, `ddgs`, `huggingface_hub` |
+| `requirements.txt` | Python runtime dependencies (annotated list in [Architecture](#architecture)) |
 | `package.json` | Playwright devDependency + test scripts |
+| `ruff.toml` | Ruff lint policy (py39 floor; deliberate ignores documented inline) |
+| `release.ps1`, `release.bat` | Local release-packaging helpers — build a versioned release zip (`.bat` wraps `.ps1`) |
+| `stash-updates.bat` | One-shot `git stash -u` helper: stash local changes before an app update |
 
 ---
 
@@ -55,7 +73,7 @@
 | Module | Role |
 |--------|------|
 | `backend/app.py` | HTTP handler, CORS, proxy, route registry, main() |
-| `backend/config.py` | Path constants, env var parsing, web search limits |
+| `backend/config.py` | Path constants, env var parsing, web search limits; deliberately free of optional third-party imports so startup diagnostics work on a minimal Python environment |
 | `backend/context.py` | `AppContext`, `AppPaths`, `ServerConfig`, `BackendServices` dataclasses |
 | `backend/state.py` | `ServerState` dataclass, `AtomicDict` (lock-protected dict) |
 | `backend/http.py` | `Request`/`Response`/`SseWriter`, CORS validation, `sanitize_error()` |
@@ -170,7 +188,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 26. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
 27. `app.js` — main orchestration (wires everything together)
 
-**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers.
+**Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
 `flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules access shared state through this namespace, not by importing or referencing private closure variables.
 
@@ -326,13 +344,49 @@ A category may declare `submenuOrder: [...]` (`ui/js/flags/categories.js`) to co
 
 ### llama.cpp Compatibility
 
-- `ui/js/flags/definitions.js` is the single source of truth for all CLI flags exposed in the UI.
-- Before adding, removing, or modifying any flag definition, verify the flag still exists and works as documented in the upstream `llama.cpp` repository at `https://github.com/ggerganov/llama.cpp`.
-- Cross-reference every flag against upstream documentation: flag name and shorthand, expected value type, valid option values for enum types, default values, and whether the flag has been renamed, deprecated, or removed.
-- After any flag-related changes, confirm the generated command preview produces valid arguments that `llama-server` will accept.
-- Verify that enum dropdowns only contain values still recognized by the current `llama.cpp` version.
-- Check that chat template names in `ui/js/flags/chat-templates.js` match templates bundled with the installed `llama.cpp` release.
-- Run `tests/frontend/flag_sync_smoke.cjs` after mirrored-control, flag-state, or command-preview changes when Playwright is available.
+**Curated subset, not a mirror.** Upstream exposes far more flags than a
+usable UI can show, so `FLAGS` deliberately surfaces only the most common
+and useful ones; everything else stays reachable through Custom Launch
+Args. The model below keeps that curated list honest as upstream moves.
+
+**Where truth lives.** Upstream defines the CLI surface in `common/arg.cpp`
+(plus `server.cpp`); `ui/js/flags/definitions.js` mirrors the curated
+subset. Enum values must match upstream exactly, and a boolean whose
+"off" state is a separate flag declares `false_flag` (unchecked `--mmap`
+emits `--no-mmap`). The step-by-step checklist for adding or changing a
+flag lives in [AGENTS.md](../AGENTS.md#feature-pitfalls) — follow that,
+not this prose.
+
+**Lifecycle markers.** Three mechanisms keep definitions compatible with
+binaries that drift in different directions:
+
+| Marker | Meaning | Effect |
+|---|---|---|
+| `fork_only: true` | Flag exists only in a llama.cpp fork (e.g. `--spec-draft-adaptive`), not upstream | Default-off boolean with a `docs/upstream-changes.md` entry; binary compatibility checks skip it |
+| `removed_in: "bNNNNN"` | Upstream removed the flag in that build (e.g. legacy `--mmap` / `--mlock` / direct-IO, removed in b10875) | Definition stays for older builds; the installed-binary check exempts it at or above the tag |
+| Build-tag gates | Behavior must differ by installed build | `manager.js` feeds `/api/status`'s `version` (config.json's installed release tag; custom slots report `"custom"`) into `flagCore.setBinaryTag()`; helpers like `supportsLoadModeOnly()` and `supportsNativeReasoningEffort()` match `/^b(\d+)/` against a threshold. Unrecognized tags fall back to legacy behavior, so older and custom builds keep working |
+
+**The ledger.** `docs/upstream-changes.md` tracks every announced upstream
+change that may need a coordinated GUI update — fork-only flags, removals,
+pending PRs — each with upstream reference, status, and remaining work.
+Entries are deleted once handled or deliberately declined.
+
+**Mechanical enforcement.** `tests/frontend/llama_flags_supported_unit.cjs`
+compares every non-`fork_only` definition against an installed binary's
+`--help`, parsing the build from `--version` to honor `removed_in`
+exemptions. Locally (`npm run test:flags`) it runs without a binary;
+setting `LLAMA_GUI_LLAMA_BIN_DIR` — or passing `--require-binaries` —
+makes it fail loudly instead. CI does exactly that:
+`.github/workflows/tests.yml` downloads the release pinned in
+`tests/llama-cpp-pin.json` (tag, asset, sha256 — bump all three fields
+together to pin a newer release), exports `LLAMA_GUI_LLAMA_BIN_DIR`, and
+runs `npm test` under it, so every PR proves the flag list against one
+known binary.
+
+After any flag change, also confirm the command preview emits arguments
+`llama-server` accepts, and that chat-template names in
+`ui/js/flags/chat-templates.js` still match the installed release (see
+[Chat Template Presets](#chat-template-presets) below).
 
 ---
 
@@ -618,7 +672,7 @@ The list is one composite widget rather than a few hundred tab stops. At the ref
 
 ### Duplicate And Rename
 
-`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames need care on Windows — see the notes in `docs/design-docs/preset-todo.md`.
+`duplicatePreset()` copies the *saved* preset data straight to `POST /api/presets`, so live Configure and Quick Launch values are never touched. Rename uses `POST /api/presets/rename`, which carries the `.preset-created-times` entry so "Date added" sorting survives. Case-only renames (`my preset` → `My Preset`) are supported: Windows `Path` equality and `resolve()` are case-insensitive and would collapse the rename onto its source, so the route renames against the requested spelling and uses `samefile()` to tell a case-only rename from a genuine collision with a different preset.
 
 ### Local Storage Keys
 
@@ -1088,22 +1142,13 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | File | Purpose |
 |------|---------|
 | `AGENTS.md` | Agent workflow rules, pitfalls, task recipes, file ownership |
+| `CONTRIBUTING.md` | Developer quickstart: setup, run, dev loop, tests, and PR checklist |
 | `docs/directory.md` | This file — project structure and feature reference |
-| `docs/architecture.html` | Visual architecture guide — diagrams of the layers, request lifecycle, script-order dependency ladder, and key flows |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
 | `docs/gpu-monitoring.md` | User setup guide for NVIDIA SMI, AMD SMI, and the optional cross-vendor all-smi collector |
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
-| `docs/custom-model-plan-final.md` | Implemented custom model-folder design and acceptance record |
-| `docs/editable-launch-command-plan.md` | Deferred implementation plan for a shared-state-backed editable launch command tab and custom backend arguments |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
 | `docs/frontend-maintainability-tier-2-plan.md` | Proposed Tier-2 frontend maintainability scope, module boundaries, implementation order, and verification gates |
-| `docs/todo.md` | Known planned work |
-| `docs/design-docs/bugtracker.md` | Open and resolved defect notes |
-| `docs/design-docs/preset-todo.md` | Presets tab UI/UX backlog — all items shipped, kept for the design reasoning |
-| `docs/ui-ux-polish.md` | UI/UX polish direction for experienced llama.cpp users, open decisions, implementation slices, and saved Configure/Quick Launch mockups |
-| `docs/design-docs/router-mode.md` | Router mode design notes |
-| `docs/design-docs/flag_report.md` | Archived one-time flag audit report (May 2026) |
-| `docs/design-docs/llama_cpp_compat_report.md` | Current llama.cpp compatibility report |
 | `docs/images/` | Screenshots used by README.md |

@@ -19,8 +19,13 @@ Switching slots preserves both builds and keeps models and presets shared. Remov
 Backend:
 
 ```bash
-python -m unittest discover tests -v
+# Windows
+.venv\Scripts\python.exe -m unittest discover tests -v
+# Linux/macOS
+.venv/bin/python -m unittest discover tests -v
 ```
+
+Run these with the project venv, not system Python: the suite needs runtime dependencies like `huggingface_hub`, and a system interpreter fails with misleading "require the huggingface_hub package" errors.
 
 Frontend smoke tests are for contributors and CI only (`npm ci`, Playwright Chromium, `npm run test:frontend`). Normal installs and Pinokio only need `requirements.txt`.
 

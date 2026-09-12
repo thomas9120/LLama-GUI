@@ -1,3 +1,5 @@
+// Chat tools: opt-in browser date/time tool preference, bounded streamed-call assembly,
+// local execution, and tool-exchange request/display helpers.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

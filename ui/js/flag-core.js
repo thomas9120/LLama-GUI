@@ -1,3 +1,6 @@
+// Shared flag state and launch-argument core: currentTool, flagValues and shared setters,
+// custom launch args parsing, preset apply/collect helpers, getLaunchArgs(), and command
+// preview generation. Exposed as window.LlamaGui.flagCore - the one shared state layer.
 (function () {
     const root = window.LlamaGui = window.LlamaGui || {};
     let currentTool = "llama-server";

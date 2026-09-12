@@ -1,3 +1,6 @@
+// GitHub releases and backend management: release fetching, installation/update flows,
+// the shared fetchJson() utility, the known-model-name cache, and accepted-status
+// runtime reconciliation.
 let cachedReleases = null;
 let releasesBackend = null;
 let releasesBackendInFlight = null;

@@ -1,3 +1,5 @@
+// App shell: grouped navigation, responsive navigation drawer, and the shared sidebar
+// runtime summary.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
     let dependencies = {};

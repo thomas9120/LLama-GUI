@@ -5,7 +5,7 @@
 - Read `docs/directory.md` before non-trivial work; it contains the architecture, module map, and canonical frontend script order. See `docs/tests.md` for test coverage and commands.
 - Keep diffs minimal, reuse existing helpers, and fix root causes. Start in the owning module; touch others only as needed.
 - When adding/reordering frontend scripts, preserve dependency order and update `docs/directory.md`.
-- When adding/removing backend routes, update the Route Modules table and endpoint count in `docs/directory.md` and the API surface table in `docs/architecture.html`. `tests/backend/test_docs_sync.py` checks both.
+- When adding/removing backend routes, update the Route Modules table and endpoint count in `docs/directory.md`. `tests/backend/test_docs_sync.py` checks it.
 
 ## Frontend
 
@@ -14,6 +14,7 @@
 - Reuse `CHAT_TEMPLATE_PRESET_OPTIONS` from `ui/js/flags/chat-templates.js` for chat-template dropdowns.
 - Use `textContent` for user/model content. The only HTML-rendering exception is `renderMarkdown()` for model output.
 - Add behavior in focused `window.LlamaGui` modules; no new globals in `app.js`.
+- No JS linter, by design (reviewed 2026-09-11): ordered global scripts share top-level functions across files — e.g. the `presets/` package — which defeats ESLint's per-file analysis; `module_namespace_unit.cjs` and the unit suites enforce the structure instead.
 - Keep platform decisions in the backend.
 - No silent empty `catch`: use `console.debug` for expected optional failures, `console.warn` for unexpected ones.
 - Avoid `instanceof` across realms (`node:vm` tests). Duck-type collections; use `Array.isArray` for arrays.
@@ -54,6 +55,7 @@ Run checks appropriate to the change; use `docs/tests.md` to select focused unit
 | Themes | `node tests/frontend/theme_ui_unit.cjs` |
 | Mirrored controls, shared state, command preview, or DOM wiring | `npm run test:frontend` |
 | Backend | `.venv/Scripts/python.exe -m unittest discover tests -v` |
+| Documentation references | `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v` |
 | Full frontend suite | `npm test` |
 
 Use the **project venv** for backend tests (`.venv/bin/python` on Unix). System Python may lack runtime dependencies and produce misleading failures.

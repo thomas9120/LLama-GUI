@@ -1,3 +1,5 @@
+// Character cards: bounded local JSON/PNG parsing, field validation, basic name macros,
+// and conversion to an editable prompt and greeting.
 (function () {
     window.LlamaGui = window.LlamaGui || {};
 

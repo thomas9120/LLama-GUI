@@ -1,3 +1,5 @@
+// Chat pop-out window: verified window bootstrap, origin-scoped Web Lock host adapter,
+// versioned recovery record, and ownership/recovery coordination with the main window.
 (function () {
     "use strict";
 

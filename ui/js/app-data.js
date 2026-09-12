@@ -1,3 +1,4 @@
+// Shared pure data: QUICK_PROFILES, BUILTIN_SAMPLER_PRESETS, CHAT_SAMPLER_SLIDER_MAP.
 const CHAT_SAMPLER_SLIDER_MAP = {
     "chat-slider-temp": { flag: "temperature", decimals: 2, fallback: 0.8 },
     "chat-slider-top-p": { flag: "top_p", decimals: 2, fallback: 0.95 },
