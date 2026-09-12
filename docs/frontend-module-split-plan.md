@@ -1,8 +1,8 @@
 # Frontend Module Split Plan
 
 > **Status: Tier 1 complete (2026-09-11).** Both sessions landed and the full suite is green.
-> This document now records the recipe (mechanism + session notes below) and the
-> future targets we will pick up at a later date.
+> This document records the completed Tier 1 recipe and session notes. The current
+> Tier 2 roadmap lives in `docs/frontend-maintainability-tier-2-plan.md`.
 > Scope was Tier 1 only — split `ui/js/chat-ui.js` and `ui/js/presets.js`. Stay inside the
 > current global-script architecture (no ES modules, no bundler). One module per session,
 > full test suite green before the next.
@@ -94,12 +94,15 @@ package per file to mirror browser script boundaries. Same index.html slot
 (position 7, after `manager.js`, before `searchable-select.js`), same docs, same
 verification bar.
 
-## Future targets (Tier 2) — not scheduled
+## Historical Tier 2 candidate snapshot
 
-Pick these up in later sessions, one module per session, same bar as Tier 1: map first,
-move second, full `npm test` green, docs updated in the same session, old file deleted
-only after green. Choose the recipe by module shape — both are proven and recorded
-above:
+> **Superseded planning detail:** `docs/frontend-maintainability-tier-2-plan.md`
+> is now the source of truth for Tier 2 scope and implementation order. The
+> snapshot below is retained as the original follow-up list from the Tier 1 work.
+
+The original follow-up snapshot proposed one module per session, with the same Tier 1
+bar: map first, move second, full `npm test` green, docs updated in the same session,
+and the old file deleted only after green. It chose a recipe by module shape:
 
 - **Session A recipe** — IIFE with closure state → ordered package with a private
   internal namespace, explicit state object, and `I.`/`S.` renames.
