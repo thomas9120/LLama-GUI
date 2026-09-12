@@ -4,7 +4,6 @@
 
 - Read `docs/directory.md` before non-trivial work; it contains the architecture, module map, and canonical frontend script order. See `docs/tests.md` for test coverage and commands.
 - Keep diffs minimal, reuse existing helpers, and fix root causes. Start in the owning module; touch others only as needed.
-- Add a dated summary to `docs/changelog.md` for program changes; documentation-only changes are excluded.
 - When adding/reordering frontend scripts, preserve dependency order and update `docs/directory.md`.
 - When adding/removing backend routes, update the Route Modules table and endpoint count in `docs/directory.md` and the API surface table in `docs/architecture.html`. `tests/backend/test_docs_sync.py` checks both.
 
