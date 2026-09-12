@@ -34,6 +34,8 @@ behavior a maintainer must understand for one change.
   suite to green before starting the next session.
 - Keep diffs mechanical inside movement sessions. Do not combine a package split
   with unrelated behavior changes or visual redesigns.
+- Treat candidate file lists as provisional. Split where ownership becomes clearer;
+  combine concerns where separation would merely add forwarding methods.
 
 ## Baseline and priority signals
 
@@ -199,8 +201,11 @@ A candidate package is:
 | `manager-app-update.js` | Git update status and application update flow |
 | `manager-model-dir.js` | Active model-directory controls and operation state |
 | `manager-models.js` | Model refresh race guards and known-name cache |
-| `manager-lifecycle.js` | Stop/restart/reconnect behavior |
+| `manager-lifecycle.js` | GUI-server shutdown, restart, and reconnection |
 | `manager-main.js` | Configuration, initialization, and public facade assembly |
+
+Keep llama-process launch, stop, switching, and readiness orchestration owned by
+the existing `ui/js/process-lifecycle.js`.
 
 Each concern should own its mutable state where practical. If a private internal
 namespace is needed for ordered classic scripts, use named sub-objects or narrow
@@ -227,7 +232,8 @@ application services currently housed in `monitor-ui.js`. Move them to
   `window.LlamaGui.inferenceStats`.
 - Make `app.js` depend on the inference facade directly instead of obtaining its
   engine from Monitor UI.
-- Let Monitor consume rendered snapshots from the same facade.
+- Have the pure engine emit data snapshots; UI modules render the same shared
+  snapshot in Monitor and the fixed stats bar.
 - Temporarily preserve the existing Monitor exports as compatibility delegates if
   that keeps the session behavior-only and reduces blast radius.
 - Move the pure inference cases from `monitor_ui_unit.cjs` into
@@ -236,8 +242,12 @@ application services currently housed in `monitor-ui.js`. Move them to
 ### Success criteria
 
 - The inference core can be evaluated and tested without a DOM stub.
-- Exactly one polling controller and one target-keyed inference engine remain in
-  the main application.
+- Exactly one inference polling controller and one target-keyed inference engine
+  remain in the main application, separate from Monitor system telemetry polling.
+- Preserve and test the visibility distinction: the hidden host continues inference
+  polling while detached Chat is open; system telemetry retains its existing
+  panel/document visibility gates. The detached window consumes host snapshots
+  without starting another inference poller.
 
 ## Session 6 — split Monitor UI and its tests
 
@@ -246,7 +256,7 @@ Candidate package boundaries:
 | Module | State / behavior owner |
 |---|---|
 | Monitor internal/main | Dependencies, initialization, stable public facade |
-| Polling | Panel/document visibility, timer, abort controller, last sample |
+| System telemetry polling | Panel/document visibility, timer, abort controller, last sample |
 | System cards | CPU, RAM, disk, and shared metric-card rendering |
 | GPU cards | GPU identity, reconciliation, state/setup cards |
 | Card preferences | Hidden-card storage, order, keyboard and drag state |
@@ -266,7 +276,8 @@ Manager and inference extraction should remove a significant amount of implicit
 coupling first. Then reassess `app.js` and extract only the remaining cohesive
 mechanisms:
 
-- inference polling, target reconciliation, and abort/timer generations;
+- inference polling, target reconciliation, and abort/timer generations, preserving
+  the hidden-host/detached-Chat behavior specified in Session 5;
 - memory-estimate request and rendering state;
 - process-output polling if it does not belong in `process-lifecycle.js` or the
   existing output cursor;
@@ -282,7 +293,12 @@ not to hit an arbitrary line-count target.
 `ui/css/style.css` is the highest-churn frontend file and should be treated as a
 maintainability target, not merely an asset.
 
-### Candidate order
+### Candidate feature groups
+
+These are eventual grouping targets, not the required load order for the first
+split. Start with contiguous sections in their current source order. Existing
+responsive blocks mix several features, and Monitor styles follow them; preserving
+that order takes precedence over grouping by feature.
 
 1. base, typography, shell, and layout;
 2. shared controls, surfaces, dialogs, and toasts;
@@ -298,8 +314,10 @@ maintainability target, not merely an asset.
 - Keep `tokens.css` first and as the only source of theme palettes and color
   literals.
 - Load component styles with ordered `<link>` elements; do not use CSS `@import`.
-- Keep feature media queries with their feature where cascade behavior permits.
-- Mechanically preserve selector declarations and order during the first split.
+- Mechanically preserve selector declarations, enclosing at-rules, and their order
+  across the concatenated stylesheets during the first split.
+- After verifying equivalence of the initial split, regroup rules and colocate
+  feature media queries only in a separate change with cascade and visual checks.
 - Extend theme/style tests to inspect every non-token stylesheet, not only the old
   `style.css` path.
 - Update backend static-asset/cache-buster expectations and Pinokio compatibility
@@ -359,10 +377,16 @@ and keep the real browser transfer/reload suite as the acceptance gate.
 3. Run `npm run test:frontend:modules` for script order and facade availability.
 4. Run `npm run test:frontend` for DOM wiring, mirrored state, and pop-out behavior
    when those areas are touched.
-5. Run full `npm test` before completing the session.
+5. Run `npm test` before completing the session; this is the full frontend gate,
+   not the backend suite.
 6. Update `docs/directory.md`, `docs/architecture.html`, and the dated changelog
    entry required for program changes.
-7. Check Pinokio compatibility whenever static asset paths, script/style loading,
+7. Run `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
+   after documentation-reference changes.
+8. When backend code changes, including static-asset or cache-buster handling, run
+   `.venv/Scripts/python.exe -m unittest discover tests -v`. Use the project venv
+   (`.venv/bin/python` on Unix).
+9. Check Pinokio compatibility whenever static asset paths, script/style loading,
    startup, shutdown, or cache busting changes.
 
 ## Explicit non-goals for Tier 2
