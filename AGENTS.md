@@ -14,6 +14,7 @@
 - Reuse `CHAT_TEMPLATE_PRESET_OPTIONS` from `ui/js/flags/chat-templates.js` for chat-template dropdowns.
 - Use `textContent` for user/model content. The only HTML-rendering exception is `renderMarkdown()` for model output.
 - Add behavior in focused `window.LlamaGui` modules; no new globals in `app.js`.
+- No JS linter, by design (reviewed 2026-09-11): ordered global scripts share top-level functions across files — e.g. the `presets/` package — which defeats ESLint's per-file analysis; `module_namespace_unit.cjs` and the unit suites enforce the structure instead.
 - Keep platform decisions in the backend.
 - No silent empty `catch`: use `console.debug` for expected optional failures, `console.warn` for unexpected ones.
 - Avoid `instanceof` across realms (`node:vm` tests). Duck-type collections; use `Array.isArray` for arrays.

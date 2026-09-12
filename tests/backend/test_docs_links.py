@@ -54,9 +54,6 @@ EXEMPT_DOCS = {
     "docs/frontend-module-split-plan.md",
     # Same, for the Tier-2 frontend split.
     "docs/frontend-maintainability-tier-2-plan.md",
-    # Onboarding audit tracker; quotes dead paths and stale commands as
-    # evidence. Remove this entry when the doc itself is removed.
-    "docs/developer-onboarding-plan.md",
 }
 
 # llama.cpp's own files that collide with this repo's tests/ prefix. They

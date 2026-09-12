@@ -1151,5 +1151,4 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
 | `docs/frontend-maintainability-tier-2-plan.md` | Proposed Tier-2 frontend maintainability scope, module boundaries, implementation order, and verification gates |
-| `docs/developer-onboarding-plan.md` | New-developer onboarding audit — verified findings and tracked improvement work items |
 | `docs/images/` | Screenshots used by README.md |
