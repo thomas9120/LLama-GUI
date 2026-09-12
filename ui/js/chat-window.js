@@ -1098,7 +1098,7 @@
             const initOptions = Object.assign({ acquire: true, recover: true }, options || {});
             if (disposed) return result(false, "disposed");
             if (ownershipActive) return result(true, "already-owner", { popoutAvailable: lockSupport() });
-            // chat-ui starts in legacy single-window ownership.  Revoke that
+            // The Chat package starts in legacy single-window ownership.  Revoke that
             // optimistic state before any lock attempt, while preserving an
             // already initialized owner's active stream on repeated calls.
             if (!ownershipActive) setUiOwnership(false);

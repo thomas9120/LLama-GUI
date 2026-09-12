@@ -14,7 +14,20 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "presets.js"), "utf8");
+const presetPackageFiles = [
+    "presets-internal.js", "presets-apply.js", "presets-models.js", "presets-local.js",
+    "presets-library.js", "presets-detail.js", "presets-roving.js", "presets-groups.js",
+    "presets-crud.js", "presets-main.js",
+];
+const presetPackageSources = presetPackageFiles.map(
+    file => fs.readFileSync(path.join(ROOT, "ui", "js", "presets", file), "utf8"),
+);
+function runPresetPackage(ctx) {
+    // Per-file evaluation mirrors the browser's script boundaries.
+    presetPackageSources.forEach((pkgSource, i) => {
+        vm.runInContext(pkgSource, ctx, { filename: `ui/js/presets/${presetPackageFiles[i]}` });
+    });
+}
 
 function makeElement(className = "") {
     const classNames = new Set(String(className).split(" ").filter(Boolean));
@@ -123,7 +136,7 @@ function createContext() {
     ctx.window = ctx;
     ctx.window.LlamaGui = { manager: { getKnownModelNames: () => null } };
     vm.createContext(ctx);
-    vm.runInContext(source, ctx, { filename: "presets.js" });
+    runPresetPackage(ctx);
     return ctx;
 }
 

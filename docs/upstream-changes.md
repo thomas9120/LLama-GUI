@@ -14,7 +14,7 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 - **Upstream:** [ggml-org/llama.cpp#26941](https://github.com/ggml-org/llama.cpp/pull/26941), merged on 2026-08-14 as commit `7e4c0a9`, first release `b10434`.
 - **Status:** Implemented (2026-08-19). The Default Reasoning Effort control emits native `--reasoning-effort LEVEL` on b10434+ (gated by the installed build tag from `/api/status`), Chat sends top-level `reasoning_effort` with the nested `chat_template_kwargs` fallback, and `/props` `chat_template_caps.supports_reasoning_effort` drives a Chat sidebar hint via the new `GET /api/llama/props` proxy.
-- **Remaining:** the dual paths stay until the supported binary floor makes them dead code — the legacy merged-kwargs launch path (`flag-core.js`) and the nested `chat_template_kwargs` copy in Chat requests (`chat-ui.js` `getChatThinkingParams`) can then be removed in one sweep.
+- **Remaining:** the dual paths stay until the supported binary floor makes them dead code — the legacy merged-kwargs launch path (`flag-core.js`) and the nested `chat_template_kwargs` copy in Chat requests (`chat-request.js` `getChatThinkingParams`) can then be removed in one sweep.
 - **Upstream caution:** [ggml-org/llama.cpp#27023](https://github.com/ggml-org/llama.cpp/issues/27023) remains open and reports Low/High having no effect on some models in an earlier build. Smoke-test levels visibly before treating them as verified on a given model.
 
 ### Fork-only acceptance-based draft sizing (`--spec-draft-adaptive`)

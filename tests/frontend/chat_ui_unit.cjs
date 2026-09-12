@@ -9,7 +9,13 @@ const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
 const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js"), "utf8");
 const chatWindowSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-ui.js"), "utf8");
+const chatPackageFiles = [
+    "chat-internal.js", "chat-workspace.js", "chat-sidebar.js", "chat-request.js",
+    "chat-context.js", "chat-stream.js", "chat-history.js", "chat-main.js",
+];
+const chatPackageSources = chatPackageFiles.map(
+    file => fs.readFileSync(path.join(ROOT, "ui", "js", "chat", file), "utf8"),
+);
 
 const STORAGE_KEY = "llama_gui_conversations";
 const DELETED_STORAGE_KEY = "llama_gui_deleted_conversations";
@@ -324,7 +330,7 @@ function makeContext({
         };
 
     const context = {
-        // Must be set before chat-ui.js is evaluated: the _test* hooks are only
+        // Must be set before chat-main.js is evaluated: the _test* hooks are only
         // attached to the namespace when this opt-in flag is present.
         window: {
             LlamaGui: {}, __LLAMA_GUI_TEST_HOOKS__: true,
@@ -358,7 +364,9 @@ function makeContext({
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-tools.js"), "utf8"), context, { filename: "ui/js/chat-tools.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/character-cards.js"), "utf8"), context, { filename: "ui/js/character-cards.js" });
-    vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
+    chatPackageSources.forEach((pkgSource, i) => {
+        vm.runInContext(pkgSource, context, { filename: `ui/js/chat/${chatPackageFiles[i]}` });
+    });
     if (loadChatWindow) vm.runInContext(chatWindowSource, context, { filename: "ui/js/chat-window.js" });
 
     const api = context.window.LlamaGui.chatUi;
