@@ -35,6 +35,7 @@
 - **Never expose or emit `-cd` / `ctx_size_draft`.** Keep stale preset values inert.
 - New llama.cpp flags: verify upstream (`common/arg.cpp` / `server.cpp`), add to `FLAGS` in `ui/js/flags/definitions.js`, match enum values exactly, and set `false_flag` for negated booleans.
 - Fork-only flags: track in `docs/upstream-changes.md`, set `fork_only: true`, and use booleans defaulting to false. Upstream binary compatibility checks exclude them.
+- Upstream-removed flags kept for older builds: set `removed_in: "bNNNNN"`, track in `docs/upstream-changes.md`. The installed-binary compatibility check exempts them on builds at or above the tag; gate any new-build behavior on `supportsLoadModeOnly()`-style build-tag checks.
 - Chat templates: add one `CHAT_TEMPLATE_PRESETS` entry in `ui/js/flags/chat-templates.js`; bundle `.jinja` files under `ui/templates/`. Emit `--chat-template` or `--chat-template-file`, never both, and reverse-map names/paths to the dropdown.
 - Custom launch args: edit `parseCustomLaunchArgs()` in `ui/js/flag-core.js`, extend its unit tests for new cases, and run them immediately. Parser errors must block launch and appear near the textarea.
 - Themes: add one palette block in `ui/css/tokens.css` and one `THEMES` entry in `ui/js/theme-ui.js`. Never add theme selectors or color literals to `ui/css/style.css`.

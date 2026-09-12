@@ -61,6 +61,7 @@ const flags = [
     { id: "threads", flag: "-t", type: "int", label: "Threads" },
     { id: "load_mode", flag: "--load-mode", type: "enum", label: "Load Mode" },
     { id: "mmap", flag: "--mmap", false_flag: "--no-mmap", type: "bool", label: "Mmap" },
+    { id: "mlock", flag: "--mlock", type: "bool", label: "Mlock" },
     { id: "direct_io", flag: "-dio", type: "bool", label: "Direct I/O" },
     { id: "hf_repo", flag: "-hf", type: "text", label: "HF Repo" },
     { id: "temperature", flag: "--temp", type: "float", label: "Temperature" },
@@ -390,6 +391,118 @@ function flat(result) {
     assert.equal(elements["benchmark-ppl-preset"].value, "gui");
     assert.equal(elements["benchmark-ppl-ctx"].value, "4096");
     assert.equal(elements["benchmark-chunks"].value, "5");
+}
+
+{
+    // llama.cpp b10875+ removed the legacy load flags from llama-bench and
+    // llama-perplexity too, so benchmark commands must translate them into
+    // --load-mode values instead of emitting flags the tools would reject.
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10917")`, context);
+
+    const ppl = adapter.buildBenchmarkArgs({
+        benchmarkType: "perplexity",
+        flags,
+        source: { model: "ppl-model.gguf", flags: {} },
+        promptFile: "eval.txt",
+        pplMmap: false,
+    });
+    assert.equal(ppl.error, null);
+    const pplFlat = flat(ppl);
+    assert.ok(!pplFlat.includes("--no-mmap"), "new builds must not emit --no-mmap for perplexity");
+    const pplLoadModeIndex = pplFlat.indexOf("--load-mode");
+    assert.notEqual(pplLoadModeIndex, -1, "mmap-off must translate to a load mode");
+    assert.equal(pplFlat[pplLoadModeIndex + 1], "none");
+    assert.ok(ppl.applied.some((item) => item.label === "Memory Mapping"
+        && item.value === "Off (--load-mode none)"), "the settings summary must show the translated flag");
+
+    const benchMmapOff = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mmap: false } },
+        defaultFlags: { mmap: false },
+    });
+    assert.equal(benchMmapOff.error, null);
+    assert.ok(!flat(benchMmapOff).includes("-mmp"), "new builds must not emit -mmp");
+    assert.ok(flat(benchMmapOff).includes("--load-mode") && flat(benchMmapOff).includes("none"));
+
+    const benchMmapOn = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mmap: true } },
+    });
+    assert.equal(benchMmapOn.error, null);
+    assert.ok(!flat(benchMmapOn).includes("-mmp"));
+    assert.ok(flat(benchMmapOn).includes("--load-mode") && flat(benchMmapOn).includes("mmap"));
+
+    const benchDio = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", direct_io: true } },
+    });
+    assert.equal(benchDio.error, null);
+    assert.ok(!flat(benchDio).includes("-dio"), "new builds must not emit -dio");
+    assert.ok(flat(benchDio).includes("--load-mode") && flat(benchDio).includes("dio"));
+
+    const benchDioOff = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", direct_io: false } },
+        defaultFlags: { direct_io: false },
+    });
+    assert.equal(benchDioOff.error, null);
+    assert.ok(!flat(benchDioOff).includes("-dio"));
+    assert.ok(!flat(benchDioOff).includes("--load-mode"),
+        "dio-off is the default load behavior on new builds; nothing may be emitted");
+
+    // An explicit load mode still suppresses the legacy toggles entirely.
+    const benchExplicitMode = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "mmap+mlock", mmap: false, direct_io: true } },
+    });
+    assert.equal(benchExplicitMode.error, null);
+    assert.equal(flat(benchExplicitMode).filter((token) => token === "--load-mode").length, 1);
+    assert.ok(flat(benchExplicitMode).includes("mmap+mlock"));
+
+    const benchMlockOn = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mlock: true } },
+    });
+    assert.equal(benchMlockOn.error, null);
+    assert.ok(!flat(benchMlockOn).includes("--mlock"), "new builds must not emit --mlock");
+    assert.ok(flat(benchMlockOn).includes("--load-mode") && flat(benchMlockOn).includes("mlock"));
+
+    const mlockFirstFlags = [...flags];
+    const mmapIndex = mlockFirstFlags.findIndex((flag) => flag.id === "mmap");
+    const mlockIndex = mlockFirstFlags.findIndex((flag) => flag.id === "mlock");
+    [mlockFirstFlags[mmapIndex], mlockFirstFlags[mlockIndex]] = [mlockFirstFlags[mlockIndex], mlockFirstFlags[mmapIndex]];
+    for (const orderedFlags of [flags, mlockFirstFlags]) {
+        const benchMmapMlock = adapter.buildBenchmarkArgs({
+            benchmarkType: "bench",
+            flags: orderedFlags,
+            source: { model: "tiny.gguf", flags: { load_mode: "", mmap: true, mlock: true } },
+        });
+        assert.equal(benchMmapMlock.error, null);
+        assert.equal(flat(benchMmapMlock).filter((token) => token === "--load-mode").length, 1);
+        assert.ok(flat(benchMmapMlock).includes("mmap+mlock"),
+            "enabled mmap and mlock toggles must preserve the supported combined mode in either flag order");
+        assert.ok(!benchMmapMlock.excluded.some((item) => item.label === "Mmap" || item.label === "Mlock"));
+    }
+
+    // Incompatible legacy toggles cannot share one --load-mode slot: the loser
+    // names the winner instead of a generic exclusion. FLAGS order decides.
+    const benchConflict = adapter.buildBenchmarkArgs({
+        benchmarkType: "bench",
+        flags,
+        source: { model: "tiny.gguf", flags: { load_mode: "", mmap: false, direct_io: true } },
+    });
+    assert.equal(benchConflict.error, null);
+    assert.equal(flat(benchConflict).filter((token) => token === "--load-mode").length, 1);
+    assert.ok(benchConflict.excluded.some((item) => String(item.reason).includes("--load-mode")),
+        "the losing legacy toggle must name the winning --load-mode value");
+
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("")`, context);
 }
 
 function trackedClassList(initial = []) {

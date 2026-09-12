@@ -4,20 +4,40 @@
     const STORAGE_KEY = "llama_gui_chat_datetime_enabled";
     const LABEL = "Current Date & Time";
     let enabled = false;
+    let canMutate = () => true;
+    let workspaceChange = null;
     try {
         enabled = localStorage.getItem(STORAGE_KEY) === "true";
     } catch (error) {
         console.debug("Could not read the date/time tool preference", error);
     }
 
-    function setEnabled(value) {
-        enabled = value === true;
-        try {
-            localStorage.setItem(STORAGE_KEY, String(enabled));
-        } catch (error) {
-            console.debug("Date/time tool preference is session-only", error);
-        }
+    function configureWorkspace(options = {}) {
+        canMutate = typeof options.canMutate === "function" ? options.canMutate : () => true;
+        workspaceChange = typeof options.onChange === "function" ? options.onChange : null;
     }
+
+    function syncCheckbox() {
+        const checkbox = typeof document !== "undefined" ? document.getElementById("chat-datetime-enabled") : null;
+        if (checkbox) checkbox.checked = enabled;
+    }
+
+    function setEnabled(value, options = {}) {
+        if (!canMutate()) return false;
+        enabled = value === true;
+        syncCheckbox();
+        if (options.persist !== false) {
+            try {
+                localStorage.setItem(STORAGE_KEY, String(enabled));
+            } catch (error) {
+                console.debug("Date/time tool preference is session-only", error);
+            }
+        }
+        workspaceChange?.();
+        return true;
+    }
+
+    function isEnabled() { return enabled; }
 
     function getDefinitions() {
         return enabled ? [{
@@ -37,9 +57,12 @@
     function init(onChange) {
         const checkbox = document.getElementById("chat-datetime-enabled");
         if (!checkbox) return;
-        checkbox.checked = enabled;
+        syncCheckbox();
         checkbox.onchange = () => {
-            setEnabled(checkbox.checked);
+            if (!setEnabled(checkbox.checked)) {
+                checkbox.checked = enabled;
+                return;
+            }
             onChange?.();
         };
     }
@@ -142,7 +165,7 @@
     }
 
     window.LlamaGui.chatTools = {
-        setEnabled, getDefinitions, getInstructions, init, currentDateTime,
+        configureWorkspace, setEnabled, isEnabled, getDefinitions, getInstructions, init, currentDateTime,
         collectCalls, executeCalls, requestMessages, renderResults,
     };
 })();

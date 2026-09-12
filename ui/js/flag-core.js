@@ -539,8 +539,20 @@
     }
 
     function supportsNativeReasoningEffort() {
-        const match = /^b(\d+)$/.exec(binaryTag);
+        const match = /^b(\d+)/.exec(binaryTag);
         return Boolean(match) && Number(match[1]) >= 10434;
+    }
+
+    // Gate for llama.cpp b10875+, where --mmap/--no-mmap, --mlock, and
+    // -dio/--direct-io/--no-direct-io were removed from llama-server and
+    // llama-cli in favor of --load-mode (upstream PR 28334). The tag comes
+    // from /api/status like the reasoning-effort gate above: official
+    // releases use "bNNNNN" (trailing build suffixes such as "-cuda" are
+    // accepted); custom slots use "custom". Anything unrecognized stays
+    // silent, keeping older and custom builds working.
+    function supportsLoadModeOnly() {
+        const match = /^b(\d+)/.exec(binaryTag);
+        return Boolean(match) && Number(match[1]) >= 10875;
     }
 
     function buildLaunchArgs(state) {
@@ -693,6 +705,17 @@
             args.push(["-m", localModel.path]);
         }
 
+        if (supportsLoadModeOnly()) {
+            const removedLoadFlags = new Set(["--mmap", "--no-mmap", "--mlock", "-dio", "-ndio", "--direct-io", "--no-direct-io"]);
+            const hasRemovedLoadFlag = args.some((entry) => {
+                if (Array.isArray(entry)) return removedLoadFlags.has(String(entry[0]));
+                return removedLoadFlags.has(getCustomArgFlagName(entry));
+            });
+            if (hasRemovedLoadFlag) {
+                warnings.push("Legacy load flags (--mmap/--no-mmap, --mlock, -dio/--direct-io) were removed in llama.cpp b10875 and will fail on this build. Select a --load-mode instead of Legacy controls.");
+            }
+        }
+
         return { args, error: null, warnings };
     }
 
@@ -827,6 +850,7 @@
         compareLaunchSettings,
         setBinaryTag,
         supportsNativeReasoningEffort,
+        supportsLoadModeOnly,
         updateCommandPreview,
         registerApi,
     };

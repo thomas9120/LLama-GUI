@@ -3,10 +3,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { character, cardFile } = require("./character_card_fixtures.cjs");
+const { FakeLocks } = require("./fake_locks.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
 const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js"), "utf8");
+const chatWindowSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-ui.js"), "utf8");
 
 const STORAGE_KEY = "llama_gui_conversations";
@@ -256,9 +258,11 @@ function makeContext({
     storageMode = "normal",
     confirmImpl = async () => true,
     extraElementIds = [],
+    sharedStorageMap = null,
+    loadChatWindow = false,
 }) {
     const elements = new Map();
-    const storageMap = new Map();
+    const storageMap = sharedStorageMap || new Map();
     if (seedConversations.length) {
         storageMap.set(STORAGE_KEY, JSON.stringify(seedConversations));
     }
@@ -322,7 +326,11 @@ function makeContext({
     const context = {
         // Must be set before chat-ui.js is evaluated: the _test* hooks are only
         // attached to the namespace when this opt-in flag is present.
-        window: { LlamaGui: {}, __LLAMA_GUI_TEST_HOOKS__: true },
+        window: {
+            LlamaGui: {}, __LLAMA_GUI_TEST_HOOKS__: true,
+            location: { origin: "http://127.0.0.1:5240" }, isSecureContext: true,
+            console, addEventListener() {}, removeEventListener() {},
+        },
         document: documentStub,
         localStorage: localStorageStub,
         fetch: fetchImpl,
@@ -337,8 +345,8 @@ function makeContext({
             ? { ...console, debug: () => {}, warn: () => {} }
             : console,
         Date,
-        clearTimeout: () => {},
-        setTimeout: (handler) => {
+        clearTimeout: loadChatWindow ? clearTimeout : () => {},
+        setTimeout: loadChatWindow ? setTimeout : (handler) => {
             handler();
             return 1;
         },
@@ -351,6 +359,7 @@ function makeContext({
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/chat-compaction.js"), "utf8"), context, { filename: "ui/js/chat-compaction.js" });
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui/js/character-cards.js"), "utf8"), context, { filename: "ui/js/character-cards.js" });
     vm.runInContext(source, context, { filename: "ui/js/chat-ui.js" });
+    if (loadChatWindow) vm.runInContext(chatWindowSource, context, { filename: "ui/js/chat-window.js" });
 
     const api = context.window.LlamaGui.chatUi;
     const mutable = {
@@ -379,6 +388,8 @@ function makeContext({
     const getStoredDeletedConversations = () => JSON.parse(storageMap.get(DELETED_STORAGE_KEY) || "[]");
     return {
         api,
+        window: context.window,
+        chatWindow: context.window.LlamaGui.chatWindow,
         tools: context.window.LlamaGui.chatTools,
         elements,
         getStoredConversations,
@@ -395,6 +406,13 @@ function deferred() {
     let resolve;
     const promise = new Promise((resolvePromise) => { resolve = resolvePromise; });
     return { promise, resolve };
+}
+
+class IntegrationRecoveryStorage {
+    constructor() { this.values = new Map(); }
+    getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
+    setItem(key, value) { this.values.set(key, String(value)); }
+    removeItem(key) { this.values.delete(key); }
 }
 
 // flush() never blocks the event loop, so an unbounded wait on a condition that
@@ -1921,6 +1939,296 @@ async function runAbortScenario(action) {
             assert.equal(ctx.api._testGetState().chatMessages.at(-1).status, "failed", mode);
             assert.equal(count, ["repeat", "network"].includes(mode) ? 2 : 1, mode);
         }
+    }
+
+    // Workspace snapshots preserve the supported conversation shape and local
+    // recovery preferences while dropping unknown fields and live state. The
+    // raw restoreSnapshot API is inert staging for an observer before its
+    // coordinator grants ownership; durable history remains owner-gated.
+    {
+        const original = [{ id: "snapshot", title: "Saved title", titleCustom: true,
+            systemPrompt: "Saved rules", thinkingEffort: "high", messages: [
+                { role: "user", content: "Question", metadata: { secret: "drop" }, unknown: "drop" },
+                { role: "assistant", content: "Answer", reasoning: "Thought", status: "complete",
+                    sources: [{ index: 1, title: "Reference", url: "https://example.com", secret: "drop" }],
+                    metadata: { usage: { prompt_tokens: 10, total_tokens: 12, credential: "drop" }, timings: { predicted_per_second: 2 } },
+                    versions: [{ content: "Old answer", status: "failed", metadata: { stop_reason: "error" } }],
+                },
+            ] }];
+        let requests = 0;
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (String(url).includes("/api/chat/completions")) requests += 1;
+            return makeFetch("complete")(url, options);
+        }, seedConversations: original,
+            flagValues: { temperature: 0.4, top_p: 0.9 }, extraElementIds: [
+                "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle", "chat-datetime-enabled",
+                "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate",
+            ] });
+        await ctx.api._testLoadConversation("snapshot");
+        ctx.api.init();
+        ctx.elements.get("chat-input").value = "Draft text";
+        ctx.elements.get("chat-system-prompt").value = "Live rules";
+        ctx.elements.get("chat-web-search-toggle").checked = true;
+        ctx.elements.get("chat-web-search-max-results").value = "7";
+        ctx.tools.setEnabled(true);
+        let checkpoints = 0;
+        ctx.api.configureWorkspace({ detachedView: true, checkpoint: () => { checkpoints += 1; return true; } });
+        ctx.elements.get("chat-input")._listeners.input[0]();
+        assert.ok(checkpoints >= 1, "draft changes checkpoint the recoverable workspace");
+        const snapshot = plain(ctx.api.captureSnapshot({ transferId: "t-1", sourceInstanceId: "main", revision: 4, secret: "drop" }));
+        assert.equal(snapshot.kind, "llama-gui-chat-workspace");
+        assert.equal(snapshot.schemaVersion, 1);
+        assert.equal(snapshot.conversation.titleCustom, true);
+        assert.deepEqual(snapshot.metadata, { transferId: "t-1", sourceInstanceId: "main", revision: 4 });
+        assert.equal(snapshot.messages[0].unknown, undefined);
+        assert.equal(snapshot.messages[1].sources[0].secret, undefined);
+        assert.equal(snapshot.messages[1].metadata.usage.credential, undefined);
+        assert.equal(snapshot.messages[1].metadata.timings.predicted_per_second, 2);
+        assert.equal(snapshot.inputs.systemPrompt, "Live rules");
+        assert.equal(snapshot.inputs.draft, "Draft text");
+        assert.equal(snapshot.inputs.datetimeEnabled, true);
+        assert.equal(snapshot.inputs.samplers, undefined, "samplers are read through the shared adapter, never restored");
+        assert.equal(ctx.api.validateSnapshot(snapshot), true);
+        ctx.tools.setEnabled(false);
+        assert.equal(ctx.elements.get("chat-datetime-enabled").checked, false);
+        const invalid = JSON.parse(JSON.stringify(snapshot));
+        invalid.metadata.secret = "reject";
+        assert.equal(ctx.api.validateSnapshot(invalid), false);
+        await ctx.api._testStartNewChat();
+        const storedBeforeRestore = ctx.getStoredConversations();
+        const checkpointsBeforeRestore = checkpoints;
+        assert.equal(ctx.api.setOwnership(false), true);
+        assert.equal(ctx.api.restoreSnapshot(snapshot), true);
+        assert.equal(ctx.api._testGetState().currentConversationId, "snapshot");
+        assert.equal(ctx.elements.get("chat-system-prompt").value, "Live rules");
+        assert.equal(ctx.elements.get("chat-input").value, "Draft text");
+        assert.equal(ctx.tools.isEnabled(), true);
+        assert.equal(ctx.elements.get("chat-datetime-enabled").checked, true,
+            "snapshot restoration synchronizes the visible date/time setting");
+        assert.deepEqual(ctx.getStoredConversations(), storedBeforeRestore, "restore is inert and does not write history");
+        assert.equal(checkpoints, checkpointsBeforeRestore, "restore does not checkpoint by itself");
+        assert.equal(await ctx.api._testSendMessage("observer restore"), false);
+        assert.equal(requests, 0, "observer restore cannot send through the host");
+        assert.deepEqual(ctx.getStoredConversations(), storedBeforeRestore, "observer restore cannot save history");
+    }
+
+    // Ownership, host availability, and suspension gate sends; the intentional
+    // suspended transfer save remains available to the owner.
+    {
+        let requests = 0;
+        let checkpoint = 0;
+        const workspaceInputIds = [
+            "chat-system-prompt", "chat-thinking-effort", "chat-datetime-enabled",
+            "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
+            "chat-slider-temp", "chat-slider-top-p", "chat-slider-top-k", "chat-slider-min-p",
+            "chat-slider-repeat", "chat-slider-max-tokens", "chat-num-temp", "chat-num-top-p",
+            "chat-num-top-k", "chat-num-min-p", "chat-num-repeat", "chat-num-max-tokens",
+        ];
+        const ctx = makeContext({ fetchImpl: (url, options) => {
+            if (String(url).includes("/api/chat/completions")) requests += 1;
+            return makeFetch("complete")(url, options);
+        }, seedConversations: [{ id: "owned", messages: [{ role: "user", content: "Keep" }] }],
+            extraElementIds: workspaceInputIds });
+        await ctx.api._testLoadConversation("owned");
+        ctx.api.configureWorkspace({ checkpoint: () => { checkpoint += 1; return true; }, onChange: () => {} });
+        assert.equal(ctx.api.setOwnership(false), true);
+        assert.equal(ctx.api.getTransferState().allowed, false);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, true, `${id} must be inert without workspace ownership`);
+        }
+        await ctx.api._testSendMessage("blocked");
+        assert.equal(requests, 0);
+        assert.equal(ctx.api.setOwnership(true), true);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, false, `${id} must unlock with workspace ownership`);
+        }
+        assert.equal(ctx.api.suspendTransfer(), true);
+        assert.equal(ctx.api.getTransferState().allowed, false);
+        await ctx.api._testSendMessage("suspended");
+        assert.equal(requests, 0);
+        assert.equal(ctx.api.saveForTransfer(), true);
+        assert.equal(checkpoint, 1);
+        assert.equal(ctx.api.resumeTransfer(), true);
+        ctx.api.setHostAvailable(false);
+        for (const id of workspaceInputIds) {
+            assert.equal(ctx.elements.get(id).disabled, true, `${id} must be inert while the host is unavailable`);
+        }
+        await ctx.api._testSendMessage("offline host");
+        assert.equal(requests, 0);
+        ctx.api.setHostAvailable(true);
+    }
+
+    // Revocation during a pending stream prevents its stale assistant from
+    // being finalized into durable history.
+    {
+        let streamPending = false;
+        const ctx = makeContext({ fetchImpl: makeFetch("hang", { onStreamPending: () => { streamPending = true; } }) });
+        const sending = ctx.api._testSendMessage("ownership race");
+        await flushUntil(() => streamPending, "ownership-race stream");
+        ctx.api.setOwnership(false);
+        await sending;
+        const stored = ctx.getStoredConversations()[0];
+        assert.deepEqual(stored.messages.map(message => message.role), ["user"]);
+    }
+
+    // A failed durable invalidation blocks destructive history operations.
+    {
+        const saved = [{ id: "protected", title: "Protected", messages: [{ role: "user", content: "Do not delete" }] }];
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved });
+        await ctx.api._testLoadConversation("protected");
+        ctx.api.configureWorkspace({ invalidate: () => false });
+        assert.equal(await ctx.api._testDeleteConversation("protected"), false);
+        assert.deepEqual(ctx.getStoredConversations(), saved);
+        assert.equal(ctx.api._testGetState().currentConversationId, "protected");
+    }
+
+    // Confirmation applies only in the epoch in which it was requested, and a
+    // replacement stream restores as a stopped version beside the selected one.
+    {
+        const confirmation = deferred();
+        const saved = [{ id: "confirm", title: "Confirm", messages: [{ role: "user", content: "Keep" }] }];
+        const ctx = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: saved,
+            confirmImpl: () => confirmation.promise, extraElementIds: [
+                "btn-chat-send", "btn-chat-stop", "btn-chat-undo", "btn-chat-regenerate", "btn-chat-clear", "btn-delete-all-history",
+            ] });
+        ctx.api.init();
+        await ctx.api._testLoadConversation("confirm");
+        const deleteButton = ctx.elements.get("chat-history-list").querySelector(".chat-history-item-delete");
+        const deleting = deleteButton._listeners.click[0]({ stopPropagation() {} });
+        await flush();
+        ctx.api.setOwnership(false);
+        confirmation.resolve(true);
+        await deleting;
+        assert.deepEqual(ctx.getStoredConversations(), saved, "stale confirmation cannot delete after revocation");
+    }
+    {
+        let streamPending = false;
+        const ctx = makeContext({ fetchImpl: makeFetch("hang", { onStreamPending: () => { streamPending = true; } }),
+            seedConversations: [{ id: "versioned", messages: [
+                { role: "user", content: "Question" }, { role: "assistant", content: "Original" },
+            ] }] });
+        await ctx.api._testLoadConversation("versioned");
+        const sending = ctx.api._testRegenerateResponse();
+        await flushUntil(() => streamPending, "replacement stream");
+        const snapshot = plain(ctx.api.captureSnapshot({ transferId: "version-recovery" }));
+        ctx.api.setOwnership(false);
+        await sending;
+        assert.equal(ctx.api.restoreSnapshot(snapshot), true);
+        const answer = plain(ctx.api._testGetState().chatMessages.at(-1));
+        assert.equal(answer.content, "Original");
+        assert.equal(answer.versionIndex, 0);
+        assert.equal(answer.versions.length, 2);
+        assert.equal(answer.versions[1].content, PARTIAL_TOKEN);
+        assert.equal(answer.versions[1].status, "stopped");
+    }
+
+    // Integration fixture: both real Chat UI instances use the coordinator's
+    // exact peer references and shared recovery store for A → B → A transfer.
+    // This intentionally asserts the complete round trip so a checkpoint made
+    // by saveForTransfer cannot silently leave the prepared revision stale.
+    // Both contexts share one Map, which faithfully models same-partition
+    // localStorage here: stored values are strings (immutable, so no caller
+    // can mutate another context's state without a setItem), and each context
+    // parses its own copy on read.
+    {
+        const sharedUiStorage = new Map();
+        const recoveryStorage = new IntegrationRecoveryStorage();
+        const locks = new FakeLocks();
+        const fixtureConversation = [{ id: "roundtrip", title: "Fixture title", titleCustom: true,
+            systemPrompt: "Fixture system", thinkingEffort: "medium", timestamp: Date.now(),
+            messages: [
+                { role: "user", content: "Fixture question", reasoning: "", status: "complete" },
+                { role: "assistant", content: "Fixture answer", reasoning: "Fixture thought", status: "complete",
+                    sources: [{ index: 1, title: "Fixture source", url: "https://example.test/source" }],
+                    metadata: { usage: { prompt_tokens: 12, completion_tokens: 4, total_tokens: 16 }, timings: { predicted_per_second: 3 } },
+                },
+            ], compactions: [], }];
+        const ctxA = makeContext({ fetchImpl: makeFetch("complete"), seedConversations: fixtureConversation,
+            sharedStorageMap: sharedUiStorage, loadChatWindow: true, extraElementIds: [
+                "chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle",
+            ] });
+        const ctxB = makeContext({ fetchImpl: makeFetch("complete"), sharedStorageMap: sharedUiStorage, loadChatWindow: true,
+            extraElementIds: ["chat-web-search-toggle", "chat-web-search-max-results", "chat-auto-compact-toggle"] });
+        const peerA = {};
+        const peerB = {};
+        const origin = "http://127.0.0.1:5240";
+        const sessionId = "real-ui-roundtrip";
+        const sent = [];
+        let coordinatorA;
+        let coordinatorB;
+        const sendA = (message, messageOrigin, target) => {
+            sent.push({ from: "A", message: plain(message), origin: messageOrigin, target });
+            const handled = coordinatorB.receiveMessage({ data: plain(message), origin: messageOrigin, source: peerA });
+            sent.at(-1).handled = handled;
+            return handled;
+        };
+        const sendB = (message, messageOrigin, target) => {
+            sent.push({ from: "B", message: plain(message), origin: messageOrigin, target });
+            const handled = coordinatorA.receiveMessage({ data: plain(message), origin: messageOrigin, source: peerB });
+            sent.at(-1).handled = handled;
+            return handled;
+        };
+        coordinatorA = ctxA.chatWindow.createCoordinator({ instanceId: "A", sessionId, origin, locks,
+            storage: recoveryStorage, chatUi: ctxA.api, transport: { send: sendA }, transferTimeoutMs: 500, window: ctxA.window });
+        coordinatorB = ctxB.chatWindow.createCoordinator({ instanceId: "B", sessionId, origin, locks,
+            storage: recoveryStorage, chatUi: ctxB.api, transport: { send: sendB }, transferTimeoutMs: 500, window: ctxB.window });
+        ctxA.api.configureWorkspace({
+            checkpoint: snapshot => coordinatorA.checkpoint(snapshot),
+            invalidate: () => coordinatorA.invalidateRecovery().ok,
+        });
+        ctxB.api.configureWorkspace({
+            checkpoint: snapshot => coordinatorB.checkpoint(snapshot),
+            invalidate: () => coordinatorB.invalidateRecovery().ok,
+        });
+        coordinatorA.attachPeer(peerB, { peerId: "B", sessionId, origin });
+        coordinatorB.attachPeer(peerA, { peerId: "A", sessionId, origin });
+        assert.equal((await coordinatorA.initialize({ recover: false })).ok, true);
+        assert.equal((await coordinatorB.initialize({ acquire: false, recover: false })).ok, true);
+        assert.equal(coordinatorA.beginHandshake(), true);
+        await flush();
+        assert.equal(coordinatorA.isPeerVerified(), true);
+        assert.equal(coordinatorB.isPeerVerified(), true);
+        assert.equal(await ctxA.api._testLoadConversation("roundtrip"), true);
+        ctxA.elements.get("chat-input").value = "Draft survives both transfers";
+        ctxA.elements.get("chat-system-prompt").value = "Updated fixture system";
+        const first = await coordinatorA.beginTransfer({ destinationId: "B", transferId: "a-to-b", timeoutMs: 500 });
+        assert.equal(first, true, `A → B transfer failed: A=${JSON.stringify(coordinatorA.getState())} B=${JSON.stringify(coordinatorB.getState())} sent=${JSON.stringify(sent)}`);
+        assert.equal(coordinatorB.isOwner(), true);
+        assert.equal(ctxB.elements.get("chat-input").value, "Draft survives both transfers");
+        assert.equal(ctxB.elements.get("chat-system-prompt").value, "Updated fixture system");
+        const firstRecord = JSON.parse(recoveryStorage.getItem(coordinatorA.storageKey));
+        assert.equal(firstRecord.phase, "prepared", "A → B leaves a durable prepared checkpoint");
+        assert.ok(Number.isInteger(firstRecord.revision) && firstRecord.revision > 0,
+            "A → B checkpoint has a positive durable revision");
+        assert.equal(firstRecord.revision, coordinatorA.getState().revision,
+            "A → B checkpoint revision matches the completed source transfer");
+        assert.deepEqual(firstRecord.transfer, {
+            sourceId: "A", destinationId: "B", sourceInstanceId: "A", destinationInstanceId: "B",
+            transferId: "a-to-b", revision: firstRecord.revision,
+        }, "A → B checkpoint identifies both transfer endpoints");
+        const second = await coordinatorB.beginTransfer({ destinationId: "A", transferId: "b-to-a", timeoutMs: 500 });
+        assert.equal(second, true, `B → A transfer failed: ${JSON.stringify(coordinatorB.getState())}`);
+        assert.equal(coordinatorA.isOwner(), true);
+        assert.equal(coordinatorB.isOwner(), false);
+        assert.equal(ctxA.elements.get("chat-input").value, "Draft survives both transfers");
+        assert.equal(ctxA.api._testGetState().chatMessages.at(-1).content, "Fixture answer");
+        assert.equal(ctxA.api._testGetState().chatMessages.at(-1).metadata.timings.predicted_per_second, 3);
+        const secondRecord = JSON.parse(recoveryStorage.getItem(coordinatorA.storageKey));
+        assert.equal(secondRecord.phase, "prepared", "B → A leaves a durable prepared checkpoint");
+        assert.ok(secondRecord.revision > firstRecord.revision, "B → A advances the durable revision");
+        assert.deepEqual(secondRecord.transfer, {
+            sourceId: "B", destinationId: "A", sourceInstanceId: "B", destinationInstanceId: "A",
+            transferId: "b-to-a", revision: secondRecord.revision,
+        }, "B → A checkpoint identifies the reversed endpoints");
+        const finalConversations = ctxA.getStoredConversations();
+        assert.equal(finalConversations.length, 1, "A → B → A never duplicates durable history");
+        assert.equal(finalConversations[0].id, "roundtrip");
+        for (const entry of sent) {
+            assert.equal(entry.origin, origin);
+            assert.equal(entry.target, entry.from === "A" ? peerB : peerA, "transport keeps the registered peer reference");
+        }
+        coordinatorA.dispose();
+        coordinatorB.dispose();
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

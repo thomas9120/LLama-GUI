@@ -25,6 +25,7 @@
         "flash_attn",
         "load_mode",
         "mmap",
+        "mlock",
         "direct_io",
         "fit",
         "fit_target",
@@ -180,6 +181,42 @@
         });
     }
 
+    // llama.cpp b10875 removed --mmap/--no-mmap, --mlock, and the -dio family
+    // from every tool — llama-bench and llama-perplexity only advertise
+    // --load-mode on such builds — so legacy load toggles must translate.
+    function isLoadModeOnlyBuild() {
+        const core = root.flagCore;
+        return Boolean(core && typeof core.supportsLoadModeOnly === "function" && core.supportsLoadModeOnly());
+    }
+
+    function getLoadModeArg(args) {
+        for (let index = args.length - 1; index >= 0; index -= 1) {
+            const entry = args[index];
+            if (Array.isArray(entry) && (entry[0] === "--load-mode" || entry[0] === "-lm")) return entry;
+        }
+        return null;
+    }
+
+    function hasLoadModeArg(args) {
+        return Boolean(getLoadModeArg(args));
+    }
+
+    function getLoadModeArgValue(args) {
+        const entry = getLoadModeArg(args);
+        return entry ? String(entry[1]) : "";
+    }
+
+    // On b10875+ builds incompatible legacy toggles cannot share the single
+    // --load-mode slot, so name the winner instead of a generic exclusion.
+    function loadModeConflictReason(flag, args) {
+        if (!isLoadModeOnlyBuild() || !hasLoadModeArg(args)) return "";
+        if (flag.id !== "mmap" && flag.id !== "mlock" && flag.id !== "direct_io") return "";
+        const winner = getLoadModeArgValue(args);
+        return winner
+            ? `Superseded by --load-mode ${winner} from another Legacy toggle; only one load mode can be emitted`
+            : "Superseded by --load-mode from another Legacy toggle";
+    }
+
     function pushFlagArg(args, tool, flag, value) {
         if (isEmptyFlagValue(value)) return false;
 
@@ -197,10 +234,44 @@
                 }
             }
             if (flag.id === "mmap") {
+                if (isLoadModeOnlyBuild()) {
+                    const loadModeArg = getLoadModeArg(args);
+                    if (loadModeArg) {
+                        if (value && loadModeArg[1] === "mlock") {
+                            loadModeArg[1] = "mmap+mlock";
+                            return true;
+                        }
+                        return false;
+                    }
+                    args.push(["--load-mode", value ? "mmap" : "none"]);
+                    return true;
+                }
                 args.push(["-mmp", value ? "1" : "0"]);
                 return true;
             }
+            if (flag.id === "mlock" && isLoadModeOnlyBuild()) {
+                // mlock is opt-in, so only the enabled state maps onto
+                // --load-mode; off matches the new-build default behavior.
+                if (!value) return false;
+                const loadModeArg = getLoadModeArg(args);
+                if (loadModeArg) {
+                    if (loadModeArg[1] === "mmap") {
+                        loadModeArg[1] = "mmap+mlock";
+                        return true;
+                    }
+                    return false;
+                }
+                args.push(["--load-mode", "mlock"]);
+                return true;
+            }
             if (flag.id === "direct_io") {
+                if (isLoadModeOnlyBuild()) {
+                    // "dio off" is the default load behavior on new builds, so
+                    // only the enabled state maps onto --load-mode.
+                    if (!value || hasLoadModeArg(args)) return false;
+                    args.push(["--load-mode", "dio"]);
+                    return true;
+                }
                 args.push(["-dio", value ? "1" : "0"]);
                 return true;
             }
@@ -305,13 +376,12 @@
                     continue;
                 }
 
-                const before = args.length;
                 const didApply = pushFlagArg(args, tool, flag, value);
-                if (didApply && args.length > before) {
+                if (didApply) {
                     applied.push({ label: getFlagLabel(flag), value: flag.sensitive ? "<redacted>" : Array.isArray(value) ? value.join(",") : String(value) });
                 } else {
                     if (!Object.prototype.hasOwnProperty.call(defaultFlags, flag.id) || !valuesEqual(value, defaultFlags[flag.id])) {
-                        excluded.push({ label: getFlagLabel(flag), reason: "Not supported for this benchmark" });
+                        excluded.push({ label: getFlagLabel(flag), reason: loadModeConflictReason(flag, args) || "Not supported for this benchmark" });
                     }
                 }
             }
@@ -353,7 +423,8 @@
                 if (flashAttention) args.push(["-fa", flashAttention]);
                 if (cacheTypeK) args.push(["-ctk", cacheTypeK]);
                 if (cacheTypeV) args.push(["-ctv", cacheTypeV]);
-                if (options.pplMmap === false) args.push(["--no-mmap"]);
+                const mmapOffArg = isLoadModeOnlyBuild() ? ["--load-mode", "none"] : ["--no-mmap"];
+                if (options.pplMmap === false) args.push(mmapOffArg);
                 args.push(["-f", String(options.promptFile)]);
                 if (options.chunks !== undefined && options.chunks !== "") args.push(["--chunks", String(options.chunks)]);
                 if (options.pplStride !== undefined && options.pplStride !== "") args.push(["--ppl-stride", String(options.pplStride)]);
@@ -366,7 +437,7 @@
                 if (flashAttention) applied.push({ label: "Flash Attention", value: flashAttention });
                 if (cacheTypeK) applied.push({ label: "K Cache Type", value: cacheTypeK });
                 if (cacheTypeV) applied.push({ label: "V Cache Type", value: cacheTypeV });
-                applied.push({ label: "Memory Mapping", value: options.pplMmap === false ? "Off (--no-mmap)" : "On" });
+                applied.push({ label: "Memory Mapping", value: options.pplMmap === false ? `Off (${mmapOffArg.join(" ")})` : "On" });
                 applied.push({ label: "Chunks", value: options.chunks === undefined || options.chunks === "" ? "-1" : String(options.chunks) });
                 applied.push({ label: "PPL Stride", value: options.pplStride === undefined || options.pplStride === "" ? "0" : String(options.pplStride) });
                 applied.push({ label: "Warmup", value: options.warmup === false ? "Off" : "On" });

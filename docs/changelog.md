@@ -4,7 +4,26 @@ Please give a brief summary of changes made to the program (excluding documentat
 
 ## 2026-09-11
 
+- Fixed combined mmap/mlock benchmark translation, made Chat settings inert when workspace mutation is unavailable, and synchronized the date/time checkbox after workspace restoration.
+- Fixed detached Chat recovery race: a popup that loses its host keeps the workspace lock while paused, so a reloading main page always observes lock-busy with explicit recovery instead of sometimes silently adopting the quarantined checkpoint.
+- Fixed detached Chat starting with ownership before the verified handoff; the popup now starts as an observer like the host path.
+- Fixed a Chat undo crash when the message container is missing and made the stream-abort helper return a boolean.
+- Cleaned up the pending Chat pop-out storage probe when the main page unloads mid-handshake.
+- Fixed benchmark load-mode translation for the mlock toggle and named the winning --load-mode when two Legacy toggles conflict.
+- Accepted suffixed build tags (e.g. b10875-cuda) in the b10434/b10875 feature gates instead of silently using the legacy path.
+- Fixed a dangling implementation-plan link, stale capability-doc status, an unbounded popup wait, and single-lock fixture fidelity.
+- Improved separate Chat focus and accessible controls, stopped background inference polling after popup close, and kept main GUI navigation available after Chat startup failures.
+- Bounded Chat ownership waits and hardened transfer cancellation and detached-window startup failures.
+- Hardened separate Chat window recovery and added lifecycle, failure, and compatibility coverage with documented browser limits.
+- Fixed hidden main-window Return styling, cleared stale pop-out/return tooltips after ownership transitions, and added persistent blocked/handshake failure guidance.
+- Detached Chat failures now establish the isolated Chat shell before validation and offer same-browser full-GUI recovery guidance without starting app activity.
+- Added a separate Chat window with shared main-window settings, an ownership-safe return action, and a dedicated Chat bootstrap.
+- Added Chat transfer snapshots, ownership guards, and recovery boundaries for the pop-out integration.
 - Removed unused CSS for retired controls and preset chips, including an unused status-dot animation.
+- Marked the legacy mmap/no-mmap, mlock, and Direct I/O flags as removed in llama.cpp b10875 (PR #28334); they stay available for older builds with --load-mode as the replacement.
+- Added a warn-only hint on b10875+ when Legacy load controls or custom args would emit a removed flag, covering the -ndio spelling too.
+- Translated benchmark legacy load toggles to --load-mode on b10875+ because llama-bench and llama-perplexity also dropped --no-mmap, -mmp, and -dio.
+- Exempted flags marked removed_in from the installed-binary compatibility check on builds at or above the removal tag, keeping npm test green on b10875+ installs.
 
 ## 2026-09-10
 

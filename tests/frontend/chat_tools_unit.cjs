@@ -4,9 +4,10 @@ const path = require("node:path");
 const vm = require("node:vm");
 const source = fs.readFileSync(path.resolve(__dirname, "../../ui/js/chat-tools.js"), "utf8");
 
-function load({ storage = new Map(), blocked = false, instant = "2026-09-10T12:34:56Z" } = {}) {
+function load({ storage = new Map(), blocked = false, instant = "2026-09-10T12:34:56Z", checkbox = null } = {}) {
     const context = {
         window: { LlamaGui: {} },
+        document: { getElementById: (id) => id === "chat-datetime-enabled" ? checkbox : null },
         console: { debug() {} },
         Date: class extends Date { constructor() { super(typeof instant === "function" ? instant() : instant); } }, Intl,
         localStorage: {
@@ -30,6 +31,13 @@ assert.equal(load({ storage }).getDefinitions().length, 0, "remember disabling t
 const blocked = load({ blocked: true });
 blocked.setEnabled(true);
 assert.equal(blocked.getDefinitions().length, 1, "blocked storage still allows session use");
+const checkbox = { checked: false, onchange: null };
+const syncedTools = load({ checkbox });
+syncedTools.init();
+syncedTools.setEnabled(true, { persist: false });
+assert.equal(checkbox.checked, true, "programmatic restores synchronize an initialized checkbox");
+syncedTools.setEnabled(false, { persist: false });
+assert.equal(checkbox.checked, false);
 
 const originalTZ = process.env.TZ;
 try {
@@ -97,4 +105,12 @@ assert.equal(wire[2].tool_call_id, wire[1].tool_calls[0].id);
 assert.equal(transcript.length, 2, "request expansion must not change transcript indices");
 assert.equal(tools.requestMessages([{ role: "assistant", content: "", toolMessages: exchange }]).length, 2,
     "a failed continuation keeps the completed tool exchange in context");
+let toolChanges = 0;
+tools.configureWorkspace({ canMutate: () => false, onChange: () => { toolChanges += 1; } });
+assert.equal(tools.setEnabled(false), false, "workspace ownership gates tool preference mutation");
+assert.equal(tools.setEnabled(false, { force: true }), false, "callers cannot bypass workspace ownership");
+assert.equal(tools.isEnabled(), true);
+tools.configureWorkspace({ canMutate: () => true, onChange: () => { toolChanges += 1; } });
+assert.equal(tools.setEnabled(false), true);
+assert.equal(toolChanges, 1);
 console.log("chat_tools_unit.cjs: all tests passed");

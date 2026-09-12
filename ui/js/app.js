@@ -6,9 +6,14 @@ function debounce(fn, ms) {
 const flagCore = window.LlamaGui.flagCore;
 const configFlagsUi = window.LlamaGui.configFlagsUi;
 const themeUi = window.LlamaGui.themeUi;
-const processOutputCursor = window.LlamaGui.outputCursor.create(appendOutput);
-flagCore.setCurrentToolValue("llama-server");
-flagCore.replaceFlagValues(getDefaultValues());
+// A detached page keeps the shared module declarations available, but must not
+// create the main page's cursor, defaults, or polling engines.
+const processOutputCursor = window.LlamaGui.chatWindow?.isDetachedView?.() === true
+    ? null : window.LlamaGui.outputCursor.create(appendOutput);
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
+    flagCore.setCurrentToolValue("llama-server");
+    flagCore.replaceFlagValues(getDefaultValues());
+}
 let outputTimer = null;
 let inferenceTimer = null;
 let inferenceInitialTimer = null;
@@ -29,18 +34,21 @@ const monitorUi = window.LlamaGui.monitorUi;
 // One shared inference snapshot feeds the fixed stats bar and the Monitor
 // Inference card. app.js owns the single polling cycle; the engine owns the
 // target-keyed baselines, rate samples, and per-source availability.
-const inferenceStats = monitorUi.createInferenceStats({ onSnapshot: renderInferenceViews });
-let statsDocumentVisible = true;
+const inferenceStats = window.LlamaGui.chatWindow?.isDetachedView?.() === true
+    ? null : monitorUi.createInferenceStats({ onSnapshot: renderInferenceViews });
+let statsDocumentVisible = window.LlamaGui.chatWindow?.isDetachedView?.() !== true;
 let externalTargetRevision = 0;
 const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
 // Shared Quick Launch and sampler data is defined in app-data.js.
 const apiTab = window.LlamaGui.apiTab;
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 apiTab.configure({
     flagCore,
     copyText,
     getLatestStatus: () => latestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
 });
+}
 const {
     getServerBaseUrl,
     getServerEndpointConfig,
@@ -55,6 +63,10 @@ const benchmarkUi = window.LlamaGui.benchmarkUi;
 const processLifecycle = window.LlamaGui.processLifecycle;
 const modelSwitchUi = window.LlamaGui.modelSwitchUi;
 const presetsApi = window.LlamaGui.presets;
+const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
+const externalServerUi = window.LlamaGui.externalServerUi;
+const hfDownloadUi = window.LlamaGui.hfDownloadUi;
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 samplerPresets.configure({
     flagCore,
     getFlags: () => FLAGS,
@@ -65,20 +77,17 @@ samplerPresets.configure({
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
 presetsApi.configure({ showToast, switchTab });
-const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
 remoteTunnelUi.configure({
     fetchJson,
     copyText,
     getServerEndpointConfig,
 });
-const externalServerUi = window.LlamaGui.externalServerUi;
 externalServerUi.configure({
     fetchJson,
     getLatestStatus: () => latestStatus,
     refreshStatus: refreshRuntimeStatusPanels,
     onExternalTargetChanged: markExternalTargetChanged,
 });
-const hfDownloadUi = window.LlamaGui.hfDownloadUi;
 hfDownloadUi.configure({
     flagCore,
     fetchJson,
@@ -147,7 +156,13 @@ processLifecycle.configure({
     fetchJson,
     refreshStatus: () => fetchJson("/api/status"),
     buildLaunchRequest: buildManualLaunchRequest,
-    abortChat: () => chatUi.abortActiveStream(),
+    abortChat: async () => {
+        const stopped = typeof window.LlamaGui.chatWindow?.abortActiveStream === "function"
+            ? await window.LlamaGui.chatWindow.abortActiveStream()
+            : await chatUi.abortActiveStream();
+        if (stopped === false) throw new Error("The active Chat stream could not be stopped.");
+        return stopped;
+    },
     invalidateOutput: stopOutputPolling,
     invalidateStats: stopStatsPolling,
     startOutput: handleLifecycleProcessStarted,
@@ -169,6 +184,7 @@ modelSwitchUi.configure({
     switchSlot: switchModelSlot,
 });
 processLifecycle.subscribe(handleLifecycleSnapshot);
+}
 
 function syncUiAfterToolChange(nextTool) {
     const toolSel = document.getElementById("tool-select");
@@ -179,6 +195,7 @@ function syncUiAfterToolChange(nextTool) {
     configFlagsUi.resetOpenCategories();
     configFlagsUi.renderFlags();
     flagCore.updateCommandPreview();
+    window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "settings", fields: ["tool"] });
 }
 
 function syncUiAfterSharedStateChange(options) {
@@ -186,6 +203,10 @@ function syncUiAfterSharedStateChange(options) {
     restoreCustomLaunchArgsInput();
     flagCore.updateCommandPreview();
     refreshChatSidebarUI();
+    window.LlamaGui.chatWindow?.notifyHostChange?.({
+        type: "settings",
+        fields: options && Array.isArray(options.fields) ? options.fields : undefined,
+    });
 }
 
 async function fetchModelSwitcherPresetEntries() {
@@ -339,6 +360,7 @@ function initCustomLaunchArgsControls() {
     restoreCustomLaunchArgsInput();
 }
 
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 configFlagsUi.configure({
     debounce,
     fetchJson,
@@ -401,6 +423,7 @@ flagCore.configure({
     },
     postUpdate: syncUiAfterSharedStateChange,
 });
+}
 
 function getPathPickerRequest(flag) {
     return {
@@ -538,6 +561,52 @@ function initQuickLaunch() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+    if (window.LlamaGui.chatWindow?.isDetachedView?.() === true) {
+        await window.LlamaGui.chatWindow.startDetachedView({
+            chatUi,
+            themeUi,
+            monitorUi,
+            confirmAction,
+        });
+        return;
+    }
+    try {
+        await window.LlamaGui.chatWindow.startHostView({
+            chatUi,
+            flagCore,
+            getLatestStatus: () => latestStatus,
+            getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+            getInferenceSnapshot: () => inferenceStats.getSnapshot(),
+            resetInferenceBaseline: () => snapshotStatsBaseline(),
+            getApiAuthorizationHeaders,
+            switchTab,
+            confirmAction,
+            initializeChat: initChatTab,
+            onDetachedChange(detached) {
+                // The hidden main page remains the authoritative inference poller
+                // while its Chat is shown in the detached window. System telemetry
+                // continues to follow ordinary document visibility.
+                statsDocumentVisible = (detached && window.LlamaGui.chatWindow?.hasDetachedView?.() === true)
+                    || document.visibilityState === "visible";
+                monitorUi.setDocumentVisibility(document.visibilityState === "visible");
+                if (!inferenceStats.getTargetKey()) return;
+                if (statsDocumentVisible) {
+                    clearInferenceTimers();
+                    pollStats(statsEpoch);
+                } else {
+                    statsEpoch += 1;
+                    clearInferenceTimers();
+                    if (statsAbortController) {
+                        statsAbortController.abort();
+                        statsAbortController = null;
+                    }
+                    statsActiveEpoch = null;
+                }
+            },
+        });
+    } catch (error) {
+        console.warn("Chat host startup failed; continuing shell startup.", error);
+    }
     themeUi.init();
     initTabs();
     initToolSelect();
@@ -551,7 +620,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     initPresetLibraryControls();
     presetsApi.initContextControls();
     initQuickLaunch();
-    initChatTab();
     benchmarkUi.init();
     monitorUi.init();
     window.LlamaGui.manager.initModelDirControls();
@@ -591,10 +659,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     // bar across app tabs); Monitor system polling resumes while visible.
     document.addEventListener("visibilitychange", () => {
         const visible = document.visibilityState === "visible";
-        statsDocumentVisible = visible;
+        statsDocumentVisible = visible || window.LlamaGui.chatWindow?.hasDetachedView?.() === true;
         monitorUi.setDocumentVisibility(visible);
         if (!inferenceStats.getTargetKey()) return;
-        if (visible) {
+        if (statsDocumentVisible) {
             clearInferenceTimers();
             pollStats(statsEpoch);
         } else {
@@ -799,6 +867,7 @@ function handleLifecycleSnapshot(state) {
     if (document.getElementById("model-switch-card")) {
         modelSwitchUi.refresh().catch(error => console.debug("Failed to refresh Model Switcher", error));
     }
+    window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "lifecycle" });
 }
 
 function handleLifecycleProcessStarted(initialCursor, runtime, _state, launchResult) {
@@ -1065,45 +1134,15 @@ function snapshotStatsBaseline() {
     // The one and only reset operation. With valid raw counters it re-renders
     // the fixed bar and the Inference card as zero immediately; otherwise the
     // reset stays pending until the next valid sample.
-    return inferenceStats.resetBaseline();
+    return inferenceStats?.resetBaseline?.() ?? false;
 }
 
 function renderInferenceViews(snapshot) {
-    renderStatsBarFromSnapshot(snapshot);
+    monitorUi.renderStatsBarFromSnapshot(snapshot);
     monitorUi.renderInferenceSnapshot(snapshot);
-}
-
-function setStatsBarValue(id, value, format) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    el.textContent = value === null || value === undefined ? "--" : format(value);
-}
-
-function renderStatsBarFromSnapshot(snapshot) {
-    const bar = document.getElementById("stats-bar");
-    if (!bar) return;
-    if (!snapshot || !snapshot.targetKey) {
-        bar.classList.add("hidden");
-        for (const id of ["stats-prompt-tokens", "stats-prompt-speed", "stats-gen-tokens", "stats-gen-speed", "stats-context"]) {
-            const el = document.getElementById(id);
-            if (el) el.textContent = "--";
-        }
-        const kvEl = document.getElementById("stats-kv-usage");
-        if (kvEl) kvEl.textContent = "--%";
-        return;
+    if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
+        window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "inference" });
     }
-    bar.classList.remove("hidden");
-    setStatsBarValue("stats-prompt-tokens", snapshot.session.prompt, v => Math.round(v).toLocaleString());
-    setStatsBarValue("stats-prompt-speed", snapshot.speed.prompt, v => v.toFixed(1));
-    setStatsBarValue("stats-prompt-speed-label", snapshot.speed.promptIsLive, live => live ? "tok/s prompt live" : "tok/s prompt avg");
-    setStatsBarValue("stats-gen-tokens", snapshot.session.generated, v => Math.round(v).toLocaleString());
-    setStatsBarValue("stats-gen-speed", snapshot.speed.generated, v => v.toFixed(1));
-    setStatsBarValue("stats-gen-speed-label", snapshot.speed.generatedIsLive, live => live ? "tok/s gen live" : "tok/s gen avg");
-    // Session tokens: cumulative prompt plus generated since the shared reset
-    // baseline. Actual context occupancy lives in the Inference card's
-    // most-filled-slot view.
-    setStatsBarValue("stats-context", snapshot.session.total, v => Math.round(v).toLocaleString());
-    setStatsBarValue("stats-kv-usage", snapshot.context ? snapshot.context.percent : null, v => `${Math.round(v)}%`);
 }
 
 async function pollStats(epoch = statsEpoch) {
@@ -1184,6 +1223,7 @@ async function pollStats(epoch = statsEpoch) {
 
 async function refreshRuntimeStatusPanels() {
     const status = await checkStatus();
+    window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "status" });
     monitorUi.updateProcessHeader();
     updateChatStatusBadge();
     updateApiEndpoints();
@@ -1266,6 +1306,7 @@ async function reconcileAuthoritativeStatus(status) {
     quickLaunchUi.refreshRuntime();
     window.LlamaGui.shellUi.renderRuntime();
     monitorUi.updateProcessHeader();
+    window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "status" });
     if (outcome.ok && shouldAdoptBenchmark) benchmarkUi.restoreRunningState(status);
     return outcome;
 }
@@ -1481,7 +1522,7 @@ function showToast(message, type, options = {}) {
 
 // Chat Tab
 
-chatUi.configure({
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) chatUi.configure({
     flagCore,
     confirmAction,
     getLatestStatus: () => latestStatus,

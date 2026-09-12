@@ -56,13 +56,39 @@ npm run test:frontend
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
-The browser suite has thirteen named `node:test` scenarios, each with a fresh browser context and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
+The browser suite has named `node:test` scenarios with fresh browser contexts and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
 
 ```powershell
 node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smoke.cjs
 ```
 
 The smoke test also covers grouped sidebar navigation, current-page semantics, active-versus-pending runtime identity, external server details, duplicate Stop protection during transitions, mobile focus and dismissal, and maintenance access in short windows.
+
+The Phase 1 chat pop-out capability check is intentionally separate from the application smoke test:
+
+```powershell
+node --test tests/frontend/chat_popout_capabilities.cjs
+```
+
+It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
+
+`node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts.
+
+The coordinator and Chat UI units share `fake_locks.cjs`, a deterministic single-lock stand-in with queued cancellation. Actual cross-context lock scheduling and window-close release belong to the browser fixtures. Roundtrip units assert durable transfer endpoints, revision progression, and shared history; staging a snapshot in an observer must not grant send or persistence permission.
+
+`node --test tests/frontend/chat_popout_integration.cjs` runs the actual application in isolated same-context main/popup pages. It covers a full detach/use/return cycle with a synthetic transcript, tools, answer versions, compaction, draft, focus layout, authoritative sampler updates/unset values, authenticated request construction, and secret exclusion. It verifies a fresh popup after Return, explicit recovery after close/reload, and main-page reload during a checkpointed partial response without auto-resend. Desktop and 390px expanded-panel/Context checks keep Send and the sticky Return action accessible. The popup starts no lifecycle actions or independent status/inference polling. A mapped non-loopback HTTP hostname verifies Chromium's actual insecure-context/Web Locks fallback without contacting an external host. This is browser-engine evidence, not a native LAN or embedded-host test. These scenarios are included in `npm run test:frontend` and never use a real model or existing browser profile.
+
+Successful use/return, blocked or blank opening with a fresh retry, and idle close/deletion recovery run in independent browser contexts. A controlled owner-ack delay closes a real popup during handoff, then checks that the delayed continuation leaves explicit recovery available and cannot reclaim ownership. Detached reload has one pinned contract: its consumed one-shot proof yields an unavailable Chat shell; closing that popup permits explicit recovery in the main window. Partial-stream reload waits for the matching durable checkpoint instead of a fixed delay.
+
+Startup exception fixtures verify that failed popup URL construction removes its storage proof and preserves the main owner, and that a throwing live host getter leaves an inert, visible Chat error without losing the draft or history. Coordinator regressions use bounded state waits to check queued-lock cancellation and invalidation during asynchronous transfer stages.
+
+The main placeholder is a labelled region with separate live status text. Browser checks cover focus after detach, return, and close/recovery, including a disabled composer without a running server. A controlled visibility fixture verifies that closing the popup stops the hidden main page's inference timers while retaining the recovery placeholder. A Chat initialization exception must leave the other GUI sections usable. Runtime actions retain their Chat-abort guard after this failure; the error shell directs the user to reload.
+
+A 2026-09-11 local VM measurement transferred 100 synthetic messages and a 1,043,691-byte recovery record in 23 ms with exact transcript equality. This measures coordinator serialization/copying with in-memory storage, not browser rendering or disk latency. Checkpoints are throttled to 750 ms; storage-quota failures refuse transfer instead of truncating content. Native Pinokio, HTTPS tunnel, and platform-specific window/crash behavior remain manual checks described in [Chat in a separate window](chat-popout.md).
+
+The popup checks also exercise keyboard file-chooser opening, cancellation of each deletion dialog at 390px, Delete All followed by close/recovery without resurrecting the main page's stale transcript, and recovery of a completed date/time tool exchange plus its interrupted continuation. Coordinator units cover missing reset hooks, explicit malformed-record recovery, negative abort acknowledgments, and idempotent owner initialization.
+
+A direct detached URL without an opener must display the Chat unavailable shell, hide Quick Launch/navigation, and offer a same-origin full-GUI link without the detached marker. This orphan-page fixture asserts no API requests, storage writes, or uncaught errors before the user chooses that link.
 
 Preset browser coverage includes loading into Configure, mirrored saved/modified identity, browsing without changing the edit source, masked comparisons, cancelling an update with focus restoration, saving the reviewed snapshot while newer edits remain pending, save-name collisions, rename/archive navigation, recoverable save failures, removal during a review, and containment at 390/900/1440px.
 
@@ -119,7 +145,7 @@ Fast Node tests:
 - `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
-- `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
+- `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
 - `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:

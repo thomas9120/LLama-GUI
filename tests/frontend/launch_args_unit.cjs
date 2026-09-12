@@ -199,10 +199,10 @@ function launchResult() {
     assert.equal(
         vm.runInContext("window.LlamaGui.flagCore.getFlagValues().mmap", context),
         false,
-        "deprecated mmap control should be disabled by default"
+        "legacy mmap control should be disabled by default"
     );
     assert.ok(args.includes("--load-mode") && args.includes("auto"), "default launch args should use auto load mode");
-    assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"), "default launch args should not use deprecated mmap flags");
+    assert.ok(!args.includes("--mmap") && !args.includes("--no-mmap"), "default launch args should not use legacy mmap flags");
     assert.ok(args.includes("--jinja"), "default launch args should reflect llama.cpp's enabled Jinja default");
     assert.ok(!args.includes("--no-jinja"), "default launch args should not disable Jinja");
     const timeoutIndex = args.indexOf("-to");
@@ -586,6 +586,84 @@ function launchResult() {
     assert.ok(args.includes('{"preserve_thinking":true}'));
 
     vm.runInContext(`
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+}
+
+{
+    // llama.cpp b10875+ removed --mmap/--no-mmap, --mlock, and
+    // -dio/--direct-io/--no-direct-io from llama-server/llama-cli (PR #28334).
+    // Legacy controls stay for older builds; new builds get a warn-only hint.
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10874")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10875")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("custom")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    // Suffixed build tags (variant suffixes) must still gate on the number.
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10875-cuda")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10917 (vulkan)")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), true);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("b10874-cuda")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("custom")`, context);
+    assert.equal(vm.runInContext("window.LlamaGui.flagCore.supportsLoadModeOnly()", context), false);
+
+    // Old builds stay silent on the legacy path.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("b10874");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setMultipleFlagValues({ load_mode: "", mlock: true });
+    `, context);
+    let legacyResult = launchResult();
+    let legacyFlat = Array.from(legacyResult.args).flat().map(String);
+    assert.ok(legacyFlat.includes("--mlock"), "legacy mlock must still emit on old builds");
+    assert.equal(legacyResult.warnings.length, 0, "old builds must not warn about legacy load flags");
+
+    // New builds stay silent on the default auto path.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("b10875");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+    `, context);
+    legacyResult = launchResult();
+    legacyFlat = Array.from(legacyResult.args).flat().map(String);
+    assert.ok(legacyFlat.includes("--load-mode") && legacyFlat.includes("auto"));
+    assert.ok(!legacyFlat.includes("--mlock") && !legacyFlat.includes("--mmap"));
+    assert.equal(legacyResult.warnings.filter((w) => String(w).includes("b10875")).length, 0);
+
+    // New builds warn (but still emit) on the legacy path.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setMultipleFlagValues({ load_mode: "", mlock: true });
+    `, context);
+    legacyResult = launchResult();
+    legacyFlat = Array.from(legacyResult.args).flat().map(String);
+    assert.ok(legacyFlat.includes("--mlock"), "legacy mlock must still emit so old presets round-trip");
+    assert.ok(legacyResult.warnings.some((w) => String(w).includes("b10875")), "new builds must warn about legacy load flags");
+
+    // Custom backends and unknown tags stay silent like the reasoning gate.
+    vm.runInContext(`window.LlamaGui.flagCore.setBinaryTag("custom")`, context);
+    legacyResult = launchResult();
+    assert.equal(legacyResult.warnings.filter((w) => String(w).includes("b10875")).length, 0);
+
+    // Custom args with removed spellings warn on new builds.
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("b10875");
+        window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
+        window.LlamaGui.flagCore.setFlagValue("custom_args", "--no-mmap");
+    `, context);
+    legacyResult = launchResult();
+    assert.ok(legacyResult.warnings.some((w) => String(w).includes("b10875")), "custom legacy spellings must warn on new builds");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setFlagValue("custom_args", "-ndio");
+    `, context);
+    legacyResult = launchResult();
+    assert.ok(legacyResult.warnings.some((w) => String(w).includes("b10875")), "custom -ndio spellings must warn on new builds");
+
+    vm.runInContext(`
+        window.LlamaGui.flagCore.setBinaryTag("");
         window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues());
     `, context);
 }
