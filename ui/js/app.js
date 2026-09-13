@@ -44,7 +44,7 @@ const monitorUi = window.LlamaGui.monitorUi;
 // Inference card. app.js owns the single polling cycle; the engine owns the
 // target-keyed baselines, rate samples, and per-source availability.
 const inferenceStats = window.LlamaGui.chatWindow?.isDetachedView?.() === true
-    ? null : monitorUi.createInferenceStats({ onSnapshot: renderInferenceViews });
+    ? null : window.LlamaGui.inferenceStats.createInferenceStats({ onSnapshot: renderInferenceViews });
 let statsDocumentVisible = window.LlamaGui.chatWindow?.isDetachedView?.() !== true;
 let externalTargetRevision = 0;
 const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
@@ -1073,7 +1073,7 @@ async function pollStats(epoch = statsEpoch) {
             try {
                 const text = await metricsResp.text();
                 if (epoch !== statsEpoch) return;
-                metricsValues = monitorUi.parseMetricsText(text);
+                metricsValues = window.LlamaGui.inferenceStats.parseMetricsText(text);
                 metricsOk = true;
             } catch (e) {
                 console.debug("Failed to parse llama-server metric stats", e);
@@ -1090,7 +1090,7 @@ async function pollStats(epoch = statsEpoch) {
                 console.debug("Failed to parse llama-server slot stats", e);
             }
             if (epoch !== statsEpoch) return;
-            slotsNormalized = monitorUi.normalizeSlots(slotsPayload);
+            slotsNormalized = window.LlamaGui.inferenceStats.normalizeSlots(slotsPayload);
             slotsOk = slotsNormalized !== null;
         }
 

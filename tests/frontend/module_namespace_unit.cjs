@@ -204,6 +204,7 @@ const expectedTopLevelKeys = [
     "manager",
     "modelSwitchUi",
     "monitorUi",
+    "inferenceStats",
     "outputCursor",
     "presets",
     "processLifecycle",
@@ -240,6 +241,7 @@ const expectedNamespaces = [
     "samplerPresets",
     "benchmarkUi",
     "monitorUi",
+    "inferenceStats",
     "presets",
     "modelSwitchUi",
     "apiClient",
@@ -257,6 +259,7 @@ for (const namespace of expectedNamespaces) {
 // Other facades keep the existence + documented-method checks below so
 // internal churn stays cheap.
 const facadeKeyContracts = {
+    inferenceStats: ["parseMetricsText", "normalizeSlots", "createInferenceStats"],
     flagCore: [
         "applyFlagValues",
         "buildEffectiveFlagValues",
@@ -431,7 +434,10 @@ assert.equal(typeof llamaGui.remoteTunnelUi.renderStatus, "function");
 assert.equal(typeof llamaGui.shellUi.init, "function");
 assert.equal(typeof llamaGui.benchmarkUi.init, "function");
 assert.equal(typeof llamaGui.monitorUi.init, "function");
-assert.equal(typeof llamaGui.monitorUi.createInferenceStats, "function");
+for (const name of ["parseMetricsText", "normalizeSlots", "createInferenceStats"]) {
+    assert.equal(llamaGui.monitorUi[name], llamaGui.inferenceStats[name], `Monitor compatibility alias: ${name}`);
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 assert.equal(typeof llamaGui.presets.loadPreset, "function");
 assert.equal(typeof llamaGui.modelSwitchUi.getAssignments, "function");
 assert.equal(typeof llamaGui.processLifecycle.switchRuntime, "function");

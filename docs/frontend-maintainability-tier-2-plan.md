@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–4 are complete; Session 5
-> (inference core extraction) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–5 are complete; Session 6
+> (Monitor package and test split) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -315,8 +315,19 @@ registry.
 
 ## Session 5 — extract the inference core
 
+**Completed (2026-09-12).** Extracted the unchanged parser, slots normalizer, and
+per-instance inference engine into the DOM-free inference facade, loaded before
+Monitor. `app.js` uses that facade directly; Monitor retains compatibility aliases
+and both snapshot renderers. Moved every pure inference case to its own DOM-free
+suite, added independent-instance/inertness coverage, and strengthened the browser
+check for continuing hidden-host inference, host-only requests, no popup engine,
+and paused system telemetry. Mechanical comparison confirmed the moved bodies and
+existing cases are unchanged. Diff review, full `npm test` (all 22 browser cases),
+documentation links, asset-versioning checks, and the local Pinokio compatibility
+checker passed. Native supervised-restart smoke was not run.
+
 The metrics parser, slots normalizer, and `createInferenceStats()` engine are
-application services currently housed in `monitor-ui.js`. Move them to
+application services extracted from `monitor-ui.js` into
 `ui/js/inference-stats.js` with no DOM dependency.
 
 ### Changes
@@ -331,6 +342,21 @@ application services currently housed in `monitor-ui.js`. Move them to
   that keeps the session behavior-only and reduces blast radius.
 - Move the pure inference cases from `monitor_ui_unit.cjs` into
   `inference_stats_unit.cjs`.
+
+### Extraction guardrails
+
+- Keep polling, target reconciliation, abort/timer generations, and visibility
+  coordination in `app.js` until Session 7. Keep both renderers in Monitor until
+  Session 6; only parsing, normalization, and per-instance state move here.
+- Preserve fresh-launch versus restored-target baselines, paired token/time
+  averages, batched prompt sampling, task identity, counter rollback, and the
+  15-second live-sampling cutoff. Metrics and slots remain independently available;
+  empty slots must not become indistinguishable from unavailable slots.
+- Keep the two small numeric helpers private to both owning modules; the inference
+  core must not acquire a dependency on Monitor formatting.
+- Preserve the three Monitor methods as aliases of the new facade, with no second
+  implementation or engine instance. Use canonical script order in the Monitor
+  test harness, and retain rendering cases when moving the pure engine tests.
 
 ### Success criteria
 
@@ -512,7 +538,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 2: flag-definition package
 - [x] Session 3: shared services and Manager boundary
 - [x] Session 4: Manager package split
-- [ ] Session 5: inference core extraction
+- [x] Session 5: inference core extraction
 - [ ] Session 6: Monitor package and test split
 - [ ] Session 7: `app.js` composition cleanup
 - [ ] Session 8: feature stylesheet package

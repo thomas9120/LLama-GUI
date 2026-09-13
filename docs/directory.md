@@ -187,9 +187,10 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 25. `chat/*` package, loaded in order: `chat-internal.js` (shared state, constants, storage helpers, `configure()`), `chat-workspace.js` (ownership, transfer snapshots), `chat-sidebar.js` (sidebar controls, samplers, status badge), `chat-request.js` (request building), `chat-context.js` (compaction controls, context preview), `chat-stream.js` (send/stream, edit, undo), `chat-history.js` (conversation persistence, history), `chat-main.js` (`init()` and the `window.LlamaGui.chatUi` assembly)
 26. `chat-window.js` — verified Chat window, ownership/recovery coordination, and dedicated display bootstrap (`window.LlamaGui.chatWindow`)
 27. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
-28. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot engine and rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
-29. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
-30. `app.js` — main orchestration (wires everything together)
+28. `inference-stats.js` — pure metrics/slots normalization and target-keyed inference snapshot engine (`window.LlamaGui.inferenceStats`)
+29. `monitor-ui.js` — Monitor tab system/GPU polling, process-output terminal, shared inference snapshot rendering, card visibility preferences (`window.LlamaGui.monitorUi`)
+30. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
+31. `app.js` — main orchestration (wires everything together)
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
@@ -212,6 +213,14 @@ Detached Chat receives the shared dialog facade without initializing Manager.
 new consumers receive the API client through configuration. `manager.showStatus`
 keeps the install-status renderer available to Configure, and
 `manager.clearAppReloadParam` supports startup URL cleanup.
+
+Inference parsing and state live in `ui/js/inference-stats.js`, which loads before
+Monitor and has no DOM, storage, transport, or timer dependencies. `app.js` calls
+its facade directly and creates one engine only on the main page. The main page
+retains polling, target reconciliation, and epoch invalidation; Monitor renders
+the emitted snapshot in both views. A hidden host keeps inference polling while
+detached Chat is open, while system telemetry keeps its panel/document gates.
+Detached Chat consumes host snapshots and creates no inference engine or poller.
 
 ### Frontend Module Reference
 
@@ -278,7 +287,8 @@ keeps the install-status renderer available to Configure, and
 | `ui/js/chat/chat-main.js` | `window.LlamaGui.chatUi` | Chat `init()`, the public `chatUi` namespace assembly, and test-only hooks; loaded last in the package. The package reads and writes launch-relevant sampler state through the `flagCore` injected via `configure()` |
 | `ui/js/chat-window.js` | `window.LlamaGui.chatWindow` | Dedicated Chat display, verified main/popup bridge, exclusive workspace ownership, handoff, and recovery checkpoints |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
-| `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and the target-keyed inference snapshot engine (`createInferenceStats`) shared by the fixed stats bar and the Inference card |
+| `ui/js/inference-stats.js` | `window.LlamaGui.inferenceStats` | DOM-free `parseMetricsText`, `normalizeSlots`, and `createInferenceStats`; each engine owns target-keyed baselines, rate samples, sequence, and source availability, emitting data snapshots through its callback |
+| `ui/js/monitor-ui.js` | `window.LlamaGui.monitorUi` | Monitor tab: system-stats polling with visibility gating and truthful status badge, process-output terminal (always-follow output, trim, cursor-preserving clear), dynamically reconciled GPU cards in the shared metrics grid, setup/state rendering with backend-supplied platform guidance, hidden-card preferences with tolerant persistence, and rendering the shared inference snapshot in the fixed stats bar and the Inference card; retains compatibility aliases for the three inference-core methods |
 | `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, toasts, module initialization, and cache-busting reload |
 | `ui/css/style.css` | — | Shared page headings/action bars, controls, surfaces, and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
 | `ui/js/shell-ui.js` | `window.LlamaGui.shellUi` | Workspace/maintenance navigation, current-page semantics, mobile drawer focus and dismissal, and the shared sidebar summary of the authoritative local runtime or registered external server |
@@ -1201,5 +1211,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–4 complete, Session 5 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–5 complete, Session 6 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

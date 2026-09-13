@@ -939,6 +939,22 @@ test("idle popup close and deletion recovery use an independently seeded transcr
     });
     await main.waitForFunction(() => document.visibilityState === "hidden", null, { timeout: 10_000 });
     await main.waitForFunction(() => Boolean(inferenceStats?.getTargetKey?.()) && inferencePollingActive(), null, { timeout: 10_000 });
+    // A hidden host must keep producing snapshots for the popup, without a
+    // second inference engine/poller or resumed system telemetry polling.
+    const hiddenSequence = await main.evaluate(() => inferenceStats.getSnapshot()?.seq || 0);
+    const hiddenCallsStart = calls.length;
+    await main.waitForFunction(seq => (inferenceStats.getSnapshot()?.seq || 0) >= seq + 2,
+        hiddenSequence, { timeout: 15_000 });
+    const hiddenInferenceCalls = calls.slice(hiddenCallsStart)
+        .filter(call => ["/api/llama/metrics", "/api/llama/slots"].includes(call.pathname));
+    assert.ok(hiddenInferenceCalls.some(call => call.pathname === "/api/llama/metrics"));
+    assert.ok(hiddenInferenceCalls.some(call => call.pathname === "/api/llama/slots"));
+    assert.equal(hiddenInferenceCalls.every(call => call.page === main), true,
+        "only the hidden host polls inference while detached Chat is open");
+    assert.equal(await popup.evaluate(() => inferenceStats), null,
+        "detached Chat does not construct another inference engine");
+    assert.equal(calls.slice(hiddenCallsStart).some(call => call.pathname === "/api/system-stats"), false,
+        "hidden-host inference does not resume system telemetry");
     const statsBeforeClose = await main.evaluate(() => ({
         target: inferenceStats?.getTargetKey?.() || null,
         visible: statsDocumentVisible,
