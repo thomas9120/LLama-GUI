@@ -76,7 +76,7 @@ The Phase 1 chat pop-out capability check is intentionally separate from the app
 node --test tests/frontend/chat_popout_capabilities.cjs
 ```
 
-It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
+It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted by this fixture. Windows/Chrome and Pinokio manual results are recorded under [Native smoke checks](#native-smoke-checks); Public HTTPS tunnel/trusted-certificate, second-device LAN and native macOS checks remain pending; local transport results are recorded under [Local HTTPS and LAN-address follow-up](tests.md#local-https-and-lan-address-follow-up). See `docs/chat-popout-capabilities.md` for the fixture's evidence limits.
 
 `node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts. Both Chat-window and Chat UI
 VM harnesses discover the complete Chat-window package from `index.html` through
@@ -225,6 +225,60 @@ The responsive Chat scenario also opens Context across focus modes and panel com
 The `chat deletion confirmations` browser scenario checks single-delete, Clear Current Chat, and one-dialog Delete All behavior, Cancel/Enter-on-Cancel/Escape dismissal, direct deletion without a restore control, preservation of other conversations, and no resurrection through New Chat. Chat unit checks additionally cover cancellation during streaming, deletion of inactive history without stopping generation, failed storage writes, inert legacy deleted-history data, and retention without trash copies.
 
 Use fast Node tests for focused debugging. Use the Playwright smoke test when a change affects real DOM wiring, mirrored controls, tab sync, command preview rendering, or launch blocking behavior.
+
+## Native smoke checks
+
+**Latest result: passed, maintainer-reported on 2026-09-12**, after Tier 2 sessions
+0–10. These manual Windows/Chrome and Pinokio checks supplement the isolated
+automated browser suite:
+
+- Launch the app, load a preset, run a model and send a Chat message.
+- In Chrome, pop out a populated disposable conversation with an unsent draft;
+  verify transfer and inactive main Chat. Send a message, return using the popup's
+  **Return to main window**, then repeat using the main page's **Return chat here**.
+- Check **Show window**, shared temperature edits across Chat/Configure/Quick
+  Launch, generation with the main page minimized, and Monitor updates on return.
+- Close the popup with a draft and recover in the main page. Repeat during a
+  response, checking recoverable partial output and no automatic resend. Reload
+  the popup, close its unavailable view and recover from the main page.
+- Narrow the popup with History, Settings and Context open; keep Send and Return
+  accessible. Check Chat, Configure and Monitor in light and dark themes.
+- With Pinokio running the updated checkout, stop the model, restart the GUI and
+  verify launch/Chat again. Use **Quit Llama GUI**, verify shutdown, then relaunch
+  through Pinokio. Check the embedded view separately: a clear popup-blocked
+  fallback with usable main Chat is acceptable.
+
+The embedded-view result does not establish popup/opener/storage support when
+opening is blocked. Public HTTPS tunnel/trusted-certificate, second-device LAN
+and native macOS checks remain pending. See
+[Chat browser/launcher support](chat-popout.md#browser-and-launcher-support) for
+environment limits and the [Tier 2 completion record](frontend-maintainability-tier-2-plan.md#post-refactor-native-verification).
+
+### Local HTTPS and LAN-address follow-up
+
+**Passed on 2026-09-12.** A one-time runner reused the real frontend and existing
+`tests/frontend/chat_popout_integration.cjs` scenarios, with synthetic API routes
+and fresh Playwright Chromium contexts. Production code and checked-in tests were
+unchanged; the fixture listened on this machine's Ethernet IPv4 address at an
+ephemeral port.
+
+- Plain HTTP over the LAN address reported `isSecureContext: false` and no Web
+  Locks. Pop out was disabled with an explicit reason; the ordinary Chat layout
+  and composer remained usable.
+- Temporary HTTPS over the same address exposed a secure context and Web Locks.
+  All eight applicable integration scenarios passed: orphan-window guidance,
+  construction/host-getter failures, recovery focus, initialization failure,
+  populated transfer/return, blocked/blank popup recovery, close/deletion recovery,
+  and popup/main reload recovery without resend. The transfer scenario passed on
+  rerun after supplying a diagnostic logging callback missing from the temporary
+  runner; no application change was needed.
+
+HTTPS used a disposable self-signed certificate with certificate errors accepted
+only in fresh test contexts. No system trust settings were changed. Servers and
+browser contexts were closed and temporary TLS files removed afterward. These
+checks establish local transport/browser behavior, not trusted certificate
+validation, a public tunnel, live model requests over the network, or access from
+another device through the firewall/router.
 
 ## Backend Tests
 

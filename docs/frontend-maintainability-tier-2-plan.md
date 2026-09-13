@@ -5,6 +5,25 @@
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
+## Post-refactor native verification
+
+**Passed, maintainer-reported on 2026-09-12.** After all sessions, the maintainer
+confirmed app launch, preset loading, model execution and Chat, followed by the
+Windows/Chrome and Pinokio smoke checklist: populated Chat and draft transfer in
+both directions, both Return controls, Show window, shared sampler edits,
+generation with the main page minimized, Monitor updates, close/reload recovery
+without automatic resend, narrow-window controls and light/dark presentation,
+and Pinokio restart, Quit and relaunch. The embedded-view popup/fallback check
+also passed; this does not establish embedded popup support where opening is
+blocked.
+
+The session entries below record checks performed at implementation time. Their
+pending Windows native-smoke notes are superseded by this follow-up. Local HTTPS and LAN-address browser checks also passed on 2026-09-12 using
+the real frontend with synthetic APIs; see the [transport follow-up](tests.md#local-https-and-lan-address-follow-up).
+Public tunnel/trusted-certificate, second-device LAN and native macOS checks remain
+unverified. See [Tests](tests.md#native-smoke-checks)
+and [Chat browser/launcher support](chat-popout.md#browser-and-launcher-support).
+
 ## Goal
 
 Make frontend changes easier to understand, test, and review by giving mutable
