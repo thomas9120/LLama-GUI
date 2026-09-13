@@ -1,8 +1,28 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: proposed (2026-09-11).** Tier 1 is complete and recorded in
+> **Status: complete (2026-09-12).** All sessions 0–10 are complete.
+> Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
+
+## Post-refactor native verification
+
+**Passed, maintainer-reported on 2026-09-12.** After all sessions, the maintainer
+confirmed app launch, preset loading, model execution and Chat, followed by the
+Windows/Chrome and Pinokio smoke checklist: populated Chat and draft transfer in
+both directions, both Return controls, Show window, shared sampler edits,
+generation with the main page minimized, Monitor updates, close/reload recovery
+without automatic resend, narrow-window controls and light/dark presentation,
+and Pinokio restart, Quit and relaunch. The embedded-view popup/fallback check
+also passed; this does not establish embedded popup support where opening is
+blocked.
+
+The session entries below record checks performed at implementation time. Their
+pending Windows native-smoke notes are superseded by this follow-up. Local HTTPS and LAN-address browser checks also passed on 2026-09-12 using
+the real frontend with synthetic APIs; see the [transport follow-up](tests.md#local-https-and-lan-address-follow-up).
+Public tunnel/trusted-certificate, second-device LAN and native macOS checks remain
+unverified. See [Tests](tests.md#native-smoke-checks)
+and [Chat browser/launcher support](chat-popout.md#browser-and-launcher-support).
 
 ## Goal
 
@@ -34,6 +54,8 @@ behavior a maintainer must understand for one change.
   suite to green before starting the next session.
 - Keep diffs mechanical inside movement sessions. Do not combine a package split
   with unrelated behavior changes or visual redesigns.
+- Treat candidate file lists as provisional. Split where ownership becomes clearer;
+  combine concerns where separation would merely add forwarding methods.
 
 ## Baseline and priority signals
 
@@ -109,11 +131,54 @@ focused `window.LlamaGui.chatTemplateSelection` facade.
   `setFlagValue`, `setMultipleFlagValues`, or `applyFlagValues`.
 - Inject the new facade methods into Configure and Quick Launch from `app.js`.
 
+### Pitfalls to preserve during extraction
+
+- **Dropdown choices are not the compatibility allowlist.** Keep accepting legacy
+  built-in names such as `phi4` through `isSupportedChatTemplateValue()` even when
+  absent from the curated options. Preserve the controls' temporary legacy option
+  handling. Synthetic bundled values such as `__alpaca__` map to file paths and
+  must never be emitted as `--chat-template` names. Unsupported stored values must
+  retain the existing launch warning/omission behavior; rendering must not erase
+  them or silently migrate saved presets.
+- **Template changes must be atomic.** Use one `setMultipleFlagValues()` patch to
+  set one template field and clear the other with `undefined`, which deletes the
+  stored override. Auto clears both. Preserve the existing
+  `preserveCustomTemplateFile` option only in the raw-value fallback branch;
+  named builtin, bundled, and Auto selections still clear the competing value.
+- **The manual-path rule is outside the extracted helper block.** The
+  `flagCore.configure()` `beforePathPatch` hook in `app.js` currently clears
+  `chat_template` whenever `chat_template_custom` is edited, including clearing
+  the path. Delegate that template-specific rule to the new module while keeping
+  the shared hook wiring and unrelated projector logic in `app.js`. Cover both
+  typing and file-picker updates without adding another state write/broadcast.
+- **Reverse mapping is read-only and must use live state.** Read
+  `flagCore.getFlagValues()` on each lookup; preset application can replace the
+  state object. Preserve lookup precedence: matching bundled path, direct named
+  preset, builtin-name mapping, then supported raw value. For mixed stored values,
+  preserve the separate launch rule that a nonblank custom path suppresses
+  `--chat-template`; neither rendering nor extraction should repair state.
+- **Path normalization is for comparison only.** Preserve trimming and backslash
+  conversion without rewriting the user's stored path. Do not add case folding,
+  basename matching, absolute-path resolution, or filesystem access. An unrelated
+  file named `alpaca.jinja` must not become the bundled Alpaca preset.
+- **Loading a module must not apply a selection.** Configure dependencies before
+  consumers invoke the facade, and keep evaluation/configuration free of flag
+  writes or DOM initialization, including on the detached Chat page. Extend the
+  Session 0 namespace and callable-method contracts for the new facade and add
+  the new unit suite to `test:unit` so it also runs under `npm test`.
+
 ### Tests
 
 Add `tests/frontend/chat_template_selection_unit.cjs` for auto, builtin, bundled,
 custom, unsupported, and Windows-path normalization cases. Retain shared-state and
 browser coverage for the rendered dropdowns.
+
+Cover transitions between selection modes, both template fields initially set,
+the preservation option's branch behavior, manual-path clearing, and lookups after
+`applyFlagValues()` replaces state. Assert complete patches and shared-state
+notifications, read-only getters, legacy preset round trips, and emitted launch
+arguments (at most one of `--chat-template` and `--chat-template-file`). Keep
+initialization and Configure/Quick Launch synchronization covered in the browser.
 
 ### Success criteria
 
@@ -123,9 +188,16 @@ browser coverage for the rendered dropdowns.
 
 ## Session 2 — split flag definitions by domain
 
-`ui/js/flags/definitions.js` is pure data but is one of the largest and most-edited
-frontend files. Split it into a small ordered package, using broad domains rather
-than one tiny file per flag category. A candidate grouping is:
+**Completed (2026-09-12).** Six contiguous domain files now feed the retained
+`definitions.js` assembler. Mechanical comparison preserved all 169 flags, their
+exact order and metadata, and shared option references. Every harness that loads
+real flag definitions now follows the canonical loader. Independent diff review,
+`npm test` (including all 22 browser cases), and asset-versioning checks passed.
+Pinokio source compatibility was reviewed; its required module paths remain intact.
+
+The original `ui/js/flags/definitions.js` was pure data but was one of the largest
+and most-edited frontend files. The split uses a small ordered package of broad
+domains rather than one tiny file per flag category:
 
 - model and context;
 - CPU, GPU, and auto-fit;
@@ -154,10 +226,21 @@ than one tiny file per flag category. A candidate grouping is:
 
 ## Session 3 — establish shared services and the Manager boundary
 
-Do not use pure top-level movement as the final Manager architecture. `app.js`
-currently consumes Manager state and functions as bare globals, while Presets and
-other modules rely on generic helpers declared in `manager.js`. Establish explicit
-owners before distributing the implementation.
+**Completed (2026-09-12).** Shared `apiClient` and `dialogs` facades now own JSON
+transport and confirmation/prompt behavior. Manager state is closure-local;
+`configure()`, idempotent `init()`, and `getLatestStatus()` provide the boundary.
+Consumers receive explicit services and live status providers, and Manager receives
+callbacks for Presets notifications and Quick Launch synchronization. Existing
+Manager exports remain compatible, including the shared `fetchJson` alias.
+Tests use public methods or gated hooks without assigning Manager-private state.
+Independent review, the full `npm test` (all 22 browser cases), documentation links,
+and asset-versioning checks passed. Pinokio source compatibility was reviewed;
+its required paths and entrypoints remain intact.
+
+Do not use pure top-level movement as the final Manager architecture. Before this
+session, `app.js` consumed Manager state and functions as bare globals, while
+Presets and other modules relied on generic helpers declared in `manager.js`.
+Establish explicit owners before distributing the implementation.
 
 ### Shared services
 
@@ -189,23 +272,57 @@ bare-global mutation only to make the old harness convenient.
 
 ## Session 4 — split the Manager package
 
-A candidate package is:
+**Completed (2026-09-12).** Nine ordered package files replace `manager.js`,
+preserving the public facade and app startup sequence. Mechanical comparison of
+all 61 original function bodies found no changes beyond namespace qualification
+and the two release-cache owner methods. Manager harnesses now load the package
+canonically, and a new lifecycle suite covers inert loading/configuration, live
+dependencies after initialization, quit/restart behavior, and app-update restart
+handoff. Diff review, full `npm test` (all 22 browser cases), documentation links,
+and asset-versioning checks passed. The local Pinokio launcher's source compatibility
+checker passed against this checkout; a native supervised-restart smoke was not run.
+
+The package lives in `ui/js/manager/`, with `manager-internal.js` loading first
+to establish private dependency links and `manager-main.js` loading last. Each
+concern keeps its mutable state in its own closure; the internal namespace exposes
+named method groups, not state fields. Configuration and script evaluation remain
+inert, and cross-concern calls read current dependencies and accepted status.
+
+Package ownership:
 
 | File | Owner |
 |---|---|
+| `manager-internal.js` | Private package links and injected dependencies |
 | `manager-status.js` | Accepted backend status, request generation, observer/subscription |
 | `manager-backends.js` | Backend selection, labels, activation, installed summary |
 | `manager-install.js` | Releases, install/repair/remove, progress polling |
 | `manager-app-update.js` | Git update status and application update flow |
 | `manager-model-dir.js` | Active model-directory controls and operation state |
 | `manager-models.js` | Model refresh race guards and known-name cache |
-| `manager-lifecycle.js` | Stop/restart/reconnect behavior |
+| `manager-lifecycle.js` | GUI-server shutdown, restart, and reconnection |
 | `manager-main.js` | Configuration, initialization, and public facade assembly |
+
+Keep llama-process launch, stop, switching, and readiness orchestration owned by
+the existing `ui/js/process-lifecycle.js`.
 
 Each concern should own its mutable state where practical. If a private internal
 namespace is needed for ordered classic scripts, use named sub-objects or narrow
 facades rather than placing every function and variable in one undifferentiated
 registry.
+
+### Extraction guardrails
+
+- Keep release-cache invalidation and backend-specific fetch deduplication in
+  installation; backend presentation calls narrow methods for those operations.
+- Preserve status acceptance, rendering, and asynchronous observer ordering,
+  including re-reconciliation after a newer status supersedes an awaited observer.
+- Preserve model-cache unknown/known-empty semantics, stale callers adopting the
+  newest refresh, and notification timing after cache changes.
+- Keep initialization idempotent and preserve the detached-Chat early exit in
+  `app.js`; package loading must not start polling or bind controls.
+- Retain the complete public Manager facade and gated test hooks. Unit harnesses
+  load the package in canonical `index.html` order; private-namespace and assembler
+  checks cover the new package.
 
 ### Success criteria
 
@@ -217,8 +334,19 @@ registry.
 
 ## Session 5 — extract the inference core
 
+**Completed (2026-09-12).** Extracted the unchanged parser, slots normalizer, and
+per-instance inference engine into the DOM-free inference facade, loaded before
+Monitor. `app.js` uses that facade directly; Monitor retains compatibility aliases
+and both snapshot renderers. Moved every pure inference case to its own DOM-free
+suite, added independent-instance/inertness coverage, and strengthened the browser
+check for continuing hidden-host inference, host-only requests, no popup engine,
+and paused system telemetry. Mechanical comparison confirmed the moved bodies and
+existing cases are unchanged. Diff review, full `npm test` (all 22 browser cases),
+documentation links, asset-versioning checks, and the local Pinokio compatibility
+checker passed. Native supervised-restart smoke was not run.
+
 The metrics parser, slots normalizer, and `createInferenceStats()` engine are
-application services currently housed in `monitor-ui.js`. Move them to
+application services extracted from `monitor-ui.js` into
 `ui/js/inference-stats.js` with no DOM dependency.
 
 ### Changes
@@ -227,113 +355,268 @@ application services currently housed in `monitor-ui.js`. Move them to
   `window.LlamaGui.inferenceStats`.
 - Make `app.js` depend on the inference facade directly instead of obtaining its
   engine from Monitor UI.
-- Let Monitor consume rendered snapshots from the same facade.
+- Have the pure engine emit data snapshots; UI modules render the same shared
+  snapshot in Monitor and the fixed stats bar.
 - Temporarily preserve the existing Monitor exports as compatibility delegates if
   that keeps the session behavior-only and reduces blast radius.
 - Move the pure inference cases from `monitor_ui_unit.cjs` into
   `inference_stats_unit.cjs`.
 
+### Extraction guardrails
+
+- Keep polling, target reconciliation, abort/timer generations, and visibility
+  coordination in `app.js` until Session 7. Keep both renderers in Monitor until
+  Session 6; only parsing, normalization, and per-instance state move here.
+- Preserve fresh-launch versus restored-target baselines, paired token/time
+  averages, batched prompt sampling, task identity, counter rollback, and the
+  15-second live-sampling cutoff. Metrics and slots remain independently available;
+  empty slots must not become indistinguishable from unavailable slots.
+- Keep the two small numeric helpers private to both owning modules; the inference
+  core must not acquire a dependency on Monitor formatting.
+- Preserve the three Monitor methods as aliases of the new facade, with no second
+  implementation or engine instance. Use canonical script order in the Monitor
+  test harness, and retain rendering cases when moving the pure engine tests.
+
 ### Success criteria
 
 - The inference core can be evaluated and tested without a DOM stub.
-- Exactly one polling controller and one target-keyed inference engine remain in
-  the main application.
+- Exactly one inference polling controller and one target-keyed inference engine
+  remain in the main application, separate from Monitor system telemetry polling.
+- Preserve and test the visibility distinction: the hidden host continues inference
+  polling while detached Chat is open; system telemetry retains its existing
+  panel/document visibility gates. The detached window consumes host snapshots
+  without starting another inference poller.
 
 ## Session 6 — split Monitor UI and its tests
 
-Candidate package boundaries:
+**Completed (2026-09-12).** Nine ordered package files replace `monitor-ui.js`,
+retaining the public facade and inference-core aliases. Polling and preferences
+keep separate closure state. Mechanical comparison found 84 of 88 original
+functions unchanged apart from namespace qualification; the remaining four contain
+sample-interval access, drag deferral, reset delegation and initialization wiring.
+Reassembling initialization confirmed its original operation order. All original
+scenario bodies were retained across independent concern suites with fresh fixtures.
+The 35 Monitor cases include added inertness/live-dependency, ignored-abort and
+detached-document checks. Diff review, full `npm test` (all 22 browser cases),
+documentation links, asset-versioning checks and the local Pinokio compatibility
+checker passed. Native supervised-restart smoke was not run.
+
+The package lives in `ui/js/monitor/`, with `monitor-internal.js` first and
+`monitor-main.js` last. Each concern owns its mutable state; internal method groups
+provide the links between concerns, and dependencies are read live after configuration.
 
 | Module | State / behavior owner |
 |---|---|
-| Monitor internal/main | Dependencies, initialization, stable public facade |
-| Polling | Panel/document visibility, timer, abort controller, last sample |
-| System cards | CPU, RAM, disk, and shared metric-card rendering |
-| GPU cards | GPU identity, reconciliation, state/setup cards |
-| Card preferences | Hidden-card storage, order, keyboard and drag state |
-| Terminal | Output lines, trimming, follow-to-bottom behavior |
-| Inference rendering | Monitor card and fixed stats-bar rendering |
+| `monitor-internal.js` / `monitor-main.js` | Dependencies, initialization, stable public facade |
+| `monitor-dom.js` | Shared formatting, text updates, metric rows and progress meters |
+| `monitor-polling.js` | Panel/document visibility, timer, abort controller, generation, last sample and live badge |
+| `monitor-system.js` | CPU, RAM, disk and accepted-sample presentation |
+| `monitor-gpu.js` | GPU identity, in-place reconciliation, state/setup cards |
+| `monitor-preferences.js` | Hidden-card storage, order, keyboard/drag state and deferred sample |
+| `monitor-terminal.js` | Runtime/header presentation, output lines, trimming and follow-to-bottom behavior |
+| `monitor-inference.js` | Monitor card and fixed stats-bar rendering |
 
-Use separate closure state or named internal sub-objects for these concerns. Avoid
-a package-wide shared state bag unless a value is genuinely shared.
+### Extraction guardrails
 
-Split `monitor_ui_unit.cjs` along the same boundaries in this session. Shared DOM
-fixtures may move to a test helper, but tests should remain runnable independently
-and failures should identify the owning concern.
+- Keep GPU nodes, text selection, focus, setup disclosures and restore controls
+  stable across unchanged samples. Preferences own the latest deferred sample
+  during dragging and flush it once after the drag ends.
+- Preserve bounded storage, persistent GPU identities versus session-only index
+  identities, and relative order between static cards and reconciled GPU cards.
+- Keep system telemetry's visibility gates, Recheck cache bypass, abort/generation
+  guards and badge behavior. The polling owner exposes the accepted sample interval
+  through a narrow method for system-card labels.
+- Keep both inference renderers on the shared snapshot, including the supplied
+  target document for detached Chat. Inference polling, lifecycle actions, input-row
+  visibility and output cursors remain with their existing owners until Session 7.
+- Preserve the complete Monitor facade, including inference-core aliases and the
+  existing test reset method. Loading/configuration stay inert, and initialization
+  retains its existing call order.
+- Replace the monolithic Monitor suite with concern-specific suites using fresh
+  VM/DOM/storage fixtures per scenario and canonical package loading. Retain the
+  original assertions and cross-concern interaction coverage; do not rely on
+  listeners or configuration inherited from a preceding case.
 
 ## Session 7 — make `app.js` a composition root
 
-Manager and inference extraction should remove a significant amount of implicit
-coupling first. Then reassess `app.js` and extract only the remaining cohesive
-mechanisms:
+**Completed 2026-09-12.** Extracted four focused modules and retargeted the existing
+browser harnesses. Diff review confirmed 19 moved functions unchanged apart from
+dependency qualification; reassembling the output callbacks matched the original
+poller except for the tested stale-response guard described below. All 21 new
+orchestration cases and full `npm test` passed, including all 22 browser cases.
+Documentation links, asset-versioning checks and the local Pinokio compatibility
+checker also passed. Native supervised-restart smoke was not run.
 
-- inference polling, target reconciliation, and abort/timer generations;
-- memory-estimate request and rendering state;
-- process-output polling if it does not belong in `process-lifecycle.js` or the
-  existing output cursor;
-- toast rendering only if its multiple consumers justify a stable notification
-  facade.
+The implementation extracts four focused modules, with `app.js` retaining
+configuration, startup order, launch/stop coordination, accepted-status sequencing,
+and shared snapshot distribution:
 
-Keep dependency wiring, application startup order, and small coordination callbacks
-in `app.js`. The goal is for it to read like the composition diagram of the app,
-not to hit an arbitrary line-count target.
+| Module | Ownership |
+|---|---|
+| `memory-estimate-ui.js` | 700 ms debounce, request generation, shared-argument reads and sidebar rendering |
+| `notifications.js` | Toast rendering, safe text, dismissal, actions, durations and stack limits |
+| `inference-polling.js` | Instance-owned transport, timers, abort/epoch state, target reconciliation and external connection revisions |
+| `process-output.js` | Instance-owned output cursor, interval, overlap guard and retries; app callbacks handle lifecycle/UI effects |
+
+### Extraction guardrails
+
+- Keep module loading, configuration and factory creation inert. Create the inference
+  engine and both pollers only on the main page; detached Chat consumes host snapshots.
+- Route document visibility and popup changes through one inference polling method.
+  Hidden hosts keep inference polling while detached Chat is open, while system
+  telemetry retains its document/panel gates. Pausing keeps the target and baseline;
+  stopping invalidates the epoch and clears the target.
+- Preserve fresh-launch versus restored-target baselines, GUI readiness checks,
+  external reconnect revisions, independent metrics/slots availability, and stale
+  rejection after transport and asynchronous body parsing.
+- Preserve output cursor handoff, clear-without-replay, overlap/retry behavior, and
+  application ordering for exit, connection loss and delayed runtime restoration.
+  Benchmark polling keeps its current owner; the shared cursor stays transport-free.
+- Reject superseded output responses before runtime-generation reconciliation as
+  well as before cursor consumption. A new regression test exposed the prior race
+  where an old process response could reset the replacement process's cursor; the
+  extraction adds an immediate post-fetch epoch check.
+- Retarget browser tests that used bare polling globals to instance methods and
+  explicitly gated test hooks. Keep timer/controller details private in production
+  and retain the browser assertions for host/popup ownership and recovery.
+- Use focused controlled-clock tests for estimate and polling races, plus the full
+  browser suite for startup, lifecycle, Monitor, toast and detached-Chat integration.
 
 ## Session 8 — split feature CSS
 
-`ui/css/style.css` is the highest-churn frontend file and should be treated as a
-maintainability target, not merely an asset.
+**Completed (2026-09-12).** Canonical link-order reconstruction reproduced the
+original CSS byte for byte apart from the duplicate token import. Chromium's
+parsed rule order/content matched, and 60 fixed-DOM before/after screenshots were
+pixel-identical across the widths, themes and views described below. The full
+`npm test` passed, including all 22 interactive browser cases. The backend suite
+ran 811 tests successfully with three skips, including asset-versioning and
+reference checks. The local Pinokio source compatibility checker passed; native
+supervised-restart smoke was not run. Ownership, theme guardrails and test coverage
+are documented in the project reference, `AGENTS.md` and `docs/tests.md`.
 
-### Candidate order
+Ten ordered component stylesheets replace the former 5,003-line `ui/css/style.css`.
+The package preserves contiguous sections in their original order:
 
-1. base, typography, shell, and layout;
-2. shared controls, surfaces, dialogs, and toasts;
-3. Configure and command preview;
-4. Quick Launch and Hugging Face download;
-5. Presets;
-6. Chat and Chat window;
-7. API, Benchmarking, and Monitor;
-8. any deliberately global responsive overrides that cannot live with a feature.
+1. `base-shell.css` — reset, typography, shell and sidebar;
+2. `shared-controls.css` — badges, cards, forms, buttons and help;
+3. `quick-launch.css` — Quick Launch and Hugging Face downloads;
+4. `configure.css` — code blocks, Configure and shared launch/output presentation;
+5. `runtime-tools.css` — progress, API and Benchmarking;
+6. `presets.css` — preset library and installed info;
+7. `shared-overlays.css` — dialogs, scrollbars, tooltips, stats bar and toasts;
+8. `chat.css` — Chat and detached-window presentation;
+9. `responsive.css` — mobile toggle and mixed-feature responsive overrides;
+10. `monitor.css` — Monitor and its media queries.
 
-### Rules
+`tokens.css` stays unchanged and loads first. The duplicate token import formerly
+at the start of `style.css` is removed; every stylesheet now loads once through an
+unconditional link in `index.html`. Backend asset discovery already handles these
+links, so production backend code and the Pinokio launcher need no changes.
 
-- Keep `tokens.css` first and as the only source of theme palettes and color
-  literals.
-- Load component styles with ordered `<link>` elements; do not use CSS `@import`.
-- Keep feature media queries with their feature where cascade behavior permits.
-- Mechanically preserve selector declarations and order during the first split.
-- Extend theme/style tests to inspect every non-token stylesheet, not only the old
-  `style.css` path.
-- Update backend static-asset/cache-buster expectations and Pinokio compatibility
-  checks if they name the old stylesheet directly.
+### Extraction guardrails
+
+- Preserve selector declarations, enclosing at-rules and their order across the
+  concatenated stylesheets. Monitor still follows the mixed responsive blocks;
+  shared rules remain in their original neighboring sections.
+- Treat further regrouping or colocation of feature media queries as a separate
+  cascade change with its own visual checks. No selector cleanup or redesign is
+  part of this extraction.
+- Keep tokens as the only source of theme palettes and color literals. Theme tests
+  discover all local CSS links from `index.html`, require tokens first and reject
+  duplicate, missing, orphaned, conditional or imported stylesheets. Existing
+  fill-token and placeholder checks now inspect every component stylesheet.
+- Keep the same stylesheet order for main and detached Chat documents. The backend
+  asset-versioning fixture covers tokens and a component file; the existing asset
+  discovery test checks every local link.
 
 ### Verification
 
-- `node tests/frontend/theme_ui_unit.cjs`
-- `npm run test:frontend`
-- Visual checks at the responsive widths already covered by Playwright
-- `npm test`
+- One-time reconstruction from canonical link order must reproduce the original
+  CSS exactly except for the duplicate import; `tokens.css` must be unchanged.
+- Compare browser-parsed rule order and content, then fixed-DOM before/after views
+  at 390/900/1440px with Tokyo and Cappuccino themes, including populated Chat,
+  Monitor, detached presentation and overlays. Use the existing interactive
+  browser suite for responsive transitions, focus and popup ownership.
+- Run the theme suite, full `npm test`, backend asset-versioning and documentation
+  checks, and the local Pinokio source compatibility checker.
 
 ## Sessions 9–10 — split Chat-window safely
 
 ### Session 9: pure protocol and adapter extraction
 
-Move protocol constants, JSON safety/copying, allowlist validation, result helpers,
-and `createHostAdapter()` into focused package files. These have natural inputs and
-outputs and can move without changing coordinator state.
+**Completed 2026-09-12.** Extracted bodies/constants were mechanically compared
+against the pre-session source and are identical. The complete coordinator/view
+and facade body is unchanged except for relocating its root namespace binding.
+The original coordinator units and all nine pop-out browser cases passed before
+extraction. After extraction, focused Chat-window/Chat UI units, 130 JavaScript
+syntax checks, the 79-script namespace gate, and full `npm test` passed, including
+all 22 browser cases. Backend baseline/static-asset tests (57), documentation-link
+checks (4), and the local Pinokio source compatibility checker passed. Native
+Pinokio/window activation smoke was not run. Ownership and load order are recorded
+in `docs/directory.md`; boundary coverage is recorded in `docs/tests.md`.
 
-Add or preserve tests for sensitive-key rejection, allowed runtime/inference shapes,
-session invalidation, and adapter subscriptions.
+Implemented boundaries:
+
+- `ui/js/chat-window/chat-window-protocol.js`: protocol/recovery constants, JSON
+  safety and copying, runtime/inference allowlists, result helpers, and shared
+  call-time window/logging helpers.
+- `ui/js/chat-window/chat-window-host-adapter.js`: setting-field derivation and
+  `createHostAdapter()`, with validity and subscriptions local to each instance.
+- `ui/js/chat-window.js`: retained coordinator/view logic and stable public facade;
+  the two contributors load immediately before it in `index.html`.
+
+`_chatWindowInternal` holds helper/factory groups only. Its namespace boundary
+allows the package directory and the exact retained facade path; no consumers
+outside that boundary may use it. All coordinator state stays inside its factory.
+Protocol versions, allowlist contents, lock/transfer/recovery behavior, and view
+bootstrap sequencing remain unchanged. Authorization stays available through the
+verified peer adapter without entering serialized messages or recovery records.
+
+The Chat-window and Chat UI VM harnesses load the canonical ordered contributors
+and facade. Boundary coverage protects sensitive-key rejection, legitimate token
+metadata, supported JSON values, nested runtime/inference projections, copy
+isolation, shared-state setter routing, invalidation, subscriptions, independent
+adapter lifetimes, and inert module evaluation. The namespace suite pins public
+keys, private boundaries, load order, and absence of leaked helper globals.
 
 ### Session 10: coordinator and view package
 
-Candidate package:
+**Completed 2026-09-12.** Baseline coordinator units and all nine pop-out browser
+cases passed before extraction. A mechanical comparison confirmed all 13 contiguous
+body/constant segments from the former entrypoint are preserved; the only wiring
+changes are the host-view facade argument and its public delegate. The complete
+coordinator body and both Session 9 contributors are unchanged. Diff review,
+focused units, 135 JavaScript syntax checks, the 84-script namespace gate, and full
+`npm test` passed, including all 22 browser cases. Backend baseline/static-asset
+checks (57), documentation-link checks (4), and the local Pinokio source compatibility
+checker passed. Native Pinokio/window activation smoke was not run. This completes
+Tier 2; existing native/platform checks remain documented separately.
 
-- protocol and serialization;
-- host adapter;
-- coordinator factory;
-- flag-core bridge;
-- host-window view/bootstrap;
-- detached-window view/bootstrap;
-- public facade.
+The completed package lives entirely in `ui/js/chat-window/`, in this canonical
+blocking-script order:
+
+1. `chat-window-protocol.js` — existing wire constants and safe projections;
+2. `chat-window-host-adapter.js` — existing per-instance host adapter;
+3. `chat-window-bootstrap.js` — shared call-time browser/bootstrap helpers;
+4. `chat-window-coordinator.js` — the intact coordinator factory and private deferred helper;
+5. `chat-window-flag-core-bridge.js` — authoritative host settings bridge;
+6. `chat-window-host-view.js` — main-window bootstrap, popup and recovery controls;
+7. `chat-window-detached-view.js` — verified detached bootstrap and host-session checks;
+8. `chat-window-main.js` — the unchanged public API, assembled last.
+
+The former `ui/js/chat-window.js` and its private-namespace exception are removed.
+The host-view function receives the facade as an explicit argument; the facade
+passes its live holder on each call. All original initialization and cleanup
+sequencing remains in place, including the shared host readiness promise and
+ownership revocation before Chat initialization. No coordinator state moves into
+the package namespace, and the two Session 9 contributors are unchanged.
+
+Both VM harnesses use the existing `getPackageScripts("js/chat-window")` helper;
+the browser fixture continues to serve the real `index.html`. Added cases cover
+bridge state/read/write/subscription boundaries, repeated host startup and ordering,
+and queued coordinator disposal without cross-instance effects or later writes.
+Existing transfer, lock, recovery, credential, startup-failure and polling ownership
+cases remain the acceptance coverage.
 
 The state declared inside `createCoordinator()` must remain local to each coordinator
 instance. Do **not** apply the Tier 1 Chat package's single shared `S` object to this
@@ -349,8 +632,9 @@ Document and test these invariants explicitly:
 - failed or timed-out transfer leaves a recoverable, non-resending state;
 - secrets and unknown fields never cross the window protocol.
 
-Retarget the Chat-window VM and pop-out integration harnesses to the ordered package
-and keep the real browser transfer/reload suite as the acceptance gate.
+The canonical package order, exact facade keys, absence of leaked globals, and
+package-only private namespace are enforced by the namespace suite. Real browser
+transfer/reload coverage remains the acceptance gate.
 
 ## Cross-cutting verification for every program session
 
@@ -359,10 +643,17 @@ and keep the real browser transfer/reload suite as the acceptance gate.
 3. Run `npm run test:frontend:modules` for script order and facade availability.
 4. Run `npm run test:frontend` for DOM wiring, mirrored state, and pop-out behavior
    when those areas are touched.
-5. Run full `npm test` before completing the session.
-6. Update `docs/directory.md`, `docs/architecture.html`, and the dated changelog
-   entry required for program changes.
-7. Check Pinokio compatibility whenever static asset paths, script/style loading,
+5. Run `npm test` before completing the session; this is the full frontend gate,
+   not the backend suite.
+6. Update `docs/directory.md` for ownership and load-order changes,
+   `docs/tests.md` for test coverage and commands, and this plan's completion
+   checklist and status as sessions finish.
+7. Run `.venv/Scripts/python.exe -m unittest tests.backend.test_docs_links -v`
+   after documentation-reference changes.
+8. When backend code changes, including static-asset or cache-buster handling, run
+   `.venv/Scripts/python.exe -m unittest discover tests -v`. Use the project venv
+   (`.venv/bin/python` on Unix).
+9. Check Pinokio compatibility whenever static asset paths, script/style loading,
    startup, shutdown, or cache busting changes.
 
 ## Explicit non-goals for Tier 2
@@ -389,14 +680,14 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 
 ## Completion checklist
 
-- [ ] Session 0: refactor guardrails
-- [ ] Session 1: Chat-template selection
-- [ ] Session 2: flag-definition package
-- [ ] Session 3: shared services and Manager boundary
-- [ ] Session 4: Manager package split
-- [ ] Session 5: inference core extraction
-- [ ] Session 6: Monitor package and test split
-- [ ] Session 7: `app.js` composition cleanup
-- [ ] Session 8: feature stylesheet package
-- [ ] Session 9: Chat-window protocol and host-adapter extraction
-- [ ] Session 10: Chat-window coordinator/view package split
+- [x] Session 0: refactor guardrails
+- [x] Session 1: Chat-template selection
+- [x] Session 2: flag-definition package
+- [x] Session 3: shared services and Manager boundary
+- [x] Session 4: Manager package split
+- [x] Session 5: inference core extraction
+- [x] Session 6: Monitor package and test split
+- [x] Session 7: `app.js` composition cleanup
+- [x] Session 8: feature stylesheet package
+- [x] Session 9: Chat-window protocol and host-adapter extraction
+- [x] Session 10: Chat-window coordinator/view package split

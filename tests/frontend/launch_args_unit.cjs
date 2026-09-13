@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { getPackagePaths } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const context = {
@@ -35,11 +36,7 @@ context.window.window = context.window;
 vm.createContext(context);
 
 for (const file of [
-    "ui/js/flags/categories.js",
-    "ui/js/flags/options.js",
-    "ui/js/flags/chat-templates.js",
-    "ui/js/flags/definitions.js",
-    "ui/js/flags/helpers.js",
+    ...getPackagePaths("js/flags").map((src) => `ui/${src}`),
     "ui/js/flag-core.js",
 ]) {
     const source = fs.readFileSync(path.join(ROOT, file), "utf8");
@@ -1103,14 +1100,11 @@ vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', 
     context.localStorage = { getItem: () => null, setItem: () => {} };
     byId.set("flags-container", makeElement());
 
-    const presetPackageFiles = [
-        "presets-internal.js", "presets-apply.js", "presets-models.js", "presets-local.js",
-        "presets-library.js", "presets-detail.js", "presets-roving.js", "presets-groups.js",
-        "presets-crud.js", "presets-main.js",
-    ];
+    // Package order comes from ui/index.html via the shared loader helper
+    // (script_order.cjs).
     const files = [
         "ui/js/config-flags-ui.js",
-        ...presetPackageFiles.map(file => `ui/js/presets/${file}`),
+        ...getPackagePaths("js/presets").map(src => `ui/${src}`),
     ];
     for (const file of files) {
         vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });

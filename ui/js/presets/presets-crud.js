@@ -34,12 +34,12 @@ async function savePresetAsNew(name) {
     try {
         const data = buildCurrentPresetData();
         if (name === undefined) {
-            name = await promptAction("Save as new preset", "Save the settings being edited under a new name. Existing presets will be kept.", "", "Save new preset");
+            name = await presetDependencies.promptAction("Save as new preset", "Save the settings being edited under a new name. Existing presets will be kept.", "", "Save new preset");
         }
         if (name === null) return false;
         name = name.trim();
         if (!name) throw new Error("Preset name cannot be empty");
-        const result = await fetchJson("/api/presets", {
+        const result = await presetDependencies.fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, data, overwrite: false }),
@@ -95,7 +95,7 @@ async function updatePreset(name) {
             reconcileLoadedPreset(latestEntries);
             throw new Error("The saved preset changed while this review was open. Review it again before updating.");
         }
-        const result = await fetchJson("/api/presets", {
+        const result = await presetDependencies.fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, data }),
@@ -128,7 +128,7 @@ async function duplicatePreset(name) {
         // name check above should already have avoided the collision; this catches
         // the case-insensitive-filesystem edge it cannot see from the browser and
         // turns it into a 409 the user is told about instead of silent data loss.
-        const result = await fetchJson("/api/presets", {
+        const result = await presetDependencies.fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -152,7 +152,7 @@ async function duplicatePreset(name) {
 }
 
 async function renamePreset(name) {
-    const nextName = await promptAction(
+    const nextName = await presetDependencies.promptAction(
         "Rename Preset",
         `Enter a new name for "${name}".`,
         name,
@@ -166,7 +166,7 @@ async function renamePreset(name) {
     if (nextName === name) return;
 
     try {
-        const result = await fetchJson("/api/presets/rename", {
+        const result = await presetDependencies.fetchJson("/api/presets/rename", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, new_name: nextName }),
@@ -218,14 +218,14 @@ async function loadPreset(name) {
 }
 
 async function deletePreset(name) {
-    const ok = await confirmAction(
+    const ok = await presetDependencies.confirmAction(
         "Delete Preset",
         `Delete preset "${name}"? This cannot be undone.`,
         "Delete"
     );
     if (!ok) return;
     try {
-        await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
+        await presetDependencies.fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
         deletePresetLocalState(name);
         loadPresets();
         showPresetActionStatus(`Deleted preset \"${name}\"`, "success");
@@ -239,7 +239,7 @@ async function setPresetArchived(names, archived) {
     const list = Array.isArray(names) ? names : [names];
     if (list.length === 0) return;
     try {
-        await fetchJson("/api/presets/archive", {
+        await presetDependencies.fetchJson("/api/presets/archive", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ names: list, archived }),
@@ -304,7 +304,7 @@ async function deleteSelectedPresets() {
         return;
     }
 
-    const ok = await confirmAction(
+    const ok = await presetDependencies.confirmAction(
         "Delete Selected Presets",
         `Delete ${names.length} selected preset${names.length === 1 ? "" : "s"}? This cannot be undone.`,
         "Delete"
@@ -313,7 +313,7 @@ async function deleteSelectedPresets() {
 
     try {
         for (const name of names) {
-            await fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
+            await presetDependencies.fetchJson("/api/presets/" + encodeURIComponent(name), { method: "DELETE" });
             deletePresetLocalState(name);
         }
         selectedPresetNames.clear();
@@ -330,7 +330,7 @@ async function deleteSelectedPresets() {
 }
 
 function exportPreset(name) {
-    fetchJson("/api/presets")
+    presetDependencies.fetchJson("/api/presets")
         .then((presets) => {
             const p = presets.find(x => x.name === name);
             if (!p) {
@@ -384,7 +384,7 @@ function exportSelectedPresets() {
         showPresetStatus("No presets selected", "error", 3200);
         return;
     }
-    fetchJson("/api/presets")
+    presetDependencies.fetchJson("/api/presets")
         .then((presets) => {
             const selected = (presets || []).filter((p) => names.has(p.name));
             if (selected.length === 0) {
@@ -411,7 +411,7 @@ function exportSelectedPresets() {
 }
 
 function exportAllPresets() {
-    fetchJson("/api/presets")
+    presetDependencies.fetchJson("/api/presets")
         .then((presets) => {
             if (!presets || presets.length === 0) {
                 showPresetStatus("No presets to export", "error", 3200);
@@ -468,7 +468,7 @@ async function handlePresetImport(file) {
             try {
                 let importedCount = 0;
                 for (const preset of pendingImports) {
-                    await fetchJson("/api/presets", {
+                    await presetDependencies.fetchJson("/api/presets", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ name: preset.name, data: preset.data, overwrite: false }),
@@ -501,7 +501,7 @@ async function handlePresetImport(file) {
             showPresetActionStatus(`Preset "${collision}" already exists. Rename or delete it before importing.`, "error", 5000);
             return;
         }
-        await fetchJson("/api/presets", {
+        await presetDependencies.fetchJson("/api/presets", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ name, data: normalized, overwrite: false }),

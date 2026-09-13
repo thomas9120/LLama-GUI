@@ -1,7 +1,7 @@
 # Chat pop-out Phase 1 capability findings
 
 Date: 2026-09-11  
-Status: Phase 1 fixture evidence (2026-09-11). The production pop-out in `ui/js/chat-window.js` is covered in [Chat in a separate window](chat-popout.md) and [Tests](tests.md); this fixture itself implements no production behavior.
+Status: Phase 1 fixture evidence (2026-09-11). The production pop-out in `ui/js/chat-window/` is covered in [Chat in a separate window](chat-popout.md) and [Tests](tests.md); this fixture itself implements no production behavior.
 
 The disposable check is run with:
 
@@ -61,14 +61,14 @@ Context-preview and compaction keys also include the active runtime, external ta
 
 ## Launch-environment limits
 
-The tested evidence is limited to a normal Chromium browser using loopback HTTP and isolated synthetic contexts. The following claims remain pending and are deliberately not inferred from the fixture:
+The Phase 1 fixture evidence is limited to a normal Chromium browser using loopback HTTP and isolated synthetic contexts. The following capabilities are not established by that fixture; later native observations are recorded separately below:
 
 - HTTPS tunnel behavior and certificate/secure-context handling.
 - Plain HTTP access through a LAN address, including whether that origin is a secure context.
 - Pinokio's embedded/native browser behavior for popup acceptance, opener retention, storage partitioning, Web Locks, focus, and close.
 - Native desktop window placement, chrome, and close-policy behavior.
 
-The Pinokio audit supplied for this phase found that the current launcher runs `node ../scripts/supervise.js` from its `app` directory with `LLAMA_GUI_SUPERVISED=1` and `PYTHONUNBUFFERED`, captures the dynamic local URL, and exposes **Open Web UI** as a link to that URL. Its static `check-app-compat.js` check passed against the existing frontend file/script/lifecycle expectations. Those facts show that the dynamic loopback URL and current script entrypoint are launcher-compatible by inspection; they do not establish embedded popup/opener/partition behavior. The native check remains pending.
+The Pinokio audit supplied for this phase found that the current launcher runs `node ../scripts/supervise.js` from its `app` directory with `LLAMA_GUI_SUPERVISED=1` and `PYTHONUNBUFFERED`, captures the dynamic local URL, and exposes **Open Web UI** as a link to that URL. Its static `check-app-compat.js` check passed against the existing frontend file/script/lifecycle expectations. Those facts show that the dynamic loopback URL and current script entrypoint are launcher-compatible by inspection; they do not establish embedded popup/opener/partition behavior. See the native follow-ups below for subsequent application checks.
 
 The accepted first-version lifetime boundary remains that the original GUI page stays open as the settings and runtime authority while Chat is detached. The current app also pauses visibility-driven polling when a document is hidden; integration work must preserve the host's authoritative runtime/status behavior while the main page is backgrounded and ensure abort/recovery reaches the detached owner. Neither concern is solved by this capability fixture.
 
@@ -81,3 +81,7 @@ Separately requesting a popup through `pterm open` selected an external browser 
 The launcher later forwarded a `?chat-window=1` URL to Chrome without the original page's opener connection. The pre-fix page showed inactive Quick Launch controls because error handling had not selected the dedicated Chat shell. The orphan-page regression now requires visible Chat failure guidance and a deliberate link to open the full GUI in that browser, with no automatic transfer or startup.
 
 The full GUI opened directly in Chrome successfully opened a dedicated Chat window and showed the main-page detached placeholder. The main page's **Return chat here** closed the popup; reopening and then closing the popup exposed **Recover chat here**, which restored normal Chat. These native checks used an empty workspace without model generation. Native automation timed out when operating the popup's own Return button, so no native result is claimed for that button; the automated Chromium tests cover it.
+
+## Native follow-up: Tier 2 completion, 2026-09-12
+
+The maintainer reported that the post-refactor Windows/Chrome and Pinokio smoke checklist passed, including real model generation, populated workspace/draft transfers, both Return controls, native focus, shared settings, minimized-host generation, recovery without automatic resend, narrow layout, themes and launcher restart/shutdown/relaunch. The embedded popup/fallback check also passed; opener/storage support remains unestablished where the embedded host blocks opening. These are manual application results, separate from the synthetic capability fixture. See [Native smoke checks](tests.md#native-smoke-checks) for the checklist. Public HTTPS tunnel/trusted-certificate, second-device LAN and native macOS checks remain pending; local transport results are recorded under [Local HTTPS and LAN-address follow-up](tests.md#local-https-and-lan-address-follow-up).

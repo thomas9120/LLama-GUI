@@ -13,7 +13,13 @@ The goal is not exhaustive coverage. Tests should make common regressions easier
 npm test
 ```
 
-Runs the full frontend suite: JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, flag compatibility checks, module loading checks, and the Playwright smoke test.
+Runs the full frontend suite in three stages: `test:unit` (JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
+
+```powershell
+npm run test:unit
+```
+
+Runs the aggregate fast stage only — every Node unit suite plus `test:syntax`, `test:frontend:modules`, and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
 
 ```powershell
 npm run test:syntax
@@ -25,13 +31,13 @@ Checks every frontend JavaScript file with `node --check`.
 npm run test:frontend:modules
 ```
 
-Loads scripts in the same order as `ui/index.html` inside a Node VM and verifies expected `window.LlamaGui.*` namespaces exist.
+Loads scripts in the same order as `ui/index.html` inside a Node VM (via the shared `tests/frontend/script_order.cjs` helper) and verifies the Session 0 refactor guardrail contracts from `docs/frontend-maintainability-tier-2-plan.md`: every active local script tag resolves on disk with no orphaned `ui/js` files and no external scripts; local scripts use blocking classic-script execution (no `async`, `defer`, `nomodule`, or unsupported `type`); the top-level `window.LlamaGui` key set matches exactly; `flagCore`, `apiClient`, `dialogs`, `manager`, `monitorUi`, `inferenceStats`, `chatTemplateSelection`, `chatUi`, and `presets` expose exactly their contract keys, all callable methods; private namespaces such as `_chatInternal`, `_managerInternal`, and `_monitorInternal` are referenced only inside their owning package; each package's `*-main.js` assembler loads after its internal contributors; and flag domains load after shared options/templates and before `definitions.js`, followed by `helpers.js`. Manager tests also load the complete package in canonical order. Manager internals, shared service functions, and the extracted Session 7 mechanisms/state must not leak as bare globals, and the compatibility API alias must reference the shared client. Chat-window has an exact public key contract and an explicit eight-file dependency order ending in `chat-window-main.js`. Its private namespace may be referenced only inside `ui/js/chat-window/`; the former facade-path exception is removed. The four Session 7 module facades have exact key contracts; production poller instances expose no test hooks. Negative fixtures verify rejection of altered execution attributes, a commented-out contributor, and an undefined facade method.
 
 ```powershell
 npm run test:flag-definitions
 ```
 
-Validates structural invariants in `FLAGS` and `FLAG_CATEGORIES`, including ids, categories, types, defaults, and enum options.
+Loads the complete flags package in canonical browser order and validates structural invariants in `FLAGS` and `FLAG_CATEGORIES`, including ids, categories, types, defaults, enum options, and shared option-array identity across domains.
 
 ```powershell
 npm run test:flags
@@ -70,9 +76,32 @@ The Phase 1 chat pop-out capability check is intentionally separate from the app
 node --test tests/frontend/chat_popout_capabilities.cjs
 ```
 
-It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
+It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted by this fixture. Windows/Chrome and Pinokio manual results are recorded under [Native smoke checks](#native-smoke-checks); Public HTTPS tunnel/trusted-certificate, second-device LAN and native macOS checks remain pending; local transport results are recorded under [Local HTTPS and LAN-address follow-up](tests.md#local-https-and-lan-address-follow-up). See `docs/chat-popout-capabilities.md` for the fixture's evidence limits.
 
-`node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts.
+`node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts. Both Chat-window and Chat UI
+VM harnesses discover the complete Chat-window package from `index.html` through
+`getPackageScripts("js/chat-window")` in `script_order.cjs`; the pop-out integration fixture serves
+that same real entrypoint.
+
+Session 9 boundary cases also cover inert package evaluation, nested sensitive-key
+and unsupported-JSON rejection, preservation of token-accounting metadata and
+null/false/zero values, nested runtime/inference allowlists, independent returned
+copies, invalid patches rejected before any setter call, unsubscribe/dispose
+cleanup, repeated invalidation, and adapter-instance isolation. Direct authorization
+access remains available to a valid adapter and is refused after invalidation;
+serialized change notifications exclude it. Existing browser cases verify the
+peer verification, authenticated request, and message/recovery secret boundaries.
+
+Session 10 cases cover the extracted flag-core bridge's live model/settings reads,
+copy isolation, zero/null writes, cached fallback on read failure, rejected writes
+after session loss, failed-write notification, unsubscribe and independent listeners.
+The host bootstrap case asserts one readiness promise and one initialization across
+repeated starts, ownership revocation before Chat initialization, lock acquisition
+after initialization, live facade notification routing and single page lifecycle
+registration. Disposing a queued coordinator cancels its lock request without
+changing the other owner's state or notifying its subscribers; subsequent acquire
+and checkpoint calls cannot obtain a lock or persist. The existing inert evaluation
+case covers every package contributor and pins the exported coordinator factory.
 
 The coordinator and Chat UI units share `fake_locks.cjs`, a deterministic single-lock stand-in with queued cancellation. Actual cross-context lock scheduling and window-close release belong to the browser fixtures. Roundtrip units assert durable transfer endpoints, revision progression, and shared history; staging a snapshot in an observer must not grant send or persistence permission.
 
@@ -115,8 +144,21 @@ Fast Node tests:
 
 - `custom_launch_args_unit.cjs`: custom launch arg tokenization, quote handling, duplicate flag warnings, and preset preservation.
 - `launch_args_unit.cjs`: launch argument generation for inert defaults, default/custom/unavailable model roots, traversal rejection, sampler-related flag behavior, server-wide reasoning-effort template kwargs, model-source recognition, and sensitive-value redaction.
+- `chat_template_selection_unit.cjs`: the extracted chat-template selection facade against the real flag state — load/configure inertness (no flag writes or DOM initialization, including on the detached Chat page), auto/builtin/bundled/custom/unsupported selections, legacy built-in round trips (such as `phi4`) outside the curated dropdown, atomic one-patch mode transitions with exact delete keys and exactly one `afterPatch`/`postUpdate` notification pair per action, including a regression case that rejects duplicate writes, read-only reverse mapping in mixed state (both template fields set, bundled-path precedence), Windows-path normalization for comparison only (no case folding, basename matching, or stored-path rewriting), the manual custom-path clearing rule through the `beforePathPatch` hook (typed, picked, and cleared paths, one write/broadcast each), lookups after `applyFlagValues()` replaces the state object, unsupported stored values keeping their launch warning/omission, and at most one of `--chat-template`/`--chat-template-file` emitted.
 - `output_cursor_unit.cjs`: generation-aware process output cursor consumption, stale-response rejection, and `invalidate()` semantics that preserve the cursor while rejecting in-flight responses.
-- `monitor_ui_unit.cjs`: hermetic Monitor tests for polling and badge stability, card visibility/reordering and focus preservation, inference baselines and telemetry normalization, and safe rendering of hostile telemetry text. Average-speed coverage checks processing-time weighting, idle periods, restored targets, token/time counter rollback, missing timings, and resets before or between valid samples. Live prompt/generation coverage checks updates before request completion, parallel slots, task changes, stalls, missing samples, long polling gaps, and returning to the completed-session average. Prompt cases also verify cache exclusion, null counter handling, excluding intervals that span prefill and generation, and batch updates spanning several polls without spikes or zero-rate flicker.
+- Session 7 orchestration suites share `orchestration_harness.cjs`: fresh VMs, canonical script loading, deferred responses and a controlled clock. Run each with `node --test tests/frontend/<suite>.cjs`:
+  - `memory_estimate_ui_unit.cjs`: inert load/configuration, debounce and live shared arguments, formatting, stale successes/failures, invalid arguments, missing models and unavailable estimates.
+  - `inference_polling_unit.cjs`: inert modules/instances, production facade boundaries, initial/subsequent timing, independent metrics/slots availability, authorization, overlap prevention, visibility pause/resume without baseline reset, same-address reconnects, late response bodies, stale-finally isolation, GUI readiness and restored-target baselines.
+  - `process_output_unit.cjs`: inert creation, cursor handoff, interval/overlap control, cursor-preserving clear, generation replacement, superseded-response rejection before reconciliation, final output/exit callbacks, stale failures, and retry reset/exhaustion.
+- Monitor suites share `monitor_harness.cjs`, which creates a fresh VM/DOM/storage fixture per scenario and loads the inference core plus Monitor package in canonical order. Each suite runs independently with `node --test tests/frontend/<suite>.cjs`:
+  - `monitor_package_unit.cjs`: inert loading/configuration without browser services, no leaked globals, and live dependencies after initialization.
+  - `monitor_system_cards_unit.cjs`: formatting, CPU/RAM/disk readings, warmup, idle versus missing values, and partial availability.
+  - `monitor_gpu_cards_unit.cjs`: stable GPU identities, safe hostile telemetry text, provider guidance, in-place updates preserving focus, and truthful clipboard feedback.
+  - `monitor_card_preferences_unit.cjs`: bounded/tolerant storage, stable versus session-only identities, hiding/restoring, keyboard/drag ordering, deferred samples, and static/GPU coexistence.
+  - `monitor_polling_unit.cjs`: visibility gates, non-overlap, Recheck, badge stability, recovery, and generation guards against transports that ignore abort.
+  - `monitor_terminal_runtime_unit.cjs`: follow/trim/cursor-preserving clear, authoritative runtime identity, retained output, partial inference guidance, and control wiring.
+  - `monitor_inference_rendering_unit.cjs`: shared inference snapshot rendering, unavailable meters, and fixed-bar updates confined to a supplied detached document.
+- `inference_stats_unit.cjs`: metrics parsing, slot normalization, and inference baselines in a VM without DOM, storage, fetch, or timers; checks inert loading/creation and independent engine instances. Average-speed coverage checks processing-time weighting, idle periods, restored targets, token/time counter rollback, missing timings, and resets before or between valid samples. Live prompt/generation coverage checks updates before request completion, parallel slots, task changes, stalls, missing samples, long polling gaps, and returning to the completed-session average. Prompt cases also verify cache exclusion, null counter handling, excluding intervals that span prefill and generation, and batch updates spanning several polls without spikes or zero-rate flicker.
 - `process_lifecycle_unit.cjs`: guarded launch/stop/switch ordering, readiness progression, generation conflicts, out-of-band replacement reconciliation, refused-stop recovery, stop-during-load, and stale transition handling.
 - `model_switch_ui_unit.cjs`: two-slot persistence, assignment validation, recoverable slot states, cancellation/failure cleanup, active-runtime display precedence, sidebar slider availability/drag thresholds/markup, safe rendering helpers, and storage fallback. Browser interactions cover assignment changes, refresh, and drag/keyboard guards; exact CSS and source-text locks have been removed.
 - `benchmark_args_unit.cjs`: benchmark/perplexity argument adaptation through the shared local-model path builder without mutating source presets, plus visible model-folder load failures in the manual-model selector.
@@ -133,17 +175,21 @@ Fast Node tests:
 - `external_server_ui_unit.cjs`: the API tab's external-server panel — connect/disconnect request payloads, the blank-port guard that never reaches the network, backend warning and error rendering, clearing the key field on disconnect, prefilling the form from a registered target, the status refresh that unlocks Chat, and load-time restore of a remembered address (auto-reconnect when keyless, prefill-and-explain when a key is needed, adopting an already-live target, and reporting a failed reconnect).
 - `presets_unit.cjs`: preset storage failure fallback, non-default override calculation, imported preset normalization, stale flag filtering, sensitive Custom Launch Args rejection, bulk favorite write batching, missing-model detection, library summary scoping, health copy under filters and an unchecked model list, and search across overridden flag names and labels. Also checks saved/current comparisons across defaults, numeric control strings and legacy model names, isolated save snapshots, excluded API/draft-context values, and masked sensitive values.
 - `preset_roving_focus_unit.cjs`: the preset list focus sequence, skipping rows in collapsed groups, roving `tabindex` bookkeeping including each row's inner controls, clamped Up/Down and Home/End movement, restoring position across a re-render, and syncing the roving position when focus arrives by click or programmatic `focus()`.
-- `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, stale callers adopting the winning refresh result, and the presets-tab notification firing on both the success and failure paths.
+- `manager_model_cache_unit.cjs`: the shared known-model-name cache — lowercased `.gguf` names only, an empty Set for an empty models folder versus `null` for an unknown one, cache clearing on a failed refresh, stale callers adopting the winning refresh result, and the injected model-presence notification firing on both the success and failure paths.
 - `manager_model_dir_unit.cjs`: native-picker cancellation, set/status/model-refresh sequencing and races, retained launch state after partial save failures, persistent operation errors, status-based restart readiness, stale-selection clearing, shared root-state updates, command-preview rebuilding, and safe folder/error rendering.
-- `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering. Custom slot cases cover backend-provided labels/paths, explicit activation payloads, duplicate/polling guards, failed activation retaining the current build, and update/repair restrictions. The browser suite also switches Custom → Custom 02 → official → Custom, including a missing-tool failure and unchanged shared flags.
+- `manager_lifecycle_unit.cjs`: canonical Manager-package evaluation/configuration without DOM access, requests, or timers; dependency replacement after initialization; quit cancellation and sidebar wiring; restart/readiness/cache-busted reload; failure recovery for quit/restart controls; and successful app-update handoff to GUI lifecycle while retaining the app-update status renderer. Uses only injected API fixtures and recorded timers, with production test hooks disabled.
+- `shared_services_unit.cjs`: inert service loading; API cache defaults/overrides, method/body/header/signal forwarding, literal JSON null, invalid JSON and HTTP/network failures; confirmation/prompt keyboard, backdrop and cancel behavior, safe text assignment, focus placement, empty-versus-cancel results, and listener cleanup across repeated use.
+- `manager_releases_unit.cjs`: backend selection, backend-aware release fetching, `fetchJson` cache bypass, and installed-backend summary rendering. Custom slot cases cover backend-provided labels/paths, explicit activation payloads, duplicate/polling guards, failed activation retaining the current build, and update/repair restrictions. The suite uses the public Manager facade and gated rendering/action hooks, with injected confirmations rather than private-state mutation. It also checks inert configuration, repeated initialization, one action per click, and polling cleanup on install error/unload. The browser suite switches Custom → Custom 02 → official → Custom, including a missing-tool failure and unchanged shared flags.
 - `theme_ui_unit.cjs`: theme preference storage, `data-theme` root attribute application, unknown-theme normalization, and registry-driven color-scheme hints (asserted for every entry in `THEMES`, so a new theme with the wrong `scheme` fails here). Also covers the sidebar theme menu against a DOM stub: rendering one row per registry entry, `aria-checked`/roving `tabindex`, arrow-key wrapping, Home/End, Escape returning focus to the trigger, and outside-click dismissal. Asserts every `THEMES` entry has a matching palette block in `tokens.css`, so a theme cannot be offered in the menu while rendering as the fallback. Also enforces contrast floors for every theme, which is what makes adding a theme safe rather than merely cheap:
 
   - AA (4.5:1) for `--fg`, `--fg-muted`, the six semantic text colors (`--accent-text`, `--green`, `--red`, `--yellow`, `--favorite`, `--cyan`) and `--red-fg`.
   - 3:1 for `--fg-faint` (non-essential text, deliberately below AA so it stays a distinct tier from `--fg-muted`) and for the fill-only `-solid` tokens.
   - Measured against `--bg-surface`, `--bg-raised` and `--bg-elevated` — text lands on all three — plus each semantic color's own `-subtle` chip and the composited favourite-row rest/hover washes.
   - Two usage invariants that keep the lower floors honest: `--yellow-solid`/`--favorite-solid` must never appear as a `color:`, and placeholder text must never use `--fg-faint`.
-- `module_namespace_unit.cjs`: frontend script load order and exported namespaces.
-- `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases.
+  - Local stylesheet links are discovered from `index.html`: tokens first, no duplicates, missing files, orphaned CSS, conditional/alternate loading or `@import`. Every non-token stylesheet is checked for theme palette selectors, hex/functional color literals, fill-token text use and placeholder contrast restrictions. Negative fixtures cover commented links, query/fragment normalization, duplicate/reordered token links and conditional loading.
+- `module_namespace_unit.cjs`: frontend script load order and exported namespaces, plus the Tier 2 Session 0 guardrail contracts described under [Common Commands](#common-commands).
+- `script_order.cjs`: shared test helper, not a suite. Parses active `<script>` tags from `ui/index.html`, ignores HTML comments, and validates local script execution attributes before returning the canonical ordered path list. Selects a package by path prefix (e.g. `getPackageScripts("js/presets")`) and reads its sources. Used by `module_namespace_unit.cjs`, the Chat/Presets VM harnesses, and every harness that loads real flag definitions (`launch_args_unit.cjs`, `chat_template_selection_unit.cjs`, `presets_unit.cjs`, `flag_definitions_unit.cjs`, `llama_flags_supported_unit.cjs`) so package file lists have exactly one source of truth: `ui/index.html`. `ui/index.html` stays the canonical frontend script order. New tests that need the load order should require this helper instead of hard-coding lists.
+- `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases, plus reference-identity checks for the shared chat-template, reasoning-format, and main/draft KV-cache option arrays.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
 - `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
 - `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
@@ -152,7 +198,9 @@ Browser smoke test:
 
 Benchmark action coverage checks normal completion and parsed throughput summaries, safe output rendering, launch failure and retry, refused Stop with resumed polling and a successful retry, reconnecting to an existing benchmark, and WikiText preparation failure/retry before perplexity launch. It exercises the real app/lifecycle/benchmark wiring through API fixtures.
 
-Monitor runtime coverage checks authoritative identity despite pending edits, safe long model names, focused Configure change review, external-server navigation, retained versus empty logs, and layout containment at 900/390px. A missing-vendor-probe fixture verifies useful system readings and an optional, keyboard-operable GPU setup disclosure whose focus/open state survive polling. A delayed-response fixture ignores AbortSignal to verify that epoch invalidation still rejects metrics/slots after reconnecting to the same external endpoint. `monitor_ui_unit.cjs` also covers partial inference guidance, model-only changes, failed actions with a still-active process, and vendor-independent readings.
+Detached Chat integration also verifies that a hidden host continues producing inference snapshots and owns every metrics/slots request while the popup has no inference engine. System telemetry stays paused, and closing the popup stops hidden-host inference polling and clears its timers/controller. The fixture opts into `__LLAMA_GUI_TEST_HOOKS__` for read-only polling state; the popup creates neither an inference poller nor a process-output poller. The main smoke harness uses gated poll/get-cursor hooks instead of the former bare polling globals, retaining the existing assertions.
+
+Monitor runtime coverage checks authoritative identity despite pending edits, safe long model names, focused Configure change review, external-server navigation, retained versus empty logs, and layout containment at 900/390px. A missing-vendor-probe fixture verifies useful system readings and an optional, keyboard-operable GPU setup disclosure whose focus/open state survive polling. A delayed-response fixture ignores AbortSignal to verify that epoch invalidation still rejects metrics/slots after reconnecting to the same external endpoint. `monitor_terminal_runtime_unit.cjs` also covers partial inference guidance, model-only changes, failed actions with a still-active process, and vendor-independent readings.
 
 Configure presentation coverage checks accessible setting labels and label-to-input focus, keyboard category/submenu and help disclosures, visible compatibility summaries, aligned numeric columns, and control containment at narrow widths. Launch comparison coverage checks immutable launch values, category counts and filtering, preservation of a focused row while typing through its baseline, per-setting/bulk revert synchronization, review across search filters, tool mismatch and stopped baselines, and comparison controls at 820px and 390px.
 
@@ -178,13 +226,67 @@ The `chat deletion confirmations` browser scenario checks single-delete, Clear C
 
 Use fast Node tests for focused debugging. Use the Playwright smoke test when a change affects real DOM wiring, mirrored controls, tab sync, command preview rendering, or launch blocking behavior.
 
+## Native smoke checks
+
+**Latest result: passed, maintainer-reported on 2026-09-12**, after Tier 2 sessions
+0–10. These manual Windows/Chrome and Pinokio checks supplement the isolated
+automated browser suite:
+
+- Launch the app, load a preset, run a model and send a Chat message.
+- In Chrome, pop out a populated disposable conversation with an unsent draft;
+  verify transfer and inactive main Chat. Send a message, return using the popup's
+  **Return to main window**, then repeat using the main page's **Return chat here**.
+- Check **Show window**, shared temperature edits across Chat/Configure/Quick
+  Launch, generation with the main page minimized, and Monitor updates on return.
+- Close the popup with a draft and recover in the main page. Repeat during a
+  response, checking recoverable partial output and no automatic resend. Reload
+  the popup, close its unavailable view and recover from the main page.
+- Narrow the popup with History, Settings and Context open; keep Send and Return
+  accessible. Check Chat, Configure and Monitor in light and dark themes.
+- With Pinokio running the updated checkout, stop the model, restart the GUI and
+  verify launch/Chat again. Use **Quit Llama GUI**, verify shutdown, then relaunch
+  through Pinokio. Check the embedded view separately: a clear popup-blocked
+  fallback with usable main Chat is acceptable.
+
+The embedded-view result does not establish popup/opener/storage support when
+opening is blocked. Public HTTPS tunnel/trusted-certificate, second-device LAN
+and native macOS checks remain pending. See
+[Chat browser/launcher support](chat-popout.md#browser-and-launcher-support) for
+environment limits and the [Tier 2 completion record](frontend-maintainability-tier-2-plan.md#post-refactor-native-verification).
+
+### Local HTTPS and LAN-address follow-up
+
+**Passed on 2026-09-12.** A one-time runner reused the real frontend and existing
+`tests/frontend/chat_popout_integration.cjs` scenarios, with synthetic API routes
+and fresh Playwright Chromium contexts. Production code and checked-in tests were
+unchanged; the fixture listened on this machine's Ethernet IPv4 address at an
+ephemeral port.
+
+- Plain HTTP over the LAN address reported `isSecureContext: false` and no Web
+  Locks. Pop out was disabled with an explicit reason; the ordinary Chat layout
+  and composer remained usable.
+- Temporary HTTPS over the same address exposed a secure context and Web Locks.
+  All eight applicable integration scenarios passed: orphan-window guidance,
+  construction/host-getter failures, recovery focus, initialization failure,
+  populated transfer/return, blocked/blank popup recovery, close/deletion recovery,
+  and popup/main reload recovery without resend. The transfer scenario passed on
+  rerun after supplying a diagnostic logging callback missing from the temporary
+  runner; no application change was needed.
+
+HTTPS used a disposable self-signed certificate with certificate errors accepted
+only in fresh test contexts. No system trust settings were changed. Servers and
+browser contexts were closed and temporary TLS files removed afterward. These
+checks establish local transport/browser behavior, not trusted certificate
+validation, a public tunnel, live model requests over the network, or access from
+another device through the firewall/router.
+
 ## Backend Tests
 
 Backend tests use Python `unittest` and mostly exercise route/service logic without starting the real app server.
 
 - `test_backend_foundation.py`: config parsing, path setup, shared state containers, and context shape.
 - `test_chat_context.py`: per-slot context capacity, fixed/server/unlimited output reserves, overflow boundaries, template/tokenizer fallback, preserved reasoning/options, unsupported media and unavailable counts, pinned target/auth, final post-search overflow prevention, and required-count summary requests with GUI-only metadata stripped.
-- `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract. Disk I/O coverage includes capacity-independent availability, Windows PDH raw counters and handle cleanup on failures, and macOS registry aggregation, device identity, and timeout isolation. `monitor_ui_unit.cjs` checks read/write activity, idle versus missing data, first-sample warmup and partial readings; the browser suite checks the capacity display has been replaced.
+- `test_system_stats.py`: system collectors, GPU probe parsing and failure isolation, cache/coalescing behavior, and the `/api/system-stats` route contract. Disk I/O coverage includes capacity-independent availability, Windows PDH raw counters and handle cleanup on failures, and macOS registry aggregation, device identity, and timeout isolation. `monitor_system_cards_unit.cjs` checks read/write activity, idle versus missing data, first-sample warmup and partial readings; the browser suite checks the capacity display has been replaced.
 - `test_system_stats_native.py`: Windows CPU/memory and macOS Mach/sysctl CPU/memory API fixtures, including 64-bit counters, idle accounting, physical memory, 4/16 KiB pages, invalid samples, and native API failures. These run on both existing CI platforms; actual macOS ABI and desktop behavior still need native verification.
 - `test_model_dir.py`: default/custom/unavailable active model-root resolution, validation, reset semantics, config merge preservation, unreadable-folder handling, and download-race rejection.
 - `test_routing.py`: router matching for exact and prefix routes.

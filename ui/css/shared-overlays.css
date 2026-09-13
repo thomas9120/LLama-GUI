@@ -1,0 +1,217 @@
+/* ════════════════════════════════════════════
+   MODAL
+   ════════════════════════════════════════════ */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: var(--scrim);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: var(--space-4);
+}
+
+.modal-dialog {
+    width: min(460px, 100%);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    padding: var(--space-5);
+    box-shadow: var(--shadow-lg);
+    animation: modal-in 0.2s ease;
+}
+
+@keyframes modal-in {
+    from { opacity: 0; transform: scale(0.96); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.modal-dialog h3 { margin-bottom: var(--space-3); color: var(--fg-bright); }
+.modal-dialog p { margin-bottom: var(--space-4); color: var(--fg-muted); }
+.modal-dialog .form-row { margin-bottom: 0; justify-content: flex-end; }
+
+.prompt-modal-input {
+    width: 100%;
+    margin-bottom: var(--space-4);
+}
+
+/* ════════════════════════════════════════════
+   SCROLLBAR
+   ════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-faint); }
+
+/* Tooltip */
+[data-tooltip] { position: relative; cursor: help; }
+[data-tooltip]:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    color: var(--fg);
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: var(--shadow-lg);
+}
+
+/* ════════════════════════════════════════════
+   STATS BAR
+   ════════════════════════════════════════════ */
+.stats-bar {
+    position: fixed;
+    bottom: 0;
+    left: var(--sidebar-w);
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-5);
+    background: var(--bg-surface);
+    border-top: 1px solid var(--border-strong);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--fg-muted);
+    z-index: 90;
+}
+
+.stats-bar.hidden { display: none; }
+
+body.chat-focus-mode .stats-bar { left: 0; }
+
+.stats-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+}
+
+.stats-label {
+    color: var(--green);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+}
+
+.stats-sep { width: 1px; height: 14px; background: var(--border-strong); flex-shrink: 0; }
+.stats-item { white-space: nowrap; }
+.stats-value { color: var(--fg-bright); font-weight: 600; }
+
+/* ════════════════════════════════════════════
+   TOAST
+   ════════════════════════════════════════════ */
+.toast-container {
+    position: fixed;
+    top: var(--space-4);
+    right: var(--space-4);
+    z-index: 1001;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.toast {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-radius: var(--radius-md);
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-strong);
+    box-shadow: var(--shadow-lg);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--fg);
+    animation: toast-in 0.3s ease;
+    min-width: 260px;
+    max-width: min(420px, calc(100vw - var(--space-4) * 2));
+    cursor: pointer;
+}
+
+.toast:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.toast-message {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+}
+
+.toast-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 18px;
+    line-height: 1;
+    padding: 0;
+    margin: -2px -4px -2px 0;
+}
+
+.toast-close:hover,
+.toast-close:focus-visible {
+    background: var(--bg-hover);
+    color: var(--fg-bright);
+}
+
+/* Optional one-shot action on a toast (e.g. "Open Monitor" after server
+   ready). It belongs to the toast row, not the global control palette, so it
+   reuses semantic tokens and adds no theme variables. */
+.toast-action {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    margin: -2px 0 -2px -2px;
+    padding: 4px 10px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--accent-text);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.toast-action:hover {
+    background: var(--bg-hover);
+    color: var(--fg-bright);
+}
+
+.toast-success { border-color: var(--green-border); }
+.toast-success .toast-icon { color: var(--green); }
+.toast-error { border-color: var(--red-border); }
+.toast-error .toast-icon { color: var(--red); }
+.toast-warning { border-color: var(--yellow-border); }
+.toast-warning .toast-icon { color: var(--yellow); }
+.toast-info { border-color: var(--accent-border); }
+.toast-info .toast-icon { color: var(--accent-text); }
+
+@keyframes toast-in {
+    from { opacity: 0; transform: translateY(-12px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
