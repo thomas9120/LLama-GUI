@@ -38,7 +38,7 @@
 - Upstream-removed flags kept for older builds: set `removed_in: "bNNNNN"`, track in `docs/upstream-changes.md`. The installed-binary compatibility check exempts them on builds at or above the tag; gate any new-build behavior on `supportsLoadModeOnly()`-style build-tag checks.
 - Chat templates: add one `CHAT_TEMPLATE_PRESETS` entry in `ui/js/flags/chat-templates.js`; bundle `.jinja` files under `ui/templates/`. Emit `--chat-template` or `--chat-template-file`, never both, and reverse-map names/paths to the dropdown.
 - Custom launch args: edit `parseCustomLaunchArgs()` in `ui/js/flag-core.js`, extend its unit tests for new cases, and run them immediately. Parser errors must block launch and appear near the textarea.
-- Themes: add one palette block in `ui/css/tokens.css` and one `THEMES` entry in `ui/js/theme-ui.js`. Never add theme selectors or color literals to `ui/css/style.css`.
+- Themes: add one palette block in `ui/css/tokens.css` and one `THEMES` entry in `ui/js/theme-ui.js`. Never add theme selectors or color literals to component stylesheets in `ui/css/`; see the stylesheet load order in `docs/directory.md`.
 - Preserve theme contrast floors: AA for text; 3:1 for `--fg-faint` and fill-only `-solid` tokens, across surfaces, semantic chips, and composited interaction washes. `theme_ui_unit.cjs` enforces the details documented in `docs/tests.md`.
 
 ## Verification

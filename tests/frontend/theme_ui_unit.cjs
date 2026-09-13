@@ -12,6 +12,59 @@ const vm = require("node:vm");
 const ROOT = path.resolve(__dirname, "..", "..");
 const source = fs.readFileSync(path.join(ROOT, "ui", "js", "theme-ui.js"), "utf8");
 
+// index.html owns CSS load order, just as it owns classic-script order.
+function localStylesheetPaths(html) {
+    const paths = [];
+    const tags = /<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script\s*>|<link\b((?:[^>"']|"[^"]*"|'[^']*')*)>/gi;
+    for (const tag of html.matchAll(tags)) {
+        if (tag[1] === undefined) continue;
+        const attrs = new Map();
+        for (const attr of tag[1].matchAll(/([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)) {
+            attrs.set(attr[1].toLowerCase(), attr[2] ?? attr[3] ?? attr[4] ?? "");
+        }
+        if (!(attrs.get("rel") || "").toLowerCase().split(/\s+/).includes("stylesheet")) continue;
+        const href = attrs.get("href") || "";
+        if (/^(?:https?:)?\/\//i.test(href)) continue; // External font stylesheet.
+        assert.match(href, /^\/css\/[^?#]+\.css(?:[?#]|$)/, "local stylesheets must live under /css/");
+        assert.ok(!attrs.has("disabled") && !attrs.has("media") && !attrs.has("onload")
+            && !attrs.get("rel").toLowerCase().split(/\s+/).includes("alternate"),
+        `${href} must load unconditionally in document order`);
+        paths.push(href.split(/[?#]/)[0].slice(1));
+    }
+    assert.equal(paths[0], "css/tokens.css", "tokens must load first");
+    assert.equal(new Set(paths).size, paths.length, "stylesheets must load exactly once");
+    return paths;
+}
+
+const indexHtml = fs.readFileSync(path.join(ROOT, "ui", "index.html"), "utf8");
+const stylesheetPaths = localStylesheetPaths(indexHtml);
+const cssFiles = fs.readdirSync(path.join(ROOT, "ui", "css"), { recursive: true })
+    .filter(name => name.endsWith(".css")).map(name => `css/${name.replace(/\\/g, "/")}`);
+assert.deepEqual([...stylesheetPaths].sort(), cssFiles.sort(), "no missing or orphaned local stylesheets");
+const componentStyles = stylesheetPaths.filter(file => file !== "css/tokens.css").map(file => {
+    const css = fs.readFileSync(path.join(ROOT, "ui", file), "utf8");
+    const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    assert.doesNotMatch(rules, /@import\b/i, `${file}: use ordered links, not imports`);
+    assert.doesNotMatch(rules, /\[data-theme\b/i, `${file}: theme palettes belong in tokens.css`);
+    assert.doesNotMatch(rules, /#[\da-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i,
+        `${file}: color literals belong in tokens.css`);
+    return css;
+}).join("\n");
+assert.doesNotMatch(fs.readFileSync(path.join(ROOT, "ui", "css", "tokens.css"), "utf8"), /@import\b/i);
+
+{
+    const tokens = '<link rel="stylesheet" href="/css/tokens.css">';
+    const component = '<link rel="stylesheet" href="/css/chat.css?v=1#test">';
+    assert.deepEqual(localStylesheetPaths(`<!-- ${component} -->${tokens}${component}`),
+        ["css/tokens.css", "css/chat.css"]);
+    assert.throws(() => localStylesheetPaths(component + tokens), /tokens must load first/);
+    assert.throws(() => localStylesheetPaths(tokens + tokens), /exactly once/);
+    for (const attr of ['disabled', 'media="print"', 'onload="this.media=\'all\'"']) {
+        assert.throws(() => localStylesheetPaths(tokens + component.replace("<link ", `<link ${attr} `)),
+            /unconditionally/);
+    }
+}
+
 function makeDom() {
     const state = { focused: null };
 
@@ -540,8 +593,7 @@ function run(storedTheme) {
     // The -solid tokens are held to 3:1, not 4.5:1, because they are fills.
     // If one ever becomes a text color that floor is wrong, so pin the
     // invariant rather than trusting it.
-    const fs = require("node:fs");
-    const style = fs.readFileSync(path.join(ROOT, "ui", "css", "style.css"), "utf8");
+    const style = componentStyles;
     for (const token of ["--yellow-solid", "--favorite-solid"]) {
         const asText = new RegExp(`(^|[^-\\w])color:\\s*var\\(${token}\\)`, "m");
         assert.ok(

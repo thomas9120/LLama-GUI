@@ -252,6 +252,36 @@ the sample interval needed by system-card labels. Preferences retain the newest
 sample during a drag and flush it once when the drag ends. GPU reconciliation
 then reapplies visibility and order without rebuilding unchanged nodes.
 
+### Stylesheet Loading Order
+
+`ui/index.html` is the canonical order for local CSS, loaded through unconditional
+`<link rel="stylesheet">` elements. All files live in `ui/css/`:
+
+| Order | File | Ownership |
+|---|---|---|
+| 1 | `tokens.css` | Structural tokens, theme palettes and reduced-motion overrides |
+| 2 | `base-shell.css` | Reset, typography, icons, shell, sidebar and main content |
+| 3 | `shared-controls.css` | Badges, cards, section panels, forms, comboboxes, buttons and help |
+| 4 | `quick-launch.css` | Quick Launch controls, samplers, readiness and Hugging Face downloads |
+| 5 | `configure.css` | Shared code blocks, Configure, launch bar, server address and terminal base |
+| 6 | `runtime-tools.css` | Shared progress, API and Benchmarking |
+| 7 | `presets.css` | Preset library, detail pane and installed-info presentation |
+| 8 | `shared-overlays.css` | Dialogs, scrollbars, tooltips, fixed stats bar and toasts |
+| 9 | `chat.css` | Chat, detached window, history and settings panels |
+| 10 | `responsive.css` | Mobile navigation toggle and existing mixed-feature responsive overrides |
+| 11 | `monitor.css` | Monitor cards, telemetry, runtime terminal and Monitor media queries |
+
+Session 8 preserves contiguous source sections from the former `style.css`. Some
+shared rules consequently live beside a feature; later rules may override earlier
+ones. In particular, Monitor follows the mixed responsive overrides. Treat moving
+rules between these files or reordering links as a cascade change requiring review.
+Keep media queries with their current enclosing rules during mechanical moves.
+
+`tokens.css` loads once, first; component stylesheets contain no imports, theme
+palette selectors or color literals. New themes still require only a token palette
+and a `THEMES` entry. The backend discovers every linked local CSS file for asset
+versioning, and the detached Chat document uses this same index and stylesheet order.
+
 ### Frontend Module Reference
 
 | Module | Namespace | Role |
@@ -332,7 +362,7 @@ then reapplies visibility and order without rebuilding unchanged nodes.
 | `ui/js/memory-estimate-ui.js` | `window.LlamaGui.memoryEstimateUi` | Live dependency configuration, 700 ms debounce, request generations and sidebar estimate rendering from shared launch arguments |
 | `ui/js/notifications.js` | `window.LlamaGui.notifications` | Shared safe-text toast renderer, action/dismiss controls, duration timers and bounded stack |
 | `ui/js/app.js` | composition root | Dependency configuration, main/detached startup sequencing, tab/control wiring, launch/stop and accepted-status coordination, output transition callbacks, and shared inference snapshot distribution |
-| `ui/css/style.css` | — | Shared page headings/action bars, controls, surfaces, and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
+| `ui/css/` component stylesheets | — | Ten ordered files own layout and component presentation; see [Stylesheet Loading Order](#stylesheet-loading-order). Palette selectors and color literals stay in `tokens.css` |
 | `ui/js/shell-ui.js` | `window.LlamaGui.shellUi` | Workspace/maintenance navigation, current-page semantics, mobile drawer focus and dismissal, and the shared sidebar summary of the authoritative local runtime or registered external server |
 | `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, control heights, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
 | `ui/templates/` | — | Bundled Jinja chat template files for Kobold-style presets |
@@ -693,7 +723,7 @@ Windows collects raw `PhysicalDisk(_Total)` byte counters through [language-neut
 
 ## Presets Tab
 
-The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in the `ui/js/presets/` package; styling is under `.presets-browser` in `ui/css/style.css`.
+The Presets tab (`section-presets`) is the library browser for saved launch configurations. All logic lives in the `ui/js/presets/` package; styling is under `.presets-browser` in `ui/css/presets.css`, with shared responsive overrides in `ui/css/responsive.css`.
 
 The tab is built for libraries of scale. The reference case is 58 presets across 33 model groups, and several design decisions below only make sense at that size.
 
@@ -1253,5 +1283,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–7 complete, Session 8 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–8 complete, Session 9 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

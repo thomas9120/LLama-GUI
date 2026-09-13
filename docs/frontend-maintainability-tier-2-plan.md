@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–7 are complete; Session 8
-> (feature stylesheet package) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–8 are complete; Session 9
+> (Chat-window protocol and host-adapter extraction) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -465,45 +465,61 @@ and shared snapshot distribution:
 
 ## Session 8 — split feature CSS
 
-`ui/css/style.css` is the highest-churn frontend file and should be treated as a
-maintainability target, not merely an asset.
+**Completed (2026-09-12).** Canonical link-order reconstruction reproduced the
+original CSS byte for byte apart from the duplicate token import. Chromium's
+parsed rule order/content matched, and 60 fixed-DOM before/after screenshots were
+pixel-identical across the widths, themes and views described below. The full
+`npm test` passed, including all 22 interactive browser cases. The backend suite
+ran 811 tests successfully with three skips, including asset-versioning and
+reference checks. The local Pinokio source compatibility checker passed; native
+supervised-restart smoke was not run. Ownership, theme guardrails and test coverage
+are documented in the project reference, `AGENTS.md` and `docs/tests.md`.
 
-### Candidate feature groups
+Ten ordered component stylesheets replace the former 5,003-line `ui/css/style.css`.
+The package preserves contiguous sections in their original order:
 
-These are eventual grouping targets, not the required load order for the first
-split. Start with contiguous sections in their current source order. Existing
-responsive blocks mix several features, and Monitor styles follow them; preserving
-that order takes precedence over grouping by feature.
+1. `base-shell.css` — reset, typography, shell and sidebar;
+2. `shared-controls.css` — badges, cards, forms, buttons and help;
+3. `quick-launch.css` — Quick Launch and Hugging Face downloads;
+4. `configure.css` — code blocks, Configure and shared launch/output presentation;
+5. `runtime-tools.css` — progress, API and Benchmarking;
+6. `presets.css` — preset library and installed info;
+7. `shared-overlays.css` — dialogs, scrollbars, tooltips, stats bar and toasts;
+8. `chat.css` — Chat and detached-window presentation;
+9. `responsive.css` — mobile toggle and mixed-feature responsive overrides;
+10. `monitor.css` — Monitor and its media queries.
 
-1. base, typography, shell, and layout;
-2. shared controls, surfaces, dialogs, and toasts;
-3. Configure and command preview;
-4. Quick Launch and Hugging Face download;
-5. Presets;
-6. Chat and Chat window;
-7. API, Benchmarking, and Monitor;
-8. any deliberately global responsive overrides that cannot live with a feature.
+`tokens.css` stays unchanged and loads first. The duplicate token import formerly
+at the start of `style.css` is removed; every stylesheet now loads once through an
+unconditional link in `index.html`. Backend asset discovery already handles these
+links, so production backend code and the Pinokio launcher need no changes.
 
-### Rules
+### Extraction guardrails
 
-- Keep `tokens.css` first and as the only source of theme palettes and color
-  literals.
-- Load component styles with ordered `<link>` elements; do not use CSS `@import`.
-- Mechanically preserve selector declarations, enclosing at-rules, and their order
-  across the concatenated stylesheets during the first split.
-- After verifying equivalence of the initial split, regroup rules and colocate
-  feature media queries only in a separate change with cascade and visual checks.
-- Extend theme/style tests to inspect every non-token stylesheet, not only the old
-  `style.css` path.
-- Update backend static-asset/cache-buster expectations and Pinokio compatibility
-  checks if they name the old stylesheet directly.
+- Preserve selector declarations, enclosing at-rules and their order across the
+  concatenated stylesheets. Monitor still follows the mixed responsive blocks;
+  shared rules remain in their original neighboring sections.
+- Treat further regrouping or colocation of feature media queries as a separate
+  cascade change with its own visual checks. No selector cleanup or redesign is
+  part of this extraction.
+- Keep tokens as the only source of theme palettes and color literals. Theme tests
+  discover all local CSS links from `index.html`, require tokens first and reject
+  duplicate, missing, orphaned, conditional or imported stylesheets. Existing
+  fill-token and placeholder checks now inspect every component stylesheet.
+- Keep the same stylesheet order for main and detached Chat documents. The backend
+  asset-versioning fixture covers tokens and a component file; the existing asset
+  discovery test checks every local link.
 
 ### Verification
 
-- `node tests/frontend/theme_ui_unit.cjs`
-- `npm run test:frontend`
-- Visual checks at the responsive widths already covered by Playwright
-- `npm test`
+- One-time reconstruction from canonical link order must reproduce the original
+  CSS exactly except for the duplicate import; `tokens.css` must be unchanged.
+- Compare browser-parsed rule order and content, then fixed-DOM before/after views
+  at 390/900/1440px with Tokyo and Cappuccino themes, including populated Chat,
+  Monitor, detached presentation and overlays. Use the existing interactive
+  browser suite for responsive transitions, focus and popup ownership.
+- Run the theme suite, full `npm test`, backend asset-versioning and documentation
+  checks, and the local Pinokio source compatibility checker.
 
 ## Sessions 9–10 — split Chat-window safely
 
@@ -597,6 +613,6 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 5: inference core extraction
 - [x] Session 6: Monitor package and test split
 - [x] Session 7: `app.js` composition cleanup
-- [ ] Session 8: feature stylesheet package
+- [x] Session 8: feature stylesheet package
 - [ ] Session 9: Chat-window protocol and host-adapter extraction
 - [ ] Session 10: Chat-window coordinator/view package split
