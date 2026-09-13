@@ -288,7 +288,7 @@ async function verifyConfigureComparison(page) {
 
 async function verifyConfigureReset(page) {
     await selectSection(page, "configure");
-    await page.evaluate(() => refreshModels());
+    await page.evaluate(() => window.LlamaGui.manager.refreshModels());
     await page.selectOption("#model-select", "smoke-model.gguf");
     await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
         ctx_size: 8192, temperature: 0.37, port: 9091, gpu_layers: 7,
@@ -296,7 +296,7 @@ async function verifyConfigureReset(page) {
     }));
     const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
     const runtime = { generation: 401, tool: "llama-server", model: "models/smoke-model.gguf", host: "127.0.0.1", port: 9091, launch_settings: baseline };
-    const status = await page.evaluate(() => fetchJson("/api/status"));
+    const status = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     await page.route("**/api/status", route => route.fulfill({ json: { ...status, running: true, active_process_tool: "llama-server", active_runtime: runtime } }));
     await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 401 } }));
     await page.evaluate(activeRuntime => processLifecycle.restore({ running: true, active_runtime: activeRuntime }, {
@@ -304,7 +304,7 @@ async function verifyConfigureReset(page) {
     }), runtime);
     await page.selectOption("#tool-select", "llama-cli");
     const original = await page.evaluate(() => window.LlamaGui.flagCore.getFlagValues());
-    const savedPresets = await page.evaluate(() => fetchJson("/api/presets"));
+    const savedPresets = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/presets"));
     const history = JSON.stringify([{ id: "reset-history", title: "Keep this chat", messages: [] }]);
     await page.evaluate(value => localStorage.setItem("llama_gui_conversations", value), history);
     const writes = [];
@@ -338,7 +338,7 @@ async function verifyConfigureReset(page) {
     assert.equal(await page.inputValue("#chat-slider-temp"), String(defaults.temperature));
     assert.equal(await page.inputValue("#quick-port"), String(defaults.port));
     assert.equal(await page.evaluate(() => localStorage.getItem("llama_gui_conversations")), history);
-    assert.deepEqual(await page.evaluate(() => fetchJson("/api/presets")), savedPresets);
+    assert.deepEqual(await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/presets")), savedPresets);
     assert.deepEqual(await page.evaluate(() => processLifecycle.getSnapshot().activeRuntime), runtime);
     await page.selectOption("#tool-select", "llama-server");
     assert.match(await page.textContent("#config-change-count"), /changed since launch/);
@@ -554,7 +554,7 @@ async function verifyPresetPolish(page) {
 }
 
 async function verifyQuickLaunchPolish(page) {
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     let activeRuntime = null;
     let entries = [
         { name: "Recent session", data: { tool: "llama-server", model: "smoke-model.gguf", flags: { temperature: 0.4 } } },
@@ -656,12 +656,12 @@ async function verifyQuickLaunchPolish(page) {
 
 async function verifyConfigureRestart(page) {
     await selectSection(page, "configure");
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     await page.evaluate(async () => {
         const core = window.LlamaGui.flagCore;
         core.setCurrentTool("llama-server");
         core.applyFlagValues(getDefaultValues());
-        await refreshModels();
+        await window.LlamaGui.manager.refreshModels();
     });
     await page.selectOption("#model-select", "smoke-model.gguf");
     const baseline = await page.evaluate(() => window.LlamaGui.flagCore.captureLaunchSettings());
@@ -760,7 +760,7 @@ async function verifyShellPolish(page) {
         assert.equal(await page.locator('#sidebar [aria-current="page"]').getAttribute("data-section"), section);
     }
 
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     let runtime = { tool: "llama-server", generation: 501, model: "folder/" + "long-model-".repeat(20) + "<img>.gguf", host: "127.0.0.1", port: 8091, backend: "vulkan", version: "b501" };
     let target = null;
     let releaseStop;
@@ -857,7 +857,7 @@ async function setRangeValue(page, selector, value) {
 
 async function verifyMonitorRuntimePolish(page) {
     await page.setViewportSize({ width: 1440, height: 1000 });
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     const baseline = await page.evaluate(() => {
         flagCore.setCurrentTool("llama-server");
         flagCore.setMultipleFlagValues({ ctx_size: 8000, port: 8091 });
@@ -932,7 +932,7 @@ async function verifyMonitorRuntimePolish(page) {
         assert.equal(await page.locator("#output-terminal").isVisible(), false);
         assert.equal(await page.locator("#btn-monitor-quick-launch").isVisible(), true);
         target = { connected: true, host: "127.0.0.1", port: 9008 };
-        await page.evaluate(() => checkStatus());
+        await page.evaluate(() => window.LlamaGui.manager.checkStatus());
         assert.equal(await page.textContent("#monitor-runtime-state"), "External server");
         assert.match(await page.textContent("#monitor-runtime-endpoint"), /9008/);
         assert.equal(await page.locator("#btn-monitor-review").isVisible(), false);
@@ -951,10 +951,10 @@ async function verifyMonitorRuntimePolish(page) {
                     json: async () => [{ id: 0, is_processing: true, n_ctx: 1000, n_prompt_tokens: 999 }],
                 }))) : originalFetch(url, options);
             try {
-                reconcileInferenceTarget(latestStatus);
+                reconcileInferenceTarget(window.LlamaGui.manager.getLatestStatus());
                 const oldPoll = pollStats();
                 markExternalTargetChanged();
-                reconcileInferenceTarget(latestStatus);
+                reconcileInferenceTarget(window.LlamaGui.manager.getLatestStatus());
                 pending.forEach(release => release());
                 await oldPoll;
                 const snapshot = inferenceStats.getSnapshot();
@@ -968,7 +968,7 @@ async function verifyMonitorRuntimePolish(page) {
     } finally {
         runtime = null;
         target = null;
-        await page.evaluate(async () => { stopOutputPolling(); stopStatsPolling(); await checkStatus(); });
+        await page.evaluate(async () => { stopOutputPolling(); stopStatsPolling(); await window.LlamaGui.manager.checkStatus(); });
         for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
     }
 }
@@ -1076,15 +1076,22 @@ async function verifySecondaryPagePolish(page) {
     }
     await page.setViewportSize({ width: 1440, height: 1000 });
     await selectSection(page, "install");
-    const installed = await page.evaluate(() => {
-        const status = { ...latestStatus, installed: true, config_stale: false, version: "polish-test",
+    const installed = await page.evaluate(async () => {
+        const manager = window.LlamaGui.manager;
+        const originalStatus = manager.getLatestStatus();
+        const renderStatus = async (status) => {
+            manager.configure({ fetchJson: (url, options) => url === "/api/status"
+                ? Promise.resolve(status) : window.LlamaGui.apiClient.fetchJson(url, options) });
+            await manager.checkStatus();
+        };
+        const status = { ...window.LlamaGui.manager.getLatestStatus(), installed: true, config_stale: false, version: "polish-test",
             executables: { "llama-cli.exe": true, "llama-server.exe": false, "llama-bench.exe": true, "llama-optional<test>.exe": false } };
-        updateStatusUI(status);
+        await renderStatus(status);
         const details = document.querySelector("#installed-optional-tools");
         const summary = details.querySelector("summary");
         details.open = true;
         summary.focus();
-        updateStatusUI({ ...status, running: !status.running });
+        await renderStatus({ ...status, running: !status.running });
         const result = {
             optional: details.querySelector(".exe-optional")?.textContent,
             required: document.querySelector("#installed-info .exe-missing")?.textContent,
@@ -1093,11 +1100,12 @@ async function verifySecondaryPagePolish(page) {
             nodeKept: details === document.querySelector("#installed-optional-tools"),
             unsafeElements: document.querySelectorAll("#installed-info test").length,
         };
-        updateStatusUI({ ...status, version: "polish-test-2" });
+        await renderStatus({ ...status, version: "polish-test-2" });
         result.openKept = document.querySelector("#installed-optional-tools").open;
-        updateStatusUI({ ...status, installed: false, config_stale: true, missing_runtime_files: ["required.dll"] });
+        await renderStatus({ ...status, installed: false, config_stale: true, missing_runtime_files: ["required.dll"] });
         result.warning = document.querySelector(".installed-info-warning")?.textContent;
-        updateStatusUI(latestStatus);
+        await renderStatus(originalStatus);
+        manager.configure({ fetchJson: window.LlamaGui.apiClient.fetchJson });
         return result;
     });
     assert.equal(installed.optional, "Not installed");
@@ -1274,7 +1282,7 @@ async function verifyChatResponsiveLayout(page) {
 }
 
 async function verifyCharacterCards(page) {
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
     await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
         running: true, active_process_tool: "llama-server", runtime_generation: 700,
@@ -1345,7 +1353,7 @@ async function verifyCharacterCards(page) {
 }
 
 async function verifyChatDateTime(page) {
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     await page.route("**/api/llama/health?*", route => route.fulfill({ json: { state: "ready", ready: true, generation: 700 } }));
     await page.route("**/api/status", route => route.fulfill({ json: { ...baseStatus,
         running: true, active_process_tool: "llama-server", runtime_generation: 700,
@@ -1509,7 +1517,7 @@ async function verifyChatDeletion(page) {
 }
 
 async function verifyBenchmarkActions(page) {
-    const baseStatus = await page.evaluate(() => fetchJson("/api/status"));
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
     let runtime = null;
     let generation = 600;
     let lines = [];
@@ -1596,7 +1604,7 @@ async function verifyBenchmarkActions(page) {
 
     runtime = { generation: ++generation, tool: "llama-bench", model: "models/smoke-model.gguf" };
     lines = ["restored throughput 42 t/s"];
-    await page.evaluate(() => checkStatus());
+    await page.evaluate(() => window.LlamaGui.manager.checkStatus());
     await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Reconnected to running llama-bench"));
     assert.equal(await stop.isVisible(), true, "accepted status updates must adopt an external benchmark launch");
     await page.reload();

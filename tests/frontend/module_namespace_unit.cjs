@@ -199,6 +199,8 @@ const expectedTopLevelKeys = [
     "externalServerUi",
     "flagCore",
     "hfDownloadUi",
+    "apiClient",
+    "dialogs",
     "manager",
     "modelSwitchUi",
     "monitorUi",
@@ -239,6 +241,8 @@ const expectedNamespaces = [
     "monitorUi",
     "presets",
     "modelSwitchUi",
+    "apiClient",
+    "dialogs",
     "manager",
 ];
 
@@ -291,7 +295,14 @@ const facadeKeyContracts = {
         "supportsNativeReasoningEffort",
         "updateCommandPreview",
     ],
+    apiClient: ["fetchJson"],
+    dialogs: ["confirmAction", "promptAction"],
     manager: [
+        "configure",
+        "init",
+        "getLatestStatus",
+        "showStatus",
+        "clearAppReloadParam",
         "checkAppUpdateStatus",
         "checkStatus",
         "chooseModelsDir",
@@ -424,7 +435,12 @@ assert.equal(typeof llamaGui.presets.loadPreset, "function");
 assert.equal(typeof llamaGui.modelSwitchUi.getAssignments, "function");
 assert.equal(typeof llamaGui.processLifecycle.switchRuntime, "function");
 assert.equal(typeof llamaGui.outputCursor.create, "function");
-assert.equal(typeof llamaGui.manager.fetchJson, "function");
+assert.equal(llamaGui.manager.fetchJson, llamaGui.apiClient.fetchJson);
+assert.equal(llamaGui.manager.getLatestStatus(), null);
+assert.equal(llamaGui.manager._test, undefined, "test hooks are absent in production");
+for (const name of ["latestStatus", "checkStatus", "refreshModels", "installRelease", "confirmAction", "promptAction"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 
 // --- 4. Private namespace boundaries --------------------------------------
 

@@ -18,7 +18,7 @@
 - Keep platform decisions in the backend.
 - No silent empty `catch`: use `console.debug` for expected optional failures, `console.warn` for unexpected ones.
 - Avoid `instanceof` across realms (`node:vm` tests). Duck-type collections; use `Array.isArray` for arrays.
-- `fetchJson()` in `ui/js/manager.js` throws on non-JSON, even HTTP 200. Guard against `null` only when the endpoint can return literal JSON `null`.
+- `fetchJson()` in `ui/js/api-client.js` throws on non-JSON, even HTTP 200. Guard against `null` only when the endpoint can return literal JSON `null`.
 
 ## Backend
 

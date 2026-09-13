@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–2 are complete; Session 3
-> (shared services and Manager boundary) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–3 are complete; Session 4
+> (Manager package split) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -207,10 +207,21 @@ domains rather than one tiny file per flag category:
 
 ## Session 3 — establish shared services and the Manager boundary
 
-Do not use pure top-level movement as the final Manager architecture. `app.js`
-currently consumes Manager state and functions as bare globals, while Presets and
-other modules rely on generic helpers declared in `manager.js`. Establish explicit
-owners before distributing the implementation.
+**Completed (2026-09-12).** Shared `apiClient` and `dialogs` facades now own JSON
+transport and confirmation/prompt behavior. Manager state is closure-local;
+`configure()`, idempotent `init()`, and `getLatestStatus()` provide the boundary.
+Consumers receive explicit services and live status providers, and Manager receives
+callbacks for Presets notifications and Quick Launch synchronization. Existing
+Manager exports remain compatible, including the shared `fetchJson` alias.
+Tests use public methods or gated hooks without assigning Manager-private state.
+Independent review, the full `npm test` (all 22 browser cases), documentation links,
+and asset-versioning checks passed. Pinokio source compatibility was reviewed;
+its required paths and entrypoints remain intact.
+
+Do not use pure top-level movement as the final Manager architecture. Before this
+session, `app.js` consumed Manager state and functions as bare globals, while
+Presets and other modules relied on generic helpers declared in `manager.js`.
+Establish explicit owners before distributing the implementation.
 
 ### Shared services
 
@@ -468,7 +479,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 0: refactor guardrails
 - [x] Session 1: Chat-template selection
 - [x] Session 2: flag-definition package
-- [ ] Session 3: shared services and Manager boundary
+- [x] Session 3: shared services and Manager boundary
 - [ ] Session 4: Manager package split
 - [ ] Session 5: inference core extraction
 - [ ] Session 6: Monitor package and test split

@@ -9,7 +9,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
+const { getScriptPaths } = require("./script_order.cjs");
+const scripts = getScriptPaths().filter(src => ["js/api-client.js", "js/manager.js"].includes(src));
 
 function makeElement() {
     const el = {
@@ -58,15 +59,16 @@ function createContext({ models, failFetch = false } = {}) {
         },
     };
     context.window.window = context.window;
-    context.window.LlamaGui.presets = {
-        refreshModelPresence: () => {
-            // Record what the cache looked like at notification time, so the
-            // test can prove presets are told *after* the cache settles.
-            presenceCalls.push(context.getKnownModelNames());
-        },
+    const onModelPresenceChanged = () => {
+        // Record what the cache looked like at notification time, so the
+        // test can prove presets are told *after* the cache settles.
+        presenceCalls.push(context.window.LlamaGui.manager.getKnownModelNames());
     };
     vm.createContext(context);
-    vm.runInContext(source, context, { filename: "ui/js/manager.js" });
+    for (const src of scripts) {
+        vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", src), "utf8"), context, { filename: `ui/${src}` });
+    }
+    context.window.LlamaGui.manager.configure({ onModelPresenceChanged });
     return { context, presenceCalls, modelSelect };
 }
 
@@ -74,7 +76,7 @@ function createContext({ models, failFetch = false } = {}) {
     // Before any refresh the cache is unknown, which callers must not read as
     // "no models installed".
     const cold = createContext({ models: [] });
-    assert.equal(cold.context.getKnownModelNames(), null, "the cache starts unknown, not empty");
+    assert.equal(cold.context.window.LlamaGui.manager.getKnownModelNames(), null, "the cache starts unknown, not empty");
 
     // A successful refresh caches lowercased .gguf names only.
     const ok = createContext({
@@ -84,8 +86,8 @@ function createContext({ models, failFetch = false } = {}) {
             { name: "notes.txt", size_mb: 3 },
         ],
     });
-    await ok.context.refreshModels();
-    const names = ok.context.getKnownModelNames();
+    await ok.context.window.LlamaGui.manager.refreshModels();
+    const names = ok.context.window.LlamaGui.manager.getKnownModelNames();
     assert.ok(isSetLike(names), "a successful refresh caches a Set");
     assert.equal(names.size, 2, "non-gguf entries are excluded from the cache");
     assert.equal(names.has("kept.gguf"), true, "names are lowercased for case-insensitive matching");
@@ -99,14 +101,14 @@ function createContext({ models, failFetch = false } = {}) {
 
     // An empty models folder is a known-empty result, distinct from unknown.
     const empty = createContext({ models: [] });
-    await empty.context.refreshModels();
-    const emptyNames = empty.context.getKnownModelNames();
+    await empty.context.window.LlamaGui.manager.refreshModels();
+    const emptyNames = empty.context.window.LlamaGui.manager.getKnownModelNames();
     assert.ok(isSetLike(emptyNames) && emptyNames.size === 0, "an empty folder caches an empty Set");
     assert.equal(empty.presenceCalls.length, 1);
 
     const changedFolder = createContext({ models: [{ name: "new.gguf", size_mb: 1 }] });
     changedFolder.modelSelect.value = "old.gguf";
-    await changedFolder.context.refreshModels();
+    await changedFolder.context.window.LlamaGui.manager.refreshModels();
     assert.equal(
         changedFolder.modelSelect.value,
         "",
@@ -116,30 +118,30 @@ function createContext({ models, failFetch = false } = {}) {
     // A failed refresh must clear the cache rather than leave a stale one, and
     // must still notify: "none found" becoming "not checked" changes the UI.
     const failed = createContext({ failFetch: true });
-    await failed.context.refreshModels();
-    assert.equal(failed.context.getKnownModelNames(), null, "a failed refresh clears the cache");
+    await failed.context.window.LlamaGui.manager.refreshModels();
+    assert.equal(failed.context.window.LlamaGui.manager.getKnownModelNames(), null, "a failed refresh clears the cache");
     assert.equal(failed.presenceCalls.length, 1, "the failure path notifies the presets tab too");
     assert.equal(failed.presenceCalls[0], null, "and does so after the cache was cleared");
 
     // A stale cache from an earlier success must not survive a later failure.
     const thenFailed = createContext({ models: [{ name: "kept.gguf", size_mb: 1 }] });
-    await thenFailed.context.refreshModels();
-    assert.equal(thenFailed.context.getKnownModelNames().size, 1);
+    await thenFailed.context.window.LlamaGui.manager.refreshModels();
+    assert.equal(thenFailed.context.window.LlamaGui.manager.getKnownModelNames().size, 1);
     thenFailed.context.fetch = async () => {
         throw new Error("network down");
     };
-    await thenFailed.context.refreshModels();
+    await thenFailed.context.window.LlamaGui.manager.refreshModels();
     assert.equal(
-        thenFailed.context.getKnownModelNames(),
+        thenFailed.context.window.LlamaGui.manager.getKnownModelNames(),
         null,
         "a later failure must drop the previously cached names"
     );
 
     // The notification is optional wiring: the presets package may not be loaded.
-    const noPresets = createContext({ models: [] });
-    noPresets.context.window.LlamaGui.presets = undefined;
+    const noObserver = createContext({ models: [] });
+    noObserver.context.window.LlamaGui.manager.configure({ onModelPresenceChanged: undefined });
     await assert.doesNotReject(
-        () => noPresets.context.refreshModels(),
+        () => noObserver.context.window.LlamaGui.manager.refreshModels(),
         "refreshModels must not depend on the presets module being present"
     );
 
@@ -159,15 +161,15 @@ function createContext({ models, failFetch = false } = {}) {
             json: async () => [{ name: "fresh.gguf", size_mb: 1 }],
         };
     };
-    const stale = race.context.refreshModels();
-    const fresh = race.context.refreshModels();
+    const stale = race.context.window.LlamaGui.manager.refreshModels();
+    const fresh = race.context.window.LlamaGui.manager.refreshModels();
     await fresh;
     assert.equal(
         race.modelSelect.value,
         "fresh.gguf",
         "the winning refresh must preserve the selected model across overlapping requests"
     );
-    assert.equal(race.context.getKnownModelNames().size, 1, "newer success must populate the cache");
+    assert.equal(race.context.window.LlamaGui.manager.getKnownModelNames().size, 1, "newer success must populate the cache");
     assert.equal(race.presenceCalls.length, 1, "only the winning refresh notifies");
     resolveSlowFail();
     assert.equal(
@@ -176,7 +178,7 @@ function createContext({ models, failFetch = false } = {}) {
         "a stale caller must wait for and report the winning refresh result"
     );
     assert.equal(
-        race.context.getKnownModelNames() && race.context.getKnownModelNames().size,
+        race.context.window.LlamaGui.manager.getKnownModelNames() && race.context.window.LlamaGui.manager.getKnownModelNames().size,
         1,
         "a late failure must not wipe a newer success"
     );

@@ -4,7 +4,8 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
+const { getScriptPaths } = require("./script_order.cjs");
+const scripts = getScriptPaths().filter(src => ["js/api-client.js", "js/manager.js"].includes(src));
 
 function makeElement() {
     let html = "";
@@ -90,8 +91,13 @@ const context = {
 };
 context.window.window = context.window;
 vm.createContext(context);
-vm.runInContext(source, context, { filename: "ui/js/manager.js" });
-vm.runInContext('releasesBackend = "cpu"', context);
+context.window.__LLAMA_GUI_TEST_HOOKS__ = true;
+for (const src of scripts) {
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", src), "utf8"), context, { filename: `ui/${src}` });
+}
+context.window.LlamaGui.manager.configure({
+    onModelPresenceChanged: () => coreCalls.push(["refreshModelPresence"]),
+});
 
 const customInfo = {
     models_dir: "D:\\Smoke & Models",
@@ -102,6 +108,9 @@ const customInfo = {
 };
 
 (async () => {
+    fetchHandler = async () => ({ ok: true, json: async () => [] });
+    await context.window.LlamaGui.manager.fetchReleases("cpu");
+    fetchCalls.length = 0;
     context.window.LlamaGui.manager.initModelDirControls();
     assert.equal(elements.get("models-folder-path").textContent, "Loading...");
     assert.equal(typeof elements.get("btn-change-models-folder").listeners.click, "function");
@@ -254,7 +263,7 @@ const customInfo = {
         if (url === "/api/status") return { ok: true, json: async () => raceStatus };
         throw new Error(`unexpected request: ${url}`);
     };
-    assert.equal(await context.waitForServerReady(1, 0), true);
+    assert.equal(await context.window.LlamaGui.manager._test.waitForServerReady(1, 0), true);
     assert.deepEqual(fetchCalls.map((call) => call.url), ["/api/status"]);
 
     const unavailable = {
@@ -264,7 +273,7 @@ const customInfo = {
         models_dir_available: false,
         models_dir_error: "Models folder is offline.",
     };
-    context.applyModelDirInfo(unavailable);
+    context.window.LlamaGui.manager._test.applyModelDirInfo(unavailable);
     assert.equal(elements.get("models-folder-path").textContent, "<offline-models>");
     assert.equal(elements.get("models-folder-path").innerHTML, "");
     assert.equal(elements.get("models-folder-error").textContent, "Models folder is offline.");

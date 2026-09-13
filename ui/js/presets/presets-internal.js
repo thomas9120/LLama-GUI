@@ -68,11 +68,7 @@ function findPresetByName(entries, name) {
 }
 
 function getPresetFetchJson() {
-    const managerFetch = window.LlamaGui
-        && window.LlamaGui.manager
-        && window.LlamaGui.manager.fetchJson;
-    if (typeof managerFetch === "function") return managerFetch;
-    if (typeof fetchJson === "function") return fetchJson;
+    if (typeof presetDependencies.fetchJson === "function") return presetDependencies.fetchJson;
     throw new Error("Preset API is not available.");
 }
 

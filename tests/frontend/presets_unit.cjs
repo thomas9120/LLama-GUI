@@ -1065,6 +1065,7 @@ async function testPresetRefreshPreservesMissingFavorite() {
     runPresetPackage(ctx);
     vm.runInContext("renderPresetGroups = () => {}", ctx);
 
+    ctx.window.LlamaGui.presets.configure({ fetchJson: ctx.fetchJson });
     await vm.runInContext("loadPresets()", ctx);
 
     assert.equal(
@@ -1117,6 +1118,7 @@ async function testPresetLoadFailureClearsAuxiliaryState() {
         ctx
     );
 
+    ctx.window.LlamaGui.presets.configure({ fetchJson: ctx.fetchJson });
     await vm.runInContext("loadPresets()", ctx);
 
     assert.equal(vm.runInContext("currentPresetGroups.length", ctx), 0);
@@ -1164,6 +1166,7 @@ async function testSetPresetArchivedPostsBatchPayload() {
         calls.push({ url, body: JSON.parse(options.body) });
         return { archived: options ? JSON.parse(options.body).archived : true, count: 1 };
     };
+    ctx.window.LlamaGui.presets.configure({ fetchJson: ctx.fetchJson });
     vm.runInContext("selectedPresetNames = new Set(['shelved'])", ctx);
 
     await vm.runInContext("setPresetArchived(['shelved'], true)", ctx);

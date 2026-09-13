@@ -1,6 +1,20 @@
+(() => {
 // GitHub releases and backend management: release fetching, installation/update flows,
-// the shared fetchJson() utility, the known-model-name cache, and accepted-status
+// the known-model-name cache and accepted-status
 // runtime reconciliation.
+let dependencies = { fetchJson: window.LlamaGui.apiClient.fetchJson };
+let initialized = false;
+let modelDirControlsInitialized = false;
+
+function configure(options = {}) {
+    dependencies = { ...dependencies, ...options };
+    if ("onAcceptedStatus" in options) setAcceptedStatusObserver(options.onAcceptedStatus);
+}
+
+function getLatestStatus() {
+    return latestStatus;
+}
+
 let cachedReleases = null;
 let releasesBackend = null;
 let releasesBackendInFlight = null;
@@ -177,26 +191,6 @@ function syncInstallActionButtons(status, selectedInstallBackend) {
     }
 }
 
-async function fetchJson(url, options) {
-    const resp = await fetch(url, { cache: "no-store", ...(options || {}) });
-    let data = null;
-    try {
-        data = await resp.json();
-    } catch (e) {
-        if (!resp.ok) {
-            throw new Error(`Request failed (${resp.status})`);
-        }
-        throw new Error(`Invalid JSON response from ${url}`);
-    }
-
-    if (!resp.ok) {
-        const message = data && data.error ? data.error : `Request failed (${resp.status})`;
-        throw new Error(message);
-    }
-
-    return data;
-}
-
 function selectedBackendId() {
     const sel = document.getElementById("backend-select");
     return sel ? String(sel.value || "") : "";
@@ -275,7 +269,7 @@ async function activateCustomBackend() {
     setInstallButtonsDisabled(true);
     showStatus("info", `Checking ${label} binaries...`);
     try {
-        const result = await fetchJson("/api/activate-custom", {
+        const result = await dependencies.fetchJson("/api/activate-custom", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ backend }),
@@ -315,7 +309,7 @@ async function activateOfficialBackend(backend) {
     setInstallButtonsDisabled(true);
     showStatus("info", `Activating existing ${backend} backend...`);
     try {
-        const result = await fetchJson("/api/install", {
+        const result = await dependencies.fetchJson("/api/install", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ backend, activate_existing: true }),
@@ -341,7 +335,7 @@ async function fetchReleases(backend) {
     releasesBackendInFlight = backendParam;
     sel.innerHTML = '<option value="">Loading...</option>';
     try {
-        const releases = await fetchJson(url);
+        const releases = await dependencies.fetchJson(url);
         if (requestId !== releaseFetchRequestId) return;
         cachedReleases = releases;
         releasesBackend = backendParam;
@@ -375,7 +369,7 @@ async function fetchReleases(backend) {
 async function checkStatus() {
     const requestId = ++statusRequestId;
     try {
-        const status = await fetchJson("/api/status");
+        const status = await dependencies.fetchJson("/api/status");
         if (!status || requestId !== statusRequestId) return null;
         latestStatus = status;
         // Feeds the launch-arg gate for build-dependent flags such as native
@@ -631,7 +625,7 @@ async function repairInstall() {
         return;
     }
 
-    const ok = await confirmAction(
+    const ok = await dependencies.confirmAction(
         "Repair Install",
         `Repair installation for ${status.version} (${status.backend})? This will replace existing llama.cpp runtime files.`,
         "Repair"
@@ -652,7 +646,7 @@ async function removeLlamaFiles() {
         return;
     }
 
-    const ok = await confirmAction(
+    const ok = await dependencies.confirmAction(
         "Remove llama.cpp Files",
         "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear official install metadata? Both Custom slots, models, and presets will be kept.",
         "Remove"
@@ -660,7 +654,7 @@ async function removeLlamaFiles() {
     if (!ok) return;
 
     try {
-        const result = await fetchJson("/api/cleanup-llama", { method: "POST" });
+        const result = await dependencies.fetchJson("/api/cleanup-llama", { method: "POST" });
         showStatus("success", `Removed ${result.removed_files || 0} llama.cpp file(s).`);
         checkStatus();
     } catch (e) {
@@ -684,7 +678,7 @@ async function stopPythonServer() {
     const runningHint = status && status.running
         ? " Any running llama.cpp process will be stopped first."
         : "";
-    const ok = await confirmAction(
+    const ok = await dependencies.confirmAction(
         "Quit Llama GUI",
         `Quit Llama GUI? The page will disconnect until you start Llama GUI again.${runningHint}`,
         "Quit Llama GUI"
@@ -698,7 +692,7 @@ async function stopPythonServer() {
     showStatus("info", "Quitting Llama GUI...");
 
     try {
-        await fetchJson("/api/shutdown", { method: "POST" });
+        await dependencies.fetchJson("/api/shutdown", { method: "POST" });
         showStatus("success", "Llama GUI is shutting down. This page will stop responding.");
         window.setTimeout(() => {
             window.location.reload();
@@ -715,7 +709,7 @@ async function restartPythonServer() {
     const runningHint = status && status.running
         ? " Any running llama.cpp process will be stopped first."
         : "";
-    const ok = await confirmAction(
+    const ok = await dependencies.confirmAction(
         "Restart Llama GUI",
         `Restart Llama GUI? The page will briefly disconnect.${runningHint}`,
         "Restart"
@@ -741,7 +735,7 @@ async function restartPythonServerAndReload(options = {}) {
     showStatusFn("info", options.restartingMessage || "Restarting Llama GUI...");
 
     try {
-        await fetchJson("/api/restart", { method: "POST" });
+        await dependencies.fetchJson("/api/restart", { method: "POST" });
         showStatusFn("info", options.reconnectingMessage || "Llama GUI is restarting. Reconnecting...");
         const ready = await waitForServerReady(30, 1000);
         if (ready) {
@@ -785,7 +779,7 @@ function clearAppReloadParam() {
 async function waitForServerReady(maxRetries, intervalMs) {
     for (let i = 0; i < maxRetries; i++) {
         try {
-            await fetchJson("/api/status");
+            await dependencies.fetchJson("/api/status");
             return true;
         } catch (e) {
             console.debug("Server readiness probe failed", e);
@@ -801,7 +795,7 @@ async function startInstall(tag, backend, startMessage) {
     showProgress(true);
 
     try {
-        const result = await fetchJson("/api/install", {
+        const result = await dependencies.fetchJson("/api/install", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tag, backend }),
@@ -823,7 +817,7 @@ async function startInstall(tag, backend, startMessage) {
 async function checkForUpdates() {
     showStatus("info", "Checking for updates...");
     try {
-        const result = await fetchJson("/api/update", { method: "POST" });
+        const result = await dependencies.fetchJson("/api/update", { method: "POST" });
         if (result.error) {
             showStatus("error", result.error);
         } else if (result.status === "already_latest") {
@@ -863,7 +857,7 @@ function pollInstallProgress() {
         if (installPollInFlight) return;
         installPollInFlight = true;
         try {
-            const prog = await fetchJson("/api/download-progress");
+            const prog = await dependencies.fetchJson("/api/download-progress");
             installPollFailCount = 0;
             updateProgressBar(prog);
             if (prog.status === "done") {
@@ -983,7 +977,7 @@ async function persistModelsDir(path) {
     modelDirChangeInProgress = true;
     renderModelDirInfo(latestStatus);
     try {
-        postedInfo = await fetchJson("/api/models-dir", {
+        postedInfo = await dependencies.fetchJson("/api/models-dir", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ path }),
@@ -1002,7 +996,7 @@ async function persistModelsDir(path) {
         const core = window.LlamaGui && window.LlamaGui.flagCore;
         if (core && typeof core.updateCommandPreview === "function") core.updateCommandPreview();
         modelDirOperationError = "";
-        if (typeof showToast === "function") showToast("Models folder updated.", "success");
+        if (typeof dependencies.showToast === "function") dependencies.showToast("Models folder updated.", "success");
         return true;
     } catch (error) {
         const core = window.LlamaGui && window.LlamaGui.flagCore;
@@ -1012,7 +1006,7 @@ async function persistModelsDir(path) {
         }
         modelDirOperationError = error && error.message ? error.message : "Could not update the models folder.";
         renderModelDirInfo(displayInfo || latestStatus);
-        if (typeof showToast === "function") showToast(modelDirOperationError, "error");
+        if (typeof dependencies.showToast === "function") dependencies.showToast(modelDirOperationError, "error");
         return false;
     } finally {
         modelDirChangeInProgress = false;
@@ -1025,7 +1019,7 @@ async function chooseModelsDir() {
     modelDirChangeInProgress = true;
     renderModelDirInfo(latestStatus);
     try {
-        const selection = await fetchJson("/api/select-folder", {
+        const selection = await dependencies.fetchJson("/api/select-folder", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title: "Select Models Folder" }),
@@ -1035,7 +1029,7 @@ async function chooseModelsDir() {
         return await persistModelsDir(selection.path);
     } catch (error) {
         modelDirOperationError = error && error.message ? error.message : "Could not open the folder picker.";
-        if (typeof showToast === "function") showToast(modelDirOperationError, "error");
+        if (typeof dependencies.showToast === "function") dependencies.showToast(modelDirOperationError, "error");
         return false;
     } finally {
         modelDirChangeInProgress = false;
@@ -1044,6 +1038,8 @@ async function chooseModelsDir() {
 }
 
 function initModelDirControls() {
+    if (modelDirControlsInitialized) return;
+    modelDirControlsInitialized = true;
     for (const prefix of ["", "quick-"]) {
         const changeBtn = document.getElementById("btn-" + prefix + "change-models-folder");
         const resetBtn = document.getElementById("btn-" + prefix + "reset-models-folder");
@@ -1164,7 +1160,7 @@ async function checkAppUpdateStatus() {
         const url = channel === "nightly"
             ? "/api/app-update-status?channel=nightly"
             : "/api/app-update-status";
-        const status = await fetchJson(url);
+        const status = await dependencies.fetchJson(url);
         if (selectedAppUpdateChannel() !== channel) return;
         renderAppUpdateStatus(status);
     } catch (e) {
@@ -1182,7 +1178,7 @@ async function updateAppFromGitHub() {
             const url = channel === "nightly"
                 ? "/api/app-update-status?channel=nightly"
                 : "/api/app-update-status";
-            status = await fetchJson(url);
+            status = await dependencies.fetchJson(url);
             if (selectedAppUpdateChannel() !== channel) return;
         } catch (e) {
             showAppUpdateStatus("error", "Failed to check app updates: " + e.message);
@@ -1194,7 +1190,7 @@ async function updateAppFromGitHub() {
         return;
     }
 
-    const ok = await confirmAction(
+    const ok = await dependencies.confirmAction(
         "Update Llama GUI",
         `Install the ${describeAppUpdateTarget(status)} from GitHub now? Python dependencies from requirements.txt will be installed after the update. The app may need a restart after updating.`,
         "Update"
@@ -1203,7 +1199,7 @@ async function updateAppFromGitHub() {
 
     showAppUpdateStatus("info", `Installing the ${describeAppUpdateTarget(status)} from GitHub...`);
     try {
-        const result = await fetchJson("/api/app-update", {
+        const result = await dependencies.fetchJson("/api/app-update", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ channel }),
@@ -1246,108 +1242,8 @@ async function updateAppFromGitHub() {
     }
 }
 
-function confirmAction(title, message, confirmText) {
-    const modal = document.getElementById("confirm-modal");
-    const titleEl = document.getElementById("confirm-modal-title");
-    const messageEl = document.getElementById("confirm-modal-message");
-    const cancelBtn = document.getElementById("confirm-modal-cancel");
-    const okBtn = document.getElementById("confirm-modal-ok");
-
-    titleEl.textContent = title || "Confirm Action";
-    messageEl.textContent = message || "Are you sure you want to continue?";
-    okBtn.textContent = confirmText || "Confirm";
-
-    modal.classList.remove("hidden");
-    okBtn.focus();
-
-    return new Promise((resolve) => {
-        const cleanup = () => {
-            modal.classList.add("hidden");
-            cancelBtn.removeEventListener("click", onCancel);
-            okBtn.removeEventListener("click", onConfirm);
-            modal.removeEventListener("click", onBackdrop);
-            document.removeEventListener("keydown", onKeydown);
-        };
-
-        const finish = (value) => {
-            cleanup();
-            resolve(value);
-        };
-
-        const onCancel = () => finish(false);
-        const onConfirm = () => finish(true);
-        const onBackdrop = (e) => {
-            if (e.target === modal) finish(false);
-        };
-        const onKeydown = (e) => {
-            if (e.key === "Escape") finish(false);
-            if (e.key === "Enter") {
-                e.preventDefault();
-                finish(e.target !== cancelBtn);
-            }
-        };
-
-        cancelBtn.addEventListener("click", onCancel);
-        okBtn.addEventListener("click", onConfirm);
-        modal.addEventListener("click", onBackdrop);
-        document.addEventListener("keydown", onKeydown);
-    });
-}
-
-function promptAction(title, message, defaultValue, confirmText) {
-    const modal = document.getElementById("prompt-modal");
-    const titleEl = document.getElementById("prompt-modal-title");
-    const messageEl = document.getElementById("prompt-modal-message");
-    const input = document.getElementById("prompt-modal-input");
-    const cancelBtn = document.getElementById("prompt-modal-cancel");
-    const okBtn = document.getElementById("prompt-modal-ok");
-
-    titleEl.textContent = title || "Enter a Value";
-    messageEl.textContent = message || "";
-    okBtn.textContent = confirmText || "Confirm";
-    input.value = defaultValue === undefined || defaultValue === null ? "" : String(defaultValue);
-
-    modal.classList.remove("hidden");
-    input.focus();
-    input.select();
-
-    return new Promise((resolve) => {
-        const cleanup = () => {
-            modal.classList.add("hidden");
-            cancelBtn.removeEventListener("click", onCancel);
-            okBtn.removeEventListener("click", onConfirm);
-            modal.removeEventListener("click", onBackdrop);
-            document.removeEventListener("keydown", onKeydown);
-        };
-
-        const finish = (value) => {
-            cleanup();
-            resolve(value);
-        };
-
-        // resolves to null on cancel so callers can tell "dismissed" from "cleared the field"
-        const onCancel = () => finish(null);
-        const onConfirm = () => finish(input.value.trim());
-        const onBackdrop = (e) => {
-            if (e.target === modal) finish(null);
-        };
-        const onKeydown = (e) => {
-            if (e.key === "Escape") finish(null);
-            if (e.key === "Enter") {
-                e.preventDefault();
-                finish(input.value.trim());
-            }
-        };
-
-        cancelBtn.addEventListener("click", onCancel);
-        okBtn.addEventListener("click", onConfirm);
-        modal.addEventListener("click", onBackdrop);
-        document.addEventListener("keydown", onKeydown);
-    });
-}
-
 function openFolder(folder) {
-    fetchJson("/api/open-folder", {
+    dependencies.fetchJson("/api/open-folder", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ folder }),
@@ -1376,9 +1272,8 @@ function getKnownModelNames() {
 // time, so whoever changed it has to say so. Kept as a narrow one-way poke
 // rather than a general event bus, matching setAcceptedStatusObserver's scope.
 function notifyModelPresenceChanged() {
-    const presets = window.LlamaGui && window.LlamaGui.presets;
-    if (presets && typeof presets.refreshModelPresence === "function") {
-        presets.refreshModelPresence();
+    if (typeof dependencies.onModelPresenceChanged === "function") {
+        dependencies.onModelPresenceChanged();
     }
 }
 
@@ -1393,7 +1288,7 @@ async function refreshModelsForRequest(requestId) {
     const sel = document.getElementById("model-select");
     if (!sel) return false;
     try {
-        const models = await fetchJson("/api/models");
+        const models = await dependencies.fetchJson("/api/models");
         if (requestId !== refreshModelsRequestId) return refreshModelsInFlight || false;
         // Keep the current options in place while requests overlap. Clearing
         // them before the await made a second refresh snapshot an empty value,
@@ -1424,8 +1319,8 @@ async function refreshModelsForRequest(requestId) {
         if (window.LlamaGui && window.LlamaGui.flagCore) {
             window.LlamaGui.flagCore.setSelectedModelValue(sel.value || "");
         }
-        if (typeof syncQuickLaunchModelOptions === "function") {
-            syncQuickLaunchModelOptions();
+        if (typeof dependencies.syncQuickLaunchModelOptions === "function") {
+            dependencies.syncQuickLaunchModelOptions();
         }
         notifyModelPresenceChanged();
         if (window.LlamaGui && window.LlamaGui.flagCore
@@ -1446,11 +1341,11 @@ async function refreshModelsForRequest(requestId) {
         if (window.LlamaGui && window.LlamaGui.flagCore) {
             window.LlamaGui.flagCore.setSelectedModelValue("");
         }
-        if (typeof syncQuickLaunchModelOptions === "function") {
-            syncQuickLaunchModelOptions();
+        if (typeof dependencies.syncQuickLaunchModelOptions === "function") {
+            dependencies.syncQuickLaunchModelOptions();
         }
-        if (typeof showToast === "function") {
-            showToast("Could not load models: " + e.message, "error");
+        if (typeof dependencies.showToast === "function") {
+            dependencies.showToast("Could not load models: " + e.message, "error");
         } else {
             console.debug("Failed to refresh model list", e);
         }
@@ -1462,13 +1357,37 @@ async function refreshModelsForRequest(requestId) {
     }
 }
 
-if (window.addEventListener) {
+function init() {
+    if (initialized) return;
+    initialized = true;
+    document.getElementById("btn-install")?.addEventListener("click", installRelease);
+    document.getElementById("btn-update")?.addEventListener("click", checkForUpdates);
+    document.getElementById("btn-repair")?.addEventListener("click", repairInstall);
+    document.getElementById("btn-remove-llama")?.addEventListener("click", removeLlamaFiles);
+    document.getElementById("btn-stop-app")?.addEventListener("click", stopPythonServer);
+    document.getElementById("btn-restart-app")?.addEventListener("click", restartPythonServer);
+    document.getElementById("refresh-releases")?.addEventListener("click", () => fetchReleases(selectedBackendId()));
+    document.getElementById("backend-select")?.addEventListener("change", onBackendChange);
+    document.getElementById("btn-open-models")?.addEventListener("click", () => openFolder("models"));
+    document.getElementById("btn-open-llama")?.addEventListener("click", () => openFolder("llama"));
+    document.getElementById("btn-check-app-update")?.addEventListener("click", checkAppUpdateStatus);
+    document.getElementById("btn-update-app")?.addEventListener("click", updateAppFromGitHub);
+    document.getElementById("app-update-channel")?.addEventListener("change", checkAppUpdateStatus);
+    document.getElementById("btn-sidebar-stop-app")?.addEventListener("click", stopPythonServer);
+    document.getElementById("btn-refresh-models")?.addEventListener("click", () => refreshModels());
+    initModelDirControls();
     window.addEventListener("beforeunload", stopInstallProgressPolling);
+    checkAppUpdateStatus();
 }
 
 if (window.LlamaGui) {
     window.LlamaGui.manager = Object.assign(window.LlamaGui.manager || {}, {
-        fetchJson,
+        configure,
+        init,
+        getLatestStatus,
+        showStatus,
+        clearAppReloadParam,
+        fetchJson: window.LlamaGui.apiClient.fetchJson,
         fetchReleases,
         checkStatus,
         setAcceptedStatusObserver,
@@ -1482,3 +1401,11 @@ if (window.LlamaGui) {
         stopInstallProgressPolling,
     });
 }
+
+if (window.__LLAMA_GUI_TEST_HOOKS__) {
+    window.LlamaGui.manager._test = {
+        selectedBackendId, onBackendChange, updateStatusUI,
+        canActivateOfficialBackend, installRelease, waitForServerReady, applyModelDirInfo,
+    };
+}
+})();

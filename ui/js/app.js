@@ -5,6 +5,9 @@ function debounce(fn, ms) {
     return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
 }
 
+const manager = window.LlamaGui.manager;
+const apiClient = window.LlamaGui.apiClient;
+const dialogs = window.LlamaGui.dialogs;
 const flagCore = window.LlamaGui.flagCore;
 const configFlagsUi = window.LlamaGui.configFlagsUi;
 const themeUi = window.LlamaGui.themeUi;
@@ -51,7 +54,7 @@ if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 apiTab.configure({
     flagCore,
     copyText,
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
 });
 }
@@ -77,28 +80,42 @@ samplerPresets.configure({
     flagCore,
     getFlags: () => FLAGS,
     getDefaultFlagValues: getDefaultValues,
-    confirmAction,
-    promptAction,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
     showToast,
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
-presetsApi.configure({ showToast, switchTab });
+manager.configure({
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    showToast,
+    syncQuickLaunchModelOptions,
+    onModelPresenceChanged: () => presetsApi.refreshModelPresence(),
+    onAcceptedStatus: reconcileAuthoritativeStatus,
+});
+presetsApi.configure({
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
+    showToast,
+    switchTab,
+});
 remoteTunnelUi.configure({
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     copyText,
     getServerEndpointConfig,
 });
 externalServerUi.configure({
-    fetchJson,
-    getLatestStatus: () => latestStatus,
+    fetchJson: apiClient.fetchJson,
+    getLatestStatus: manager.getLatestStatus,
     refreshStatus: refreshRuntimeStatusPanels,
     onExternalTargetChanged: markExternalTargetChanged,
 });
 hfDownloadUi.configure({
     flagCore,
-    fetchJson,
-    confirmAction,
-    refreshModels,
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    refreshModels: manager.refreshModels,
     applyPresetModel,
     refreshQuickLaunchUI,
 });
@@ -106,11 +123,11 @@ quickLaunchUi.configure({
     flagCore,
     presets: presetsApi,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     configFlagsUi,
     hfDownloadUi,
     debounce,
-    refreshModels,
+    refreshModels: manager.refreshModels,
     applyPresetModel,
     switchTab,
     launchLlama,
@@ -130,37 +147,37 @@ quickLaunchUi.configure({
     saveSamplerPreset: samplerPresets.saveSamplerPreset,
     renameSamplerPreset: samplerPresets.renameSamplerPreset,
     getSamplerRenameMessage: samplerPresets.getSamplerRenameMessage,
-    confirmAction,
-    promptAction,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
     showToast,
     hasLaunchModelArg: flagCore.hasLaunchModelArg,
 });
 benchmarkUi.configure({
     flagCore,
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     showToast,
     getFlags: () => FLAGS,
     getDefaultFlagValues: getDefaultValues,
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     refreshRuntimeStatusPanels,
     processLifecycle,
 });
 monitorUi.configure({
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     copyText,
     showToast,
     invalidateCursor: () => processOutputCursor.invalidate(),
     resetStatsBaseline: () => snapshotStatsBaseline(),
     getInferenceSnapshot: () => inferenceStats.getSnapshot(),
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     compareLaunchSettings: runtime => flagCore.compareLaunchSettings(runtime),
     switchTab,
     reviewLaunchChanges: () => configFlagsUi.openLaunchComparison(),
 });
 processLifecycle.configure({
-    fetchJson,
-    refreshStatus: () => fetchJson("/api/status"),
+    fetchJson: apiClient.fetchJson,
+    refreshStatus: () => apiClient.fetchJson("/api/status"),
     buildLaunchRequest: buildManualLaunchRequest,
     abortChat: async () => {
         const stopped = typeof window.LlamaGui.chatWindow?.abortActiveStream === "function"
@@ -177,14 +194,13 @@ processLifecycle.configure({
     onFailed: handleLifecycleFailure,
     onSlowLoad: handleLifecycleSlowLoad,
 });
-window.LlamaGui.manager.setAcceptedStatusObserver(reconcileAuthoritativeStatus);
 modelSwitchUi.configure({
     fetchPresetEntries: fetchModelSwitcherPresetEntries,
     findPresetByName: presetsApi.findPresetByName,
     getAssignments: modelSwitchUi.getAssignments,
     getAssignmentIssues: modelSwitchUi.getAssignmentIssues,
     getStorageStatus: modelSwitchUi.getStorageStatus,
-    getLatestBackendStatus: () => latestStatus,
+    getLatestBackendStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     getPresetFingerprint: entry => entry && entry.preset_fingerprint || "",
     switchSlot: switchModelSlot,
@@ -227,7 +243,7 @@ async function fetchModelSwitcherPresetEntries() {
         let presetFingerprint = "";
         if (assignedNames.has(String(entry && entry.name || ""))) {
             try {
-                const result = await fetchJson("/api/presets/fingerprint", {
+                const result = await apiClient.fetchJson("/api/presets/fingerprint", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ fingerprint_data: normalized }),
@@ -259,7 +275,7 @@ async function resolveModelSwitchTarget(slotId) {
     if (launch.error) throw new Error(launch.error);
     if (!flagCore.hasLaunchModelArg(launch.args)) throw new Error(`Preset "${presetName}" has no model source.`);
 
-    const preflight = await fetchJson("/api/launch/preflight", {
+    const preflight = await apiClient.fetchJson("/api/launch/preflight", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,7 +311,7 @@ function getRuntimeDisplayLabel(runtime) {
 
 async function switchModelSlot(slotId) {
     const previousRuntime = processLifecycle.getSnapshot().activeRuntime
-        || (latestStatus && latestStatus.active_runtime)
+        || manager.getLatestStatus()?.active_runtime
         || null;
     const outcome = await processLifecycle.switchRuntime({
         slot: slotId,
@@ -369,20 +385,20 @@ function initCustomLaunchArgsControls() {
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 configFlagsUi.configure({
     debounce,
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     getFlagsByCategory,
     getFlags: () => FLAGS,
     switchTab,
     createSamplerPresetControls: samplerPresets.createSamplerPresetControls,
     refreshQuickLaunchUI,
     browseForPathFlag,
-    showStatus,
+    showStatus: manager.showStatus,
     setChatTemplateValue: chatTemplateSelection.setChatTemplateValue,
     getSelectedChatTemplateDropdownValue: chatTemplateSelection.getSelectedChatTemplateDropdownValue,
     copyText,
     showToast,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     processLifecycle,
     buildLaunchRequest: buildManualLaunchRequest,
     resumeRuntimePolling,
@@ -436,7 +452,7 @@ function getPathPickerRequest(flag) {
 }
 
 async function browseForPathFlag(flag) {
-    const result = await fetchJson("/api/select-file", {
+    const result = await apiClient.fetchJson("/api/select-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(getPathPickerRequest(flag)),
@@ -468,7 +484,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             chatUi,
             themeUi,
             monitorUi,
-            confirmAction,
+            confirmAction: dialogs.confirmAction,
         });
         return;
     }
@@ -476,13 +492,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         await window.LlamaGui.chatWindow.startHostView({
             chatUi,
             flagCore,
-            getLatestStatus: () => latestStatus,
+            getLatestStatus: manager.getLatestStatus,
             getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
             getInferenceSnapshot: () => inferenceStats.getSnapshot(),
             resetInferenceBaseline: () => snapshotStatsBaseline(),
             getApiAuthorizationHeaders,
             switchTab,
-            confirmAction,
+            confirmAction: dialogs.confirmAction,
             initializeChat: initChatTab,
             onDetachedChange(detached) {
                 // The hidden main page remains the authoritative inference poller
@@ -514,7 +530,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initToolSelect();
     initConfigControls();
     initCustomLaunchArgsControls();
-    initInstallButtons();
+    manager.init();
     initApiTab();
     remoteTunnelUi.init();
     externalServerUi.init();
@@ -524,9 +540,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     initQuickLaunch();
     benchmarkUi.init();
     monitorUi.init();
-    window.LlamaGui.manager.initModelDirControls();
     configFlagsUi.renderFlags();
-    fetchReleases();
+    manager.fetchReleases();
     flagCore.updateCommandPreview();
     updateApiEndpoints();
 
@@ -536,16 +551,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (btnSidebarLaunch) btnSidebarLaunch.addEventListener("click", launchLlama);
     const btnSidebarStop = document.getElementById("btn-sidebar-stop");
     if (btnSidebarStop) btnSidebarStop.addEventListener("click", stopLlama);
-    const btnSidebarStopApp = document.getElementById("btn-sidebar-stop-app");
-    if (btnSidebarStopApp) btnSidebarStopApp.addEventListener("click", stopPythonServer);
     document.getElementById("model-select").addEventListener("change", () => {
         flagCore.setSelectedModelValue(document.getElementById("model-select").value || "");
         syncQuickLaunchModelOptions();
         flagCore.updateCommandPreview();
     });
 
-    const btnRefreshModels = document.getElementById("btn-refresh-models");
-    if (btnRefreshModels) btnRefreshModels.addEventListener("click", () => refreshModels());
     const btnClearOutput = document.getElementById("btn-clear-output");
     if (btnClearOutput) btnClearOutput.addEventListener("click", clearOutput);
     const btnSendInput = document.getElementById("btn-send-input");
@@ -586,13 +597,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     showToast("Llama GUI ready", "info");
 
-    const initStatus = await checkStatus();
-    await refreshModels();
+    const initStatus = await manager.checkStatus();
+    await manager.refreshModels();
     if (initStatus && initStatus.running) {
         await restoreRunningState(initStatus);
     }
     await loadStartupPresetFromUrl();
-    clearAppReloadParam();
+    manager.clearAppReloadParam();
 });
 
 function getStartupPresetName() {
@@ -615,7 +626,7 @@ async function loadStartupPresetFromUrl() {
 }
 
 function initTabs() {
-    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: () => latestStatus });
+    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: manager.getLatestStatus });
 }
 
 function switchTab(tabId) {
@@ -698,25 +709,6 @@ function updateQuickServerAddressPreview() {
     );
 }
 
-function initInstallButtons() {
-    document.getElementById("btn-install").addEventListener("click", installRelease);
-    document.getElementById("btn-update").addEventListener("click", checkForUpdates);
-    document.getElementById("btn-repair").addEventListener("click", repairInstall);
-    document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
-    document.getElementById("btn-stop-app").addEventListener("click", stopPythonServer);
-    document.getElementById("btn-restart-app").addEventListener("click", restartPythonServer);
-    document.getElementById("refresh-releases").addEventListener("click", () => fetchReleases(selectedBackendId()));
-    document.getElementById("backend-select").addEventListener("change", onBackendChange);
-    document.getElementById("btn-open-models").addEventListener("click", () => openFolder("models"));
-    document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));
-    document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
-    document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);
-    document.getElementById("app-update-channel").addEventListener("change", checkAppUpdateStatus);
-    if (typeof checkAppUpdateStatus === "function") {
-        checkAppUpdateStatus();
-    }
-}
-
 function initPresetImport() {
     document.getElementById("preset-import").addEventListener("change", (e) => {
         if (e.target.files.length > 0) handlePresetImport(e.target.files[0]);
@@ -725,8 +717,9 @@ function initPresetImport() {
 }
 
 function getExecutableSuffix() {
-    if (typeof latestStatus !== "undefined" && latestStatus && typeof latestStatus.executable_suffix === "string") {
-        return latestStatus.executable_suffix;
+    const status = manager.getLatestStatus();
+    if (status && typeof status.executable_suffix === "string") {
+        return status.executable_suffix;
     }
     // TODO: fallback sniffs navigator.userAgent (frontend platform decision).
     // Acceptable because the primary path uses backend status; remove when
@@ -1014,7 +1007,7 @@ async function updateMemoryEstimate() {
 
     setMemoryEstimateState("Estimating", "Checking current command arguments...");
     try {
-        const data = await fetchJson("/api/estimate-memory", {
+        const data = await apiClient.fetchJson("/api/estimate-memory", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ tool: flagCore.getCurrentTool(), args }),
@@ -1124,7 +1117,7 @@ async function pollStats(epoch = statsEpoch) {
 
 
 async function refreshRuntimeStatusPanels() {
-    const status = await checkStatus();
+    const status = await manager.checkStatus();
     window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "status" });
     monitorUi.updateProcessHeader();
     updateChatStatusBadge();
@@ -1220,7 +1213,7 @@ async function pollOutput() {
     if (pollOutputActiveEpoch === request.epoch) return;
     pollOutputActiveEpoch = request.epoch;
     try {
-        const data = await fetchJson(request.url);
+        const data = await apiClient.fetchJson(request.url);
         const observedGeneration = Number(data && data.runtime_generation);
         const expectedGeneration = Number(processLifecycle.getSnapshot().activeRuntime?.generation);
         if (
@@ -1287,7 +1280,7 @@ async function sendInput() {
     if (!text) return;
     input.value = "";
     try {
-        await fetchJson("/api/send-input", {
+        await apiClient.fetchJson("/api/send-input", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
@@ -1426,8 +1419,8 @@ function showToast(message, type, options = {}) {
 
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) chatUi.configure({
     flagCore,
-    confirmAction,
-    getLatestStatus: () => latestStatus,
+    confirmAction: dialogs.confirmAction,
+    getLatestStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     snapshotStatsBaseline,
     switchTab,
