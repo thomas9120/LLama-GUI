@@ -4,14 +4,12 @@ const path = require("node:path");
 const vm = require("node:vm");
 const { character, cardFile } = require("./character_card_fixtures.cjs");
 const { FakeLocks } = require("./fake_locks.cjs");
-const { getPackageScripts, getScriptPaths } = require("./script_order.cjs");
+const { getPackageScripts } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
 const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js"), "utf8");
-const chatWindowScripts = getScriptPaths()
-    .filter(src => src.startsWith("js/chat-window/") || src === "js/chat-window.js")
-    .map(src => ({ path: src, source: fs.readFileSync(path.join(ROOT, "ui", src), "utf8") }));
+const chatWindowScripts = getPackageScripts("js/chat-window");
 // Ordered from ui/index.html via the shared loader helper (script_order.cjs).
 const chatPackageScripts = getPackageScripts("js/chat");
 const chatPackageFiles = chatPackageScripts.map((script) => script.fileName);

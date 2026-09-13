@@ -185,7 +185,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 23. `chat-compaction.js` — reversible working-context summaries, chunk budgeting, and summary stream validation (`window.LlamaGui.chatCompaction`)
 24. `character-cards.js` — local JSON/PNG character-card decoding and prompt construction (`window.LlamaGui.characterCards`)
 25. `chat/*` package, loaded in order: `chat-internal.js` (shared state, constants, storage helpers, `configure()`), `chat-workspace.js` (ownership, transfer snapshots), `chat-sidebar.js` (sidebar controls, samplers, status badge), `chat-request.js` (request building), `chat-context.js` (compaction controls, context preview), `chat-stream.js` (send/stream, edit, undo), `chat-history.js` (conversation persistence, history), `chat-main.js` (`init()` and the `window.LlamaGui.chatUi` assembly)
-26. `chat-window/` contributors, loaded in order: `chat-window-protocol.js` (wire constants, JSON copying and state projections), `chat-window-host-adapter.js` (setting fields and per-instance host adapter), then `chat-window.js` (unchanged coordinator/view logic and `window.LlamaGui.chatWindow` facade)
+26. `chat-window/` package, loaded in order: `chat-window-protocol.js`, `chat-window-host-adapter.js`, `chat-window-bootstrap.js`, `chat-window-coordinator.js`, `chat-window-flag-core-bridge.js`, `chat-window-host-view.js`, `chat-window-detached-view.js`, then `chat-window-main.js` (`window.LlamaGui.chatWindow` facade)
 27. `benchmark-ui.js` — Benchmarking tab controls, argument adapter, output polling, and session-only summaries (`window.LlamaGui.benchmarkUi`)
 28. `inference-stats.js` — pure metrics/slots normalization and target-keyed inference snapshot engine (`window.LlamaGui.inferenceStats`)
 29. `monitor/*` package, loaded in order: `monitor-internal.js` (private dependency links), `monitor-dom.js` (formatting/DOM primitives), `monitor-preferences.js` (visibility/order/drag), `monitor-system.js` (CPU/RAM/disk and sample presentation), `monitor-gpu.js` (GPU/setup/state cards), `monitor-terminal.js` (runtime/header and terminal), `monitor-inference.js` (shared snapshot rendering), `monitor-polling.js` (system telemetry lifecycle), `monitor-main.js` (`window.LlamaGui.monitorUi` facade and initialization)
@@ -347,7 +347,12 @@ versioning, and the detached Chat document uses this same index and stylesheet o
 | `ui/js/chat/chat-main.js` | `window.LlamaGui.chatUi` | Chat `init()`, the public `chatUi` namespace assembly, and test-only hooks; loaded last in the package. The package reads and writes launch-relevant sampler state through the `flagCore` injected via `configure()` |
 | `ui/js/chat-window/chat-window-protocol.js` | private `_chatWindowInternal.protocol` | Wire constants, JSON safety/copying, runtime/inference allowlists, result helpers, and call-time window/logging helpers |
 | `ui/js/chat-window/chat-window-host-adapter.js` | private `_chatWindowInternal.hostAdapter` | Shared Chat setting-field derivation and `createHostAdapter()`; each adapter owns its validity, listeners, and host observer cleanup |
-| `ui/js/chat-window.js` | `window.LlamaGui.chatWindow` | Stable facade, dedicated Chat display, verified main/popup bridge, exclusive workspace ownership, handoff, and recovery checkpoints |
+| `ui/js/chat-window/chat-window-bootstrap.js` | private `_chatWindowInternal.bootstrap` | Shared call-time origin/storage/identity helpers, mode and closed-window checks, safe host reads, peer waiting and unavailable-shell rendering |
+| `ui/js/chat-window/chat-window-coordinator.js` | private `_chatWindowInternal.coordinator` | `createCoordinator()` with instance-local exclusive locks, peer verification, transfer epochs, pending messages, recovery revisions and disposal |
+| `ui/js/chat-window/chat-window-flag-core-bridge.js` | private `_chatWindowInternal.flagCoreBridge` | Detached flag-core interface; live host reads, authoritative setter routing, per-bridge cached fallback and subscriptions |
+| `ui/js/chat-window/chat-window-host-view.js` | private `_chatWindowInternal.hostView` | Host Chat startup, storage proof, popup controls, layout/focus recovery and page lifecycle; facade supplies its live host-view holder |
+| `ui/js/chat-window/chat-window-detached-view.js` | private `_chatWindowInternal.detachedView` | Detached DOM/bootstrap sequencing, verified opener adapter, remote snapshots, return controls and host-session quarantine |
+| `ui/js/chat-window/chat-window-main.js` | `window.LlamaGui.chatWindow` | Stable public facade and live host-view/configured-coordinator references; assembled last without starting either view |
 | `ui/js/benchmark-ui.js` | `window.LlamaGui.benchmarkUi` | Benchmarking tab source selection, benchmark-specific controls, compatible argument building for `llama-bench`/`llama-perplexity`, readiness/status badges, process actions, output polling, and session-only summaries |
 | `ui/js/inference-stats.js` | `window.LlamaGui.inferenceStats` | DOM-free `parseMetricsText`, `normalizeSlots`, and `createInferenceStats`; each engine owns target-keyed baselines, rate samples, sequence, and source availability, emitting data snapshots through its callback |
 | `ui/js/monitor/monitor-internal.js` | `window.LlamaGui._monitorInternal` (private) | Live dependencies and named concern links; no shared domain-state bag |
@@ -826,13 +831,21 @@ All reads and writes go through helpers that tolerate blocked storage; failures 
 `chat-workspace.js` owns the versioned workspace snapshot and guards conversation mutations with an ownership epoch. Its transfer interface suspends idle Chat, saves the existing conversation, captures/restores supported transcript and draft state without creating a second history entry, and keeps main-window layout separate. Shared sampler settings remain authoritative in the host and are never restored from a conversation transfer.
 
 The Chat-window package exposes the existing `window.LlamaGui.chatWindow` facade
-through `chat-window.js`. Its protocol and host-adapter contributors load first;
-`window.LlamaGui._chatWindowInternal` holds only named helper/factory groups. This
-private namespace is confined to `ui/js/chat-window/` and the retained
-`ui/js/chat-window.js` facade. Adapter subscriptions and validity remain per
-adapter; locks, epochs, pending requests, transfers, and recovery revisions remain
-inside each `createCoordinator()` instance. Loading the scripts does not create
-an adapter/coordinator or access DOM, storage, listeners, timers, or transport.
+through `chat-window/chat-window-main.js`, loaded after its seven contributors.
+`window.LlamaGui._chatWindowInternal` holds only named helper/factory groups and
+is confined to `ui/js/chat-window/`; the former single-file entrypoint is removed.
+Adapter subscriptions and validity remain per adapter; locks, epochs, pending
+requests, transfers, and recovery revisions remain inside each
+`createCoordinator()` instance. Loading the scripts does not create an
+adapter/coordinator or access DOM, storage, listeners, timers, or transport.
+
+The facade passes its live host-view holder into host bootstrap, preserving the
+same readiness promise across repeated starts. The host revokes legacy Chat
+ownership before initializing Chat, then acquires/restores through its coordinator.
+The detached view initializes as an observer and obtains its host adapter only
+after peer verification. Its flag-core bridge owns a cached fallback and listeners;
+live reads and all writes still go through the current host session. The main
+window remains the sole owner of status/inference polling.
 
 The host adapter reads authoritative settings through `flagCore` and writes through
 its setters. Runtime/inference projections discard unknown fields, JSON copying
@@ -1300,5 +1313,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–9 complete, Session 10 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Completed Tier-2 frontend maintainability plan: Sessions 0–10 complete; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

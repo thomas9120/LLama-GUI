@@ -1,7 +1,7 @@
 # Chat pop-out Phase 1 capability findings
 
 Date: 2026-09-11  
-Status: Phase 1 fixture evidence (2026-09-11). The production pop-out in `ui/js/chat-window.js` is covered in [Chat in a separate window](chat-popout.md) and [Tests](tests.md); this fixture itself implements no production behavior.
+Status: Phase 1 fixture evidence (2026-09-11). The production pop-out in `ui/js/chat-window/` is covered in [Chat in a separate window](chat-popout.md) and [Tests](tests.md); this fixture itself implements no production behavior.
 
 The disposable check is run with:
 

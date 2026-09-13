@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–9 are complete; Session 10
-> (Chat-window coordinator/view package split) is next. Tier 1 is complete and recorded in
+> **Status: complete (2026-09-12).** All sessions 0–10 are complete.
+> Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -562,15 +562,42 @@ keys, private boundaries, load order, and absence of leaked helper globals.
 
 ### Session 10: coordinator and view package
 
-Candidate package:
+**Completed 2026-09-12.** Baseline coordinator units and all nine pop-out browser
+cases passed before extraction. A mechanical comparison confirmed all 13 contiguous
+body/constant segments from the former entrypoint are preserved; the only wiring
+changes are the host-view facade argument and its public delegate. The complete
+coordinator body and both Session 9 contributors are unchanged. Diff review,
+focused units, 135 JavaScript syntax checks, the 84-script namespace gate, and full
+`npm test` passed, including all 22 browser cases. Backend baseline/static-asset
+checks (57), documentation-link checks (4), and the local Pinokio source compatibility
+checker passed. Native Pinokio/window activation smoke was not run. This completes
+Tier 2; existing native/platform checks remain documented separately.
 
-- protocol and serialization;
-- host adapter;
-- coordinator factory;
-- flag-core bridge;
-- host-window view/bootstrap;
-- detached-window view/bootstrap;
-- public facade.
+The completed package lives entirely in `ui/js/chat-window/`, in this canonical
+blocking-script order:
+
+1. `chat-window-protocol.js` — existing wire constants and safe projections;
+2. `chat-window-host-adapter.js` — existing per-instance host adapter;
+3. `chat-window-bootstrap.js` — shared call-time browser/bootstrap helpers;
+4. `chat-window-coordinator.js` — the intact coordinator factory and private deferred helper;
+5. `chat-window-flag-core-bridge.js` — authoritative host settings bridge;
+6. `chat-window-host-view.js` — main-window bootstrap, popup and recovery controls;
+7. `chat-window-detached-view.js` — verified detached bootstrap and host-session checks;
+8. `chat-window-main.js` — the unchanged public API, assembled last.
+
+The former `ui/js/chat-window.js` and its private-namespace exception are removed.
+The host-view function receives the facade as an explicit argument; the facade
+passes its live holder on each call. All original initialization and cleanup
+sequencing remains in place, including the shared host readiness promise and
+ownership revocation before Chat initialization. No coordinator state moves into
+the package namespace, and the two Session 9 contributors are unchanged.
+
+Both VM harnesses use the existing `getPackageScripts("js/chat-window")` helper;
+the browser fixture continues to serve the real `index.html`. Added cases cover
+bridge state/read/write/subscription boundaries, repeated host startup and ordering,
+and queued coordinator disposal without cross-instance effects or later writes.
+Existing transfer, lock, recovery, credential, startup-failure and polling ownership
+cases remain the acceptance coverage.
 
 The state declared inside `createCoordinator()` must remain local to each coordinator
 instance. Do **not** apply the Tier 1 Chat package's single shared `S` object to this
@@ -586,8 +613,9 @@ Document and test these invariants explicitly:
 - failed or timed-out transfer leaves a recoverable, non-resending state;
 - secrets and unknown fields never cross the window protocol.
 
-Retarget the Chat-window VM and pop-out integration harnesses to the ordered package
-and keep the real browser transfer/reload suite as the acceptance gate.
+The canonical package order, exact facade keys, absence of leaked globals, and
+package-only private namespace are enforced by the namespace suite. Real browser
+transfer/reload coverage remains the acceptance gate.
 
 ## Cross-cutting verification for every program session
 
@@ -643,4 +671,4 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 7: `app.js` composition cleanup
 - [x] Session 8: feature stylesheet package
 - [x] Session 9: Chat-window protocol and host-adapter extraction
-- [ ] Session 10: Chat-window coordinator/view package split
+- [x] Session 10: Chat-window coordinator/view package split

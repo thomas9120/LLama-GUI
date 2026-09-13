@@ -491,7 +491,8 @@ assertSameKeys(Object.keys(llamaGui.chatWindow), [
     "getBootstrapInfo", "configure", "coordinator",
 ], "window.LlamaGui.chatWindow");
 assert.equal(llamaGui.chatWindow.coordinator, null, "loading does not create a coordinator");
-for (const name of ["createHostAdapter", "createCoordinator", "cloneJson", "pickJson", "deriveSettingFields"]) {
+for (const name of ["createHostAdapter", "createCoordinator", "cloneJson", "pickJson", "deriveSettingFields",
+    "createFlagCoreBridge", "startHostView", "startDetachedView", "waitForPeer", "getStorage"]) {
     assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
 }
 assert.equal(typeof llamaGui.configFlagsUi.renderFlags, "function");
@@ -526,10 +527,6 @@ const privateNamespaceOwners = {
     _chatWindowInternal: "js/chat-window",
 };
 
-// Session 9 retains the Chat-window coordinator/view facade at its original path.
-// This exact file is part of that package until the Session 10 split.
-const privateNamespaceFacades = { _chatWindowInternal: "js/chat-window.js" };
-
 const observedPrivateKeys = Object.keys(llamaGui)
     .filter((key) => key.startsWith("_"))
     .sort();
@@ -561,7 +558,7 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
     let ownerReferences = 0;
     for (const fullPath of uiSourceFiles) {
         const relPath = path.relative(UI_DIR, fullPath).split(path.sep).join("/");
-        if (relPath.startsWith(ownerDir) || relPath === privateNamespaceFacades[namespace]) {
+        if (relPath.startsWith(ownerDir)) {
             if (tokenRe.test(fs.readFileSync(fullPath, "utf8"))) ownerReferences += 1;
             continue;
         }
@@ -579,12 +576,12 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
 
 // --- 5. Package assembly order --------------------------------------------
 
-const chatWindowProtocolIndex = scriptFiles.indexOf("js/chat-window/chat-window-protocol.js");
-const chatWindowAdapterIndex = scriptFiles.indexOf("js/chat-window/chat-window-host-adapter.js");
-const chatWindowFacadeIndex = scriptFiles.indexOf("js/chat-window.js");
-assert.ok(chatWindowProtocolIndex >= 0 && chatWindowProtocolIndex < chatWindowAdapterIndex
-    && chatWindowAdapterIndex < chatWindowFacadeIndex,
-    "Chat-window protocol and host adapter must load before the coordinator/view facade");
+const chatWindowOrder = [
+    "protocol", "host-adapter", "bootstrap", "coordinator", "flag-core-bridge",
+    "host-view", "detached-view", "main",
+].map(name => `js/chat-window/chat-window-${name}.js`);
+assert.deepEqual(scriptFiles.filter(src => src.startsWith("js/chat-window/")), chatWindowOrder,
+    "Chat-window dependencies must load before their consumers and facade");
 
 // Flag domains are data-only classic scripts. Their assembler precedes the
 // helpers and all consumers, while shared option data precedes each domain.

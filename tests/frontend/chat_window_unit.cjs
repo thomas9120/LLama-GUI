@@ -1,16 +1,11 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
 const vm = require("node:vm");
 const { FakeLocks } = require("./fake_locks.cjs");
-const { getScriptPaths } = require("./script_order.cjs");
+const { getPackageScripts } = require("./script_order.cjs");
 
-const ROOT = path.resolve(__dirname, "..", "..");
-const chatWindowScripts = getScriptPaths()
-    .filter(src => src.startsWith("js/chat-window/") || src === "js/chat-window.js")
-    .map(src => ({ path: src, source: fs.readFileSync(path.join(ROOT, "ui", src), "utf8") }));
+const chatWindowScripts = getPackageScripts("js/chat-window");
 
-function loadApi() {
+function loadPackage() {
     const window = {
         location: { origin: "http://127.0.0.1:5240" },
         console: { debug() {}, warn() {} },
@@ -24,8 +19,10 @@ function loadApi() {
     for (const script of chatWindowScripts) {
         vm.runInContext(script.source, context, { filename: script.path });
     }
-    return context.window.LlamaGui.chatWindow;
+    return context.window.LlamaGui;
 }
+
+function loadApi() { return loadPackage().chatWindow; }
 
 class FakeStorage {
     constructor() { this.values = new Map(); this.failRead = false; this.failWrite = false; this.failRemove = false; }
@@ -198,6 +195,8 @@ function waitForCondition(predicate, description, timeoutMs = 1000) {
         assert.equal(window.LlamaGui.chatWindow.hasDetachedView(), false);
         const { protocol, hostAdapter } = window.LlamaGui._chatWindowInternal;
         assert.equal(window.LlamaGui.chatWindow.createHostAdapter, hostAdapter.createHostAdapter);
+        assert.equal(window.LlamaGui.chatWindow.createCoordinator,
+            window.LlamaGui._chatWindowInternal.coordinator.createCoordinator);
         const accounting = { usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }, values: [null, false, 0, ""] };
         const copied = protocol.cloneJson(accounting);
         assert.deepEqual(clone(copied), accounting);
@@ -211,6 +210,140 @@ function waitForCondition(predicate, description, timeoutMs = 1000) {
         for (const unsafe of [cycle, undefined, NaN, Infinity, 1n, () => {}, Symbol("unsafe")]) {
             assert.equal(protocol.cloneJson(unsafe), null);
         }
+    }
+
+    // The bridge reads current host values and writes through its setter.
+    // Cached fallback values and subscriptions belong to each instance.
+    {
+        const { createFlagCoreBridge } = loadPackage()._chatWindowInternal.flagCoreBridge;
+        let settings = { temperature: 0.8, selected_model: "first.gguf" };
+        let valid = true;
+        let failRead = false;
+        let failWrite = false;
+        const writes = [];
+        const unavailable = [];
+        const host = {
+            getSettings() {
+                if (failRead) throw new Error("host read failed");
+                return settings;
+            },
+            setSettings(patch) {
+                if (failWrite) throw new Error("host write failed");
+                writes.push(clone(patch));
+                settings = Object.assign({}, settings, patch);
+                return settings;
+            },
+            isSessionValid: () => valid,
+        };
+        const bridge = createFlagCoreBridge(host, {
+            window: { console: { debug() {}, warn() {} } },
+            onUnavailable: error => unavailable.push(error.message),
+        });
+        const other = createFlagCoreBridge({ getSettings: () => ({ temperature: 0.3 }) });
+        const notifications = [];
+        const otherNotifications = [];
+        const unsubscribe = bridge.subscribe(values => notifications.push(clone(values)));
+        other.subscribe(values => otherNotifications.push(clone(values)));
+        const copy = bridge.getFlagValues();
+        copy.temperature = 99;
+        assert.equal(settings.temperature, 0.8);
+        settings = { temperature: 0.6, selected_model: "new.gguf" };
+        assert.equal(bridge.getSelectedModel(), "new.gguf", "model reads use current host state");
+        bridge.setFlagValue("temperature", 0);
+        bridge.setMultipleFlagValues({ temperature: null });
+        assert.deepEqual(writes, [{ temperature: 0 }, { temperature: null }]);
+        assert.equal(notifications.at(-1).temperature, null);
+        assert.deepEqual(otherNotifications, [], "bridge notifications are instance-local");
+        unsubscribe();
+        const notificationCount = notifications.length;
+        bridge.refresh({ temperature: 0.1 });
+        assert.equal(notifications.length, notificationCount);
+        failRead = true;
+        assert.equal(bridge.getFlagValues().temperature, 0.1, "unavailable reads retain the last snapshot");
+        valid = false;
+        bridge.setFlagValue("temperature", 0.9);
+        assert.equal(writes.length, 2, "invalid sessions cannot reach the host writer");
+        valid = true;
+        failWrite = true;
+        bridge.setFlagValue("temperature", 0.9);
+        assert.deepEqual(unavailable, ["Chat host is not connected.", "host write failed"]);
+        assert.equal(other.getFlagValues().temperature, 0.3);
+        assert.equal(bridge.getCurrentTool(), "llama-server");
+    }
+
+    // The facade passes its live holder into host bootstrap. Repeated starts
+    // share one readiness promise and revoke legacy ownership before Chat init.
+    {
+        const facade = loadApi();
+        const locks = new FakeLocks();
+        const ui = makeUi("bootstrap");
+        const listeners = [];
+        const window = {
+            location: { origin: "http://127.0.0.1:5240" },
+            navigator: { locks }, localStorage: new FakeStorage(),
+            console: { debug() {}, warn() {} },
+            document: { getElementById: () => null },
+            addEventListener: name => listeners.push(name), removeEventListener() {},
+        };
+        let workspace;
+        ui.configureWorkspace = options => { workspace = options; };
+        ui.getChatSamplerFlagIds = () => ["temperature"];
+        let finishInit;
+        let initCount = 0;
+        const options = {
+            window, chatUi: ui, flagCore: { getFlagValues: () => ({ temperature: 0.8 }) },
+            initializeChat() {
+                initCount += 1;
+                assert.equal(ui.owner, false, "revoke ownership before initialization can persist");
+                assert.equal(workspace.detachedView, false);
+                return new Promise(resolve => { finishInit = resolve; });
+            },
+        };
+        const ready = facade.startHostView(options);
+        assert.equal(facade.startHostView(options), ready);
+        assert.equal(initCount, 1);
+        assert.equal(locks.calls.length, 0, "coordinator initialization waits for Chat initialization");
+        const changes = [];
+        facade._hostView.hostAdapter.subscribe(change => changes.push(clone(change)));
+        facade.notifyHostChange({ type: "settings" });
+        assert.equal(changes.at(-1).type, "settings");
+        assert.equal(facade.getBootstrapInfo({}), null);
+        assert.equal(facade.getSessionInfo({}), null);
+        finishInit();
+        assert.equal((await ready).ok, true);
+        assert.equal(ui.owner, true);
+        assert.equal(facade.startHostView(options), ready);
+        assert.equal(locks.calls.length, 1);
+        assert.equal(listeners.filter(name => name === "pagehide").length, 1);
+        assert.equal(listeners.filter(name => name === "pageshow").length, 1);
+        assert.equal(facade.hasDetachedView(), false);
+        facade._hostView.coordinator.dispose();
+        facade._hostView.hostAdapter.dispose();
+    }
+
+    // Disposing one coordinator cancels only its queued acquisition. Its late
+    // calls cannot reacquire or persist, and the other owner's state is intact.
+    {
+        const pair = makePeerPair(api);
+        await preparePair(pair);
+        const ownerState = clone(pair.a.getState());
+        const changes = [];
+        pair.a.subscribe(state => changes.push(clone(state)));
+        const acquiring = pair.b.acquireOwnership({ ifAvailable: false, timeoutMs: 1000 });
+        await waitForCondition(() => pair.locks.queue.length === 1, "queued receiver acquisition");
+        pair.b.dispose();
+        assert.equal(await acquiring, false);
+        assert.equal(pair.locks.queue.length, 0);
+        assert.deepEqual(clone(pair.a.getState()), ownerState);
+        assert.deepEqual(changes, [], "other instances do not receive disposal notifications");
+        const calls = pair.locks.calls.length;
+        const record = pair.storage.getItem(api.DEFAULT_RECOVERY_KEY);
+        assert.equal(await pair.b.acquireOwnership(), false);
+        assert.equal(pair.b.checkpoint(pair.uiB.captureSnapshot({})), false);
+        assert.equal(pair.storage.getItem(api.DEFAULT_RECOVERY_KEY), record);
+        assert.equal(pair.locks.calls.length, calls);
+        assert.equal(pair.a.isOwner(), true);
+        pair.a.dispose();
     }
 
     // Projection strips unknown and sensitive fields at every supported nested

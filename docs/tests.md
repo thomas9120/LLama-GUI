@@ -31,7 +31,7 @@ Checks every frontend JavaScript file with `node --check`.
 npm run test:frontend:modules
 ```
 
-Loads scripts in the same order as `ui/index.html` inside a Node VM (via the shared `tests/frontend/script_order.cjs` helper) and verifies the Session 0 refactor guardrail contracts from `docs/frontend-maintainability-tier-2-plan.md`: every active local script tag resolves on disk with no orphaned `ui/js` files and no external scripts; local scripts use blocking classic-script execution (no `async`, `defer`, `nomodule`, or unsupported `type`); the top-level `window.LlamaGui` key set matches exactly; `flagCore`, `apiClient`, `dialogs`, `manager`, `monitorUi`, `inferenceStats`, `chatTemplateSelection`, `chatUi`, and `presets` expose exactly their contract keys, all callable methods; private namespaces such as `_chatInternal`, `_managerInternal`, and `_monitorInternal` are referenced only inside their owning package; each package's `*-main.js` assembler loads after its internal contributors; and flag domains load after shared options/templates and before `definitions.js`, followed by `helpers.js`. Manager tests also load the complete package in canonical order. Manager internals, shared service functions, and the extracted Session 7 mechanisms/state must not leak as bare globals, and the compatibility API alias must reference the shared client. Chat-window has an exact public key contract and explicit protocol → host adapter → coordinator/view load order. Its private namespace may be referenced only inside `ui/js/chat-window/` and the retained `ui/js/chat-window.js` facade. The four Session 7 module facades have exact key contracts; production poller instances expose no test hooks. Negative fixtures verify rejection of altered execution attributes, a commented-out contributor, and an undefined facade method.
+Loads scripts in the same order as `ui/index.html` inside a Node VM (via the shared `tests/frontend/script_order.cjs` helper) and verifies the Session 0 refactor guardrail contracts from `docs/frontend-maintainability-tier-2-plan.md`: every active local script tag resolves on disk with no orphaned `ui/js` files and no external scripts; local scripts use blocking classic-script execution (no `async`, `defer`, `nomodule`, or unsupported `type`); the top-level `window.LlamaGui` key set matches exactly; `flagCore`, `apiClient`, `dialogs`, `manager`, `monitorUi`, `inferenceStats`, `chatTemplateSelection`, `chatUi`, and `presets` expose exactly their contract keys, all callable methods; private namespaces such as `_chatInternal`, `_managerInternal`, and `_monitorInternal` are referenced only inside their owning package; each package's `*-main.js` assembler loads after its internal contributors; and flag domains load after shared options/templates and before `definitions.js`, followed by `helpers.js`. Manager tests also load the complete package in canonical order. Manager internals, shared service functions, and the extracted Session 7 mechanisms/state must not leak as bare globals, and the compatibility API alias must reference the shared client. Chat-window has an exact public key contract and an explicit eight-file dependency order ending in `chat-window-main.js`. Its private namespace may be referenced only inside `ui/js/chat-window/`; the former facade-path exception is removed. The four Session 7 module facades have exact key contracts; production poller instances expose no test hooks. Negative fixtures verify rejection of altered execution attributes, a commented-out contributor, and an undefined facade method.
 
 ```powershell
 npm run test:flag-definitions
@@ -79,8 +79,8 @@ node --test tests/frontend/chat_popout_capabilities.cjs
 It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted. HTTPS, LAN, and embedded/native-host behavior remain pending manual checks; see `docs/chat-popout-capabilities.md`.
 
 `node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts. Both Chat-window and Chat UI
-VM harnesses discover the Chat-window contributors and retained facade from
-`index.html` through `script_order.cjs`; the pop-out integration fixture serves
+VM harnesses discover the complete Chat-window package from `index.html` through
+`getPackageScripts("js/chat-window")` in `script_order.cjs`; the pop-out integration fixture serves
 that same real entrypoint.
 
 Session 9 boundary cases also cover inert package evaluation, nested sensitive-key
@@ -91,6 +91,17 @@ cleanup, repeated invalidation, and adapter-instance isolation. Direct authoriza
 access remains available to a valid adapter and is refused after invalidation;
 serialized change notifications exclude it. Existing browser cases verify the
 peer verification, authenticated request, and message/recovery secret boundaries.
+
+Session 10 cases cover the extracted flag-core bridge's live model/settings reads,
+copy isolation, zero/null writes, cached fallback on read failure, rejected writes
+after session loss, failed-write notification, unsubscribe and independent listeners.
+The host bootstrap case asserts one readiness promise and one initialization across
+repeated starts, ownership revocation before Chat initialization, lock acquisition
+after initialization, live facade notification routing and single page lifecycle
+registration. Disposing a queued coordinator cancels its lock request without
+changing the other owner's state or notifying its subscribers; subsequent acquire
+and checkpoint calls cannot obtain a lock or persist. The existing inert evaluation
+case covers every package contributor and pins the exported coordinator factory.
 
 The coordinator and Chat UI units share `fake_locks.cjs`, a deterministic single-lock stand-in with queued cancellation. Actual cross-context lock scheduling and window-close release belong to the browser fixtures. Roundtrip units assert durable transfer endpoints, revision progression, and shared history; staging a snapshot in an observer must not grant send or persistence permission.
 
