@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–5 are complete; Session 6
-> (Monitor package and test split) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–6 are complete; Session 7
+> (`app.js` composition cleanup) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -370,24 +370,53 @@ application services extracted from `monitor-ui.js` into
 
 ## Session 6 — split Monitor UI and its tests
 
-Candidate package boundaries:
+**Completed (2026-09-12).** Nine ordered package files replace `monitor-ui.js`,
+retaining the public facade and inference-core aliases. Polling and preferences
+keep separate closure state. Mechanical comparison found 84 of 88 original
+functions unchanged apart from namespace qualification; the remaining four contain
+sample-interval access, drag deferral, reset delegation and initialization wiring.
+Reassembling initialization confirmed its original operation order. All original
+scenario bodies were retained across independent concern suites with fresh fixtures.
+The 35 Monitor cases include added inertness/live-dependency, ignored-abort and
+detached-document checks. Diff review, full `npm test` (all 22 browser cases),
+documentation links, asset-versioning checks and the local Pinokio compatibility
+checker passed. Native supervised-restart smoke was not run.
+
+The package lives in `ui/js/monitor/`, with `monitor-internal.js` first and
+`monitor-main.js` last. Each concern owns its mutable state; internal method groups
+provide the links between concerns, and dependencies are read live after configuration.
 
 | Module | State / behavior owner |
 |---|---|
-| Monitor internal/main | Dependencies, initialization, stable public facade |
-| System telemetry polling | Panel/document visibility, timer, abort controller, last sample |
-| System cards | CPU, RAM, disk, and shared metric-card rendering |
-| GPU cards | GPU identity, reconciliation, state/setup cards |
-| Card preferences | Hidden-card storage, order, keyboard and drag state |
-| Terminal | Output lines, trimming, follow-to-bottom behavior |
-| Inference rendering | Monitor card and fixed stats-bar rendering |
+| `monitor-internal.js` / `monitor-main.js` | Dependencies, initialization, stable public facade |
+| `monitor-dom.js` | Shared formatting, text updates, metric rows and progress meters |
+| `monitor-polling.js` | Panel/document visibility, timer, abort controller, generation, last sample and live badge |
+| `monitor-system.js` | CPU, RAM, disk and accepted-sample presentation |
+| `monitor-gpu.js` | GPU identity, in-place reconciliation, state/setup cards |
+| `monitor-preferences.js` | Hidden-card storage, order, keyboard/drag state and deferred sample |
+| `monitor-terminal.js` | Runtime/header presentation, output lines, trimming and follow-to-bottom behavior |
+| `monitor-inference.js` | Monitor card and fixed stats-bar rendering |
 
-Use separate closure state or named internal sub-objects for these concerns. Avoid
-a package-wide shared state bag unless a value is genuinely shared.
+### Extraction guardrails
 
-Split `monitor_ui_unit.cjs` along the same boundaries in this session. Shared DOM
-fixtures may move to a test helper, but tests should remain runnable independently
-and failures should identify the owning concern.
+- Keep GPU nodes, text selection, focus, setup disclosures and restore controls
+  stable across unchanged samples. Preferences own the latest deferred sample
+  during dragging and flush it once after the drag ends.
+- Preserve bounded storage, persistent GPU identities versus session-only index
+  identities, and relative order between static cards and reconciled GPU cards.
+- Keep system telemetry's visibility gates, Recheck cache bypass, abort/generation
+  guards and badge behavior. The polling owner exposes the accepted sample interval
+  through a narrow method for system-card labels.
+- Keep both inference renderers on the shared snapshot, including the supplied
+  target document for detached Chat. Inference polling, lifecycle actions, input-row
+  visibility and output cursors remain with their existing owners until Session 7.
+- Preserve the complete Monitor facade, including inference-core aliases and the
+  existing test reset method. Loading/configuration stay inert, and initialization
+  retains its existing call order.
+- Replace the monolithic Monitor suite with concern-specific suites using fresh
+  VM/DOM/storage fixtures per scenario and canonical package loading. Retain the
+  original assertions and cross-concern interaction coverage; do not rely on
+  listeners or configuration inherited from a preceding case.
 
 ## Session 7 — make `app.js` a composition root
 
@@ -539,7 +568,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 3: shared services and Manager boundary
 - [x] Session 4: Manager package split
 - [x] Session 5: inference core extraction
-- [ ] Session 6: Monitor package and test split
+- [x] Session 6: Monitor package and test split
 - [ ] Session 7: `app.js` composition cleanup
 - [ ] Session 8: feature stylesheet package
 - [ ] Session 9: Chat-window protocol and host-adapter extraction

@@ -216,6 +216,7 @@ const expectedTopLevelKeys = [
     "themeUi",
     "_chatInternal", // private; pinned separately in section 4
     "_managerInternal",
+    "_monitorInternal",
 ];
 assertSameKeys(Object.keys(llamaGui), expectedTopLevelKeys, "window.LlamaGui top level");
 
@@ -259,6 +260,32 @@ for (const namespace of expectedNamespaces) {
 // Other facades keep the existence + documented-method checks below so
 // internal churn stays cheap.
 const facadeKeyContracts = {
+    monitorUi: [
+        "configure",
+        "init",
+        "onTabChanged",
+        "setDocumentVisibility",
+        "recheck",
+        "appendOutputLine",
+        "clearTerminal",
+        "updateProcessHeader",
+        "renderRuntime",
+        "renderInferenceSnapshot",
+        "renderStatsBarFromSnapshot",
+        "createInferenceStats",
+        "parseMetricsText",
+        "normalizeSlots",
+        "formatBytes",
+        "formatRate",
+        "formatPercentValue",
+        "formatTokens",
+        "formatClock",
+        "shortGpuId",
+        "normalizeHiddenEntries",
+        "isSessionOnlyKey",
+        "normalizeOrderEntries",
+        "_resetForTests",
+    ],
     inferenceStats: ["parseMetricsText", "normalizeSlots", "createInferenceStats"],
     flagCore: [
         "applyFlagValues",
@@ -456,6 +483,7 @@ for (const name of ["latestStatus", "checkStatus", "refreshModels", "installRele
 const privateNamespaceOwners = {
     _chatInternal: "js/chat",
     _managerInternal: "js/manager",
+    _monitorInternal: "js/monitor",
 };
 
 const observedPrivateKeys = Object.keys(llamaGui)
