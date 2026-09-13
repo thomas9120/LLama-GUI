@@ -214,6 +214,7 @@ const expectedTopLevelKeys = [
     "shellUi",
     "themeUi",
     "_chatInternal", // private; pinned separately in section 4
+    "_managerInternal",
 ];
 assertSameKeys(Object.keys(llamaGui), expectedTopLevelKeys, "window.LlamaGui top level");
 
@@ -448,6 +449,7 @@ for (const name of ["latestStatus", "checkStatus", "refreshModels", "installRele
 // package directory; references from outside that package fail below.
 const privateNamespaceOwners = {
     _chatInternal: "js/chat",
+    _managerInternal: "js/manager",
 };
 
 const observedPrivateKeys = Object.keys(llamaGui)

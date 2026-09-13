@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { getScriptPaths } = require("./script_order.cjs");
-const scripts = getScriptPaths().filter(src => ["js/api-client.js", "js/manager.js"].includes(src));
+const scripts = getScriptPaths().filter(src => src === "js/api-client.js" || src.startsWith("js/manager/"));
 
 function makeElement() {
     let html = "";

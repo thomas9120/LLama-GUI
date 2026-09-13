@@ -168,7 +168,7 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 6. `config-flags-ui.js` — Configure tab rendering
 7. `api-client.js` — shared JSON requests (`window.LlamaGui.apiClient`)
 8. `dialogs.js` — shared confirmation and prompt dialogs (`window.LlamaGui.dialogs`)
-9. `manager.js` — configured Manager facade, GitHub releases, install/update, model-directory/cache, and accepted status
+9. `manager/*` package, loaded in order: `manager-internal.js` (private dependency links), `manager-status.js` (accepted status), `manager-models.js` (model cache), `manager-lifecycle.js` (GUI restart/shutdown), `manager-model-dir.js` (folder controls), `manager-app-update.js` (Git updates), `manager-backends.js` (backend selection/activation/presentation), `manager-install.js` (releases/install/polling), `manager-main.js` (configuration, initialization, and `window.LlamaGui.manager` assembly)
 10. `presets/*` package, loaded in order: `presets-internal.js` (state, configure, sensitive-arg scrubbing, fetch/normalize), `presets-apply.js` (apply/compare, context bar), `presets-models.js` (model matching/warnings), `presets-local.js` (favorites, last-used, sort modes), `presets-library.js` (grouping, search text, flag labels, icons), `presets-detail.js` (summary, detail/bulk panels, entry rendering), `presets-roving.js` (roving focus), `presets-groups.js` (list rendering, status toasts, `loadPresets`), `presets-crud.js` (save/load/rename/delete/export/import), `presets-main.js` (`window.LlamaGui.presets` assembly)
 11. `searchable-select.js` — searchable combobox wrapper for native selects (`window.LlamaGui.searchableSelect`)
 12. `model-switch-ui.js` — versioned two-slot preset-reference storage and Model Switcher namespace (`window.LlamaGui.modelSwitchUi`)
@@ -195,8 +195,15 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 `flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules access shared state through this namespace, not by importing or referencing private closure variables.
 
-Manager consumers use `window.LlamaGui.manager`; private state and action functions
-are closure-local. `app.js` injects API/dialog services, toast and Quick Launch
+Manager consumers use `window.LlamaGui.manager`; each concern owns its mutable state
+in a separate closure. The package-only `window.LlamaGui._managerInternal` holds
+named method groups and injected dependencies, with no shared domain-state bag.
+Contributors register methods without calling other concerns during evaluation;
+the main assembler loads last. Methods read dependencies and accepted status live,
+so later configuration updates and status replacement remain visible across the package.
+The install concern owns release-cache invalidation and fetch deduplication;
+backend rendering invokes those methods without reading the cache's private state.
+`app.js` injects API/dialog services, toast and Quick Launch
 callbacks, the Presets model-presence callback, and the accepted-status observer
 before initialization. `manager.init()` wires controls and unload cleanup once;
 `app.js` retains initial status/model loading and runtime restoration sequencing.
@@ -228,7 +235,15 @@ keeps the install-status renderer available to Configure, and
 | `ui/js/config-flags-ui.js` | `window.LlamaGui.configFlagsUi` | Configure tab flag rendering, search/filtering, expand/collapse state, type-specific flag input builders, input restoration, and high-risk `multi_enum` warnings |
 | `ui/js/api-client.js` | `window.LlamaGui.apiClient` | Shared `fetchJson()` transport: cache bypass by default, request-option forwarding, JSON validation, and HTTP errors |
 | `ui/js/dialogs.js` | `window.LlamaGui.dialogs` | Shared `confirmAction()` and `promptAction()` dialogs, keyboard/cancel behavior, and listener cleanup |
-| `ui/js/manager.js` | `window.LlamaGui.manager` | Closure-owned installation/backend state, release and app updates, GUI lifecycle, model-directory controls, and known-model-name cache; `configure()` injects services/callbacks, `init()` owns Manager controls, and `getLatestStatus()` reads accepted status |
+| `ui/js/manager/manager-internal.js` | `window.LlamaGui._managerInternal` (private) | Package foundation: injected dependencies and links to concern-owned method groups; no shared domain state |
+| `ui/js/manager/manager-status.js` | private `status` methods | Accepted status, request generations, binary-tag propagation, and asynchronous observer reconciliation |
+| `ui/js/manager/manager-models.js` | private `models` methods | Model-refresh generations, stale callers adopting the winning refresh, known-name cache, and model-presence notifications |
+| `ui/js/manager/manager-lifecycle.js` | private `lifecycle` methods | GUI-server shutdown/restart, readiness probing, cache-busted reload, and startup URL cleanup; llama-process orchestration stays in `process-lifecycle.js` |
+| `ui/js/manager/manager-model-dir.js` | private `modelDir` methods | Model-folder controls, operation errors/busy state, and save/status/model-refresh sequencing |
+| `ui/js/manager/manager-app-update.js` | private `appUpdate` methods | Git update status/channel and update flow, delegating GUI restart to lifecycle |
+| `ui/js/manager/manager-backends.js` | private `backends` methods | Backend metadata/selection, pending selection and activation guards, installed-summary rendering, and disclosure-preserving presentation |
+| `ui/js/manager/manager-install.js` | private `install` methods | Release-cache ownership, install/repair/remove/update actions, progress polling/cleanup, folder actions, and install-status rendering |
+| `ui/js/manager/manager-main.js` | `window.LlamaGui.manager` | Stable public facade assembly, live dependency configuration, idempotent control/unload initialization, and gated test hooks |
 | `ui/js/presets/presets-internal.js` | script globals (private) | Package foundation, loaded before its siblings: module state, `configure()`, sensitive-argument scrubbing (`--api-key`/`--hf-token`), preset API fetch helpers, normalization, and import-name validation. Declarations stay top-level script globals exactly like the former single file |
 | `ui/js/presets/presets-apply.js` | script globals (private) | Preset apply/compare flow, saved-settings change rows, loaded-preset reconciliation, and the saved-settings context bar |
 | `ui/js/presets/presets-models.js` | script globals (private) | Model-name matching, known-model presence checks, and missing-model warnings |
@@ -394,7 +409,7 @@ binaries that drift in different directions:
 |---|---|---|
 | `fork_only: true` | Flag exists only in a llama.cpp fork (e.g. `--spec-draft-adaptive`), not upstream | Default-off boolean with a `docs/upstream-changes.md` entry; binary compatibility checks skip it |
 | `removed_in: "bNNNNN"` | Upstream removed the flag in that build (e.g. legacy `--mmap` / `--mlock` / direct-IO, removed in b10875) | Definition stays for older builds; the installed-binary check exempts it at or above the tag |
-| Build-tag gates | Behavior must differ by installed build | `manager.js` feeds `/api/status`'s `version` (config.json's installed release tag; custom slots report `"custom"`) into `flagCore.setBinaryTag()`; helpers like `supportsLoadModeOnly()` and `supportsNativeReasoningEffort()` match `/^b(\d+)/` against a threshold. Unrecognized tags fall back to legacy behavior, so older and custom builds keep working |
+| Build-tag gates | Behavior must differ by installed build | `manager/manager-status.js` feeds `/api/status`'s `version` (config.json's installed release tag; custom slots report `"custom"`) into `flagCore.setBinaryTag()`; helpers like `supportsLoadModeOnly()` and `supportsNativeReasoningEffort()` match `/^b(\d+)/` against a threshold. Unrecognized tags fall back to legacy behavior, so older and custom builds keep working |
 
 **The ledger.** `docs/upstream-changes.md` tracks every announced upstream
 change that may need a coordinated GUI update — fork-only flags, removals,
@@ -667,7 +682,7 @@ Select All, Clear, `★ Favorite`, `☆ Unfavorite`, Export, Delete. Favorite/un
 - An outdated or unsupported chat template.
 - Custom launch args, which may override UI controls.
 
-Missing-model detection matches each preset's model against the shared cache in `manager.js`, populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full active-root-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
+Missing-model detection matches each preset's model against the shared cache in `manager/manager-models.js`, exposed through the Manager facade and populated by `refreshModels()` from `/api/models`. `matchKnownModelName()` tries the full active-root-relative path first (case-insensitive), then falls back to the file name only for legacy bare names and absolute paths. A bare name held by two subfolders is reported as `ambiguous` rather than resolved, and warns — guessing a folder would launch the wrong weights. An explicit relative path never falls back to another folder's file.
 
 `resolvePresetModelName()` is shared by normal preset loads, Model Switcher launch preparation, and saved-preset benchmarks so every path uses the same nested filename. It matches against live model options or the benchmark model list because those carry the exact spelling the launch needs; an unresolved value is selected as-is and marked `(missing)` in the dropdown, matching what the preset warns about. When these drifted apart, a preset could report healthy while its launch emitted a path that did not exist.
 
@@ -1186,5 +1201,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–3 complete, Session 4 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–4 complete, Session 5 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

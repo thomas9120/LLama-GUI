@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–3 are complete; Session 4
-> (Manager package split) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–4 are complete; Session 5
+> (inference core extraction) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -253,10 +253,27 @@ bare-global mutation only to make the old harness convenient.
 
 ## Session 4 — split the Manager package
 
-A candidate package is:
+**Completed (2026-09-12).** Nine ordered package files replace `manager.js`,
+preserving the public facade and app startup sequence. Mechanical comparison of
+all 61 original function bodies found no changes beyond namespace qualification
+and the two release-cache owner methods. Manager harnesses now load the package
+canonically, and a new lifecycle suite covers inert loading/configuration, live
+dependencies after initialization, quit/restart behavior, and app-update restart
+handoff. Diff review, full `npm test` (all 22 browser cases), documentation links,
+and asset-versioning checks passed. The local Pinokio launcher's source compatibility
+checker passed against this checkout; a native supervised-restart smoke was not run.
+
+The package lives in `ui/js/manager/`, with `manager-internal.js` loading first
+to establish private dependency links and `manager-main.js` loading last. Each
+concern keeps its mutable state in its own closure; the internal namespace exposes
+named method groups, not state fields. Configuration and script evaluation remain
+inert, and cross-concern calls read current dependencies and accepted status.
+
+Package ownership:
 
 | File | Owner |
 |---|---|
+| `manager-internal.js` | Private package links and injected dependencies |
 | `manager-status.js` | Accepted backend status, request generation, observer/subscription |
 | `manager-backends.js` | Backend selection, labels, activation, installed summary |
 | `manager-install.js` | Releases, install/repair/remove, progress polling |
@@ -273,6 +290,20 @@ Each concern should own its mutable state where practical. If a private internal
 namespace is needed for ordered classic scripts, use named sub-objects or narrow
 facades rather than placing every function and variable in one undifferentiated
 registry.
+
+### Extraction guardrails
+
+- Keep release-cache invalidation and backend-specific fetch deduplication in
+  installation; backend presentation calls narrow methods for those operations.
+- Preserve status acceptance, rendering, and asynchronous observer ordering,
+  including re-reconciliation after a newer status supersedes an awaited observer.
+- Preserve model-cache unknown/known-empty semantics, stale callers adopting the
+  newest refresh, and notification timing after cache changes.
+- Keep initialization idempotent and preserve the detached-Chat early exit in
+  `app.js`; package loading must not start polling or bind controls.
+- Retain the complete public Manager facade and gated test hooks. Unit harnesses
+  load the package in canonical `index.html` order; private-namespace and assembler
+  checks cover the new package.
 
 ### Success criteria
 
@@ -480,7 +511,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 1: Chat-template selection
 - [x] Session 2: flag-definition package
 - [x] Session 3: shared services and Manager boundary
-- [ ] Session 4: Manager package split
+- [x] Session 4: Manager package split
 - [ ] Session 5: inference core extraction
 - [ ] Session 6: Monitor package and test split
 - [ ] Session 7: `app.js` composition cleanup
