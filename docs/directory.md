@@ -160,7 +160,7 @@ Routes use a declarative dispatch table. Routes receive `(request, response, ctx
 
 The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
-1. `ui/js/flags/*.js` — ordered pure data modules for categories, options, chat templates, definitions, and helpers
+1. `ui/js/flags/` — loaded in order: `categories.js`, `options.js`, `chat-templates.js`, `definitions-model-context.js`, `definitions-hardware.js`, `definitions-sampling.js`, `definitions-conversation.js`, `definitions-speculative.js`, `definitions-server.js`, `definitions.js` (assembles `FLAGS`), then `helpers.js`
 2. `theme-ui.js` — theme registry, persisted selection, and the sidebar theme menu (`window.LlamaGui.themeUi`)
 3. `flag-core.js` — shared state singleton (`window.LlamaGui.flagCore`)
 4. `chat-template-selection.js` — chat-template preset lookup, reverse mapping, selection application, summary text, and the manual custom-path clearing rule (`window.LlamaGui.chatTemplateSelection`)
@@ -197,7 +197,13 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 | Module | Namespace | Role |
 |--------|-----------|------|
-| `ui/js/flags/definitions.js` | (data) | `FLAGS` array — single source of truth for all exposed `llama.cpp` flags |
+| `ui/js/flags/definitions-model-context.js` | (data) | Model, context, and memory flag definitions |
+| `ui/js/flags/definitions-hardware.js` | (data) | CPU, GPU, and interleaved auto-fit flag definitions |
+| `ui/js/flags/definitions-sampling.js` | (data) | Sampling and RoPE flag definitions |
+| `ui/js/flags/definitions-conversation.js` | (data) | Conversation, LoRA, control-vector, and KV-cache flag definitions |
+| `ui/js/flags/definitions-speculative.js` | (data) | Speculative decoding flag definitions |
+| `ui/js/flags/definitions-server.js` | (data) | Server, MCP, grammar, logging, advanced, and experimental flag definitions |
+| `ui/js/flags/definitions.js` | (data) | Assembles the domain arrays into the authoritative `FLAGS` array in CLI emission order |
 | `ui/js/flags/categories.js` | (data) | `FLAG_CATEGORIES` array |
 | `ui/js/flags/options.js` | (data) | Shared enum option lists (`CACHE_TYPE_OPTIONS`, etc.) |
 | `ui/js/flags/chat-templates.js` | (data) | `BUILTIN_CHAT_TEMPLATES`, `CHAT_TEMPLATE_PRESETS`, preset helpers |
@@ -310,7 +316,14 @@ The sidebar runtime disclosure shows lifecycle state and active model, with laun
 
 ### Single Source of Truth
 
-`ui/js/flags/definitions.js` defines the `FLAGS` array. Each flag has:
+`ui/js/flags/definitions.js` assembles the single `FLAGS` array from the six
+`definitions-*.js` domain files listed above. Add or edit definitions in the owning
+domain; consumers read `FLAGS`, never the package-internal `FLAG_DEFINITIONS_*`
+arrays. Preserve the assembly and entry order, including interleaved GPU/auto-fit
+entries, and reuse option constants from `options.js` and `chat-templates.js`.
+
+Each flag has:
+
 - `id`, `flag` (CLI name), `category`, `type`, `label`, `desc`, `tool`, `default`
 - `tool` field: `"both"`, `"server"`, `"cli"` — controls visibility
 - Types: `bool`, `int`, `float`, `text`, `text_list`, `path`, `enum`, `multi_enum`
@@ -352,9 +365,9 @@ and useful ones; everything else stays reachable through Custom Launch
 Args. The model below keeps that curated list honest as upstream moves.
 
 **Where truth lives.** Upstream defines the CLI surface in `common/arg.cpp`
-(plus `server.cpp`); `ui/js/flags/definitions.js` mirrors the curated
-subset. Enum values must match upstream exactly, and a boolean whose
-"off" state is a separate flag declares `false_flag` (unchecked `--mmap`
+(plus `server.cpp`); `ui/js/flags/definitions-*.js` contains the curated
+subset assembled by `definitions.js`. Enum values must match upstream exactly,
+and a boolean whose "off" state is a separate flag declares `false_flag` (unchecked `--mmap`
 emits `--no-mmap`). The step-by-step checklist for adding or changing a
 flag lives in [AGENTS.md](../AGENTS.md#feature-pitfalls) — follow that,
 not this prose.
@@ -1158,5 +1171,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–1 complete, Session 2 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–2 complete, Session 3 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

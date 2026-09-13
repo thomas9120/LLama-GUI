@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–1 are complete; Session 2
-> (flag-definition package) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–2 are complete; Session 3
+> (shared services and Manager boundary) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -169,9 +169,16 @@ initialization and Configure/Quick Launch synchronization covered in the browser
 
 ## Session 2 — split flag definitions by domain
 
-`ui/js/flags/definitions.js` is pure data but is one of the largest and most-edited
-frontend files. Split it into a small ordered package, using broad domains rather
-than one tiny file per flag category. A candidate grouping is:
+**Completed (2026-09-12).** Six contiguous domain files now feed the retained
+`definitions.js` assembler. Mechanical comparison preserved all 169 flags, their
+exact order and metadata, and shared option references. Every harness that loads
+real flag definitions now follows the canonical loader. Independent diff review,
+`npm test` (including all 22 browser cases), and asset-versioning checks passed.
+Pinokio source compatibility was reviewed; its required module paths remain intact.
+
+The original `ui/js/flags/definitions.js` was pure data but was one of the largest
+and most-edited frontend files. The split uses a small ordered package of broad
+domains rather than one tiny file per flag category:
 
 - model and context;
 - CPU, GPU, and auto-fit;
@@ -460,7 +467,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 
 - [x] Session 0: refactor guardrails
 - [x] Session 1: Chat-template selection
-- [ ] Session 2: flag-definition package
+- [x] Session 2: flag-definition package
 - [ ] Session 3: shared services and Manager boundary
 - [ ] Session 4: Manager package split
 - [ ] Session 5: inference core extraction

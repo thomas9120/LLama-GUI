@@ -483,6 +483,22 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
 
 // --- 5. Package assembly order --------------------------------------------
 
+// Flag domains are data-only classic scripts. Their assembler precedes the
+// helpers and all consumers, while shared option data precedes each domain.
+const flagAssemblyIndex = scriptFiles.indexOf("js/flags/definitions.js");
+const flagHelpersIndex = scriptFiles.indexOf("js/flags/helpers.js");
+assert.ok(flagAssemblyIndex >= 0 && flagHelpersIndex > flagAssemblyIndex);
+for (const [index, src] of scriptFiles.entries()) {
+    if (!src.startsWith("js/flags/definitions-")) continue;
+    assert.ok(index < flagAssemblyIndex, `${src} must load before the FLAGS assembler`);
+    for (const dependency of ["options.js", "chat-templates.js"]) {
+        assert.ok(
+            scriptFiles.indexOf(`js/flags/${dependency}`) < index,
+            `${src} must load after ${dependency}`
+        );
+    }
+}
+
 // A directory package with a *-main.js assembler must load that file after
 // every other contributor in the same package (Tier 1 recipe).
 const packagesByDir = new Map();

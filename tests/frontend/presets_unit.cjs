@@ -841,14 +841,8 @@ assert.equal(formatPresetTimestamp(Date.now() - 3 * 3600000), "3h ago");
 // Driven through buildPresetGroups with the real flag definitions, so the
 // examples named in the todo are pinned against the shipping flag list rather
 // than a stub that could drift from it.
-// definitions.js reads shared constants from its sibling modules, so the whole
-// set loads in the same order ui/index.html uses.
-const FLAG_SOURCES = [
-    "ui/js/flags/categories.js",
-    "ui/js/flags/options.js",
-    "ui/js/flags/chat-templates.js",
-    "ui/js/flags/definitions.js",
-];
+// Load the complete flags package in canonical browser order.
+const flagPackageScripts = getPackageScripts("js/flags");
 
 function createSearchContext() {
     const ctx = {
@@ -863,10 +857,8 @@ function createSearchContext() {
     const coreOverrides = ctx.window.LlamaGui?.flagCore || {};
     vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", "js", "flag-core.js"), "utf8"), ctx);
     Object.assign(ctx.window.LlamaGui.flagCore, coreOverrides);
-    for (const relativePath of FLAG_SOURCES) {
-        vm.runInContext(fs.readFileSync(path.join(ROOT, relativePath), "utf8"), ctx, {
-            filename: relativePath,
-        });
+    for (const script of flagPackageScripts) {
+        vm.runInContext(script.source, ctx, { filename: script.uiPath });
     }
     // A top-level `const` in a vm script lives in the shared global lexical
     // scope, which later scripts see but the context object does not expose.

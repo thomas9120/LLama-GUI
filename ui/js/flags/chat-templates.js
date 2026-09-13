@@ -1,4 +1,4 @@
-// Flags package (3/5): BUILTIN_CHAT_TEMPLATES, CHAT_TEMPLATE_PRESETS, and preset helpers.
+// Flags package: BUILTIN_CHAT_TEMPLATES, CHAT_TEMPLATE_PRESETS, and preset helpers.
 const BUILTIN_CHAT_TEMPLATES = [
     "bailing",
     "bailing-think",
