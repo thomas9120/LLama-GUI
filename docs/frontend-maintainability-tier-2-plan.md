@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–6 are complete; Session 7
-> (`app.js` composition cleanup) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–7 are complete; Session 8
+> (feature stylesheet package) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -420,21 +420,48 @@ provide the links between concerns, and dependencies are read live after configu
 
 ## Session 7 — make `app.js` a composition root
 
-Manager and inference extraction should remove a significant amount of implicit
-coupling first. Then reassess `app.js` and extract only the remaining cohesive
-mechanisms:
+**Completed 2026-09-12.** Extracted four focused modules and retargeted the existing
+browser harnesses. Diff review confirmed 19 moved functions unchanged apart from
+dependency qualification; reassembling the output callbacks matched the original
+poller except for the tested stale-response guard described below. All 21 new
+orchestration cases and full `npm test` passed, including all 22 browser cases.
+Documentation links, asset-versioning checks and the local Pinokio compatibility
+checker also passed. Native supervised-restart smoke was not run.
 
-- inference polling, target reconciliation, and abort/timer generations, preserving
-  the hidden-host/detached-Chat behavior specified in Session 5;
-- memory-estimate request and rendering state;
-- process-output polling if it does not belong in `process-lifecycle.js` or the
-  existing output cursor;
-- toast rendering only if its multiple consumers justify a stable notification
-  facade.
+The implementation extracts four focused modules, with `app.js` retaining
+configuration, startup order, launch/stop coordination, accepted-status sequencing,
+and shared snapshot distribution:
 
-Keep dependency wiring, application startup order, and small coordination callbacks
-in `app.js`. The goal is for it to read like the composition diagram of the app,
-not to hit an arbitrary line-count target.
+| Module | Ownership |
+|---|---|
+| `memory-estimate-ui.js` | 700 ms debounce, request generation, shared-argument reads and sidebar rendering |
+| `notifications.js` | Toast rendering, safe text, dismissal, actions, durations and stack limits |
+| `inference-polling.js` | Instance-owned transport, timers, abort/epoch state, target reconciliation and external connection revisions |
+| `process-output.js` | Instance-owned output cursor, interval, overlap guard and retries; app callbacks handle lifecycle/UI effects |
+
+### Extraction guardrails
+
+- Keep module loading, configuration and factory creation inert. Create the inference
+  engine and both pollers only on the main page; detached Chat consumes host snapshots.
+- Route document visibility and popup changes through one inference polling method.
+  Hidden hosts keep inference polling while detached Chat is open, while system
+  telemetry retains its document/panel gates. Pausing keeps the target and baseline;
+  stopping invalidates the epoch and clears the target.
+- Preserve fresh-launch versus restored-target baselines, GUI readiness checks,
+  external reconnect revisions, independent metrics/slots availability, and stale
+  rejection after transport and asynchronous body parsing.
+- Preserve output cursor handoff, clear-without-replay, overlap/retry behavior, and
+  application ordering for exit, connection loss and delayed runtime restoration.
+  Benchmark polling keeps its current owner; the shared cursor stays transport-free.
+- Reject superseded output responses before runtime-generation reconciliation as
+  well as before cursor consumption. A new regression test exposed the prior race
+  where an old process response could reset the replacement process's cursor; the
+  extraction adds an immediate post-fetch epoch check.
+- Retarget browser tests that used bare polling globals to instance methods and
+  explicitly gated test hooks. Keep timer/controller details private in production
+  and retain the browser assertions for host/popup ownership and recovery.
+- Use focused controlled-clock tests for estimate and polling races, plus the full
+  browser suite for startup, lifecycle, Monitor, toast and detached-Chat integration.
 
 ## Session 8 — split feature CSS
 
@@ -569,7 +596,7 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 4: Manager package split
 - [x] Session 5: inference core extraction
 - [x] Session 6: Monitor package and test split
-- [ ] Session 7: `app.js` composition cleanup
+- [x] Session 7: `app.js` composition cleanup
 - [ ] Session 8: feature stylesheet package
 - [ ] Session 9: Chat-window protocol and host-adapter extraction
 - [ ] Session 10: Chat-window coordinator/view package split

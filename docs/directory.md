@@ -190,7 +190,11 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 28. `inference-stats.js` — pure metrics/slots normalization and target-keyed inference snapshot engine (`window.LlamaGui.inferenceStats`)
 29. `monitor/*` package, loaded in order: `monitor-internal.js` (private dependency links), `monitor-dom.js` (formatting/DOM primitives), `monitor-preferences.js` (visibility/order/drag), `monitor-system.js` (CPU/RAM/disk and sample presentation), `monitor-gpu.js` (GPU/setup/state cards), `monitor-terminal.js` (runtime/header and terminal), `monitor-inference.js` (shared snapshot rendering), `monitor-polling.js` (system telemetry lifecycle), `monitor-main.js` (`window.LlamaGui.monitorUi` facade and initialization)
 30. `shell-ui.js` — grouped navigation, responsive navigation drawer, and the shared sidebar runtime summary (`window.LlamaGui.shellUi`)
-31. `app.js` — main orchestration (wires everything together)
+31. `process-output.js` — main-process output polling factory (`window.LlamaGui.processOutput`)
+32. `inference-polling.js` — main-page inference transport and target lifecycle factory (`window.LlamaGui.inferencePolling`)
+33. `memory-estimate-ui.js` — debounced sidebar estimates (`window.LlamaGui.memoryEstimateUi`)
+34. `notifications.js` — shared toast presentation (`window.LlamaGui.notifications`)
+35. `app.js` — composition root: dependency wiring, main/detached startup, and coordination callbacks
 
 **Do not change this order.** Each file depends on the ones above it. If you add a new module, place it after its dependencies and before its consumers. A copy-paste walkthrough with the `configure()`-injection skeleton lives in [`CONTRIBUTING.md`](../CONTRIBUTING.md#adding-a-new-frontend-module).
 
@@ -216,11 +220,30 @@ keeps the install-status renderer available to Configure, and
 
 Inference parsing and state live in `ui/js/inference-stats.js`, which loads before
 Monitor and has no DOM, storage, transport, or timer dependencies. `app.js` calls
-its facade directly and creates one engine only on the main page. The main page
-retains polling, target reconciliation, and epoch invalidation; Monitor renders
-the emitted snapshot in both views. A hidden host keeps inference polling while
-detached Chat is open, while system telemetry keeps its panel/document gates.
+its facade directly and creates one engine and one `inferencePolling` instance
+only on the main page. The poller owns transport, timers, target reconciliation,
+external connection revisions, and epoch invalidation; Monitor renders the emitted
+snapshot in both views. Application callbacks feed effective visibility into the
+poller and distribute snapshots to Monitor and Chat-window. A hidden host keeps
+inference polling while detached Chat is open, while system telemetry keeps its
+panel/document gates.
 Detached Chat consumes host snapshots and creates no inference engine or poller.
+
+`processOutput.create()` owns the main process's output cursor, 300 ms interval,
+overlap guard and retry count. It rejects superseded responses before either cursor
+consumption or runtime reconciliation. `app.js` supplies exit, connection-loss and
+generation-change callbacks, preserving lifecycle/UI ordering and delayed status
+restoration. Clearing Monitor invalidates the cursor epoch without discarding its
+position. Benchmark output retains its separate owner and shares only `outputCursor`.
+Both poller factories are inert until started and keep state local to each instance;
+`app.js` creates neither instance in detached Chat.
+
+`memoryEstimateUi` owns the 700 ms debounce, request generation and sidebar rendering;
+`app.js` schedules it from the shared command-preview callback. Configuration is
+inert and dependencies are read live. `notifications.showToast` owns toast DOM,
+dismissal timers, actions and stack limits; message wording and caller-specific
+durations stay with consumers. `app.js` retains startup order, dependency wiring,
+accepted-status sequencing, launch/stop actions and snapshot distribution.
 
 Monitor follows the same concern-owned closure pattern as Manager. Its internal
 links are private to `ui/js/monitor/`; loading and configuration bind no controls
@@ -300,11 +323,15 @@ then reapplies visibility and order without rebuilding unchanged nodes.
 | `ui/js/monitor/monitor-preferences.js` | private `preferences` methods | Hidden-card storage, order, restore focus, keyboard/drag controls, and the latest deferred telemetry sample; index-fallback identities remain session-only |
 | `ui/js/monitor/monitor-system.js` | private `system` methods | CPU/RAM/disk readings and accepted sample presentation; waits for card dragging to finish before rendering |
 | `ui/js/monitor/monitor-gpu.js` | private `gpu` methods | Stable GPU identities, in-place card reconciliation, vendor state/setup guidance, and preference application |
-| `ui/js/monitor/monitor-terminal.js` | private `terminal` methods | Runtime/header presentation and always-follow, bounded terminal output; lifecycle, input visibility and output cursors stay in `app.js` |
+| `ui/js/monitor/monitor-terminal.js` | private `terminal` methods | Runtime/header presentation and always-follow, bounded terminal output; lifecycle and input visibility stay in `app.js`; output cursor use belongs to `process-output.js` |
 | `ui/js/monitor/monitor-inference.js` | private `inference` methods | Monitor inference availability/card and fixed stats bar, including a supplied detached document; consumes shared snapshots |
 | `ui/js/monitor/monitor-polling.js` | private `polling` methods | System telemetry visibility gates, timer/controller/generation, last accepted sample, Recheck, and live badge |
 | `ui/js/monitor/monitor-main.js` | `window.LlamaGui.monitorUi` | Dependency configuration, initialization, stable public facade and the retained three inference-core compatibility aliases |
-| `ui/js/app.js` | `window.LlamaGui` (global) | Main UI orchestration. Manages tab switching, server launch/stop, output polling, the single inference poll cycle that feeds one shared snapshot to the fixed bar and Monitor, toasts, module initialization, and cache-busting reload |
+| `ui/js/process-output.js` | `window.LlamaGui.processOutput` | Inert `create()` factory; instance-owned output cursor, interval, overlap guard and retry count; injected callbacks coordinate runtime changes, exit and connection loss |
+| `ui/js/inference-polling.js` | `window.LlamaGui.inferencePolling` | Inert `create()` factory; instance-owned timers, abort controller, epochs, target reconciliation and external revisions; uses the injected pure inference engine and effective visibility supplied by the host |
+| `ui/js/memory-estimate-ui.js` | `window.LlamaGui.memoryEstimateUi` | Live dependency configuration, 700 ms debounce, request generations and sidebar estimate rendering from shared launch arguments |
+| `ui/js/notifications.js` | `window.LlamaGui.notifications` | Shared safe-text toast renderer, action/dismiss controls, duration timers and bounded stack |
+| `ui/js/app.js` | composition root | Dependency configuration, main/detached startup sequencing, tab/control wiring, launch/stop and accepted-status coordination, output transition callbacks, and shared inference snapshot distribution |
 | `ui/css/style.css` | — | Shared page headings/action bars, controls, surfaces, and responsive layout. Contains no color literals and no `[data-theme=…]` selectors — all color lives in `ui/css/tokens.css` |
 | `ui/js/shell-ui.js` | `window.LlamaGui.shellUi` | Workspace/maintenance navigation, current-page semantics, mobile drawer focus and dismissal, and the shared sidebar summary of the authoritative local runtime or registered external server |
 | `ui/css/tokens.css` | — | Design tokens. One `:root` block of structural tokens (radius, spacing, control heights, fonts, easing) followed by one block per theme holding that theme's entire palette. Adding a theme is this file plus one `THEMES` entry in `ui/js/theme-ui.js` — nothing else |
@@ -1226,5 +1253,5 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/frontend-module-split-plan.md` | Completed Tier-1 frontend module-split recipe and implementation record |
-| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–6 complete, Session 7 next; module boundaries, implementation order, and verification gates |
+| `docs/frontend-maintainability-tier-2-plan.md` | Tier-2 frontend maintainability plan in progress: Sessions 0–7 complete, Session 8 next; module boundaries, implementation order, and verification gates |
 | `docs/images/` | Screenshots used by README.md |

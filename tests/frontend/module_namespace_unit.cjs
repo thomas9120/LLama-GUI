@@ -202,10 +202,14 @@ const expectedTopLevelKeys = [
     "apiClient",
     "dialogs",
     "manager",
+    "memoryEstimateUi",
+    "notifications",
     "modelSwitchUi",
     "monitorUi",
     "inferenceStats",
+    "inferencePolling",
     "outputCursor",
+    "processOutput",
     "presets",
     "processLifecycle",
     "quickLaunchUi",
@@ -223,6 +227,7 @@ assertSameKeys(Object.keys(llamaGui), expectedTopLevelKeys, "window.LlamaGui top
 const expectedNamespaces = [
     "flagCore",
     "outputCursor",
+    "processOutput",
     "processLifecycle",
     "themeUi",
     "shellUi",
@@ -243,11 +248,14 @@ const expectedNamespaces = [
     "benchmarkUi",
     "monitorUi",
     "inferenceStats",
+    "inferencePolling",
     "presets",
     "modelSwitchUi",
     "apiClient",
     "dialogs",
     "manager",
+    "memoryEstimateUi",
+    "notifications",
 ];
 
 for (const namespace of expectedNamespaces) {
@@ -260,6 +268,10 @@ for (const namespace of expectedNamespaces) {
 // Other facades keep the existence + documented-method checks below so
 // internal churn stays cheap.
 const facadeKeyContracts = {
+    processOutput: ["create"],
+    inferencePolling: ["create"],
+    memoryEstimateUi: ["configure", "schedule"],
+    notifications: ["showToast"],
     monitorUi: [
         "configure",
         "init",
@@ -434,6 +446,21 @@ function assertFacadeContract(facade, keys, label) {
 for (const [namespace, keys] of Object.entries(facadeKeyContracts)) {
     assertFacadeContract(llamaGui[namespace], keys, `window.LlamaGui.${namespace}`);
 }
+// Session 7 moves mechanisms and their mutable state out of the composition root.
+// Test access belongs to gated instance hooks, never compatibility globals.
+for (const name of ["pollStats", "startStatsPolling", "stopStatsPolling",
+    "statsEpoch", "statsActiveEpoch", "statsAbortController", "statsDocumentVisible",
+    "inferenceTimer", "inferenceInitialTimer", "externalTargetRevision",
+    "pollOutput", "startOutputPolling", "stopOutputPolling", "processOutputCursor",
+    "outputTimer", "pollOutputActiveEpoch", "pollOutputFailCount",
+    "memoryEstimateRequestId", "updateMemoryEstimate", "scheduleMemoryEstimate",
+    "formatMiB", "dismissToast", "capToastStack"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined",
+        `${name} must stay private to its owning module`);
+}
+assert.equal(vm.runInContext("processOutput._test", context), undefined);
+assert.equal(vm.runInContext("inferencePolling._test", context), undefined);
+assert.equal(vm.runInContext("showToast", context), llamaGui.notifications.showToast);
 assert.throws(
     () => assertFacadeContract(
         { ...llamaGui.chatUi, restoreSnapshot: undefined },
