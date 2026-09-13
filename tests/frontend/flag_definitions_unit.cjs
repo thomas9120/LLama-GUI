@@ -3,13 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 
-const ROOT = path.resolve(__dirname, "..", "..");
-const FLAG_SOURCES = [
-    "ui/js/flags/categories.js",
-    "ui/js/flags/options.js",
-    "ui/js/flags/chat-templates.js",
-    "ui/js/flags/definitions.js",
-];
+const { ROOT, getPackageScripts } = require("./script_order.cjs");
 const SUPPORTED_TOOLS = new Set(["server", "cli", "both"]);
 const SUPPORTED_TYPES = new Set(["bool", "int", "float", "text", "text_list", "path", "enum", "multi_enum"]);
 
@@ -201,18 +195,19 @@ function validateFlags(flags, categories) {
 }
 
 function loadCurrentDefinitions() {
-    const source = FLAG_SOURCES
-        .map((file) => fs.readFileSync(path.join(ROOT, file), "utf8"))
-        .join("\n");
     const context = {};
     vm.createContext(context);
+    for (const script of getPackageScripts("js/flags")) {
+        vm.runInContext(script.source, context, { filename: script.uiPath });
+    }
     vm.runInContext(
-        `${source}\nthis.__FLAGS = FLAGS; this.__FLAG_CATEGORIES = FLAG_CATEGORIES;`
+        `this.__FLAGS = FLAGS; this.__FLAG_CATEGORIES = FLAG_CATEGORIES;`
         + `\nthis.__CHAT_TEMPLATE_PRESETS = CHAT_TEMPLATE_PRESETS;`,
         context,
-        { filename: "ui/js/flags/definitions.js" }
+        { filename: "flag-definition-exports" }
     );
     return {
+        context,
         flags: context.__FLAGS,
         categories: context.__FLAG_CATEGORIES,
         chatTemplatePresets: context.__CHAT_TEMPLATE_PRESETS,
@@ -238,6 +233,20 @@ function assertIncludes(messages, expected) {
 }
 
 const current = loadCurrentDefinitions();
+// Shared option arrays must retain identity across domain extraction; copying
+// them would create a second source of truth even if their values match today.
+for (const [id, options] of [
+    ["chat_template", "CHAT_TEMPLATE_PRESET_OPTIONS"],
+    ["reasoning_format", "REASONING_FORMAT_OPTIONS"],
+    ...["cache_type_k", "cache_type_v", "draft_cache_type_k", "draft_cache_type_v"]
+        .map((id) => [id, "CACHE_TYPE_OPTIONS"]),
+]) {
+    assert.equal(
+        current.flags.find((flag) => flag.id === id).options,
+        vm.runInContext(options, current.context),
+        `${id} must reuse ${options}`
+    );
+}
 assert.deepEqual(validateFlags(current.flags, current.categories), {
     errors: [],
     warnings: [

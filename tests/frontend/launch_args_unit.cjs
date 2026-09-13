@@ -36,11 +36,7 @@ context.window.window = context.window;
 vm.createContext(context);
 
 for (const file of [
-    "ui/js/flags/categories.js",
-    "ui/js/flags/options.js",
-    "ui/js/flags/chat-templates.js",
-    "ui/js/flags/definitions.js",
-    "ui/js/flags/helpers.js",
+    ...getPackagePaths("js/flags").map((src) => `ui/${src}`),
     "ui/js/flag-core.js",
 ]) {
     const source = fs.readFileSync(path.join(ROOT, file), "utf8");

@@ -22,8 +22,7 @@ function run({ env = {}, files = [], config, help, version, flagDefs = flags, re
     const exit = {};
     const fakeFs = {
         existsSync: file => files.includes(file) || (file === "/repo/config.json" && config !== undefined),
-        readFileSync: file => file === "/repo/config.json" ? JSON.stringify(config)
-            : file.endsWith("definitions.js") ? `const FLAGS = ${JSON.stringify(flagDefs)};` : "",
+        readFileSync: file => file === "/repo/config.json" ? JSON.stringify(config) : "",
     };
     const spawnSync = (file, args, options) => {
         const argv = Array.from(args);
@@ -44,6 +43,12 @@ function run({ env = {}, files = [], config, help, version, flagDefs = flags, re
             },
             console: Object.fromEntries(["log", "warn", "error"].map(method => [method, text => messages.push(text)])),
             require(name) {
+                if (name === "./script_order.cjs") return {
+                    getPackageScripts(prefix) {
+                        assert.equal(prefix, "js/flags");
+                        return [{ uiPath: "fixture-flags.js", source: `const FLAGS = ${JSON.stringify(flagDefs)};` }];
+                    },
+                };
                 if (name === "node:fs") return fakeFs;
                 if (name === "node:path") return path.posix;
                 if (name === "node:child_process") return { spawnSync };

@@ -9,7 +9,7 @@ const { getPackageScripts } = require("./script_order.cjs");
 const ROOT = path.resolve(__dirname, "..", "..");
 const renderingSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-rendering.js"), "utf8");
 const appDataSource = fs.readFileSync(path.join(ROOT, "ui", "js", "app-data.js"), "utf8");
-const chatWindowSource = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
+const chatWindowScripts = getPackageScripts("js/chat-window");
 // Ordered from ui/index.html via the shared loader helper (script_order.cjs).
 const chatPackageScripts = getPackageScripts("js/chat");
 const chatPackageFiles = chatPackageScripts.map((script) => script.fileName);
@@ -365,7 +365,9 @@ function makeContext({
     chatPackageSources.forEach((pkgSource, i) => {
         vm.runInContext(pkgSource, context, { filename: `ui/js/chat/${chatPackageFiles[i]}` });
     });
-    if (loadChatWindow) vm.runInContext(chatWindowSource, context, { filename: "ui/js/chat-window.js" });
+    if (loadChatWindow) for (const script of chatWindowScripts) {
+        vm.runInContext(script.source, context, { filename: script.path });
+    }
 
     const api = context.window.LlamaGui.chatUi;
     const mutable = {

@@ -3,23 +3,19 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const { getPackageScripts } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const EXPLICIT_BIN_DIR = process.env.LLAMA_GUI_LLAMA_BIN_DIR || process.env.LLAMA_CPP_BIN_DIR;
 const REQUIRE_BINARIES = process.argv.includes("--require-binaries") || Boolean(EXPLICIT_BIN_DIR);
-const FLAG_SOURCES = [
-    path.join(ROOT, "ui", "js", "flags", "options.js"),
-    path.join(ROOT, "ui", "js", "flags", "chat-templates.js"),
-    path.join(ROOT, "ui", "js", "flags", "definitions.js"),
-];
 
 function loadFlags() {
     const context = { console };
     vm.createContext(context);
-    const source = FLAG_SOURCES.map((file) => fs.readFileSync(file, "utf8")).join("\n");
-    vm.runInContext(`${source}\nthis.FLAGS = FLAGS;`, context, {
-        filename: "ui/js/flags/definitions.js",
-    });
+    for (const script of getPackageScripts("js/flags")) {
+        vm.runInContext(script.source, context, { filename: script.uiPath });
+    }
+    vm.runInContext("this.FLAGS = FLAGS;", context);
     assert.ok(Array.isArray(context.FLAGS), "expected FLAGS to load as an array");
     return context.FLAGS;
 }

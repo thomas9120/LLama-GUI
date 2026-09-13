@@ -1,10 +1,13 @@
 // Main orchestration, loaded last after all modules: configure()/init() sequencing,
-// shared utility injection (showToast, fetchJson), polling engines, and tab wiring.
+// shared service injection, host-only polling composition, and tab wiring.
 function debounce(fn, ms) {
     let t;
     return function (...args) { clearTimeout(t); t = setTimeout(() => fn.apply(this, args), ms); };
 }
 
+const manager = window.LlamaGui.manager;
+const apiClient = window.LlamaGui.apiClient;
+const dialogs = window.LlamaGui.dialogs;
 const flagCore = window.LlamaGui.flagCore;
 const configFlagsUi = window.LlamaGui.configFlagsUi;
 const themeUi = window.LlamaGui.themeUi;
@@ -14,23 +17,11 @@ const chatTemplateSelection = window.LlamaGui.chatTemplateSelection;
 chatTemplateSelection.configure({ flagCore });
 // A detached page keeps the shared module declarations available, but must not
 // create the main page's cursor, defaults, or polling engines.
-const processOutputCursor = window.LlamaGui.chatWindow?.isDetachedView?.() === true
-    ? null : window.LlamaGui.outputCursor.create(appendOutput);
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
     flagCore.setCurrentToolValue("llama-server");
     flagCore.replaceFlagValues(getDefaultValues());
 }
-let outputTimer = null;
-let inferenceTimer = null;
-let inferenceInitialTimer = null;
-let statsEpoch = 0;
-let statsActiveEpoch = null;
-let statsAbortController = null;
-let memoryEstimateRequestId = 0;
-let pollOutputActiveEpoch = null;
-let pollOutputFailCount = 0;
-const TOAST_MAX_VISIBLE = 5;
-const DEFAULT_TOAST_DURATION_MS = 4000;
+const showToast = window.LlamaGui.notifications.showToast;
 // Slow-load warning outlives default toasts: the model may still come up.
 const SLOW_LOAD_WARNING_TOAST_MS = 10000;
 // Server-ready toast lingers a little longer so its Monitor shortcut is usable.
@@ -38,20 +29,21 @@ const SERVER_READY_TOAST_MS = 8000;
 
 const monitorUi = window.LlamaGui.monitorUi;
 // One shared inference snapshot feeds the fixed stats bar and the Monitor
-// Inference card. app.js owns the single polling cycle; the engine owns the
+// Inference card. The host-only poller owns transport; the engine owns the
 // target-keyed baselines, rate samples, and per-source availability.
 const inferenceStats = window.LlamaGui.chatWindow?.isDetachedView?.() === true
-    ? null : monitorUi.createInferenceStats({ onSnapshot: renderInferenceViews });
-let statsDocumentVisible = window.LlamaGui.chatWindow?.isDetachedView?.() !== true;
-let externalTargetRevision = 0;
-const scheduleMemoryEstimate = debounce(updateMemoryEstimate, 700);
+    ? null : window.LlamaGui.inferenceStats.createInferenceStats({ onSnapshot: renderInferenceViews });
+const memoryEstimateUi = window.LlamaGui.memoryEstimateUi;
+if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
+    memoryEstimateUi.configure({ flagCore, fetchJson: apiClient.fetchJson });
+}
 // Shared Quick Launch and sampler data is defined in app-data.js.
 const apiTab = window.LlamaGui.apiTab;
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 apiTab.configure({
     flagCore,
     copyText,
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
 });
 }
@@ -67,6 +59,23 @@ const samplerPresets = window.LlamaGui.samplerPresets;
 const quickLaunchUi = window.LlamaGui.quickLaunchUi;
 const benchmarkUi = window.LlamaGui.benchmarkUi;
 const processLifecycle = window.LlamaGui.processLifecycle;
+const processOutput = window.LlamaGui.chatWindow?.isDetachedView?.() === true
+    ? null : window.LlamaGui.processOutput.create({
+        fetchJson: apiClient.fetchJson,
+        appendOutput,
+        getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+        onGenerationChanged: refreshRuntimeStatusPanels,
+        onExit: handleProcessOutputExit,
+        onConnectionLost: handleProcessOutputConnectionLost,
+    });
+const inferencePolling = window.LlamaGui.chatWindow?.isDetachedView?.() === true
+    ? null : window.LlamaGui.inferencePolling.create({
+        inferenceStats,
+        fetch: (...args) => fetch(...args),
+        getServerEndpointConfig,
+        getApiAuthorizationHeaders,
+        getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+    });
 const modelSwitchUi = window.LlamaGui.modelSwitchUi;
 const presetsApi = window.LlamaGui.presets;
 const remoteTunnelUi = window.LlamaGui.remoteTunnelUi;
@@ -77,28 +86,42 @@ samplerPresets.configure({
     flagCore,
     getFlags: () => FLAGS,
     getDefaultFlagValues: getDefaultValues,
-    confirmAction,
-    promptAction,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
     showToast,
     refreshSamplerPresetSelect: (preferredValue) => quickLaunchUi.refreshSamplerPresetSelect(preferredValue),
 });
-presetsApi.configure({ showToast, switchTab });
+manager.configure({
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    showToast,
+    syncQuickLaunchModelOptions,
+    onModelPresenceChanged: () => presetsApi.refreshModelPresence(),
+    onAcceptedStatus: reconcileAuthoritativeStatus,
+});
+presetsApi.configure({
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
+    showToast,
+    switchTab,
+});
 remoteTunnelUi.configure({
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     copyText,
     getServerEndpointConfig,
 });
 externalServerUi.configure({
-    fetchJson,
-    getLatestStatus: () => latestStatus,
+    fetchJson: apiClient.fetchJson,
+    getLatestStatus: manager.getLatestStatus,
     refreshStatus: refreshRuntimeStatusPanels,
-    onExternalTargetChanged: markExternalTargetChanged,
+    onExternalTargetChanged: inferencePolling.markExternalTargetChanged,
 });
 hfDownloadUi.configure({
     flagCore,
-    fetchJson,
-    confirmAction,
-    refreshModels,
+    fetchJson: apiClient.fetchJson,
+    confirmAction: dialogs.confirmAction,
+    refreshModels: manager.refreshModels,
     applyPresetModel,
     refreshQuickLaunchUI,
 });
@@ -106,11 +129,11 @@ quickLaunchUi.configure({
     flagCore,
     presets: presetsApi,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     configFlagsUi,
     hfDownloadUi,
     debounce,
-    refreshModels,
+    refreshModels: manager.refreshModels,
     applyPresetModel,
     switchTab,
     launchLlama,
@@ -130,37 +153,37 @@ quickLaunchUi.configure({
     saveSamplerPreset: samplerPresets.saveSamplerPreset,
     renameSamplerPreset: samplerPresets.renameSamplerPreset,
     getSamplerRenameMessage: samplerPresets.getSamplerRenameMessage,
-    confirmAction,
-    promptAction,
+    confirmAction: dialogs.confirmAction,
+    promptAction: dialogs.promptAction,
     showToast,
     hasLaunchModelArg: flagCore.hasLaunchModelArg,
 });
 benchmarkUi.configure({
     flagCore,
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     showToast,
     getFlags: () => FLAGS,
     getDefaultFlagValues: getDefaultValues,
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     refreshRuntimeStatusPanels,
     processLifecycle,
 });
 monitorUi.configure({
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     copyText,
     showToast,
-    invalidateCursor: () => processOutputCursor.invalidate(),
+    invalidateCursor: () => processOutput.invalidate(),
     resetStatsBaseline: () => snapshotStatsBaseline(),
     getInferenceSnapshot: () => inferenceStats.getSnapshot(),
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     compareLaunchSettings: runtime => flagCore.compareLaunchSettings(runtime),
     switchTab,
     reviewLaunchChanges: () => configFlagsUi.openLaunchComparison(),
 });
 processLifecycle.configure({
-    fetchJson,
-    refreshStatus: () => fetchJson("/api/status"),
+    fetchJson: apiClient.fetchJson,
+    refreshStatus: () => apiClient.fetchJson("/api/status"),
     buildLaunchRequest: buildManualLaunchRequest,
     abortChat: async () => {
         const stopped = typeof window.LlamaGui.chatWindow?.abortActiveStream === "function"
@@ -169,22 +192,21 @@ processLifecycle.configure({
         if (stopped === false) throw new Error("The active Chat stream could not be stopped.");
         return stopped;
     },
-    invalidateOutput: stopOutputPolling,
-    invalidateStats: stopStatsPolling,
+    invalidateOutput: processOutput.stop,
+    invalidateStats: inferencePolling.stop,
     startOutput: handleLifecycleProcessStarted,
-    startStats: startStatsPolling,
+    startStats: inferencePolling.start,
     postReady: handleLifecycleReady,
     onFailed: handleLifecycleFailure,
     onSlowLoad: handleLifecycleSlowLoad,
 });
-window.LlamaGui.manager.setAcceptedStatusObserver(reconcileAuthoritativeStatus);
 modelSwitchUi.configure({
     fetchPresetEntries: fetchModelSwitcherPresetEntries,
     findPresetByName: presetsApi.findPresetByName,
     getAssignments: modelSwitchUi.getAssignments,
     getAssignmentIssues: modelSwitchUi.getAssignmentIssues,
     getStorageStatus: modelSwitchUi.getStorageStatus,
-    getLatestBackendStatus: () => latestStatus,
+    getLatestBackendStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     getPresetFingerprint: entry => entry && entry.preset_fingerprint || "",
     switchSlot: switchModelSlot,
@@ -227,7 +249,7 @@ async function fetchModelSwitcherPresetEntries() {
         let presetFingerprint = "";
         if (assignedNames.has(String(entry && entry.name || ""))) {
             try {
-                const result = await fetchJson("/api/presets/fingerprint", {
+                const result = await apiClient.fetchJson("/api/presets/fingerprint", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({ fingerprint_data: normalized }),
@@ -259,7 +281,7 @@ async function resolveModelSwitchTarget(slotId) {
     if (launch.error) throw new Error(launch.error);
     if (!flagCore.hasLaunchModelArg(launch.args)) throw new Error(`Preset "${presetName}" has no model source.`);
 
-    const preflight = await fetchJson("/api/launch/preflight", {
+    const preflight = await apiClient.fetchJson("/api/launch/preflight", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -295,12 +317,12 @@ function getRuntimeDisplayLabel(runtime) {
 
 async function switchModelSlot(slotId) {
     const previousRuntime = processLifecycle.getSnapshot().activeRuntime
-        || (latestStatus && latestStatus.active_runtime)
+        || manager.getLatestStatus()?.active_runtime
         || null;
     const outcome = await processLifecycle.switchRuntime({
         slot: slotId,
         resolveTarget: resolveModelSwitchTarget,
-        invalidateOutput: stopOutputPolling,
+        invalidateOutput: processOutput.stop,
         startOutput: (...args) => {
             clearOutput();
             handleLifecycleProcessStarted(...args);
@@ -315,7 +337,7 @@ async function switchModelSlot(slotId) {
             getRuntimeDisplayLabel(previousRuntime),
             getRuntimeDisplayLabel(outcome.runtime)
         );
-    } else if (!outcome.ok && outcome.status && outcome.status.running && !outputTimer) {
+    } else if (!outcome.ok && outcome.status && outcome.status.running && !processOutput.isActive()) {
         resumeRuntimePolling(outcome.status);
     }
     return outcome;
@@ -324,8 +346,8 @@ async function switchModelSlot(slotId) {
 function resumeRuntimePolling(status) {
     const runtime = status && status.active_runtime;
     if (!runtime) return;
-    startOutputPolling();
-    if (runtime.tool === "llama-server") startStatsPolling(runtime);
+    processOutput.start();
+    if (runtime.tool === "llama-server") inferencePolling.start(runtime);
 }
 
 function setCustomLaunchArgsMessages(result = {}) {
@@ -369,20 +391,20 @@ function initCustomLaunchArgsControls() {
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
 configFlagsUi.configure({
     debounce,
-    fetchJson,
+    fetchJson: apiClient.fetchJson,
     getFlagsByCategory,
     getFlags: () => FLAGS,
     switchTab,
     createSamplerPresetControls: samplerPresets.createSamplerPresetControls,
     refreshQuickLaunchUI,
     browseForPathFlag,
-    showStatus,
+    showStatus: manager.showStatus,
     setChatTemplateValue: chatTemplateSelection.setChatTemplateValue,
     getSelectedChatTemplateDropdownValue: chatTemplateSelection.getSelectedChatTemplateDropdownValue,
     copyText,
     showToast,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
-    getLatestStatus: () => latestStatus,
+    getLatestStatus: manager.getLatestStatus,
     processLifecycle,
     buildLaunchRequest: buildManualLaunchRequest,
     resumeRuntimePolling,
@@ -408,7 +430,7 @@ flagCore.configure({
         updateServerAddressPreview();
         updateApiEndpoints();
         refreshQuickLaunchUI();
-        scheduleMemoryEstimate();
+        memoryEstimateUi.schedule();
     },
     afterToolChange: syncUiAfterToolChange,
     beforePathPatch(flagId, value, patch) {
@@ -436,7 +458,7 @@ function getPathPickerRequest(flag) {
 }
 
 async function browseForPathFlag(flag) {
-    const result = await fetchJson("/api/select-file", {
+    const result = await apiClient.fetchJson("/api/select-file", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(getPathPickerRequest(flag)),
@@ -468,7 +490,7 @@ document.addEventListener("DOMContentLoaded", async () => {
             chatUi,
             themeUi,
             monitorUi,
-            confirmAction,
+            confirmAction: dialogs.confirmAction,
         });
         return;
     }
@@ -476,34 +498,22 @@ document.addEventListener("DOMContentLoaded", async () => {
         await window.LlamaGui.chatWindow.startHostView({
             chatUi,
             flagCore,
-            getLatestStatus: () => latestStatus,
+            getLatestStatus: manager.getLatestStatus,
             getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
             getInferenceSnapshot: () => inferenceStats.getSnapshot(),
             resetInferenceBaseline: () => snapshotStatsBaseline(),
             getApiAuthorizationHeaders,
             switchTab,
-            confirmAction,
+            confirmAction: dialogs.confirmAction,
             initializeChat: initChatTab,
             onDetachedChange(detached) {
                 // The hidden main page remains the authoritative inference poller
                 // while its Chat is shown in the detached window. System telemetry
                 // continues to follow ordinary document visibility.
-                statsDocumentVisible = (detached && window.LlamaGui.chatWindow?.hasDetachedView?.() === true)
-                    || document.visibilityState === "visible";
-                monitorUi.setDocumentVisibility(document.visibilityState === "visible");
-                if (!inferenceStats.getTargetKey()) return;
-                if (statsDocumentVisible) {
-                    clearInferenceTimers();
-                    pollStats(statsEpoch);
-                } else {
-                    statsEpoch += 1;
-                    clearInferenceTimers();
-                    if (statsAbortController) {
-                        statsAbortController.abort();
-                        statsAbortController = null;
-                    }
-                    statsActiveEpoch = null;
-                }
+                const visible = document.visibilityState === "visible";
+                monitorUi.setDocumentVisibility(visible);
+                inferencePolling.setActive(visible
+                    || (detached && window.LlamaGui.chatWindow?.hasDetachedView?.() === true));
             },
         });
     } catch (error) {
@@ -514,7 +524,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initToolSelect();
     initConfigControls();
     initCustomLaunchArgsControls();
-    initInstallButtons();
+    manager.init();
     initApiTab();
     remoteTunnelUi.init();
     externalServerUi.init();
@@ -524,9 +534,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     initQuickLaunch();
     benchmarkUi.init();
     monitorUi.init();
-    window.LlamaGui.manager.initModelDirControls();
     configFlagsUi.renderFlags();
-    fetchReleases();
+    manager.fetchReleases();
     flagCore.updateCommandPreview();
     updateApiEndpoints();
 
@@ -536,16 +545,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (btnSidebarLaunch) btnSidebarLaunch.addEventListener("click", launchLlama);
     const btnSidebarStop = document.getElementById("btn-sidebar-stop");
     if (btnSidebarStop) btnSidebarStop.addEventListener("click", stopLlama);
-    const btnSidebarStopApp = document.getElementById("btn-sidebar-stop-app");
-    if (btnSidebarStopApp) btnSidebarStopApp.addEventListener("click", stopPythonServer);
     document.getElementById("model-select").addEventListener("change", () => {
         flagCore.setSelectedModelValue(document.getElementById("model-select").value || "");
         syncQuickLaunchModelOptions();
         flagCore.updateCommandPreview();
     });
 
-    const btnRefreshModels = document.getElementById("btn-refresh-models");
-    if (btnRefreshModels) btnRefreshModels.addEventListener("click", () => refreshModels());
     const btnClearOutput = document.getElementById("btn-clear-output");
     if (btnClearOutput) btnClearOutput.addEventListener("click", clearOutput);
     const btnSendInput = document.getElementById("btn-send-input");
@@ -561,21 +566,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     // bar across app tabs); Monitor system polling resumes while visible.
     document.addEventListener("visibilitychange", () => {
         const visible = document.visibilityState === "visible";
-        statsDocumentVisible = visible || window.LlamaGui.chatWindow?.hasDetachedView?.() === true;
         monitorUi.setDocumentVisibility(visible);
-        if (!inferenceStats.getTargetKey()) return;
-        if (statsDocumentVisible) {
-            clearInferenceTimers();
-            pollStats(statsEpoch);
-        } else {
-            statsEpoch += 1;
-            clearInferenceTimers();
-            if (statsAbortController) {
-                statsAbortController.abort();
-                statsAbortController = null;
-            }
-            statsActiveEpoch = null;
-        }
+        inferencePolling.setActive(visible || window.LlamaGui.chatWindow?.hasDetachedView?.() === true);
     });
     const btnSavePreset = document.getElementById("btn-save-preset");
     if (btnSavePreset) btnSavePreset.addEventListener("click", savePreset);
@@ -586,13 +578,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     showToast("Llama GUI ready", "info");
 
-    const initStatus = await checkStatus();
-    await refreshModels();
+    const initStatus = await manager.checkStatus();
+    await manager.refreshModels();
     if (initStatus && initStatus.running) {
         await restoreRunningState(initStatus);
     }
     await loadStartupPresetFromUrl();
-    clearAppReloadParam();
+    manager.clearAppReloadParam();
 });
 
 function getStartupPresetName() {
@@ -615,7 +607,7 @@ async function loadStartupPresetFromUrl() {
 }
 
 function initTabs() {
-    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: () => latestStatus });
+    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: manager.getLatestStatus });
 }
 
 function switchTab(tabId) {
@@ -698,25 +690,6 @@ function updateQuickServerAddressPreview() {
     );
 }
 
-function initInstallButtons() {
-    document.getElementById("btn-install").addEventListener("click", installRelease);
-    document.getElementById("btn-update").addEventListener("click", checkForUpdates);
-    document.getElementById("btn-repair").addEventListener("click", repairInstall);
-    document.getElementById("btn-remove-llama").addEventListener("click", removeLlamaFiles);
-    document.getElementById("btn-stop-app").addEventListener("click", stopPythonServer);
-    document.getElementById("btn-restart-app").addEventListener("click", restartPythonServer);
-    document.getElementById("refresh-releases").addEventListener("click", () => fetchReleases(selectedBackendId()));
-    document.getElementById("backend-select").addEventListener("change", onBackendChange);
-    document.getElementById("btn-open-models").addEventListener("click", () => openFolder("models"));
-    document.getElementById("btn-open-llama").addEventListener("click", () => openFolder("llama"));
-    document.getElementById("btn-check-app-update").addEventListener("click", checkAppUpdateStatus);
-    document.getElementById("btn-update-app").addEventListener("click", updateAppFromGitHub);
-    document.getElementById("app-update-channel").addEventListener("change", checkAppUpdateStatus);
-    if (typeof checkAppUpdateStatus === "function") {
-        checkAppUpdateStatus();
-    }
-}
-
 function initPresetImport() {
     document.getElementById("preset-import").addEventListener("change", (e) => {
         if (e.target.files.length > 0) handlePresetImport(e.target.files[0]);
@@ -725,8 +698,9 @@ function initPresetImport() {
 }
 
 function getExecutableSuffix() {
-    if (typeof latestStatus !== "undefined" && latestStatus && typeof latestStatus.executable_suffix === "string") {
-        return latestStatus.executable_suffix;
+    const status = manager.getLatestStatus();
+    if (status && typeof status.executable_suffix === "string") {
+        return status.executable_suffix;
     }
     // TODO: fallback sniffs navigator.userAgent (frontend platform decision).
     // Acceptable because the primary path uses backend status; remove when
@@ -779,7 +753,7 @@ function handleLifecycleProcessStarted(initialCursor, runtime, _state, launchRes
         if (launchResult.command) appendOutput(launchResult.command);
         appendOutput("---");
     }
-    startOutputPolling(initialCursor);
+    processOutput.start(initialCursor);
     if (tool === "llama-server") {
         updateServerAddressPreview();
         updateQuickServerAddressPreview();
@@ -893,145 +867,6 @@ async function stopLlama() {
     return outcome;
 }
 
-function startOutputPolling(initialCursor = null) {
-    processOutputCursor.reset(initialCursor);
-    pollOutputFailCount = 0;
-    if (outputTimer) clearInterval(outputTimer);
-    outputTimer = setInterval(pollOutput, 300);
-}
-
-function stopOutputPolling() {
-    if (outputTimer) {
-        clearInterval(outputTimer);
-        outputTimer = null;
-    }
-    processOutputCursor.reset();
-}
-
-function startStatsPolling(runtime, lifecycleState) {
-    stopStatsPolling();
-    // Fresh processes start their counters at zero. Restored processes need a
-    // first-poll baseline so their lifetime counters do not become session totals.
-    const freshLaunch = lifecycleState && lifecycleState.operation !== "restore";
-    const generation = Number(runtime && runtime.generation);
-    const key = Number.isSafeInteger(generation) && generation >= 1 ? `gui:${generation}` : null;
-    inferenceStats.setTarget(key, { zeroBaseline: freshLaunch });
-    beginInferencePolling();
-}
-
-function stopStatsPolling() {
-    statsEpoch += 1;
-    clearInferenceTimers();
-    if (statsAbortController) {
-        statsAbortController.abort();
-        statsAbortController = null;
-    }
-    statsActiveEpoch = null;
-    inferenceStats.setTarget(null);
-}
-
-function clearInferenceTimers() {
-    if (inferenceInitialTimer) {
-        clearTimeout(inferenceInitialTimer);
-        inferenceInitialTimer = null;
-    }
-    if (inferenceTimer) {
-        clearTimeout(inferenceTimer);
-        inferenceTimer = null;
-    }
-}
-
-function inferencePollingActive() {
-    return Boolean(inferenceInitialTimer || inferenceTimer || statsActiveEpoch !== null);
-}
-
-function beginInferencePolling() {
-    if (!inferenceStats.getTargetKey() || !statsDocumentVisible) return;
-    clearInferenceTimers();
-    const epoch = statsEpoch;
-    inferenceInitialTimer = setTimeout(() => {
-        inferenceInitialTimer = null;
-        pollStats(epoch);
-    }, 2000);
-}
-
-function scheduleNextInferencePoll(epoch) {
-    if (epoch !== statsEpoch || !statsDocumentVisible || !inferenceStats.getTargetKey()) return;
-    if (inferenceTimer) clearTimeout(inferenceTimer);
-    inferenceTimer = setTimeout(() => {
-        inferenceTimer = null;
-        pollStats(epoch);
-    }, 3000);
-}
-
-function formatMiB(mib) {
-    const value = Number(mib);
-    if (!Number.isFinite(value) || value <= 0) return "--";
-    if (value >= 1024) return `${(value / 1024).toFixed(value >= 10240 ? 1 : 2)} GB`;
-    return `${Math.round(value)} MiB`;
-}
-
-function setMemoryEstimateState(state, detail, values) {
-    const stateEl = document.getElementById("memory-estimate-state");
-    const acceleratorEl = document.getElementById("memory-estimate-accelerator");
-    const ramEl = document.getElementById("memory-estimate-ram");
-    const detailEl = document.getElementById("memory-estimate-detail");
-    if (!stateEl || !acceleratorEl || !ramEl || !detailEl) return;
-
-    stateEl.textContent = state;
-    stateEl.classList.toggle("is-error", state === "Unavailable");
-    stateEl.classList.toggle("is-ready", state === "Ready");
-    acceleratorEl.textContent = values ? formatMiB(values.accelerator_mib) : "--";
-    ramEl.textContent = values ? formatMiB(values.ram_mib) : "--";
-    detailEl.textContent = detail || "";
-}
-
-function summarizeMemoryEstimate(rows) {
-    if (!Array.isArray(rows) || rows.length === 0) return "";
-    return rows.map(row => {
-        const label = row.device || (row.kind === "ram" ? "Host" : "Device");
-        const parts = [];
-        if (row.model_mib > 0) parts.push(`model ${formatMiB(row.model_mib)}`);
-        if (row.context_mib > 0) parts.push(`ctx ${formatMiB(row.context_mib)}`);
-        if (row.compute_mib > 0) parts.push(`compute ${formatMiB(row.compute_mib)}`);
-        const breakdown = parts.length ? ` (${parts.join(" · ")})` : "";
-        return `${label}: ${formatMiB(row.total_mib)}${breakdown}`;
-    }).join("\n");
-}
-
-async function updateMemoryEstimate() {
-    const requestId = ++memoryEstimateRequestId;
-    const result = flagCore.getLaunchArgs();
-    if (result.error) {
-        setMemoryEstimateState("Unavailable", result.error);
-        return;
-    }
-    const args = result.args || [];
-    if (!flagCore.hasLaunchModelArg(args)) {
-        setMemoryEstimateState("Idle", "Select a model to estimate.");
-        return;
-    }
-
-    setMemoryEstimateState("Estimating", "Checking current command arguments...");
-    try {
-        const data = await fetchJson("/api/estimate-memory", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ tool: flagCore.getCurrentTool(), args }),
-        });
-        if (requestId !== memoryEstimateRequestId) return;
-        if (!data || data.error) {
-            setMemoryEstimateState("Unavailable", data?.error || "Memory estimate failed.");
-            return;
-        }
-        const detail = summarizeMemoryEstimate(data.rows) || "Estimate complete.";
-        setMemoryEstimateState("Ready", detail, data);
-    } catch (e) {
-        if (requestId !== memoryEstimateRequestId) return;
-        setMemoryEstimateState("Unavailable", e.message || "Memory estimate failed.");
-    }
-}
-
 function snapshotStatsBaseline() {
     // The one and only reset operation. With valid raw counters it re-renders
     // the fixed bar and the Inference card as zero immediately; otherwise the
@@ -1047,84 +882,8 @@ function renderInferenceViews(snapshot) {
     }
 }
 
-async function pollStats(epoch = statsEpoch) {
-    if (epoch !== statsEpoch || statsActiveEpoch === epoch) return;
-    statsActiveEpoch = epoch;
-    const controller = new AbortController();
-    statsAbortController = controller;
-    try {
-        const { host, port } = getServerEndpointConfig();
-        const params = new URLSearchParams({ host, port: String(port) });
-        const headers = getApiAuthorizationHeaders();
-        // Fetch /metrics and /slots independently: a disabled or unavailable
-        // metrics endpoint must not suppress slot-based context, and vice versa.
-        const [metricsResp, slotsResp] = await Promise.all([
-            fetch(`/api/llama/metrics?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
-                if (error && error.name !== "AbortError" && epoch === statsEpoch) {
-                    console.debug("Failed to fetch llama-server metric stats", error);
-                }
-                return null;
-            }),
-            fetch(`/api/llama/slots?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
-                if (error && error.name !== "AbortError" && epoch === statsEpoch) {
-                    console.debug("Failed to fetch llama-server slot stats", error);
-                }
-                return null;
-            }),
-        ]);
-        if (epoch !== statsEpoch) return;
-
-        let metricsOk = false;
-        let metricsValues = null;
-        if (metricsResp && metricsResp.ok) {
-            try {
-                const text = await metricsResp.text();
-                if (epoch !== statsEpoch) return;
-                metricsValues = monitorUi.parseMetricsText(text);
-                metricsOk = true;
-            } catch (e) {
-                console.debug("Failed to parse llama-server metric stats", e);
-            }
-        }
-
-        let slotsOk = false;
-        let slotsNormalized = null;
-        if (slotsResp && slotsResp.ok) {
-            let slotsPayload = null;
-            try {
-                slotsPayload = await slotsResp.json();
-            } catch (e) {
-                console.debug("Failed to parse llama-server slot stats", e);
-            }
-            if (epoch !== statsEpoch) return;
-            slotsNormalized = monitorUi.normalizeSlots(slotsPayload);
-            slotsOk = slotsNormalized !== null;
-        }
-
-        if (epoch !== statsEpoch) return;
-        inferenceStats.applyPollResult({
-            metricsOk,
-            metricsValues,
-            slotsOk,
-            slotsNormalized,
-            now: Date.now(),
-        });
-        scheduleNextInferencePoll(epoch);
-    } catch (e) {
-        if (e && e.name !== "AbortError" && epoch === statsEpoch) {
-            console.debug("Failed to fetch llama-server metrics", e);
-        }
-        if (epoch === statsEpoch) scheduleNextInferencePoll(epoch);
-    } finally {
-        if (statsActiveEpoch === epoch) statsActiveEpoch = null;
-        if (statsAbortController === controller) statsAbortController = null;
-    }
-}
-
-
-
 async function refreshRuntimeStatusPanels() {
-    const status = await checkStatus();
+    const status = await manager.checkStatus();
     window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "status" });
     monitorUi.updateProcessHeader();
     updateChatStatusBadge();
@@ -1132,59 +891,6 @@ async function refreshRuntimeStatusPanels() {
     benchmarkUi.refreshStatus();
     modelSwitchUi.refresh().catch(error => console.debug("Failed to refresh Model Switcher", error));
     return status;
-}
-
-function resolveInferenceTargetKey(status) {
-    if (status && status.running && status.active_runtime
-        && status.active_runtime.tool === "llama-server") {
-        const generation = Number(status.active_runtime.generation);
-        if (Number.isSafeInteger(generation) && generation >= 1) return `gui:${generation}`;
-    }
-    const target = status && status.external_chat_target;
-    if (target && target.connected) {
-        const host = String(target.host || "").trim().toLowerCase() || "127.0.0.1";
-        const port = Number(target.port);
-        const normalizedPort = Number.isFinite(port) && port > 0 ? port : 0;
-        // The revision changes on every successful external connect/restore so
-        // even a reconnect to the same address starts a fresh baseline. The
-        // API key is deliberately excluded from the identity.
-        return `ext:${externalTargetRevision}:${host}:${normalizedPort}`;
-    }
-    return null;
-}
-
-function reconcileInferenceTarget(status) {
-    const key = resolveInferenceTargetKey(status);
-    const current = inferenceStats.getTargetKey();
-    if (!key) {
-        if (current !== null) stopStatsPolling();
-        return;
-    }
-    if (key !== current) {
-        if (key.startsWith("gui:")) {
-            // GUI-owned launches and restores belong to the process lifecycle,
-            // which sets the correct baseline through startStatsPolling. Do not
-            // preempt an in-progress transition from here.
-            const lifecycle = processLifecycle.getSnapshot();
-            const lifecycleGeneration = Number(
-                lifecycle.activeRuntime && lifecycle.activeRuntime.generation
-            );
-            if (!lifecycle.ready || lifecycleGeneration !== Number(key.slice(4))) return;
-        }
-        // A target discovered through status (startup restore, external
-        // connect/restore, or an out-of-band replacement) never had its
-        // counters start at zero in this session: the first valid counter
-        // sample becomes the baseline.
-        // Invalidate delayed responses from the previous external connection,
-        // including a reconnect to the same host with a new revision.
-        stopStatsPolling();
-        inferenceStats.setTarget(key, { zeroBaseline: false });
-    }
-    if (!inferencePollingActive()) beginInferencePolling();
-}
-
-function markExternalTargetChanged() {
-    externalTargetRevision += 1;
 }
 
 async function reconcileAuthoritativeStatus(status) {
@@ -1203,7 +909,7 @@ async function reconcileAuthoritativeStatus(status) {
     const outcome = await processLifecycle.reconcile(status, reconcileOptions);
     // Every accepted status, including the first page-load status, is the
     // authoritative source for the resolved inference target.
-    reconcileInferenceTarget(status);
+    inferencePolling.reconcileTarget(status);
     configFlagsUi.refreshComparison();
     quickLaunchUi.refreshRuntime();
     window.LlamaGui.shellUi.renderRuntime();
@@ -1215,60 +921,28 @@ async function reconcileAuthoritativeStatus(status) {
 
 
 
-async function pollOutput() {
-    const request = processOutputCursor.getRequest();
-    if (pollOutputActiveEpoch === request.epoch) return;
-    pollOutputActiveEpoch = request.epoch;
-    try {
-        const data = await fetchJson(request.url);
-        const observedGeneration = Number(data && data.runtime_generation);
-        const expectedGeneration = Number(processLifecycle.getSnapshot().activeRuntime?.generation);
-        if (
-            data && data.running
-            && Number.isSafeInteger(observedGeneration)
-            && observedGeneration >= 1
-            && (!Number.isSafeInteger(expectedGeneration) || observedGeneration !== expectedGeneration)
-        ) {
-            processOutputCursor.reset();
-            await refreshRuntimeStatusPanels();
-            return;
-        }
-        const consumed = processOutputCursor.consume(data, request.epoch);
-        if (!consumed.current) return;
-        if (!data.running) {
-            stopOutputPolling();
-            stopStatsPolling();
-            appendOutput("--- Process exited ---");
-            document.getElementById("btn-launch").classList.remove("hidden");
-            document.getElementById("btn-stop").classList.add("hidden");
-            document.getElementById("input-row").classList.add("hidden");
-            document.getElementById("server-address").classList.add("hidden");
-            updateQuickLaunchActionButtons();
-            setTimeout(async () => {
-                const status = await refreshRuntimeStatusPanels();
-                if (status && !status.running) await processLifecycle.restore(status);
-            }, 500);
-        }
-        pollOutputFailCount = 0;
-    } catch (e) {
-        if (!processOutputCursor.isCurrent(request.epoch)) return;
-        pollOutputFailCount++;
-        if (pollOutputFailCount <= 5) {
-            appendOutput("Output polling error (retry " + pollOutputFailCount + "/5): " + e.message);
-        } else {
-            appendOutput("Connection to server lost: " + e.message);
-            stopOutputPolling();
-            stopStatsPolling();
-            document.getElementById("btn-launch").classList.remove("hidden");
-            document.getElementById("btn-stop").classList.add("hidden");
-            document.getElementById("input-row").classList.add("hidden");
-            document.getElementById("server-address").classList.add("hidden");
-            updateQuickLaunchActionButtons();
-            refreshRuntimeStatusPanels();
-        }
-    } finally {
-        if (pollOutputActiveEpoch === request.epoch) pollOutputActiveEpoch = null;
-    }
+function handleProcessOutputExit() {
+    inferencePolling.stop();
+    appendOutput("--- Process exited ---");
+    document.getElementById("btn-launch").classList.remove("hidden");
+    document.getElementById("btn-stop").classList.add("hidden");
+    document.getElementById("input-row").classList.add("hidden");
+    document.getElementById("server-address").classList.add("hidden");
+    updateQuickLaunchActionButtons();
+    setTimeout(async () => {
+        const status = await refreshRuntimeStatusPanels();
+        if (status && !status.running) await processLifecycle.restore(status);
+    }, 500);
+}
+
+function handleProcessOutputConnectionLost() {
+    inferencePolling.stop();
+    document.getElementById("btn-launch").classList.remove("hidden");
+    document.getElementById("btn-stop").classList.add("hidden");
+    document.getElementById("input-row").classList.add("hidden");
+    document.getElementById("server-address").classList.add("hidden");
+    updateQuickLaunchActionButtons();
+    refreshRuntimeStatusPanels();
 }
 
 function appendOutput(text) {
@@ -1287,7 +961,7 @@ async function sendInput() {
     if (!text) return;
     input.value = "";
     try {
-        await fetchJson("/api/send-input", {
+        await apiClient.fetchJson("/api/send-input", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
@@ -1341,93 +1015,12 @@ function wireCommandCopyButton(buttonId, previewId) {
     });
 }
 
-function dismissToast(toast) {
-    if (!toast || toast.dataset.dismissing === "true") return;
-    toast.dataset.dismissing = "true";
-    const timerId = Number(toast.dataset.timerId || 0);
-    if (timerId) {
-        clearTimeout(timerId);
-    }
-    toast.style.opacity = "0";
-    toast.style.transform = "translateY(-8px)";
-    toast.style.transition = "opacity 0.2s ease, transform 0.2s ease";
-    setTimeout(() => toast.remove(), 220);
-}
-
-function capToastStack(container) {
-    const toasts = Array.from(container.querySelectorAll(".toast"));
-    const overflow = toasts.length - TOAST_MAX_VISIBLE;
-    if (overflow <= 0) return;
-    for (const toast of toasts.slice(0, overflow)) {
-        dismissToast(toast);
-    }
-}
-
-function showToast(message, type, options = {}) {
-    const container = document.getElementById("toast-container");
-    if (!container) return;
-    const duration = Object.prototype.hasOwnProperty.call(options, "duration")
-        ? Number(options.duration)
-        : DEFAULT_TOAST_DURATION_MS;
-    const action = options.action;
-    const toast = document.createElement("div");
-    toast.className = "toast toast-" + (type || "info");
-    toast.setAttribute("role", "status");
-    const icon = document.createElement("span");
-    icon.className = "icon icon-sm toast-icon";
-    icon.setAttribute("aria-hidden", "true");
-    icon.innerHTML = '<svg viewBox="0 0 24 24">' +
-        (type === "success" ? '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>' +
-            '<polyline points="22 4 12 14.01 9 11.01"/>' :
-            type === "error" ? '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>' :
-                type === "warning" ? '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>' :
-                    '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>') +
-        '</svg>';
-    const text = document.createElement("span");
-    text.className = "toast-message";
-    text.textContent = String(message || "");
-    const closeBtn = document.createElement("button");
-    closeBtn.className = "toast-close";
-    closeBtn.type = "button";
-    closeBtn.title = "Dismiss";
-    closeBtn.setAttribute("aria-label", "Dismiss notification");
-    closeBtn.textContent = "×";
-    closeBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        dismissToast(toast);
-    });
-    toast.addEventListener("click", () => dismissToast(toast));
-    toast.appendChild(icon);
-    toast.appendChild(text);
-    if (action && typeof action.label === "string" && action.label
-        && typeof action.onClick === "function") {
-        const actionBtn = document.createElement("button");
-        actionBtn.className = "toast-action";
-        actionBtn.type = "button";
-        // textContent only: toast content must never be HTML (XSS smoke test).
-        actionBtn.textContent = action.label;
-        actionBtn.addEventListener("click", (event) => {
-            event.stopPropagation();
-            dismissToast(toast);
-            action.onClick();
-        });
-        toast.appendChild(actionBtn);
-    }
-    toast.appendChild(closeBtn);
-    container.appendChild(toast);
-    capToastStack(container);
-    if (Number.isFinite(duration) && duration > 0) {
-        const timerId = setTimeout(() => dismissToast(toast), duration);
-        toast.dataset.timerId = String(timerId);
-    }
-}
-
 // Chat Tab
 
 if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) chatUi.configure({
     flagCore,
-    confirmAction,
-    getLatestStatus: () => latestStatus,
+    confirmAction: dialogs.confirmAction,
+    getLatestStatus: manager.getLatestStatus,
     getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
     snapshotStatsBaseline,
     switchTab,

@@ -1,4 +1,4 @@
-// Flags package (2/5): shared enum option lists for option-typed flags (CACHE_TYPE_OPTIONS etc.).
+// Flags package: shared enum option lists for option-typed flags (CACHE_TYPE_OPTIONS etc.).
 const CACHE_TYPE_OPTIONS = [
     { value: "f16", label: "F16 (default)" }, { value: "f32", label: "F32" },
     { value: "bf16", label: "BF16" }, { value: "q8_0", label: "Q8_0" },

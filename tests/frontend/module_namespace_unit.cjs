@@ -199,10 +199,17 @@ const expectedTopLevelKeys = [
     "externalServerUi",
     "flagCore",
     "hfDownloadUi",
+    "apiClient",
+    "dialogs",
     "manager",
+    "memoryEstimateUi",
+    "notifications",
     "modelSwitchUi",
     "monitorUi",
+    "inferenceStats",
+    "inferencePolling",
     "outputCursor",
+    "processOutput",
     "presets",
     "processLifecycle",
     "quickLaunchUi",
@@ -212,12 +219,16 @@ const expectedTopLevelKeys = [
     "shellUi",
     "themeUi",
     "_chatInternal", // private; pinned separately in section 4
+    "_managerInternal",
+    "_monitorInternal",
+    "_chatWindowInternal",
 ];
 assertSameKeys(Object.keys(llamaGui), expectedTopLevelKeys, "window.LlamaGui top level");
 
 const expectedNamespaces = [
     "flagCore",
     "outputCursor",
+    "processOutput",
     "processLifecycle",
     "themeUi",
     "shellUi",
@@ -237,9 +248,15 @@ const expectedNamespaces = [
     "samplerPresets",
     "benchmarkUi",
     "monitorUi",
+    "inferenceStats",
+    "inferencePolling",
     "presets",
     "modelSwitchUi",
+    "apiClient",
+    "dialogs",
     "manager",
+    "memoryEstimateUi",
+    "notifications",
 ];
 
 for (const namespace of expectedNamespaces) {
@@ -252,6 +269,37 @@ for (const namespace of expectedNamespaces) {
 // Other facades keep the existence + documented-method checks below so
 // internal churn stays cheap.
 const facadeKeyContracts = {
+    processOutput: ["create"],
+    inferencePolling: ["create"],
+    memoryEstimateUi: ["configure", "schedule"],
+    notifications: ["showToast"],
+    monitorUi: [
+        "configure",
+        "init",
+        "onTabChanged",
+        "setDocumentVisibility",
+        "recheck",
+        "appendOutputLine",
+        "clearTerminal",
+        "updateProcessHeader",
+        "renderRuntime",
+        "renderInferenceSnapshot",
+        "renderStatsBarFromSnapshot",
+        "createInferenceStats",
+        "parseMetricsText",
+        "normalizeSlots",
+        "formatBytes",
+        "formatRate",
+        "formatPercentValue",
+        "formatTokens",
+        "formatClock",
+        "shortGpuId",
+        "normalizeHiddenEntries",
+        "isSessionOnlyKey",
+        "normalizeOrderEntries",
+        "_resetForTests",
+    ],
+    inferenceStats: ["parseMetricsText", "normalizeSlots", "createInferenceStats"],
     flagCore: [
         "applyFlagValues",
         "buildEffectiveFlagValues",
@@ -291,7 +339,14 @@ const facadeKeyContracts = {
         "supportsNativeReasoningEffort",
         "updateCommandPreview",
     ],
+    apiClient: ["fetchJson"],
+    dialogs: ["confirmAction", "promptAction"],
     manager: [
+        "configure",
+        "init",
+        "getLatestStatus",
+        "showStatus",
+        "clearAppReloadParam",
         "checkAppUpdateStatus",
         "checkStatus",
         "chooseModelsDir",
@@ -392,6 +447,21 @@ function assertFacadeContract(facade, keys, label) {
 for (const [namespace, keys] of Object.entries(facadeKeyContracts)) {
     assertFacadeContract(llamaGui[namespace], keys, `window.LlamaGui.${namespace}`);
 }
+// Session 7 moves mechanisms and their mutable state out of the composition root.
+// Test access belongs to gated instance hooks, never compatibility globals.
+for (const name of ["pollStats", "startStatsPolling", "stopStatsPolling",
+    "statsEpoch", "statsActiveEpoch", "statsAbortController", "statsDocumentVisible",
+    "inferenceTimer", "inferenceInitialTimer", "externalTargetRevision",
+    "pollOutput", "startOutputPolling", "stopOutputPolling", "processOutputCursor",
+    "outputTimer", "pollOutputActiveEpoch", "pollOutputFailCount",
+    "memoryEstimateRequestId", "updateMemoryEstimate", "scheduleMemoryEstimate",
+    "formatMiB", "dismissToast", "capToastStack"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined",
+        `${name} must stay private to its owning module`);
+}
+assert.equal(vm.runInContext("processOutput._test", context), undefined);
+assert.equal(vm.runInContext("inferencePolling._test", context), undefined);
+assert.equal(vm.runInContext("showToast", context), llamaGui.notifications.showToast);
 assert.throws(
     () => assertFacadeContract(
         { ...llamaGui.chatUi, restoreSnapshot: undefined },
@@ -413,18 +483,38 @@ assert.equal(typeof llamaGui.chatRendering.renderMarkdown, "function");
 assert.equal(typeof llamaGui.chatCompaction.compact, "function");
 assert.equal(typeof llamaGui.characterCards.readFile, "function");
 assert.equal(typeof llamaGui.chatWindow.createCoordinator, "function");
+assertSameKeys(Object.keys(llamaGui.chatWindow), [
+    "PROTOCOL", "PROTOCOL_VERSION", "SNAPSHOT_VERSION", "SNAPSHOT_KIND", "RECOVERY_VERSION",
+    "DEFAULT_LOCK_NAME", "DEFAULT_RECOVERY_KEY", "CHAT_READONLY_SETTING_FIELDS",
+    "createHostAdapter", "createCoordinator", "isDetachedView", "startHostView", "startDetachedView",
+    "notifyHostChange", "getPeerHostAdapter", "getSessionInfo", "hasDetachedView", "abortActiveStream",
+    "getBootstrapInfo", "configure", "coordinator",
+], "window.LlamaGui.chatWindow");
+assert.equal(llamaGui.chatWindow.coordinator, null, "loading does not create a coordinator");
+for (const name of ["createHostAdapter", "createCoordinator", "cloneJson", "pickJson", "deriveSettingFields",
+    "createFlagCoreBridge", "startHostView", "startDetachedView", "waitForPeer", "getStorage"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 assert.equal(typeof llamaGui.configFlagsUi.renderFlags, "function");
 assert.equal(typeof llamaGui.apiTab.updateEndpoints, "function");
 assert.equal(typeof llamaGui.remoteTunnelUi.renderStatus, "function");
 assert.equal(typeof llamaGui.shellUi.init, "function");
 assert.equal(typeof llamaGui.benchmarkUi.init, "function");
 assert.equal(typeof llamaGui.monitorUi.init, "function");
-assert.equal(typeof llamaGui.monitorUi.createInferenceStats, "function");
+for (const name of ["parseMetricsText", "normalizeSlots", "createInferenceStats"]) {
+    assert.equal(llamaGui.monitorUi[name], llamaGui.inferenceStats[name], `Monitor compatibility alias: ${name}`);
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 assert.equal(typeof llamaGui.presets.loadPreset, "function");
 assert.equal(typeof llamaGui.modelSwitchUi.getAssignments, "function");
 assert.equal(typeof llamaGui.processLifecycle.switchRuntime, "function");
 assert.equal(typeof llamaGui.outputCursor.create, "function");
-assert.equal(typeof llamaGui.manager.fetchJson, "function");
+assert.equal(llamaGui.manager.fetchJson, llamaGui.apiClient.fetchJson);
+assert.equal(llamaGui.manager.getLatestStatus(), null);
+assert.equal(llamaGui.manager._test, undefined, "test hooks are absent in production");
+for (const name of ["latestStatus", "checkStatus", "refreshModels", "installRelease", "confirmAction", "promptAction"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 
 // --- 4. Private namespace boundaries --------------------------------------
 
@@ -432,6 +522,9 @@ assert.equal(typeof llamaGui.manager.fetchJson, "function");
 // package directory; references from outside that package fail below.
 const privateNamespaceOwners = {
     _chatInternal: "js/chat",
+    _managerInternal: "js/manager",
+    _monitorInternal: "js/monitor",
+    _chatWindowInternal: "js/chat-window",
 };
 
 const observedPrivateKeys = Object.keys(llamaGui)
@@ -482,6 +575,29 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
 }
 
 // --- 5. Package assembly order --------------------------------------------
+
+const chatWindowOrder = [
+    "protocol", "host-adapter", "bootstrap", "coordinator", "flag-core-bridge",
+    "host-view", "detached-view", "main",
+].map(name => `js/chat-window/chat-window-${name}.js`);
+assert.deepEqual(scriptFiles.filter(src => src.startsWith("js/chat-window/")), chatWindowOrder,
+    "Chat-window dependencies must load before their consumers and facade");
+
+// Flag domains are data-only classic scripts. Their assembler precedes the
+// helpers and all consumers, while shared option data precedes each domain.
+const flagAssemblyIndex = scriptFiles.indexOf("js/flags/definitions.js");
+const flagHelpersIndex = scriptFiles.indexOf("js/flags/helpers.js");
+assert.ok(flagAssemblyIndex >= 0 && flagHelpersIndex > flagAssemblyIndex);
+for (const [index, src] of scriptFiles.entries()) {
+    if (!src.startsWith("js/flags/definitions-")) continue;
+    assert.ok(index < flagAssemblyIndex, `${src} must load before the FLAGS assembler`);
+    for (const dependency of ["options.js", "chat-templates.js"]) {
+        assert.ok(
+            scriptFiles.indexOf(`js/flags/${dependency}`) < index,
+            `${src} must load after ${dependency}`
+        );
+    }
+}
 
 // A directory package with a *-main.js assembler must load that file after
 // every other contributor in the same package (Tier 1 recipe).

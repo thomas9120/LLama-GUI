@@ -1,0 +1,714 @@
+/* ════════════════════════════════════════════
+   PRESETS
+   ════════════════════════════════════════════ */
+.presets-save-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--panel-wash);
+    margin-bottom: var(--space-4);
+}
+
+.presets-save-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    white-space: nowrap;
+}
+
+.presets-save-bar input {
+    flex: 1;
+    min-width: 0;
+    max-width: 440px;
+}
+
+.presets-save-hint {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--fg-faint);
+}
+
+.presets-workspace {
+    display: grid;
+    grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: stretch;
+    width: 100%;
+    max-width: 1480px;
+    /* definite height so the browser list scrolls internally instead of growing the page */
+    height: max(460px, calc(100vh - 216px));
+}
+
+/* ── Left column: preset browser ── */
+.presets-browser {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--panel-wash);
+    overflow: hidden;
+    min-width: 0;
+}
+
+.presets-browser-toolbar {
+    display: grid;
+    flex: none;
+    grid-template-columns: minmax(120px, 1fr) minmax(96px, 120px) 30px 30px;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.presets-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+}
+
+.presets-search-wrap svg {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--fg-faint);
+    pointer-events: none;
+}
+
+.presets-search-wrap input {
+    width: 100%;
+    padding-left: 28px;
+}
+
+.preset-sort-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    font-size: 12px;
+    padding-top: 5px;
+    padding-bottom: 5px;
+}
+
+.presets-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    background: transparent;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--fg-muted);
+    cursor: pointer;
+    transition: background var(--ease-fast), color var(--ease-fast);
+}
+
+.presets-icon-btn:hover {
+    background: var(--bg-hover);
+    color: var(--fg);
+}
+
+.presets-filters {
+    display: flex;
+    flex: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding: 9px var(--space-3);
+    border-bottom: 1px solid var(--border);
+}
+
+.preset-chip {
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--fg-muted);
+    border: 1px solid var(--border-strong);
+    cursor: pointer;
+    transition: all var(--ease-fast);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.preset-chip:hover {
+    color: var(--fg);
+    border-color: var(--accent-border);
+}
+
+.preset-chip.active {
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+    border-color: var(--accent-border);
+}
+
+.preset-chip.preset-chip-warn.active {
+    background: var(--yellow-subtle);
+    color: var(--yellow);
+    border-color: var(--yellow-border);
+}
+
+.sensitive-input-control {
+    display: grid;
+    gap: var(--space-2);
+    width: 100%;
+}
+
+.sensitive-input-masked {
+    -webkit-text-security: disc;
+}
+
+.sensitive-input-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.quick-auth-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border);
+}
+
+.preset-chip.preset-chip-favorite.active {
+    background: var(--favorite-subtle);
+    color: var(--favorite);
+    border-color: var(--favorite-border);
+}
+
+/* favorites-only is a filter, not just a sort, so it reads stronger than "first" */
+.preset-chip.preset-chip-favorite-only.active {
+    background: var(--favorite-solid);
+    color: var(--bg-base);
+    border-color: var(--favorite-solid);
+    font-weight: 600;
+}
+
+.presets-count-line {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--fg-faint);
+    white-space: nowrap;
+}
+
+.presets-browser-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.presets-empty { color: var(--fg-muted); padding: var(--space-3); }
+.presets-error { color: var(--red); }
+
+/* model groups */
+.preset-group + .preset-group { border-top: 1px solid var(--border); }
+
+.preset-group-header {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    border: none;
+    background: none;
+    color: var(--fg);
+    padding: 9px var(--space-3);
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font);
+    transition: background var(--ease-fast);
+}
+
+.preset-group-header:hover { background: var(--bg-raised); }
+
+/* Arrow-key roving focus moves through group headers as well as rows, so the
+   header needs the same visible focus ring the rows already have. Without it a
+   keyboard user loses track of position every time they cross a group. */
+.preset-group-header:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.preset-group-chevron {
+    color: var(--fg-faint);
+    flex-shrink: 0;
+    display: inline-flex;
+    transition: transform var(--ease-med);
+}
+
+.preset-group:not(.collapsed) .preset-group-chevron { transform: rotate(90deg); }
+
+.preset-group-title {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--fg-bright);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    /* RTL trick: ellipsis lands at the start so the quant suffix stays visible */
+    direction: rtl;
+    text-align: left;
+}
+
+.preset-group-title bdo { unicode-bidi: bidi-override; direction: ltr; }
+
+.preset-quant-badge {
+    flex-shrink: 0;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-xs);
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+    border: 1px solid var(--accent-border);
+    letter-spacing: 0.02em;
+}
+
+.preset-count-badge {
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    min-width: 18px;
+    text-align: center;
+    padding: 1px 5px;
+    border-radius: 999px;
+    background: var(--bg-elevated);
+    color: var(--fg-muted);
+}
+
+.preset-warn-dot {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--yellow-solid);
+    box-shadow: 0 0 6px var(--yellow-glow);
+}
+
+.preset-group-list { padding: 2px 6px 8px; }
+.preset-group.collapsed .preset-group-list { display: none; }
+
+/* preset rows */
+.preset-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 7px var(--space-2) 7px 10px;
+    margin: 1px 0;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background var(--ease-fast), border-color var(--ease-fast);
+}
+
+.preset-item:hover { background: var(--bg-raised); }
+
+.preset-item.selected {
+    background: var(--accent-subtle);
+    border-color: var(--accent-border);
+}
+
+.preset-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.preset-checkbox {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity var(--ease-fast);
+}
+
+.preset-item:hover .preset-checkbox,
+.preset-checkbox:focus-within,
+.presets-browser.has-checked .preset-checkbox { opacity: 1; }
+
+.preset-checkbox input {
+    margin: 0;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.preset-details { flex: 1; min-width: 0; }
+.preset-title-row { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+
+.preset-name {
+    min-width: 0;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--fg);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.preset-item.selected .preset-name { color: var(--fg-bright); }
+/* muted, not faint: at 10.5px the faint token lands near 2.6:1 on the surface background */
+.preset-meta { font-size: 10.5px; color: var(--fg-muted); }
+
+/* A 2px sliver at the far-left edge was too peripheral to catch while
+   scanning names down a dense list, so the whole row carries a wash too.
+   At 0,1,0 this loses to both :hover and .selected (0,2,0), so neither
+   state is masked. */
+.preset-item-favorite {
+    box-shadow: inset 3px 0 0 var(--favorite-solid);
+    background: var(--favorite-wash);
+}
+
+/* Without this, hovering a favourite would swap the wash for --bg-raised and
+   the row would go flatter than it was at rest. :not(.selected) keeps the
+   selected state winning outright. */
+.preset-item-favorite:hover:not(.selected) { background: var(--favorite-wash-hover); }
+
+.preset-favorite-btn.active {
+    color: var(--favorite);
+    border-color: var(--favorite-border);
+    background: var(--favorite-subtle);
+}
+
+.preset-row-favorite {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--fg-faint);
+    cursor: pointer;
+}
+
+.preset-row-favorite:hover,
+.preset-row-favorite:focus-visible,
+.preset-row-favorite.active {
+    color: var(--favorite);
+    background: var(--favorite-subtle);
+}
+
+.preset-row-archive {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-xs);
+    background: transparent;
+    color: var(--fg-faint);
+    cursor: pointer;
+}
+
+.preset-row-archive:hover,
+.preset-row-archive:focus-visible {
+    color: var(--accent-text);
+    background: var(--accent-subtle);
+}
+
+.preset-row-warn {
+    color: var(--yellow);
+    flex-shrink: 0;
+    display: inline-flex;
+}
+
+.preset-row-load {
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity var(--ease-fast);
+}
+
+.preset-item:hover .preset-row-load,
+.preset-item.selected .preset-row-load,
+.preset-row-load:focus-visible { opacity: 1; }
+
+/* bulk actions remain visible so selection capabilities are discoverable */
+.presets-bulk-bar {
+    display: flex;
+    /* wrap rather than clip: the row must survive a future action being added */
+    flex-wrap: wrap;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-2) var(--space-3);
+    border-top: 1px solid var(--border);
+    background: var(--bg-raised);
+}
+
+.presets-bulk-bar .btn {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+}
+
+.presets-browser.has-checked .presets-bulk-bar {
+    border-color: var(--accent-border);
+    background: var(--accent-subtle);
+}
+
+.presets-selection-count {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-text);
+}
+
+.presets-bulk-bar .btn:disabled,
+.presets-bulk-bar .presets-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.presets-bulk-bar .presets-icon-btn:disabled:hover {
+    background: transparent;
+    color: var(--fg-muted);
+}
+
+/* match btn-sm height so the row stays one consistent band */
+.presets-bulk-bar .presets-icon-btn {
+    width: 26px;
+    height: 24px;
+}
+
+/* the favorite toggles read as stars, matching the per-row control */
+.presets-bulk-bar .presets-icon-btn:not(:disabled):hover {
+    color: var(--favorite);
+    border-color: var(--favorite-border);
+}
+
+/* ── Right column: detail pane ── */
+.preset-detail-panel {
+    position: sticky;
+    top: var(--space-4);
+    min-width: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--panel-wash);
+    padding: var(--space-5);
+    min-height: 380px;
+    overflow-y: auto;
+}
+
+.preset-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-height: 320px;
+    gap: var(--space-2);
+    color: var(--fg-faint);
+    font-size: 12px;
+}
+
+.preset-detail-empty svg { opacity: 0.5; }
+
+.preset-detail-empty-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--fg-muted);
+}
+
+.preset-detail-empty p { max-width: 300px; margin: 0; }
+
+.preset-detail-kicker {
+    color: var(--accent-text);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: var(--space-1);
+}
+
+.preset-detail-title {
+    color: var(--fg-bright);
+    font-size: 17px;
+    font-weight: 750;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.preset-detail-subtitle {
+    margin-top: 3px;
+    color: var(--fg-muted);
+    font-family: var(--mono);
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+.preset-detail-actions {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin: var(--space-4) 0;
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--border);
+}
+
+.preset-more-actions { flex-basis: 100%; min-width: 0; }
+.preset-more-actions > summary { width: fit-content; }
+.preset-more-buttons { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }
+.preset-more-buttons .btn { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.preset-more-actions > summary,
+.preset-saved-settings > summary,
+.preset-review > summary { cursor: pointer; color: var(--accent-text); font-size: 12px; }
+.preset-more-actions > summary:focus-visible,
+.preset-saved-settings > summary:focus-visible,
+.preset-review > summary:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 3px; }
+.preset-saved-settings { border-top: 1px solid var(--border); padding-top: var(--space-3); margin-top: var(--space-4); }
+.preset-detail-subtitle + .preset-warning,
+.preset-detail-subtitle + .preset-detail-note { margin-top: var(--space-3); }
+.preset-detail-stats .preset-stat-value { font-size: 13px; overflow-wrap: anywhere; }
+
+.preset-context { border: 1px solid var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); margin-bottom: var(--space-3); background: var(--bg-surface); }
+.preset-context-heading, .preset-context-identity, .preset-context-actions { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
+.preset-context-heading { justify-content: space-between; }
+.preset-context-identity { font-size: 12px; color: var(--fg-muted); }
+.preset-context-identity [data-preset-name] { padding: 0; min-height: var(--control-height-sm); color: var(--accent-text); background: none; border: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.preset-context-identity [data-preset-state] { font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--fg); }
+.preset-context-actions .btn { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
+.preset-context .help-text { margin: var(--space-2) 0 0; }
+.preset-review { margin-top: var(--space-2); }
+.preset-table-scroll { max-height: 45vh; overflow: auto; margin: var(--space-3) 0; }
+.preset-comparison-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 12px; }
+.preset-comparison-table th, .preset-comparison-table td { text-align: left; padding: var(--space-2); border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.preset-comparison-table th { color: var(--fg-muted); background: var(--bg-raised); position: sticky; top: 0; }
+.preset-comparison-table td:not(:first-child) { font-family: var(--mono); }
+.preset-saved-values { margin-top: var(--space-3); }
+.preset-saved-values th:first-child { width: 50%; }
+.preset-saved-values tbody th { font-weight: 400; background: none; position: static; }
+.preset-saved-values caption { caption-side: bottom; text-align: left; color: var(--fg-muted); padding-top: var(--space-2); }
+dialog.preset-update-dialog { margin: auto; width: min(720px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; color: var(--fg); }
+.preset-update-dialog h3 { overflow-wrap: anywhere; }
+.preset-update-dialog::backdrop { background: var(--scrim); backdrop-filter: blur(4px); }
+
+.preset-detail-stats {
+    display: flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-5);
+}
+
+.preset-stat {
+    flex: 1;
+    min-width: 110px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+}
+
+.preset-stat-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+}
+
+.preset-stat-value {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--fg-bright);
+    margin-top: 2px;
+    overflow-wrap: anywhere;
+}
+
+.preset-stat-value.ok { color: var(--green); }
+.preset-stat-value.warn { color: var(--yellow); }
+
+.preset-detail-section-title {
+    margin: 0 0 var(--space-2);
+    color: var(--fg-faint);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.preset-warning {
+    display: flex;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--yellow-border);
+    border-radius: var(--radius-sm);
+    background: var(--yellow-subtle);
+    color: var(--yellow);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.preset-detail-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--green-border);
+    border-radius: var(--radius-sm);
+    background: var(--green-subtle);
+    color: var(--green);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.preset-detail-note svg,
+.preset-warning svg { flex-shrink: 0; margin-top: 1px; }
+
+/* Library summary shown when no preset is selected. These lines report state
+   rather than success, so they must not borrow the green .preset-detail-note
+   treatment, which would read as "all good" even while describing a problem. */
+.preset-detail-info {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+    color: var(--fg-muted);
+    font-size: 12px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+/* Section bodies in the summary stack directly against the next section title,
+   which only carries a bottom margin of its own. */
+.preset-summary-block { margin-bottom: var(--space-5); }
+
+/* Installed info */
+#installed-info {
+    font-size: 13px;
+    line-height: 1.8;
+}
+
+#installed-info strong { color: var(--fg-bright); }
+#installed-info .exe-ok { color: var(--green); }
+#installed-info .exe-missing { color: var(--red); }
+#installed-info .exe-optional { color: var(--fg-muted); }
+.installed-tools { margin: var(--space-3) 0; max-width: 720px; }
+.installed-tools h4, .installed-tools summary { font-size: 12px; font-weight: 600; color: var(--fg-bright); }
+.installed-tools summary { cursor: pointer; }
+.installed-tool-row { display: flex; justify-content: space-between; gap: var(--space-4); padding: var(--space-1) 0; border-bottom: 1px solid var(--border); }
+.installed-tool-row code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.installed-tool-row > span { flex-shrink: 0; font-size: 11px; }
+.installed-tools > .installed-info-hint { font-size: 11px; margin: var(--space-2) 0; }
+
+.installed-info-hint { color: var(--fg-muted); }
+.installed-info-note { color: var(--fg-muted); margin-bottom: var(--space-2); }
+.installed-info-warning { color: var(--yellow); margin-bottom: var(--space-2); }
+

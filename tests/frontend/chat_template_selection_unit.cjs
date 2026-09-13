@@ -13,7 +13,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
-const { ROOT } = require("./script_order.cjs");
+const { ROOT, getPackagePaths } = require("./script_order.cjs");
 
 const context = {
     window: { LlamaGui: {} },
@@ -23,11 +23,7 @@ context.window.window = context.window;
 vm.createContext(context);
 
 for (const file of [
-    "ui/js/flags/categories.js",
-    "ui/js/flags/options.js",
-    "ui/js/flags/chat-templates.js",
-    "ui/js/flags/definitions.js",
-    "ui/js/flags/helpers.js",
+    ...getPackagePaths("js/flags").map((src) => `ui/${src}`),
     "ui/js/flag-core.js",
 ]) {
     vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });

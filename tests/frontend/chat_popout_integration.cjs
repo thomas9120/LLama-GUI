@@ -905,6 +905,7 @@ test("idle popup close and deletion recovery use an independently seeded transcr
     const server = await startUiServer();
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
+    await context.addInitScript(() => { window.__LLAMA_GUI_TEST_HOOKS__ = true; });
     const pageErrors = [];
     context.on("page", page => page.on("pageerror", error => pageErrors.push(error.message)));
     const conversation = representativeConversation();
@@ -938,11 +939,31 @@ test("idle popup close and deletion recovery use an independently seeded transcr
         document.dispatchEvent(new Event("visibilitychange"));
     });
     await main.waitForFunction(() => document.visibilityState === "hidden", null, { timeout: 10_000 });
-    await main.waitForFunction(() => Boolean(inferenceStats?.getTargetKey?.()) && inferencePollingActive(), null, { timeout: 10_000 });
+    await main.waitForFunction(() => Boolean(inferenceStats?.getTargetKey?.()) && inferencePolling._test.getState().active, null, { timeout: 10_000 });
+    // A hidden host must keep producing snapshots for the popup, without a
+    // second inference engine/poller or resumed system telemetry polling.
+    const hiddenSequence = await main.evaluate(() => inferenceStats.getSnapshot()?.seq || 0);
+    const hiddenCallsStart = calls.length;
+    await main.waitForFunction(seq => (inferenceStats.getSnapshot()?.seq || 0) >= seq + 2,
+        hiddenSequence, { timeout: 15_000 });
+    const hiddenInferenceCalls = calls.slice(hiddenCallsStart)
+        .filter(call => ["/api/llama/metrics", "/api/llama/slots"].includes(call.pathname));
+    assert.ok(hiddenInferenceCalls.some(call => call.pathname === "/api/llama/metrics"));
+    assert.ok(hiddenInferenceCalls.some(call => call.pathname === "/api/llama/slots"));
+    assert.equal(hiddenInferenceCalls.every(call => call.page === main), true,
+        "only the hidden host polls inference while detached Chat is open");
+    assert.equal(await popup.evaluate(() => inferencePolling), null,
+        "detached Chat does not construct another inference poller");
+    assert.equal(await popup.evaluate(() => processOutput), null,
+        "detached Chat does not construct an output poller");
+    assert.equal(await popup.evaluate(() => inferenceStats), null,
+        "detached Chat does not construct another inference engine");
+    assert.equal(calls.slice(hiddenCallsStart).some(call => call.pathname === "/api/system-stats"), false,
+        "hidden-host inference does not resume system telemetry");
     const statsBeforeClose = await main.evaluate(() => ({
         target: inferenceStats?.getTargetKey?.() || null,
-        visible: statsDocumentVisible,
-        active: inferencePollingActive(),
+        visible: inferencePolling._test.getState().documentVisible,
+        active: inferencePolling._test.getState().active,
     }));
     assert.ok(statsBeforeClose.target, "the idle-close scenario starts with an active inference target");
     assert.equal(statsBeforeClose.active, true, "the idle-close scenario starts with polling active");
@@ -950,30 +971,30 @@ test("idle popup close and deletion recovery use an independently seeded transcr
     await main.waitForFunction(() => window.LlamaGui.chatWindow._hostView?.popup === null
         && window.LlamaGui.chatWindow.hasDetachedView?.() === false
         && document.querySelector("#chat-window-placeholder h3")?.textContent === "The Chat window was closed"
-        && statsDocumentVisible === false
-        && inferenceInitialTimer === null
-        && inferenceTimer === null
-        && statsActiveEpoch === null
-        && statsAbortController === null, null, { timeout: 15_000 });
+        && inferencePolling._test.getState().documentVisible === false
+        && inferencePolling._test.getState().hasInitialTimer === false
+        && inferencePolling._test.getState().hasTimer === false
+        && inferencePolling._test.getState().inFlight === false
+        && inferencePolling._test.getState().hasAbortController === false, null, { timeout: 15_000 });
     const closedPopupState = await main.evaluate(() => ({
         detached: window.LlamaGui.chatWindow.hasDetachedView?.(),
         visibility: document.visibilityState,
         placeholderVisible: !document.getElementById("chat-window-placeholder")?.hidden,
-        statsVisible: statsDocumentVisible,
-        statsPolling: inferencePollingActive(),
-        statsInitialTimer: inferenceInitialTimer,
-        statsTimer: inferenceTimer,
-        statsActiveEpoch,
-        statsAbortController: Boolean(statsAbortController),
+        statsVisible: inferencePolling._test.getState().documentVisible,
+        statsPolling: inferencePolling._test.getState().active,
+        statsInitialTimer: inferencePolling._test.getState().hasInitialTimer,
+        statsTimer: inferencePolling._test.getState().hasTimer,
+        statsInFlight: inferencePolling._test.getState().inFlight,
+        statsAbortController: inferencePolling._test.getState().hasAbortController,
     }));
     assert.equal(closedPopupState.detached, false);
     assert.equal(closedPopupState.visibility, "hidden");
     assert.equal(closedPopupState.placeholderVisible, true);
     assert.equal(closedPopupState.statsVisible, false);
     assert.equal(closedPopupState.statsPolling, false);
-    assert.equal(closedPopupState.statsInitialTimer, null);
-    assert.equal(closedPopupState.statsTimer, null);
-    assert.equal(closedPopupState.statsActiveEpoch, null);
+    assert.equal(closedPopupState.statsInitialTimer, false);
+    assert.equal(closedPopupState.statsTimer, false);
+    assert.equal(closedPopupState.statsInFlight, false);
     assert.equal(closedPopupState.statsAbortController, false);
     await main.waitForFunction(() => {
         const action = document.getElementById("btn-chat-return-here");

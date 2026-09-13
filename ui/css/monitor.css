@@ -1,0 +1,238 @@
+/* ════════════════════════════════════════════════════════════════════
+   MONITOR TAB
+   Layout-only selectors; all colors come from tokens.css.
+   ════════════════════════════════════════════════════════════════════ */
+
+.monitor-updated { font-family: var(--mono); font-size: 11px; color: var(--fg-faint); }
+
+.monitor-runtime { padding: var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-md); background: var(--bg-surface); }
+.monitor-runtime-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.monitor-runtime-identity { display: flex; flex: 1 1 280px; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); min-width: 0; }
+#monitor-runtime-model { overflow-wrap: anywhere; color: var(--fg-bright); }
+.monitor-runtime-details { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); margin-top: var(--space-2); font-family: var(--mono); font-size: 12px; color: var(--fg-muted); overflow-wrap: anywhere; }
+.monitor-runtime-details > span { min-width: 0; }
+.monitor-runtime .help-text { margin: var(--space-2) 0 0; }
+#monitor-runtime-error { color: var(--red); }
+.monitor-scope-note { margin: 0 0 var(--space-3); }
+.monitor-gpu-help { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg-surface); }
+.monitor-gpu-help > summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none; }
+.monitor-gpu-help > summary::-webkit-details-marker { display: none; }
+.monitor-gpu-help > summary::before { content: "▸"; color: var(--fg-muted); }
+.monitor-gpu-help[open] > summary::before { content: "▾"; }
+.monitor-gpu-help > summary > span { font-size: 12px; color: var(--fg-muted); }
+.monitor-gpu-help-body { padding: var(--space-4); border-top: 1px solid var(--border); }
+.monitor-gpu-help-body .monitor-runtime-heading .help-text { flex: 1 1 300px; margin: 0; }
+#monitor-inference-note { margin: var(--space-3) 0 0; }
+
+.monitor-section { margin-top: var(--space-5); }
+.monitor-output-section { margin-top: var(--space-4); }
+.monitor-inference-reset-row { margin: var(--space-3) 0 0; }
+
+/* Keep regular cards aligned across incomplete desktop rows. Inference
+   retains its larger preferred width and independent growth limit. */
+.monitor-metrics-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: var(--space-4);
+}
+
+.monitor-metrics-grid > .card {
+    flex: 1 1 260px;
+    max-width: clamp(260px, calc((100% - 3 * var(--space-4)) / 4), 340px);
+}
+
+.monitor-metrics-grid > .monitor-inference-card {
+    flex: 2 1 536px;
+    max-width: 696px;
+}
+
+.monitor-setup-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.monitor-inference-summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+}
+
+.monitor-inference-stat {
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--inset-sm);
+}
+
+.monitor-inference-stat .monitor-metric-reading { display: block; margin-top: 2px; font-size: 15px; }
+
+.monitor-inference-details {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+}
+
+.monitor-metric-value {
+    font-family: var(--mono);
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--fg-bright);
+    margin-bottom: var(--space-2);
+}
+
+.monitor-metric-unit { font-size: 13px; font-weight: 600; color: var(--fg-muted); margin-left: 2px; }
+.monitor-metric-sub { margin-top: var(--space-3); font-size: 11.5px; color: var(--fg-muted); }
+
+.monitor-metric-block { margin-bottom: var(--space-3); }
+
+.monitor-metric-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 6px;
+}
+
+.monitor-metric-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+}
+
+.monitor-metric-reading { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--fg-bright); }
+
+/* Plan contract: unsupported fields render as "Not available", never zero. */
+.monitor-not-available { font-family: var(--font); font-size: 12px; font-style: italic; font-weight: 500; color: var(--fg-faint); }
+
+.monitor-gpu-meta { display: grid; gap: 6px; margin-top: var(--space-3); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.monitor-gpu-meta .monitor-metric-row { margin-bottom: 0; }
+
+/* Probe diagnostics inside state/setup cards: long tool paths and stderr
+   lines hug the card instead of stretching it. */
+.monitor-probe-details .monitor-metric-reading {
+    max-width: 70%;
+    text-align: right;
+    word-break: break-all;
+}
+
+.monitor-setup-guide { margin-top: var(--space-2); }
+
+/* Reorderable cards use one explicit grip, keeping links, buttons, and text
+   out of the browser's draggable ancestor behavior. */
+.monitor-drag-handle {
+    font-size: 13px;
+    line-height: 1;
+    color: var(--fg-faint);
+    opacity: 0.45;
+    cursor: grab;
+    transition: opacity var(--ease-fast);
+}
+.monitor-drag-handle:active { cursor: grabbing; }
+.monitor-drag-container .card:hover .monitor-drag-handle,
+.monitor-drag-handle:focus-visible { opacity: 1; }
+.card.dragging {
+    opacity: 0.45;
+    outline: 2px dashed var(--accent-border);
+    outline-offset: 3px;
+}
+.card.drop-before {
+    box-shadow: var(--shadow-sm), inset 0 5px 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+.card.drop-after {
+    box-shadow: var(--shadow-sm), inset 0 -5px 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+.card.drop-before.drop-horizontal {
+    box-shadow: var(--shadow-sm), inset 5px 0 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+.card.drop-after.drop-horizontal {
+    box-shadow: var(--shadow-sm), inset -5px 0 0 0 var(--accent), 0 0 0 2px var(--accent-border);
+}
+
+.monitor-io-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+}
+
+.monitor-io-cell { display: flex; flex-direction: column; gap: var(--space-2); min-width: 0; }
+.monitor-io-label { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; color: var(--fg-faint); }
+.monitor-io-value { font-family: var(--mono); font-size: 18px; font-weight: 700; color: var(--fg-bright); overflow-wrap: anywhere; }
+.monitor-disk-activity { margin-top: var(--space-4); font-size: 12px; font-weight: 600; color: var(--fg-muted); }
+
+.monitor-output-tools { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.monitor-sep { width: 1px; height: 16px; background: var(--border-strong); flex-shrink: 0; }
+
+.monitor-command-row { display: flex; align-items: center; gap: var(--space-2); margin: var(--space-3) 0; }
+
+.monitor-command {
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--fg);
+    background: var(--inset-md);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: var(--space-2) var(--space-3);
+}
+
+.monitor-setup-cards a.btn { text-decoration: none; }
+.monitor-setup-cards a.btn:hover { color: var(--fg-bright); }
+.monitor-setup-cards a.btn-primary { color: var(--on-accent); }
+
+.monitor-card-tools { display: flex; align-items: flex-start; gap: var(--space-2); }
+.monitor-hide-btn { padding: var(--space-1) var(--space-2); }
+.monitor-hidden-bar { margin-top: var(--space-4); }
+
+.monitor-hidden-bar > summary {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    list-style: none;
+    cursor: pointer;
+}
+
+.monitor-hidden-bar > summary::-webkit-details-marker { display: none; }
+
+.monitor-restore-list {
+    display: grid;
+    gap: var(--space-2);
+    max-width: 420px;
+    margin-top: var(--space-2);
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-raised);
+}
+
+.monitor-restore-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+
+/* Context occupancy visual states (80% / 95%); presentation only. */
+.progress-fill.progress-fill-warning { background: var(--yellow); }
+.progress-fill.progress-fill-critical { background: var(--red); }
+
+@media (max-width: 1100px) {
+    .monitor-setup-cards { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+    .monitor-metrics-grid > .card {
+        flex-basis: 220px;
+        max-width: none;
+    }
+
+    .monitor-metrics-grid > .monitor-inference-card { flex-basis: 456px; }
+}
+
+@media (max-width: 560px) {
+    .monitor-metrics-grid > .card,
+    .monitor-metrics-grid > .monitor-inference-card { flex-basis: 100%; }
+    .monitor-inference-summary { grid-template-columns: 1fr; }
+    .monitor-inference-details { grid-template-columns: 1fr 1fr; }
+}

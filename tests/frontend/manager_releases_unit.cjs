@@ -4,11 +4,13 @@ const path = require("node:path");
 const vm = require("node:vm");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "manager.js"), "utf8");
+const { getScriptPaths } = require("./script_order.cjs");
+const scripts = getScriptPaths().filter(src => src === "js/api-client.js" || src.startsWith("js/manager/"));
 
 function makeElement() {
     let html = "";
     const classNames = new Set();
+    const listeners = {};
     const el = {
         children: [],
         value: "",
@@ -43,7 +45,8 @@ function makeElement() {
             this.children.push(child);
             return child;
         },
-        addEventListener() {},
+        listeners,
+        addEventListener(type, handler) { (listeners[type] ||= []).push(handler); },
         removeEventListener() {},
         querySelectorAll() {
             return [];
@@ -110,19 +113,22 @@ const context = {
 };
 context.window.window = context.window;
 vm.createContext(context);
-vm.runInContext(source, context, { filename: "ui/js/manager.js" });
+context.window.__LLAMA_GUI_TEST_HOOKS__ = true;
+for (const src of scripts) {
+    vm.runInContext(fs.readFileSync(path.join(ROOT, "ui", src), "utf8"), context, { filename: `ui/${src}` });
+}
 
 (async () => {
     const backendSelect = elements.get("backend-select");
     backendSelect.value = "lemonade-rocm-gfx110X";
 
     assert.equal(
-        context.selectedBackendId(),
+        context.window.LlamaGui.manager._test.selectedBackendId(),
         "lemonade-rocm-gfx110X",
         "selectedBackendId should read backend-select value"
     );
 
-    await context.fetchReleases("lemonade-rocm-gfx110X");
+    await context.window.LlamaGui.manager.fetchReleases("lemonade-rocm-gfx110X");
     assert.equal(
         fetchCalls[fetchCalls.length - 1].url,
         "/api/releases?backend=lemonade-rocm-gfx110X",
@@ -134,7 +140,7 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         "fetchJson should bypass browser cache for API requests"
     );
 
-    await context.fetchReleases();
+    await context.window.LlamaGui.manager.fetchReleases();
     assert.equal(
         fetchCalls[fetchCalls.length - 1].url,
         "/api/releases",
@@ -142,7 +148,7 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     );
 
     backendSelect.value = "cpu";
-    await context.onBackendChange();
+    await context.window.LlamaGui.manager._test.onBackendChange();
     assert.equal(
         fetchCalls[fetchCalls.length - 1].url,
         "/api/releases?backend=cpu",
@@ -168,12 +174,12 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
             "llama-server": true,
         },
     };
-    context.updateStatusUI(cpuStatus);
+    context.window.LlamaGui.manager._test.updateStatusUI(cpuStatus);
     assert.equal(elements.get("btn-update").disabled, false);
 
     backendSelect.value = "custom";
-    context.onBackendChange();
-    context.updateStatusUI(cpuStatus);
+    context.window.LlamaGui.manager._test.onBackendChange();
+    context.window.LlamaGui.manager._test.updateStatusUI(cpuStatus);
     assert.equal(backendSelect.value, "custom");
     assert.equal(elements.get("btn-update").disabled, true);
     assert.equal(elements.get("btn-repair").disabled, true);
@@ -184,8 +190,8 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     );
 
     backendSelect.value = "cpu";
-    context.onBackendChange();
-    context.updateStatusUI(cpuStatus);
+    context.window.LlamaGui.manager._test.onBackendChange();
+    context.window.LlamaGui.manager._test.updateStatusUI(cpuStatus);
     assert.equal(elements.get("btn-update").disabled, false);
     assert.equal(elements.get("btn-repair").classList.contains("hidden"), true);
 
@@ -208,7 +214,7 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
             files_present: true,
         },
     };
-    context.updateStatusUI(customStatus);
+    context.window.LlamaGui.manager._test.updateStatusUI(customStatus);
     assert.equal(backendSelect.value, "custom");
     assert.match(
         elements.get("installed-backend-summary").textContent,
@@ -217,23 +223,23 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     );
 
     backendSelect.value = "vulkan";
-    context.onBackendChange();
-    context.updateStatusUI(customStatus);
+    context.window.LlamaGui.manager._test.onBackendChange();
+    context.window.LlamaGui.manager._test.updateStatusUI(customStatus);
     assert.equal(
         backendSelect.value,
         "vulkan",
         "pending install backend should survive status refresh while installed backend is still custom"
     );
     assert.equal(elements.get("btn-install").textContent, "Activate Existing");
-    assert.equal(context.canActivateOfficialBackend(customStatus, "vulkan"), true);
-    assert.equal(context.canActivateOfficialBackend(customStatus, "cpu"), false);
+    assert.equal(context.window.LlamaGui.manager._test.canActivateOfficialBackend(customStatus, "vulkan"), true);
+    assert.equal(context.window.LlamaGui.manager._test.canActivateOfficialBackend(customStatus, "cpu"), false);
     assert.equal(
         elements.get("btn-update").disabled,
         true,
         "custom installed backend should not become auto-updatable because a default backend is selected as install target"
     );
 
-    context.updateStatusUI({ ...customStatus, version: "smoke", backend: "vulkan", tag: "smoke" });
+    context.window.LlamaGui.manager._test.updateStatusUI({ ...customStatus, version: "smoke", backend: "vulkan", tag: "smoke" });
     assert.equal(
         backendSelect.value,
         "vulkan",
@@ -254,35 +260,35 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         }
         assert.fail("Unexpected request while selecting Custom: " + url);
     };
-    await context.checkStatus();
+    await context.window.LlamaGui.manager.checkStatus();
     backendSelect.value = "custom-02";
-    context.onBackendChange();
-    await context.checkStatus();
+    context.window.LlamaGui.manager._test.onBackendChange();
+    await context.window.LlamaGui.manager.checkStatus();
     assert.equal(elements.get("custom-backend-folder").textContent, "llama/custom-02/bin/");
     assert.equal(elements.get("custom-backend-title").textContent, "Custom 02 Setup:");
     assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom");
     assert.equal(elements.get("btn-update").disabled, true);
     assert.equal(elements.get("release-group").style.display, "none");
-    let activating = context.installRelease();
-    await context.installRelease();
+    let activating = context.window.LlamaGui.manager._test.installRelease();
+    await context.window.LlamaGui.manager._test.installRelease();
     assert.deepEqual(slotRequests, [{ backend: "custom-02" }], "duplicate activation is ignored");
-    await context.checkStatus();
+    await context.window.LlamaGui.manager.checkStatus();
     assert.equal(elements.get("btn-install").disabled, true, "polling must not unlock an activation in flight");
     completeActivation({ ok: false, missing_required: ["llama-server"] });
     await activating;
     assert.match(elements.get("install-status").textContent, /custom-02\/bin\/.*llama-server/);
     assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom");
     assert.equal(elements.get("btn-update").disabled, true, "failure must keep custom update restrictions");
-    activating = context.installRelease();
+    activating = context.window.LlamaGui.manager._test.installRelease();
     savedStatus = { ...customStatus, backend: "custom-02" };
     completeActivation({ ok: true, found: ["llama-cli", "llama-server"], missing: ["llama-bench"] });
     await activating;
     assert.equal(elements.get("installed-backend-summary").textContent, "Installed backend: Custom 02");
     assert.equal(elements.get("version-badge").textContent, "Custom 02");
     assert.equal(elements.get("btn-update").disabled, true);
-    assert.equal(context.canActivateOfficialBackend(savedStatus, "custom"), false);
-    assert.equal(context.canActivateOfficialBackend(savedStatus, "vulkan"), true);
-    context.updateStatusUI({ ...savedStatus, installed: false, config_stale: true });
+    assert.equal(context.window.LlamaGui.manager._test.canActivateOfficialBackend(savedStatus, "custom"), false);
+    assert.equal(context.window.LlamaGui.manager._test.canActivateOfficialBackend(savedStatus, "vulkan"), true);
+    context.window.LlamaGui.manager._test.updateStatusUI({ ...savedStatus, installed: false, config_stale: true });
     assert.equal(elements.get("btn-repair").disabled, true);
     assert.ok(elements.get("installed-info").children.some(child => /custom-02\/bin/.test(child.textContent)));
 
@@ -294,8 +300,8 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         });
     };
 
-    const first = context.fetchReleases("cpu");
-    const second = context.fetchReleases("lemonade-rocm-gfx110X");
+    const first = context.window.LlamaGui.manager.fetchReleases("cpu");
+    const second = context.window.LlamaGui.manager.fetchReleases("lemonade-rocm-gfx110X");
     pending.get("/api/releases?backend=lemonade-rocm-gfx110X")([
         { tag: "b1294", published: "2024-01-01T00:00:00Z", assets: [] },
     ]);
@@ -342,9 +348,9 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         observedGenerations.push(status.runtime_generation);
         if (status.runtime_generation === 1) await firstObserverGate;
     });
-    const firstStatusCheck = context.checkStatus();
+    const firstStatusCheck = context.window.LlamaGui.manager.checkStatus();
     while (observedGenerations.length === 0) await Promise.resolve();
-    const secondStatus = await context.checkStatus();
+    const secondStatus = await context.window.LlamaGui.manager.checkStatus();
     assert.equal(secondStatus.runtime_generation, 2);
     releaseFirstObserver();
     const firstStatus = await firstStatusCheck;
@@ -366,7 +372,7 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         replaceCalls.length = 0;
         context.window.location = { href };
         return {
-            cleared: vm.runInContext("clearAppReloadParam()", context),
+            cleared: context.window.LlamaGui.manager.clearAppReloadParam(),
             replaced: replaceCalls.slice(),
         };
     };
@@ -428,7 +434,7 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
     };
     await context.window.LlamaGui.manager.checkAppUpdateStatus();
     assert.match(elements.get("app-update-status").textContent, /latest nightly commit on origin\/main/);
-    vm.runInContext("confirmAction = async () => true", context);
+    context.window.LlamaGui.manager.configure({ confirmAction: async () => true });
     await context.window.LlamaGui.manager.updateAppFromGitHub();
     assert.deepEqual(JSON.parse(updateRequest.body), { channel: "nightly" });
 
@@ -447,6 +453,42 @@ vm.runInContext(source, context, { filename: "ui/js/manager.js" });
         elements.get("app-update-status").textContent,
         "Failed to check app updates: network down"
     );
+
+    // Loading/configuring is inert, and init owns each listener exactly once.
+    const manager = context.window.LlamaGui.manager;
+    const unloadHandlers = [];
+    context.window.addEventListener = (type, handler) => {
+        assert.equal(type, "beforeunload");
+        unloadHandlers.push(handler);
+    };
+    let intervalCallback;
+    const clearedTimers = [];
+    context.setInterval = (callback) => { intervalCallback = callback; return 17; };
+    context.clearInterval = id => clearedTimers.push(id);
+    const initRequests = [];
+    manager.configure({ fetchJson: async url => {
+        initRequests.push(url);
+        if (url === "/api/update") return { status: "started", from: "old", to: "new" };
+        if (url === "/api/download-progress") return { status: "error", message: "Fixture install failed" };
+        return { available: false };
+    } });
+    assert.deepEqual(initRequests, [], "configure must not issue requests");
+    assert.equal(elements.get("btn-update").listeners.click, undefined);
+    for (const id of ["download-progress", "progress-fill", "progress-text"]) elements.set(id, makeElement());
+    manager.init();
+    manager.init();
+    assert.equal(unloadHandlers.length, 1);
+    assert.deepEqual(initRequests, ["/api/app-update-status"]);
+    assert.equal(elements.get("btn-update").listeners.click.length, 1);
+    await elements.get("btn-update").listeners.click[0]();
+    assert.equal(initRequests.filter(url => url === "/api/update").length, 1);
+    assert.equal(typeof intervalCallback, "function", "update action starts install polling");
+    await intervalCallback();
+    assert.deepEqual(clearedTimers, [17], "an install error cleans up polling");
+    assert.equal(elements.get("install-status").textContent, "Fixture install failed");
+    await elements.get("btn-update").listeners.click[0]();
+    unloadHandlers[0]();
+    assert.deepEqual(clearedTimers, [17, 17], "unload cleans up active install polling");
 
     console.log("manager releases unit tests passed");
 })().catch((err) => {
