@@ -221,6 +221,7 @@ const expectedTopLevelKeys = [
     "_chatInternal", // private; pinned separately in section 4
     "_managerInternal",
     "_monitorInternal",
+    "_chatWindowInternal",
 ];
 assertSameKeys(Object.keys(llamaGui), expectedTopLevelKeys, "window.LlamaGui top level");
 
@@ -482,6 +483,17 @@ assert.equal(typeof llamaGui.chatRendering.renderMarkdown, "function");
 assert.equal(typeof llamaGui.chatCompaction.compact, "function");
 assert.equal(typeof llamaGui.characterCards.readFile, "function");
 assert.equal(typeof llamaGui.chatWindow.createCoordinator, "function");
+assertSameKeys(Object.keys(llamaGui.chatWindow), [
+    "PROTOCOL", "PROTOCOL_VERSION", "SNAPSHOT_VERSION", "SNAPSHOT_KIND", "RECOVERY_VERSION",
+    "DEFAULT_LOCK_NAME", "DEFAULT_RECOVERY_KEY", "CHAT_READONLY_SETTING_FIELDS",
+    "createHostAdapter", "createCoordinator", "isDetachedView", "startHostView", "startDetachedView",
+    "notifyHostChange", "getPeerHostAdapter", "getSessionInfo", "hasDetachedView", "abortActiveStream",
+    "getBootstrapInfo", "configure", "coordinator",
+], "window.LlamaGui.chatWindow");
+assert.equal(llamaGui.chatWindow.coordinator, null, "loading does not create a coordinator");
+for (const name of ["createHostAdapter", "createCoordinator", "cloneJson", "pickJson", "deriveSettingFields"]) {
+    assert.equal(vm.runInContext(`typeof ${name}`, context), "undefined", `${name} must not leak globally`);
+}
 assert.equal(typeof llamaGui.configFlagsUi.renderFlags, "function");
 assert.equal(typeof llamaGui.apiTab.updateEndpoints, "function");
 assert.equal(typeof llamaGui.remoteTunnelUi.renderStatus, "function");
@@ -511,7 +523,12 @@ const privateNamespaceOwners = {
     _chatInternal: "js/chat",
     _managerInternal: "js/manager",
     _monitorInternal: "js/monitor",
+    _chatWindowInternal: "js/chat-window",
 };
+
+// Session 9 retains the Chat-window coordinator/view facade at its original path.
+// This exact file is part of that package until the Session 10 split.
+const privateNamespaceFacades = { _chatWindowInternal: "js/chat-window.js" };
 
 const observedPrivateKeys = Object.keys(llamaGui)
     .filter((key) => key.startsWith("_"))
@@ -544,7 +561,7 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
     let ownerReferences = 0;
     for (const fullPath of uiSourceFiles) {
         const relPath = path.relative(UI_DIR, fullPath).split(path.sep).join("/");
-        if (relPath.startsWith(ownerDir)) {
+        if (relPath.startsWith(ownerDir) || relPath === privateNamespaceFacades[namespace]) {
             if (tokenRe.test(fs.readFileSync(fullPath, "utf8"))) ownerReferences += 1;
             continue;
         }
@@ -561,6 +578,13 @@ for (const [namespace, ownerPrefix] of Object.entries(privateNamespaceOwners)) {
 }
 
 // --- 5. Package assembly order --------------------------------------------
+
+const chatWindowProtocolIndex = scriptFiles.indexOf("js/chat-window/chat-window-protocol.js");
+const chatWindowAdapterIndex = scriptFiles.indexOf("js/chat-window/chat-window-host-adapter.js");
+const chatWindowFacadeIndex = scriptFiles.indexOf("js/chat-window.js");
+assert.ok(chatWindowProtocolIndex >= 0 && chatWindowProtocolIndex < chatWindowAdapterIndex
+    && chatWindowAdapterIndex < chatWindowFacadeIndex,
+    "Chat-window protocol and host adapter must load before the coordinator/view facade");
 
 // Flag domains are data-only classic scripts. Their assembler precedes the
 // helpers and all consumers, while shared option data precedes each domain.

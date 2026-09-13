@@ -3,9 +3,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const { FakeLocks } = require("./fake_locks.cjs");
+const { getScriptPaths } = require("./script_order.cjs");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const source = fs.readFileSync(path.join(ROOT, "ui", "js", "chat-window.js"), "utf8");
+const chatWindowScripts = getScriptPaths()
+    .filter(src => src.startsWith("js/chat-window/") || src === "js/chat-window.js")
+    .map(src => ({ path: src, source: fs.readFileSync(path.join(ROOT, "ui", src), "utf8") }));
 
 function loadApi() {
     const window = {
@@ -18,7 +21,9 @@ function loadApi() {
     };
     const context = { window, console: window.console, setTimeout, clearTimeout, AbortController };
     vm.createContext(context);
-    vm.runInContext(source, context, { filename: "chat-window.js" });
+    for (const script of chatWindowScripts) {
+        vm.runInContext(script.source, context, { filename: script.path });
+    }
     return context.window.LlamaGui.chatWindow;
 }
 
@@ -176,6 +181,127 @@ function waitForCondition(predicate, description, timeoutMs = 1000) {
 
 (async () => {
     const api = loadApi();
+
+    // Evaluating the whole package must not bootstrap either view or touch
+    // browser facilities. Test JSON helpers without creating a coordinator.
+    {
+        const forbidden = () => assert.fail("Chat-window evaluation must be inert");
+        const window = { addEventListener: forbidden, console: { debug() {}, warn() {} } };
+        for (const name of ["document", "localStorage", "navigator", "opener", "location", "crypto"]) {
+            Object.defineProperty(window, name, { get: forbidden });
+        }
+        const context = vm.createContext({ window, setTimeout: forbidden, setInterval: forbidden, fetch: forbidden });
+        for (const script of chatWindowScripts) {
+            vm.runInContext(script.source, context, { filename: script.path });
+        }
+        assert.equal(window.LlamaGui.chatWindow.coordinator, null);
+        assert.equal(window.LlamaGui.chatWindow.hasDetachedView(), false);
+        const { protocol, hostAdapter } = window.LlamaGui._chatWindowInternal;
+        assert.equal(window.LlamaGui.chatWindow.createHostAdapter, hostAdapter.createHostAdapter);
+        const accounting = { usage: { prompt_tokens: 7, completion_tokens: 3, total_tokens: 10 }, values: [null, false, 0, ""] };
+        const copied = protocol.cloneJson(accounting);
+        assert.deepEqual(clone(copied), accounting);
+        copied.usage.prompt_tokens = 999;
+        assert.equal(accounting.usage.prompt_tokens, 7);
+        for (const key of ["api_key", "API-KEY", "hf_token", "accessToken", "Authorization", "password", "passwd", "secret", "credential", "cookie", "bearer"]) {
+            assert.equal(protocol.cloneJson({ nested: [{ [key]: "fixture-secret" }] }), null, key);
+        }
+        const cycle = {};
+        cycle.self = cycle;
+        for (const unsafe of [cycle, undefined, NaN, Infinity, 1n, () => {}, Symbol("unsafe")]) {
+            assert.equal(protocol.cloneJson(unsafe), null);
+        }
+    }
+
+    // Projection strips unknown and sensitive fields at every supported nested
+    // boundary, and callers cannot mutate the authoritative host through reads.
+    {
+        const runtime = { generation: 4, active_runtime: { model: "model.gguf", target: { host: "localhost", port: 8080, password: "secret", extra: 1 }, extra: 2 }, extra: 3 };
+        const inference = {
+            targetKey: "runtime-4", seq: 9, baselinePending: false, contextLevel: "normal",
+            sources: { metrics: true, slots: false, extra: 1 },
+            session: { prompt: 4, generated: 3, total: 7, api_key: "secret" },
+            speed: { prompt: 1, generated: 2, promptIsLive: false, generatedIsLive: true, extra: 1 },
+            context: { percent: 20, used: 7, size: 100, capacity: 100, level: "normal", extra: 1 },
+            requests: { processing: 1, queued: 0, processingBest: 1, extra: 1 },
+            slots: { busy: 1, total: 2, extra: 1 }, extra: 1,
+        };
+        const values = { temperature: 0.5, top_p: null, alias: "model", reasoning_format: "auto", ctx_size: 100 };
+        const calls = [];
+        const adapter = api.createHostAdapter({
+            fields: ["temperature", "top_p"],
+            flagCore: { getFlagValues: () => values, setMultipleFlagValues: patch => calls.push(clone(patch)) },
+            getActiveRuntime: () => runtime, getInference: () => inference,
+        });
+        const safeRuntime = adapter.getRuntime();
+        assert.deepEqual(clone(safeRuntime), { generation: 4, active_runtime: { model: "model.gguf", target: { host: "localhost", port: 8080 } } });
+        const safeInference = adapter.getInference();
+        assert.deepEqual(clone(safeInference), {
+            targetKey: "runtime-4", seq: 9, baselinePending: false, contextLevel: "normal",
+            sources: { metrics: true, slots: false }, session: { prompt: 4, generated: 3, total: 7 },
+            speed: { prompt: 1, generated: 2, promptIsLive: false, generatedIsLive: true },
+            context: { percent: 20, used: 7, size: 100, capacity: 100, level: "normal" },
+            requests: { processing: 1, queued: 0, processingBest: 1 }, slots: { busy: 1, total: 2 },
+        });
+        safeRuntime.active_runtime.target.host = "changed";
+        safeInference.session.prompt = 999;
+        adapter.getSettings().temperature = 999;
+        assert.equal(runtime.active_runtime.target.host, "localhost");
+        assert.equal(inference.session.prompt, 4);
+        assert.equal(values.temperature, 0.5);
+        for (const field of ["ctx_size", "alias", "reasoning_format", "unknown", "api_key"]) {
+            assert.throws(() => adapter.setSettings({ temperature: 0.8, [field]: 1 }), /not writable/);
+        }
+        assert.throws(() => adapter.setSettings({ temperature: { nested: { authorization: "secret" } } }), /not JSON-safe/);
+        assert.deepEqual(calls, [], "invalid patches are rejected before any shared-state write");
+        adapter.setSettings({ temperature: 0, top_p: null });
+        assert.deepEqual(calls, [{ temperature: 0, top_p: null }]);
+        assert.equal(values.temperature, 0.5, "writes use flagCore's setter, not its returned object");
+        adapter.dispose();
+    }
+
+    // Subscription and validity state belong to each adapter. Authentication is
+    // a direct verified-peer capability, never a field in projected changes.
+    {
+        let observe;
+        let cleanups = 0;
+        let authCalls = 0;
+        const changes = [];
+        const otherChanges = [];
+        const adapter = api.createHostAdapter({
+            fields: ["temperature"],
+            observeHostChanges: listener => { observe = listener; return () => { cleanups += 1; }; },
+            getAuthorizationHeaders: () => { authCalls += 1; return { Authorization: "Bearer fixture-secret" }; },
+        });
+        const other = api.createHostAdapter({ fields: ["top_p"] });
+        const unsubscribe = adapter.subscribe(change => changes.push(clone(change)));
+        other.subscribe(change => otherChanges.push(change));
+        observe({ type: "settings", fields: ["temperature", "top_p", "api_key"], runtime: { model: "safe", api_key: "secret" }, Authorization: "secret" });
+        assert.deepEqual(changes, [{ type: "settings", fields: ["temperature"], runtime: { model: "safe" } }]);
+        assert.deepEqual(otherChanges, []);
+        assert.deepEqual(clone(adapter.getAuthorizationHeaders()), { Authorization: "Bearer fixture-secret" });
+        assert.equal(authCalls, 1);
+        unsubscribe();
+        observe({ type: "settings" });
+        assert.equal(changes.length, 1);
+        adapter.subscribe(change => changes.push(clone(change)));
+        assert.equal(adapter.invalidateSession(), true);
+        assert.equal(adapter.invalidateSession(), false);
+        assert.deepEqual(changes.at(-1), { type: "session-invalidated" });
+        assert.throws(() => adapter.getAuthorizationHeaders(), /no longer available/);
+        assert.throws(() => adapter.setSettings({ temperature: 1 }), /no longer available/);
+        assert.equal(authCalls, 1);
+        assert.equal(other.isSessionValid(), true);
+        const beforeDispose = changes.length;
+        adapter.dispose();
+        adapter.dispose();
+        observe({ type: "settings" });
+        assert.equal(changes.length, beforeDispose);
+        assert.equal(cleanups, 1);
+        other.notify({ type: "settings", fields: ["top_p"] });
+        assert.equal(otherChanges.length, 1);
+        other.dispose();
+    }
 
     // The adapter preserves explicit null/unset values, exposes only the Chat
     // request settings, and never hands a peer the host's control methods.

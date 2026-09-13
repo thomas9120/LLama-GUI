@@ -1,7 +1,7 @@
 # Frontend Maintainability Refactor — Tier 2 Plan
 
-> **Status: in progress (2026-09-12).** Sessions 0–8 are complete; Session 9
-> (Chat-window protocol and host-adapter extraction) is next. Tier 1 is complete and recorded in
+> **Status: in progress (2026-09-12).** Sessions 0–9 are complete; Session 10
+> (Chat-window coordinator/view package split) is next. Tier 1 is complete and recorded in
 > `docs/frontend-module-split-plan.md`. This document is the source of truth for
 > Tier 2 scope, boundaries, implementation order, and verification.
 
@@ -525,12 +525,40 @@ links, so production backend code and the Pinokio launcher need no changes.
 
 ### Session 9: pure protocol and adapter extraction
 
-Move protocol constants, JSON safety/copying, allowlist validation, result helpers,
-and `createHostAdapter()` into focused package files. These have natural inputs and
-outputs and can move without changing coordinator state.
+**Completed 2026-09-12.** Extracted bodies/constants were mechanically compared
+against the pre-session source and are identical. The complete coordinator/view
+and facade body is unchanged except for relocating its root namespace binding.
+The original coordinator units and all nine pop-out browser cases passed before
+extraction. After extraction, focused Chat-window/Chat UI units, 130 JavaScript
+syntax checks, the 79-script namespace gate, and full `npm test` passed, including
+all 22 browser cases. Backend baseline/static-asset tests (57), documentation-link
+checks (4), and the local Pinokio source compatibility checker passed. Native
+Pinokio/window activation smoke was not run. Ownership and load order are recorded
+in `docs/directory.md`; boundary coverage is recorded in `docs/tests.md`.
 
-Add or preserve tests for sensitive-key rejection, allowed runtime/inference shapes,
-session invalidation, and adapter subscriptions.
+Implemented boundaries:
+
+- `ui/js/chat-window/chat-window-protocol.js`: protocol/recovery constants, JSON
+  safety and copying, runtime/inference allowlists, result helpers, and shared
+  call-time window/logging helpers.
+- `ui/js/chat-window/chat-window-host-adapter.js`: setting-field derivation and
+  `createHostAdapter()`, with validity and subscriptions local to each instance.
+- `ui/js/chat-window.js`: retained coordinator/view logic and stable public facade;
+  the two contributors load immediately before it in `index.html`.
+
+`_chatWindowInternal` holds helper/factory groups only. Its namespace boundary
+allows the package directory and the exact retained facade path; no consumers
+outside that boundary may use it. All coordinator state stays inside its factory.
+Protocol versions, allowlist contents, lock/transfer/recovery behavior, and view
+bootstrap sequencing remain unchanged. Authorization stays available through the
+verified peer adapter without entering serialized messages or recovery records.
+
+The Chat-window and Chat UI VM harnesses load the canonical ordered contributors
+and facade. Boundary coverage protects sensitive-key rejection, legitimate token
+metadata, supported JSON values, nested runtime/inference projections, copy
+isolation, shared-state setter routing, invalidation, subscriptions, independent
+adapter lifetimes, and inert module evaluation. The namespace suite pins public
+keys, private boundaries, load order, and absence of leaked helper globals.
 
 ### Session 10: coordinator and view package
 
@@ -614,5 +642,5 @@ Two follow-ups may be worthwhile once the boundaries above are stable:
 - [x] Session 6: Monitor package and test split
 - [x] Session 7: `app.js` composition cleanup
 - [x] Session 8: feature stylesheet package
-- [ ] Session 9: Chat-window protocol and host-adapter extraction
+- [x] Session 9: Chat-window protocol and host-adapter extraction
 - [ ] Session 10: Chat-window coordinator/view package split

@@ -1,124 +1,22 @@
-// Chat pop-out window: verified window bootstrap, origin-scoped Web Lock host adapter,
-// versioned recovery record, and ownership/recovery coordination with the main window.
+// Chat pop-out window: verified bootstrap and ownership/recovery coordination.
+// Protocol and host-adapter contributors load first; the public facade stays here.
 (function () {
     "use strict";
 
-    // Phase 2 deliberately has no module-load side effects.  The host calls
-    // createCoordinator()/configure() during the normal or detached bootstrap.
-    const PROTOCOL = "llama-gui-chat-window";
-    const PROTOCOL_VERSION = 1;
-    const SNAPSHOT_VERSION = 1;
-    const SNAPSHOT_KIND = "llama-gui-chat-workspace";
-    const RECOVERY_VERSION = 1;
-    const DEFAULT_LOCK_NAME = "llama-gui:chat-workspace";
-    const DEFAULT_RECOVERY_KEY = "llama-gui:chat-recovery:v1";
-
-    // Sampler fields come from Chat's existing control definitions. Keep only
-    // launch fields that Chat reads but never writes here.
-    const CHAT_READONLY_SETTING_FIELDS = Object.freeze(["ctx_size", "alias", "reasoning_format"]);
-    // "prompt_tokens" and the other token accounting fields are valid Chat
-    // metadata.  Reject credential-shaped names only; settings are separately
-    // protected by the explicit allowlists below.
-    const SECRET_KEY = /^(?:api[_-]?key|hf[_-]?token|access[_-]?token|auth(?:orization)?|password|passwd|secret|credential|cookie|bearer)$/i;
-    const RUNTIME_FIELDS = Object.freeze([
-        "tool", "source", "slot", "preset", "model", "model_name", "model_path", "model_alias",
-        "alias", "backend", "phase", "busy", "status", "running", "ready", "healthy", "loaded",
-        "generation", "runtime_generation", "active_runtime", "activeRuntime", "external_chat_target",
-        "externalChatTarget", "external_target", "target", "host", "port", "connected", "reachable",
-        "message", "error",
-    ]);
-    const INFERENCE_FIELDS = Object.freeze([
-        "targetKey", "seq", "sources", "session", "context", "requests", "slots", "speed",
-        "contextLevel", "baselinePending",
-    ]);
-    const INFERENCE_SESSION_FIELDS = Object.freeze(["prompt", "generated", "total"]);
-    const INFERENCE_SPEED_FIELDS = Object.freeze(["prompt", "generated", "promptIsLive", "generatedIsLive"]);
-    const INFERENCE_CONTEXT_FIELDS = Object.freeze(["percent", "used", "size", "capacity", "level"]);
-    const INFERENCE_REQUEST_FIELDS = Object.freeze(["processing", "queued", "processingBest"]);
-    const INFERENCE_SOURCE_FIELDS = Object.freeze(["metrics", "slots"]);
-    const INFERENCE_SLOTS_FIELDS = Object.freeze(["busy", "total"]);
-
-    function getWindow(options) {
-        return options && options.window ? options.window
-            : (typeof window !== "undefined" ? window : null);
-    }
-
-    function getConsole(options) {
-        const target = getWindow(options);
-        return target && target.console ? target.console : (typeof console !== "undefined" ? console : null);
-    }
-
-    function debug(options, message, error) {
-        const logger = getConsole(options);
-        if (logger && typeof logger.debug === "function") logger.debug(message, error);
-    }
-
-    function warn(options, message, error) {
-        const logger = getConsole(options);
-        if (logger && typeof logger.warn === "function") logger.warn(message, error);
-    }
+    const root = typeof window !== "undefined" ? window : globalThis;
+    const I = root.LlamaGui._chatWindowInternal;
+    const {
+        PROTOCOL, PROTOCOL_VERSION, SNAPSHOT_VERSION, SNAPSHOT_KIND, RECOVERY_VERSION,
+        DEFAULT_LOCK_NAME, DEFAULT_RECOVERY_KEY, CHAT_READONLY_SETTING_FIELDS,
+        getWindow, debug, warn, isObject, isJsonValue, cloneJson, result,
+    } = I.protocol;
+    const { deriveSettingFields, createHostAdapter } = I.hostAdapter;
 
     function defer() {
         let resolve;
         let reject;
         const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
         return { promise, resolve, reject };
-    }
-
-    function isObject(value) {
-        return value !== null && typeof value === "object" && !Array.isArray(value);
-    }
-
-    function isJsonValue(value, seen) {
-        if (value === null || typeof value === "string" || typeof value === "boolean") return true;
-        if (typeof value === "number") return Number.isFinite(value);
-        if (typeof value !== "object") return false;
-        if (seen.has(value)) return false;
-        seen.add(value);
-        if (Array.isArray(value)) return value.every(item => isJsonValue(item, seen));
-        return Object.keys(value).every(key => !SECRET_KEY.test(key) && isJsonValue(value[key], seen));
-    }
-
-    function cloneJson(value, options, label) {
-        if (!isJsonValue(value, new Set())) {
-            warn(options, `${label || "JSON value"} contains unsupported or sensitive data`);
-            return null;
-        }
-        try {
-            return JSON.parse(JSON.stringify(value));
-        } catch (error) {
-            warn(options, `Unable to clone ${label || "JSON value"}`, error);
-            return null;
-        }
-    }
-
-    function pickJson(value, fields, options, label) {
-        if (value === null || value === undefined || typeof value !== "object") {
-            return value === undefined ? null : cloneJson(value, options, label);
-        }
-        if (Array.isArray(value)) return value.map(item => pickJson(item, fields, options, label));
-        const picked = {};
-        for (const field of fields) {
-            if (Object.prototype.hasOwnProperty.call(value, field)) {
-                const item = value[field];
-                const nestedFields = field === "active_runtime" || field === "activeRuntime"
-                    || field === "target" || field === "external_chat_target" || field === "externalChatTarget"
-                    || field === "external_target" ? RUNTIME_FIELDS
-                    : field === "session" ? INFERENCE_SESSION_FIELDS
-                        : field === "speed" ? INFERENCE_SPEED_FIELDS
-                            : field === "context" ? INFERENCE_CONTEXT_FIELDS
-                                : field === "requests" ? INFERENCE_REQUEST_FIELDS
-                                    : field === "sources" ? INFERENCE_SOURCE_FIELDS
-                                        : field === "slots" ? INFERENCE_SLOTS_FIELDS : null;
-                if (nestedFields) {
-                    picked[field] = pickJson(item, nestedFields, options, `${label || "state"}.${field}`);
-                } else {
-                    const safe = cloneJson(item, options, `${label || "state"}.${field}`);
-                    if (safe !== null || item === null) picked[field] = safe;
-                }
-            }
-        }
-        return picked;
     }
 
     function getOrigin(options) {
@@ -138,25 +36,6 @@
         return `${prefix}-${Date.now().toString(36)}-${random}`;
     }
 
-    function result(ok, reason, extra) {
-        return Object.assign({ ok: Boolean(ok), reason: reason || (ok ? "ok" : "unavailable") }, extra || {});
-    }
-
-    function deriveSettingFields(config) {
-        const target = getWindow(config);
-        let fields = config && Array.isArray(config.fields) ? config.fields : null;
-        const getter = config && (config.getChatSamplerFlagIds || config.getRequestSettingFields);
-        if (!fields && typeof getter === "function") {
-            try { fields = getter(); } catch (error) { debug(config, "Unable to read Chat sampler fields", error); }
-        }
-        if (!fields && target && target.LlamaGui && target.LlamaGui.chatUi
-            && typeof target.LlamaGui.chatUi.getChatSamplerFlagIds === "function") {
-            try { fields = target.LlamaGui.chatUi.getChatSamplerFlagIds(); } catch (error) { debug(config, "Unable to read Chat sampler fields", error); }
-        }
-        const samplerFields = Array.isArray(fields) ? fields.filter(field => typeof field === "string") : [];
-        return Object.freeze(Array.from(new Set(samplerFields.concat(CHAT_READONLY_SETTING_FIELDS))));
-    }
-
     function getStorage(options) {
         if (options && Object.prototype.hasOwnProperty.call(options, "storage")) return options.storage;
         const target = getWindow(options);
@@ -165,131 +44,6 @@
             debug(options, "localStorage is unavailable", error);
             return null;
         }
-    }
-
-    function createHostAdapter(options) {
-        const config = Object.assign({}, options || {});
-        const core = config.flagCore || (getWindow(config)?.LlamaGui && getWindow(config).LlamaGui.flagCore);
-        const fields = deriveSettingFields(config);
-        const writableFields = fields.filter(field => !CHAT_READONLY_SETTING_FIELDS.includes(field));
-        const listeners = new Set();
-        let valid = true;
-        let hostUnsubscribe = null;
-
-        function assertValid() {
-            if (!valid) throw new Error("Chat host session is no longer available.");
-        }
-
-        function readSettings() {
-            assertValid();
-            let values = {};
-            if (core && typeof core.getFlagValues === "function") values = core.getFlagValues() || {};
-            const selectedModel = typeof config.getChatModelName === "function" ? config.getChatModelName()
-                : typeof config.getSelectedModel === "function" ? config.getSelectedModel() : undefined;
-            const output = {};
-            for (const field of fields) {
-                if (Object.prototype.hasOwnProperty.call(values, field)) {
-                    const value = cloneJson(values[field], config, `setting ${field}`);
-                    if (value !== null || values[field] === null) output[field] = value;
-                }
-            }
-            if (selectedModel !== undefined) {
-                const value = cloneJson(selectedModel, config, "selected model");
-                if (value !== null || selectedModel === null) output.selected_model = value;
-            }
-            return output;
-        }
-
-        function readRuntime() {
-            assertValid();
-            const getter = config.getActiveRuntime || config.getRuntime || config.getStatus;
-            if (typeof getter !== "function") return null;
-            return pickJson(getter(), RUNTIME_FIELDS, config, "runtime state");
-        }
-
-        function writeSettings(patch) {
-            assertValid();
-            if (!isObject(patch)) throw new TypeError("Chat settings patch must be an object.");
-            const allowed = {};
-            for (const [field, value] of Object.entries(patch)) {
-                if (!writableFields.includes(field) || SECRET_KEY.test(field)) {
-                    throw new Error(`Chat setting is not writable: ${field}`);
-                }
-                if (!isJsonValue(value, new Set())) throw new TypeError(`Chat setting is not JSON-safe: ${field}`);
-                allowed[field] = cloneJson(value, config, `setting ${field}`);
-            }
-            if (!Object.keys(allowed).length) return readSettings();
-            if (core && typeof core.setMultipleFlagValues === "function") core.setMultipleFlagValues(allowed);
-            else if (core && typeof core.setFlagValue === "function") {
-                for (const [field, value] of Object.entries(allowed)) core.setFlagValue(field, value);
-            } else {
-                throw new Error("Chat host settings writer is unavailable.");
-            }
-            notify({ type: "settings", fields: Object.keys(allowed) });
-            return readSettings();
-        }
-
-        function notify(change) {
-            const safe = { type: isObject(change) && typeof change.type === "string" ? change.type : "host-change" };
-            if (isObject(change)) {
-                if (Array.isArray(change.fields)) safe.fields = change.fields.filter(field => fields.includes(field));
-                if (typeof change.reason === "string") safe.reason = change.reason;
-                if (change.runtime !== undefined) safe.runtime = pickJson(change.runtime, RUNTIME_FIELDS, config, "runtime change");
-                if (change.status !== undefined) safe.status = pickJson(change.status, RUNTIME_FIELDS, config, "status change");
-                if (change.inference !== undefined) safe.inference = pickJson(change.inference, INFERENCE_FIELDS, config, "inference change");
-            }
-            for (const listener of Array.from(listeners)) {
-                try { listener(safe); } catch (error) { warn(config, "Chat host listener failed", error); }
-            }
-        }
-
-        function subscribe(listener) {
-            if (typeof listener !== "function") return () => {};
-            listeners.add(listener);
-            return () => listeners.delete(listener);
-        }
-
-        if (typeof config.observeHostChanges === "function") {
-            try {
-                hostUnsubscribe = config.observeHostChanges(notify);
-            } catch (error) {
-                warn(config, "Unable to observe host changes", error);
-            }
-        }
-
-        const adapter = {
-            getSettings: readSettings,
-            readSettings,
-            setSettings: writeSettings,
-            writeSettings,
-            getRuntime: readRuntime,
-            getActiveRuntime: readRuntime,
-            getStatus: typeof config.getStatus === "function" ? () => { assertValid(); return pickJson(config.getStatus(), RUNTIME_FIELDS, config, "status"); } : readRuntime,
-            getInference: typeof config.getInference === "function" ? () => { assertValid(); return pickJson(config.getInference(), INFERENCE_FIELDS, config, "inference state"); } : () => null,
-            resetInferenceBaseline: typeof config.resetInferenceBaseline === "function" ? (...args) => { assertValid(); return config.resetInferenceBaseline(...args); } : () => undefined,
-            getAuthorizationHeaders: typeof config.getAuthorizationHeaders === "function" ? (...args) => { assertValid(); return config.getAuthorizationHeaders(...args); } : () => ({}),
-            bringToFront: typeof config.bringToFront === "function" ? (...args) => { assertValid(); return config.bringToFront(...args); } : () => false,
-            navigate: typeof config.navigate === "function" ? (...args) => { assertValid(); return config.navigate(...args); } : () => false,
-            subscribe,
-            notify,
-            isSessionValid: () => valid,
-            invalidateSession() {
-                if (!valid) return false;
-                valid = false;
-                notify({ type: "session-invalidated" });
-                return true;
-            },
-            dispose() {
-                if (typeof hostUnsubscribe === "function") {
-                    try { hostUnsubscribe(); } catch (error) { debug(config, "Host observer cleanup failed", error); }
-                }
-                hostUnsubscribe = null;
-                listeners.clear();
-                valid = false;
-            },
-            fields,
-        };
-        return Object.freeze(adapter);
     }
 
     function createCoordinator(options) {
@@ -2227,7 +1981,5 @@
         get coordinator() { return api._coordinator || null; },
     };
 
-    const root = typeof window !== "undefined" ? window : globalThis;
-    root.LlamaGui = root.LlamaGui || {};
     root.LlamaGui.chatWindow = api;
 })();
