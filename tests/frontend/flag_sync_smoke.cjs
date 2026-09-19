@@ -639,8 +639,11 @@ async function verifyQuickLaunchPolish(page) {
     const viewport = page.viewportSize();
     await page.setViewportSize({ width: 1440, height: 1000 });
     await page.locator(".quick-runtime").scrollIntoViewIfNeeded();
-    const launchBottom = await page.locator(".quick-launch-bar").evaluate(el => el.getBoundingClientRect().bottom);
-    assert.ok(launchBottom < 1000, `common launch controls and action fit a desktop viewport (bottom: ${launchBottom})`);
+    assert.equal(await page.locator("#quick-starter-profiles").evaluate(el =>
+        el.nextElementSibling?.matches("[data-preset-context]")), true, "starter profiles precede the saved preset comparison");
+    const launchBox = await page.locator("#btn-sidebar-launch").boundingBox();
+    assert.ok(launchBox && launchBox.y >= 0 && launchBox.y + launchBox.height < 1000,
+        "sidebar launch stays visible with starter profiles above the configuration");
     await page.setViewportSize({ width: 390, height: 844 });
     await page.waitForTimeout(400);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -2254,12 +2257,12 @@ async function runScenario(browser, port, verify) {
         assert.ok(!quickProfileOptions.includes("low-memory"));
 
         await page.locator("#quick-starter-profiles > summary").click();
-        await page.selectOption("#quick-profile-select", "long-context");
+        await page.selectOption("#quick-profile-select", "128k-mtp-auto");
         await page.dispatchEvent("#quick-profile-select", "change");
         await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().ctx_size === 128000);
-        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().fit_ctx === 128000);
+        await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().fit_ctx === "");
         await page.waitForFunction(() => document.querySelector("#command-preview-text")?.textContent.includes("-c 128000"));
-        assert.match(await page.textContent("#quick-profile-summary"), /128000 context/i);
+        assert.match(await page.textContent("#quick-profile-summary"), /128K context/i);
 
         await page.selectOption("#quick-context-preset", "custom");
         await page.fill("#quick-context-custom", "12345");
@@ -4302,11 +4305,109 @@ after(async () => {
     }
 });
 
+async function verifyStarterProfiles(page) {
+    await selectSection(page, "quick-launch");
+    await page.locator("#quick-starter-profiles > summary").click();
+    const ids = ["64k-mtp-off", "64k-mtp-auto", "128k-mtp-off", "128k-mtp-auto", "256k-mtp-off", "256k-mtp-auto"];
+    assert.deepEqual(await page.locator("#quick-profile-select option").evaluateAll(options => options.map(o => o.value)), ["", ...ids]);
+    const writes = [];
+    const observe = request => {
+        if (request.method() !== "GET" && /\/api\/(launch|stop|presets)(?:[/?]|$)/.test(request.url())) writes.push(request.url());
+    };
+    page.on("request", observe);
+    const preserved = await page.evaluate(() => {
+        const core = window.LlamaGui.flagCore;
+        core.setCurrentTool("llama-cli");
+        core.setMultipleFlagValues({ temperature: 0.37, top_p: 0.83, min_p: 0.12, n_predict: 777, keep: 42,
+            api_key: "profile-test-key", port: 9090, chat_template: "phi4", mmproj: "projector.gguf",
+            system_prompt: "Keep this instruction", custom_args: "--verbose", custom_env: "GGML_TEST_PROFILE=1" });
+        const values = core.getFlagValues();
+        const keys = [...FLAGS.filter(f => f.category === "sampling").map(f => f.id),
+            "n_predict", "keep", "api_key", "port", "chat_template", "mmproj", "system_prompt", "custom_args", "custom_env"];
+        return { values: Object.fromEntries(keys.map(key => [key, values[key] ?? null])), model: core.getSelectedModel() };
+    });
+    for (const id of [...ids, "64k-mtp-auto", "64k-mtp-off", "64k-mtp-auto"]) {
+        const tool = id.startsWith("128k") ? "llama-server" : "llama-cli";
+        await page.evaluate(tool => window.LlamaGui.flagCore.setCurrentTool(tool), tool);
+        await page.evaluate(id => window.LlamaGui.flagCore.setMultipleFlagValues({
+            gpu_layers: "7", flash_attn: "off", fit: "off", fit_ctx: 90000, fit_target: "4096",
+            load_mode: id.endsWith("off") ? "" : "dio", mmap: false, mlock: true, direct_io: true,
+            batch_size: 128, threads: 3, cache_type_k: "q4_0", kv_offload: false, parallel: 4,
+            draft_max: 9, draft_min: 5, model_draft: "old-draft.gguf", hf_repo_draft: "old/draft",
+            spec_type: "draft-simple", ngram_simple: true, ngram_mod: true, ngram_map_k4v: true,
+            spec_ngram_mod: true, spec_ngram_map_k4v: true, spec_draft_adaptive: true,
+            override_tensor: "blk.*=CPU",
+        }), id);
+        await page.selectOption("#quick-profile-select", id);
+        const state = await page.evaluate(keys => {
+            const core = window.LlamaGui.flagCore;
+            const values = core.getFlagValues();
+            return { values, preserved: Object.fromEntries(keys.map(key => [key, values[key] ?? null])),
+                model: core.getSelectedModel(), tool: core.getCurrentTool(), args: core.getLaunchArgs().args.flat() };
+        }, Object.keys(preserved.values));
+        const ctx = Number(id.split("k")[0]) * 1000;
+        const off = id.endsWith("off");
+        assert.equal(state.values.ctx_size, ctx);
+        assert.equal(state.values.spec_type, off ? "none" : "auto");
+        assert.equal(state.tool, tool);
+        assert.equal(state.model, preserved.model);
+        assert.deepEqual(state.preserved, preserved.values);
+        for (const flag of ["draft_max", "draft_min", "model_draft", "hf_repo_draft", "ngram_simple", "ngram_mod",
+            "ngram_map_k4v", "spec_draft_adaptive", "fit_ctx", "fit_target", "threads", "batch_size", "cache_type_k", "override_tensor", "parallel",
+            "load_mode", "mmap", "mlock", "direct_io"]) {
+            assert.equal(state.values[flag], "", `${id}: ${flag} inherits upstream`);
+        }
+        assert.equal(state.values.gpu_layers, "auto");
+        assert.equal(state.values.flash_attn, "auto");
+        assert.equal(state.values.fit, "on");
+        assert.equal(state.args.includes("--spec-type"), off);
+        if (off) assert.equal(state.args[state.args.indexOf("--spec-type") + 1], "none");
+        for (const arg of ["--spec-draft-n-max", "--spec-draft-n-min", "-md", "-hfd", "-fitc", "-fitt", "-t", "-b", "-ctk", "-ot", "--no-kv-offload",
+            "--load-mode", "--mmap", "--no-mmap", "--mlock", "-dio"]) {
+            assert.ok(!state.args.includes(arg), `${id}: omits ${arg}`);
+        }
+        assert.equal(await page.inputValue("#quick-context-preset"), String(ctx));
+        assert.equal(await page.inputValue("#flag-ctx_size"), String(ctx));
+        assert.equal(await page.inputValue("#quick-gpu-mode"), "auto");
+        assert.equal(await page.textContent("#quick-command-preview"), await page.textContent("#command-preview-text"));
+        assert.match(await page.textContent("#quick-profile-summary"), /Samplers unchanged/);
+        assert.match(await page.textContent("#quick-fit-summary"), /minimum context llama.cpp default/);
+        assert.equal(await page.locator("#flag-kv_offload").evaluate(el => el.indeterminate), true);
+        assert.equal(await page.locator("#flag-kv_offload + label").textContent(), "llama.cpp default");
+        assert.equal(await page.locator("#flag-cache_type_k option:checked").textContent(), "llama.cpp default");
+    }
+    const roundTrip = await page.evaluate(() => {
+        const core = window.LlamaGui.flagCore;
+        const before = core.getLaunchArgs().args;
+        core.applyFlagValues(JSON.parse(JSON.stringify(core.getFlagValues())));
+        return { before, after: core.getLaunchArgs().args };
+    });
+    assert.deepEqual(roundTrip.after, roundTrip.before, "saved settings retain inherited upstream defaults");
+    await page.selectOption("#quick-context-preset", "128000");
+    assert.equal(await page.inputValue("#quick-fit-ctx"), "");
+    await page.selectOption("#quick-context-preset", "256000");
+    assert.equal(await page.inputValue("#quick-fit-ctx"), "", "repeated context changes do not relink inherited fit minimum");
+    await page.locator(".fit-advanced > summary", { hasText: "Advanced fit options" }).click();
+    await page.click("#btn-quick-fit-sync");
+    await page.selectOption("#quick-context-preset", "64000");
+    assert.equal(await page.inputValue("#quick-fit-ctx"), "64000", "Match Context explicitly restores linking");
+    await page.evaluate(() => {
+        window.LlamaGui.quickLaunchUi.renderContextSnapshot({ sources: { slots: "ok" }, context: { total: 32000 } });
+    });
+    assert.match(await page.textContent("#quick-runtime-context"), /32/);
+    assert.match(await page.textContent("#quick-chip-context"), /Requested context: 64/);
+    await page.evaluate(() => window.LlamaGui.quickLaunchUi.renderContextSnapshot({ context: null }));
+    assert.match(await page.textContent("#quick-runtime-context"), /unavailable/);
+    assert.deepEqual(writes, [], "starter profiles never launch, stop, or write saved presets");
+    page.off("request", observe);
+}
+
 for (const [name, verify] of [
     ["shared controls, chat, downloads and model switcher", null],
     ["configure restart", verifyConfigureRestart],
     ["configure reset to defaults", verifyConfigureReset],
     ["quick launch presentation", verifyQuickLaunchPolish],
+    ["starter context and MTP profiles", verifyStarterProfiles],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
     ["chat responsive layout bounds", verifyChatResponsiveLayout],

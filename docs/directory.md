@@ -655,12 +655,15 @@ The Quick Launch tab (`section-quick-launch`) provides a simplified launch inter
 ### Profiles
 
 `QUICK_PROFILES` in `ui/js/app-data.js` provides preconfigured setups consumed by `ui/js/quick-launch-ui.js`:
-- `safe-defaults`: 32K context, auto GPU, auto-fit, Balanced sampler preset
-- `balanced`: 64K context, auto GPU, auto-fit, Balanced sampler preset
-- `long-context`: 128K context, auto-fit, Balanced sampler preset
-- `creative-chat`: 32K context, Creative sampler preset
+- `64k-mtp-off` / `64k-mtp-auto`: 64,000 context, speculation disabled or automatic
+- `128k-mtp-off` / `128k-mtp-auto`: 128,000 context, speculation disabled or automatic
+- `256k-mtp-off` / `256k-mtp-auto`: 256,000 context, speculation disabled or automatic
 
-Each profile applies a tool setting, flag values, fit linking, and sampler preset in one action.
+Each profile applies the shared automatic runtime baseline and its context/speculation choice in one action. Draft max inherits upstream's default; sampler settings and the selected tool are preserved.
+
+Model loading also inherits llama.cpp's default (Auto on current builds): profiles clear both `load_mode` and the legacy loading toggles, emitting no loading arguments so older binaries remain compatible. Saving and reloading the profile preserves this inheritance.
+
+The Starter profiles disclosure sits below the saved-preset shortcuts, directly above the saved-preset comparison and Save as new preset bar.
 
 ### Controls
 
@@ -675,7 +678,8 @@ Quick Launch renders simplified controls for:
 - Quick sampler sliders (temperature, top-k, top-p, min-p, repeat-penalty, presence-penalty), plus direct temperature/Top P numeric inputs; additional samplers and management controls are collapsed initially
 - Metrics toggle
 - Optional session-only API key with masked entry, generation, copy, a "Protected" badge, and shared Configure synchronization
-- Starter profile selector and summary in a disclosure below the launch bar
+- Starter profiles offer 64K, 128K, and 256K total context (64,000 / 128,000 / 256,000 tokens), each with MTP Off or MTP Auto. Applying one patches shared state without launching or switching tools. Profiles reset context/memory tuning (except response limits and tokens to keep), CPU/GPU, Auto Fit, RoPE, KV-cache, speculative settings, draft sources, tensor placement, and server parallel/batching/cache tuning. GPU layers and Flash Attention use Auto; Auto Fit is on. All other owned tuning, including draft max and the Auto Fit margin/minimum context, inherits llama.cpp defaults. Explicit empty values preserve that inheritance when saved as a full preset. Model/projector selection, samplers, templates, credentials, other server settings, custom arguments, and environment variables are preserved; custom arguments can still override profile settings.
+- Profile summaries distinguish MTP Auto (model/build dependent) from disabled speculation. Quick Launch's pending chip labels requested context; the runtime strip shows actual slot capacity from the shared inference snapshot, or unavailable. Auto Fit adjusts unset settings; an explicit context request can still exceed available memory. An inherited minimum context stays unlinked when context changes; Match Context explicitly links it again.
 - Compact pending model/context/GPU/API summary alongside launch readiness
 - Collapsible launch-command preview and a launch/stop bar in normal document flow with a busy ("Starting…") state
 - The Model Switcher card is collapsed by default; slots are assigned via inline per-slot preset selects (no manage mode) and detail values are ellipsis-truncated filenames

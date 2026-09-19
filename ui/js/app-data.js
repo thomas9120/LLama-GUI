@@ -70,73 +70,16 @@ const BUILTIN_SAMPLER_PRESETS = {
 };
 
 const QUICK_CONTEXT_PRESETS = ["8192", "16000", "32768", "64000", "128000", "256000"];
-const QUICK_PROFILES = {
-    "safe-defaults": {
-        label: "Safe Defaults",
-        summary: "Applies a full starter setup: 32768 context, Auto Fit on, GPU offload on auto, and balanced sampler settings.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 32768,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 32768,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    balanced: {
-        label: "Balanced",
-        summary: "Applies a full general-purpose setup with 64000 context, Auto Fit, auto GPU offload, and the Balanced sampler preset.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 64000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 64000,
-            temperature: 0.8,
-            top_p: 0.95,
-            min_p: 0.05,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "long-context": {
-        label: "Long Context",
-        summary: "Applies a 128000 context window while keeping Auto Fit active and the rest of the launch settings beginner-friendly.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 128000,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 128000,
-            temperature: 0.75,
-            top_p: 0.95,
-            min_p: 0.04,
-            repeat_penalty: 1.05,
-        },
-        samplerPresetName: "Balanced",
-    },
-    "creative-chat": {
-        label: "Creative Chat",
-        summary: "Applies a 32768 context setup, then warms up the sampler for more creative and open-ended responses.",
-        tool: "llama-server",
-        flags: {
-            ctx_size: 32768,
-            gpu_layers: "auto",
-            fit: "on",
-            fit_target: "1024",
-            fit_ctx: 32768,
-            temperature: 1.05,
-            top_p: 0.97,
-            min_p: 0.03,
-            repeat_penalty: 1.02,
-        },
-        samplerPresetName: "Creative",
-    },
-};
+const QUICK_PROFILES = Object.fromEntries(
+    [64000, 128000, 256000].flatMap(ctx => ["none", "auto"].map(specType => {
+        const size = `${ctx / 1000}K`;
+        const mode = specType === "auto" ? "Auto" : "Off";
+        return [`${size.toLowerCase()}-mtp-${mode.toLowerCase()}`, {
+            label: `${size} · MTP ${mode}`,
+            summary: `${size} context · MTP ${mode} · Automatic runtime settings. `
+                + (specType === "auto" ? "MTP depends on model/build support; draft max uses the llama.cpp default. " : "Speculative decoding disabled. ")
+                + "Samplers unchanged.",
+            flags: { ctx_size: ctx, spec_type: specType },
+        }];
+    }))
+);

@@ -52,6 +52,7 @@
 #quick-temperature-value, #quick-top-p-value { display: none; }
 #quick-sampling-details .form-group { margin: 14px 0 8px; }
 .quick-disclosure { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); margin-top: 10px; }
+#quick-starter-profiles { margin: 0 0 var(--space-3); }
 .quick-disclosure > summary { padding: 10px 14px; cursor: pointer; color: var(--fg); font-size: 12px; }
 .quick-disclosure-summary { color: var(--fg-muted); font-size: 11px; margin-left: 12px; overflow-wrap: anywhere; }
 #quick-server-settings { margin: 0; border-width: 1px 0 0; border-radius: 0 0 var(--radius-md) var(--radius-md); }

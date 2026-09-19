@@ -321,6 +321,7 @@
         <div class="section-panel" id="section-quick-launch">
             <div class="quick-runtime" aria-label="Current runtime">
                 <div><strong id="quick-runtime-state">Checking runtime…</strong><span id="quick-runtime-model"></span>
+                    <span id="quick-runtime-context">Active slot context: unavailable</span>
                 </div>
                 <span id="quick-runtime-build"></span>
             </div>
@@ -340,6 +341,20 @@
                 </div>
                 <p id="quick-presets-status" class="help-text" role="status">Loading saved presets…</p>
             </section>
+            <details id="quick-starter-profiles" class="quick-disclosure">
+                <summary><span>Starter profiles</span><span class="quick-disclosure-summary">Context and MTP</span>
+                </summary>
+                <div class="quick-profile-body">
+                    <div class="form-group">
+                        <label class="form-label" for="quick-profile-select">Profile</label>
+                        <select id="quick-profile-select">
+                            <option value="">Choose a profile...</option>
+                        </select>
+                    </div>
+                    <p id="quick-profile-summary" class="help-text">
+                    </p>
+                </div>
+            </details>
             <section class="preset-context hidden" data-preset-context aria-label="Saved preset comparison">
                 <div class="preset-context-heading">
                     <div class="preset-context-identity"><span data-preset-origin>Unsaved configuration</span> <button type="button" class="btn btn-link" data-preset-name></button><span data-preset-state></span></div>
@@ -423,15 +438,16 @@
                         </div>
                         <details class="fit-advanced">
                             <summary>Advanced fit options</summary>
+                            <p class="help-text">Auto Fit adjusts unset settings. An explicit context size can still exceed available memory.</p>
                             <div class="quick-fit-grid">
                                 <div class="form-group">
                                     <label class="form-label" for="quick-fit-target">Keep this much VRAM free (MiB)</label>
-                                    <input type="text" id="quick-fit-target" placeholder="1024" />
+                                    <input type="text" id="quick-fit-target" placeholder="llama.cpp default" />
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label" for="quick-fit-ctx">Never shrink context below</label>
                                     <div class="input-row">
-                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="64000" />
+                                        <input type="number" id="quick-fit-ctx" min="0" step="1" placeholder="llama.cpp default" />
                                         <button id="btn-quick-fit-sync" class="btn btn-sm" type="button">Match Context</button>
                                     </div>
                                 </div>
@@ -661,20 +677,6 @@
                     </details>
                 </div>
             </section>
-            <details id="quick-starter-profiles" class="quick-disclosure">
-                <summary><span>Starter profiles</span><span class="quick-disclosure-summary">Built-in starting points</span>
-                </summary>
-                <div class="quick-profile-body">
-                    <div class="form-group">
-                        <label class="form-label" for="quick-profile-select">Profile</label>
-                        <select id="quick-profile-select">
-                            <option value="">Choose a profile...</option>
-                        </select>
-                    </div>
-                    <p id="quick-profile-summary" class="help-text">
-                    </p>
-                </div>
-            </details>
             <details class="hf-download-panel quick-disclosure">
                 <summary class="hf-download-title">
                     <span class="hf-download-copy">
