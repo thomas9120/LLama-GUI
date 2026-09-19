@@ -289,11 +289,12 @@
         // Legacy ngram aliases must not reactivate a previously selected method.
         patch.spec_ngram_mod = "";
         patch.spec_ngram_map_k4v = "";
+        // Leave load_mode and the legacy load toggles empty: current llama.cpp
+        // defaults to Auto, and older builds must not receive --load-mode.
         flagCore.setMultipleFlagValues({
             ...patch,
             gpu_layers: "auto",
             flash_attn: "auto",
-            load_mode: "auto",
             fit: "on",
             ...profile.flags,
         }, { quickLaunchFitCtxLinked: false, quickLaunchGpuCustomSelected: false });

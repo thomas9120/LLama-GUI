@@ -661,6 +661,8 @@ The Quick Launch tab (`section-quick-launch`) provides a simplified launch inter
 
 Each profile applies the shared automatic runtime baseline and its context/speculation choice in one action. Draft max inherits upstream's default; sampler settings and the selected tool are preserved.
 
+Model loading also inherits llama.cpp's default (Auto on current builds): profiles clear both `load_mode` and the legacy loading toggles, emitting no loading arguments so older binaries remain compatible. Saving and reloading the profile preserves this inheritance.
+
 The Starter profiles disclosure sits below the saved-preset shortcuts, directly above the saved-preset comparison and Save as new preset bar.
 
 ### Controls

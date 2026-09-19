@@ -4329,14 +4329,15 @@ async function verifyStarterProfiles(page) {
     for (const id of [...ids, "64k-mtp-auto", "64k-mtp-off", "64k-mtp-auto"]) {
         const tool = id.startsWith("128k") ? "llama-server" : "llama-cli";
         await page.evaluate(tool => window.LlamaGui.flagCore.setCurrentTool(tool), tool);
-        await page.evaluate(() => window.LlamaGui.flagCore.setMultipleFlagValues({
+        await page.evaluate(id => window.LlamaGui.flagCore.setMultipleFlagValues({
             gpu_layers: "7", flash_attn: "off", fit: "off", fit_ctx: 90000, fit_target: "4096",
+            load_mode: id.endsWith("off") ? "" : "dio", mmap: false, mlock: true, direct_io: true,
             batch_size: 128, threads: 3, cache_type_k: "q4_0", kv_offload: false, parallel: 4,
             draft_max: 9, draft_min: 5, model_draft: "old-draft.gguf", hf_repo_draft: "old/draft",
             spec_type: "draft-simple", ngram_simple: true, ngram_mod: true, ngram_map_k4v: true,
             spec_ngram_mod: true, spec_ngram_map_k4v: true, spec_draft_adaptive: true,
             override_tensor: "blk.*=CPU",
-        }));
+        }), id);
         await page.selectOption("#quick-profile-select", id);
         const state = await page.evaluate(keys => {
             const core = window.LlamaGui.flagCore;
@@ -4352,7 +4353,8 @@ async function verifyStarterProfiles(page) {
         assert.equal(state.model, preserved.model);
         assert.deepEqual(state.preserved, preserved.values);
         for (const flag of ["draft_max", "draft_min", "model_draft", "hf_repo_draft", "ngram_simple", "ngram_mod",
-            "ngram_map_k4v", "spec_draft_adaptive", "fit_ctx", "fit_target", "threads", "batch_size", "cache_type_k", "override_tensor", "parallel"]) {
+            "ngram_map_k4v", "spec_draft_adaptive", "fit_ctx", "fit_target", "threads", "batch_size", "cache_type_k", "override_tensor", "parallel",
+            "load_mode", "mmap", "mlock", "direct_io"]) {
             assert.equal(state.values[flag], "", `${id}: ${flag} inherits upstream`);
         }
         assert.equal(state.values.gpu_layers, "auto");
@@ -4360,7 +4362,8 @@ async function verifyStarterProfiles(page) {
         assert.equal(state.values.fit, "on");
         assert.equal(state.args.includes("--spec-type"), off);
         if (off) assert.equal(state.args[state.args.indexOf("--spec-type") + 1], "none");
-        for (const arg of ["--spec-draft-n-max", "--spec-draft-n-min", "-md", "-hfd", "-fitc", "-fitt", "-t", "-b", "-ctk", "-ot", "--no-kv-offload"]) {
+        for (const arg of ["--spec-draft-n-max", "--spec-draft-n-min", "-md", "-hfd", "-fitc", "-fitt", "-t", "-b", "-ctk", "-ot", "--no-kv-offload",
+            "--load-mode", "--mmap", "--no-mmap", "--mlock", "-dio"]) {
             assert.ok(!state.args.includes(arg), `${id}: omits ${arg}`);
         }
         assert.equal(await page.inputValue("#quick-context-preset"), String(ctx));
