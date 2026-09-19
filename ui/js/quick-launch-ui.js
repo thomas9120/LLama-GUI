@@ -171,6 +171,15 @@
             : status?.installed ? [status.backend, status.version].filter(Boolean).join(" · ") : status ? "llama.cpp not installed" : "";
     }
 
+    function renderContextSnapshot(snapshot) {
+        const label = document.getElementById("quick-runtime-context");
+        if (!label) return;
+        const total = snapshot?.context?.total;
+        label.textContent = snapshot?.sources?.slots === "ok" && Number.isFinite(total) && total > 0
+            ? `Active slot context: ${formatContextLabel(total)}`
+            : "Active slot context: unavailable";
+    }
+
     function populateTemplatePackOptions() {
         const select = document.getElementById("quick-template-pack");
         if (!select) return;
@@ -262,15 +271,32 @@
         const profile = QUICK_PROFILES[profileId];
         if (!profile) return;
 
-        flagCore.setCurrentTool(profile.tool || "llama-server");
-        flagCore.setMultipleFlagValues(profile.flags || {}, { quickLaunchFitCtxLinked: true });
-
-        if (profile.samplerPresetName) {
-            const preset = getAllSamplerPresets().find((entry) => entry.name === profile.samplerPresetName);
-            if (preset) {
-                applySamplerPresetValues(preset.values);
+        // Reset only profile-owned runtime tuning. An explicit empty value omits
+        // the argument and survives saved-preset reloads without GUI defaults
+        // being merged back in. Sampling and model/server identity stay intact.
+        const runtimeCategories = new Set(["context", "cpu", "gpu", "auto_fit", "rope", "kv", "speculative"]);
+        const runtimeFlags = new Set([
+            "model_draft", "hf_repo_draft", "spec_draft_adaptive", "override_tensor",
+            "parallel", "cont_batching", "cache_prompt", "cache_idle_slots", "cache_reuse",
+        ]);
+        const patch = {};
+        for (const flag of FLAGS) {
+            if ((runtimeCategories.has(flag.category) && !["n_predict", "keep"].includes(flag.id))
+                || runtimeFlags.has(flag.id)) {
+                patch[flag.id] = "";
             }
         }
+        // Legacy ngram aliases must not reactivate a previously selected method.
+        patch.spec_ngram_mod = "";
+        patch.spec_ngram_map_k4v = "";
+        flagCore.setMultipleFlagValues({
+            ...patch,
+            gpu_layers: "auto",
+            flash_attn: "auto",
+            load_mode: "auto",
+            fit: "on",
+            ...profile.flags,
+        }, { quickLaunchFitCtxLinked: false, quickLaunchGpuCustomSelected: false });
     }
 
     function setContextValue(rawValue, options = {}) {
@@ -430,7 +456,7 @@
         );
 
         const ctx = values.ctx_size ?? getDefaultCtxSize();
-        setReadinessChip("quick-chip-context", "info", `Context: ${formatContextLabel(ctx)}`);
+        setReadinessChip("quick-chip-context", "info", `Requested context: ${formatContextLabel(ctx)}`);
 
         const gpuLayers = String(values.gpu_layers ?? "auto");
         const gpuLabel = gpuLayers === "auto" ? "Auto" : gpuLayers === "0" ? "CPU only" : gpuLayers === "all" ? "All layers" : `${gpuLayers} layers`;
@@ -549,7 +575,8 @@
         const tool = flagCore.getCurrentTool();
 
         if (quickLaunchFitCtxLinked !== false) {
-            quickLaunchFitCtxLinked = values.fit_ctx === undefined || values.fit_ctx === values.ctx_size;
+            quickLaunchFitCtxLinked = values.fit_ctx !== undefined && values.fit_ctx !== null
+                && values.fit_ctx !== "" && values.fit_ctx === values.ctx_size;
         }
         // Model and sampler options refresh at their mutation sites. Rebuilding
         // them here cloned every model option on every unrelated flag keystroke.
@@ -612,16 +639,16 @@
         const fitTarget = document.getElementById("quick-fit-target");
         const fitCtx = document.getElementById("quick-fit-ctx");
         if (fitToggle) fitToggle.value = String(values.fit ?? "on");
-        // fit_target has no "" fallback on purpose in the summary below, but the
-        // input itself must stay clearable: forcing "1024" back in made the field
-        // impossible to empty.
         setInputValueUnlessEditing(fitTarget, values.fit_target ?? "");
         setInputValueUnlessEditing(fitCtx, values.fit_ctx ?? "");
 
         const fitSummary = document.getElementById("quick-fit-summary");
         if (fitSummary) {
+            const margin = values.fit_target ? `${values.fit_target} MiB` : "llama.cpp default";
+            const minimum = values.fit_ctx === undefined || values.fit_ctx === null || values.fit_ctx === ""
+                ? "llama.cpp default" : formatContextLabel(values.fit_ctx);
             fitSummary.textContent = String(values.fit ?? "on") === "on"
-                ? `Auto Fit: ${values.fit_target ?? "1024"} MiB headroom · ${formatContextLabel(values.fit_ctx ?? ctxValue)} minimum context.`
+                ? `Auto Fit: headroom ${margin} · minimum context ${minimum}.`
                 : "Auto Fit is off. Manual memory settings apply.";
         }
 
@@ -657,7 +684,7 @@
             const profile = QUICK_PROFILES[profileSelect.value];
             profileSummary.textContent = profile
                 ? profile.summary
-                : "Profiles apply a full starter setup, including context, Auto Fit, GPU offload, and sampler settings.";
+                : "Sets context and runtime defaults. Keeps your sampler settings.";
         }
 
         const quickMetricsToggle = document.getElementById("quick-metrics-toggle");
@@ -985,7 +1012,7 @@
             const values = flagCore.getFlagValues();
             const fitCtx = values.fit_ctx;
             const ctxSize = values.ctx_size;
-            quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
+            quickLaunchFitCtxLinked = fitCtx !== undefined && fitCtx !== null && fitCtx !== "" && fitCtx === ctxSize;
         }
 
         if (Object.prototype.hasOwnProperty.call(options, "quickLaunchGpuCustomSelected")) {
@@ -1000,7 +1027,7 @@
     function afterApply(values) {
         const fitCtx = values.fit_ctx;
         const ctxSize = values.ctx_size;
-        quickLaunchFitCtxLinked = fitCtx === undefined || fitCtx === ctxSize;
+        quickLaunchFitCtxLinked = fitCtx !== undefined && fitCtx !== null && fitCtx !== "" && fitCtx === ctxSize;
     }
 
     ns.quickLaunchUi = {
@@ -1009,6 +1036,7 @@
         refresh,
         refreshSavedPresets,
         refreshRuntime,
+        renderContextSnapshot,
         syncModelOptions,
         updateActionButtons,
         refreshSamplerPresetSelect,

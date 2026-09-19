@@ -726,18 +726,29 @@
         checkbox.dataset.flagId = f.id;
         checkbox.dataset.flagType = "bool";
         checkbox.checked = getFlagValues()[f.id] === true;
+        checkbox.indeterminate = getFlagValues()[f.id] === "";
         checkbox.addEventListener("change", () => {
             getFlagCore().setFlagValue(f.id, checkbox.checked);
         });
         const lbl = document.createElement("label");
         lbl.htmlFor = "flag-" + f.id;
-        lbl.textContent = checkbox.checked ? "Enabled" : "Disabled";
+        lbl.textContent = checkbox.indeterminate ? "llama.cpp default" : checkbox.checked ? "Enabled" : "Disabled";
         checkbox.addEventListener("change", () => {
             lbl.textContent = checkbox.checked ? "Enabled" : "Disabled";
         });
         cb.appendChild(checkbox);
         cb.appendChild(lbl);
         return cb;
+    }
+
+    function ensureInheritedEnumOption(select, flag, value) {
+        if (value !== "" || flag.options.some(option => option.value === "")
+            || select.querySelector('option[value=""]')) return;
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "llama.cpp default";
+        option.disabled = true;
+        select.prepend(option);
     }
 
     function createEnumInput(f) {
@@ -753,6 +764,8 @@
             o.selected = String(values[f.id] || "") === opt.value;
             sel.appendChild(o);
         }
+        ensureInheritedEnumOption(sel, f, values[f.id]);
+        if (values[f.id] === "") sel.value = "";
         if (f.id === "chat_template") {
             ensureChatTemplateOption(sel, values[f.id]);
         }
@@ -1280,8 +1293,9 @@
             if (f.id === "kv_unified_per_slot") el.disabled = values.kv_unified === "disabled";
             if (f.type === "bool") {
                 el.checked = val === true;
+                el.indeterminate = val === "";
                 const lbl = el.parentElement.querySelector("label");
-                if (lbl) lbl.textContent = val === true ? "Enabled" : "Disabled";
+                if (lbl) lbl.textContent = el.indeterminate ? "llama.cpp default" : val === true ? "Enabled" : "Disabled";
             } else if (f.type === "enum") {
                 if (f.id === "chat_template") {
                     ensureChatTemplateOption(
@@ -1289,6 +1303,7 @@
                         dependencies.getSelectedChatTemplateDropdownValue()
                     );
                 } else {
+                    ensureInheritedEnumOption(el, f, val);
                     el.value = val !== undefined ? String(val) : "";
                 }
             } else {

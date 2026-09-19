@@ -890,6 +890,7 @@ function snapshotStatsBaseline() {
 function renderInferenceViews(snapshot) {
     monitorUi.renderStatsBarFromSnapshot(snapshot);
     monitorUi.renderInferenceSnapshot(snapshot);
+    window.LlamaGui.quickLaunchUi.renderContextSnapshot(snapshot);
     if (window.LlamaGui.chatWindow?.isDetachedView?.() !== true) {
         window.LlamaGui.chatWindow?.notifyHostChange?.({ type: "inference" });
     }
