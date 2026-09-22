@@ -42,8 +42,7 @@ def get_releases(request, response, ctx):
             )
             for r in releases:
                 if spec and spec.get("asset"):
-                    expected_asset = spec["asset"].format(tag=r["tag_name"])
-                    if not any(a.get("name") == expected_asset for a in r["assets"]):
+                    if llama_manager.missing_release_assets(r, spec):
                         continue
                 result.append(
                     {
@@ -60,6 +59,7 @@ def get_releases(request, response, ctx):
             page += 1
         response.json(result)
     except Exception as e:
+        print(f"[install] release lookup failed: {e}", file=sys.stderr)
         response.error(sanitize_error(e, 500), 500)
 
 
@@ -149,13 +149,33 @@ def start_update(request, response, ctx):
     try:
         backend_spec = ctx.services.backend_specs[backend]
         repo_api = llama_manager.resolve_repo_api(backend_spec, ctx)
-        releases = llama_manager.get_releases(ctx, repo_api)
-        latest = releases[0]["tag_name"] if releases else None
+        latest = None
+        for page in range(1, RELEASE_PAGE_LIMIT + 1):
+            releases = llama_manager.get_releases(
+                ctx, repo_api, page=page, per_page=RELEASE_PAGE_SIZE
+            )
+            for release in releases:
+                # Stop at the installed release even if its assets were removed;
+                # an update must not fall back to an older compatible build.
+                if release["tag_name"] == tag or not llama_manager.missing_release_assets(
+                    release, backend_spec
+                ):
+                    latest = release["tag_name"]
+                    break
+            if latest or len(releases) < RELEASE_PAGE_SIZE:
+                break
     except Exception as e:
+        print(f"[update] release lookup failed: {e}", file=sys.stderr)
         response.error(sanitize_error(e, 500), 500)
         return
 
-    if not latest or latest == tag:
+    if not latest:
+        response.error(
+            "No compatible release found for the installed backend. "
+            "Select another backend in Install to switch versions.", 400
+        )
+        return
+    if latest == tag:
         response.json({"status": "already_latest"})
         return
 

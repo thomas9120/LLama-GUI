@@ -51,6 +51,15 @@ Lemonade ROCm archives include user-space ROCm libraries, but the selected `gfx`
 
 Install looks fine but binaries are missing: check quarantine, restore blocked `llama/` files, and only add a project exclusion if you trust the source.
 
+## Windows CUDA updates stop at b10976
+
+Upstream Windows x64 releases switched from CUDA 13.3 to 13.4 in
+[b10978](https://github.com/ggml-org/llama.cpp/releases/tag/b10978).
+In **Install**, select **CUDA 13.4 (NVIDIA)**, choose a release, and click
+**Install**. Existing CUDA 13.3 configurations remain supported for older builds;
+the backend update button stays within the installed CUDA version. Both the binary
+and matching CUDA runtime archive must be available before a release can be installed.
+
 ## App update buttons fail
 
 Need `git` on PATH and a git clone (not a zip extract). Retry from Install and read the update status text.
