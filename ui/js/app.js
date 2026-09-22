@@ -631,6 +631,7 @@ function switchTab(tabId) {
     monitorUi.onTabChanged(tabId);
     window.LlamaGui.shellUi.onTabChanged(tabId);
     if (tabId === "presets") loadPresets();
+    if (tabId === "install") manager.refreshBackends();
     if (tabId === "benchmarking") benchmarkUi.onShow();
     if (tabId === "quick-launch") {
         refreshQuickLaunchUI();

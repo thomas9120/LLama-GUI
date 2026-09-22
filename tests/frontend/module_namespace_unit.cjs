@@ -353,6 +353,7 @@ const facadeKeyContracts = {
         "chooseModelsDir",
         "fetchJson",
         "fetchReleases",
+        "refreshBackends",
         "getKnownModelNames",
         "initModelDirControls",
         "persistModelsDir",

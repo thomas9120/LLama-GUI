@@ -78,6 +78,7 @@ from backend.services import chat as chat_service
 from backend.services import file_picker as file_picker_service
 from backend.services import hf_download as hf_download_service
 from backend.services import llama_manager as llama_manager_service
+from backend.services import official_backends
 from backend.services import lifecycle as lifecycle_service
 from backend.services import local_llama_http as local_llama_http_service
 from backend.services import process_manager as process_service
@@ -424,7 +425,9 @@ def extract_archive_flat(archive_path):
 
 
 def install_release(tag, backend):
-    return llama_manager_service.install_release(APP_CONTEXT, tag, backend, BACKEND_SPECS)
+    return llama_manager_service.install_release(
+        APP_CONTEXT, tag, backend, official_backends.get_backend_specs(APP_CONTEXT)
+    )
 
 
 def stream_output(pipe, is_stderr=False):
@@ -946,6 +949,7 @@ API_ROUTER = (
     Router()
     .add("GET", "/api/status", status_routes.get_status)
     .add("GET", "/api/releases", install_routes.get_releases)
+    .add("GET", "/api/backends", install_routes.get_backends)
     .add("GET", "/api/output", process_routes.get_output)
     .add("GET", "/api/llama/buffer-types", process_routes.get_buffer_types)
     .add("GET", "/api/llama/health", process_routes.get_health)

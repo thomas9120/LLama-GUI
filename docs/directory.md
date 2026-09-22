@@ -100,7 +100,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 48 exact routes plus one prefix route, 49 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 49 exact routes plus one prefix route, 50 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -108,7 +108,7 @@
 | `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
-| `install.py` | `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` (optional `backend`: `custom` or `custom-02`; omitted defaults to `custom`) |
+| `install.py` | `GET /api/backends` — refresh the cached official CUDA/ROCm catalog (`?refresh=1` requests a manual refresh; returns a warning on fallback), `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` (optional `backend`: `custom` or `custom-02`; omitted defaults to `custom`) |
 | `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots`, `GET /api/llama/props` — Prometheus proxy and template-capability props |
 | `models.py` | `GET /api/models` — list GGUF files recursively as names relative to the active model root |
 | `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |
@@ -129,6 +129,7 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | Service | Role |
 |---------|------|
 | `llama_manager.py` | GitHub release fetch, install, SHA256 verify, binary extraction |
+| `official_backends.py` | Official CUDA/ROCm asset discovery, platform/architecture filtering, per-release runtime matching, and persistent catalog fallback |
 | `process_manager.py` | Process launch/stop, output streaming, arg flattening, API target parsing |
 | `hf_download.py` | HF repo listing, file download with cancel, path validation |
 | `model_dir.py` | Active model-root validation, metadata, and merged atomic config persistence |
@@ -144,6 +145,27 @@ Note that `/api/presets/fingerprint` and `/api/estimate-memory` live in `process
 | `file_picker.py` | Native file and directory dialogs |
 
 ### State Pattern
+
+Official CUDA/ROCm discovery scans up to three pages of 100 releases from
+`ggml-org/llama.cpp`, including nightly builds, using `ctx.config.github_api`
+consistently with built-in official backends. It runs asynchronously from GUI
+startup, opening Install, or the release refresh button. Automatic refreshes use
+a one-hour TTL; manual refreshes and failed attempts have a 30-second cooldown.
+Status polling only reads a local catalog snapshot, with no GitHub requests.
+Separate state locks protect snapshots and coalesce refreshes. Last-known version
+options are kept in `llama/official-backends.json` across restarts and combined with
+built-in fallback options; installed release tags are also checked during discovery
+when outside the scan window. Historical `hip`/`rocm` IDs remain valid.
+The dropdown, release listing, installer and updater share these specs. CUDA
+runtime names are resolved from the selected release, supporting tagged and
+untagged companion archives. No automatic toolkit switching or GPU/driver
+compatibility inference occurs. Lemonade discovery is outside this catalog.
+Saved options are not evicted when absent from the bounded scan or removed upstream;
+an older option can therefore have an empty release list. Discovery recognizes only
+Windows `.zip` and Ubuntu `.tar.gz` packages for x64/arm64, with two- or three-part
+numeric toolkit versions and release tags containing letters, digits, `.`, `_`, or
+`-` (starting with a letter or digit, at most 128 characters). Other naming schemes
+are ignored; supporting them requires a parser change.
 
 - `ServerState` dataclass in `backend/state.py` — all mutable server state.
 - `AtomicDict` — lock-protected dict with `update()`, `replace()`, `snapshot()`.

@@ -9,6 +9,7 @@ from ..services import external_server
 from ..services import llama_manager
 from ..services import model_dir
 from ..services import process_manager
+from ..services import official_backends
 
 
 def get_status(request, response, ctx):
@@ -34,7 +35,7 @@ def get_status(request, response, ctx):
         config_stale = has_config and not installed
         process_status = process_manager.get_process_status_snapshot(ctx)
         model_dir_info = model_dir.get_models_dir_info(ctx)
-        backend_specs = services.backend_specs
+        backend_specs = official_backends.get_backend_specs(ctx)
         official_install = llama_manager.get_official_install_status(ctx, cfg)
         try:
             api_target = dict(services.get_llama_api_target())

@@ -18,7 +18,7 @@
         document.getElementById("btn-remove-llama")?.addEventListener("click", I.install.removeLlamaFiles);
         document.getElementById("btn-stop-app")?.addEventListener("click", I.lifecycle.stopPythonServer);
         document.getElementById("btn-restart-app")?.addEventListener("click", I.lifecycle.restartPythonServer);
-        document.getElementById("refresh-releases")?.addEventListener("click", () => I.install.fetchReleases(I.backends.selectedBackendId()));
+        document.getElementById("refresh-releases")?.addEventListener("click", () => I.install.refreshBackends(true));
         document.getElementById("backend-select")?.addEventListener("change", I.backends.onBackendChange);
         document.getElementById("btn-open-models")?.addEventListener("click", () => I.install.openFolder("models"));
         document.getElementById("btn-open-llama")?.addEventListener("click", () => I.install.openFolder("llama"));
@@ -30,6 +30,7 @@
         I.modelDir.initModelDirControls();
         window.addEventListener("beforeunload", I.install.stopInstallProgressPolling);
         I.appUpdate.checkAppUpdateStatus();
+        I.install.refreshBackends();
     }
 
     window.LlamaGui.manager = Object.assign(window.LlamaGui.manager || {}, {
@@ -40,6 +41,7 @@
         clearAppReloadParam: I.lifecycle.clearAppReloadParam,
         fetchJson: window.LlamaGui.apiClient.fetchJson,
         fetchReleases: I.install.fetchReleases,
+        refreshBackends: I.install.refreshBackends,
         checkStatus: I.status.checkStatus,
         setAcceptedStatusObserver: I.status.setAcceptedStatusObserver,
         initModelDirControls: I.modelDir.initModelDirControls,

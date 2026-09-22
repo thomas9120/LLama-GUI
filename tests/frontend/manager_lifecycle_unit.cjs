@@ -73,6 +73,8 @@ function makeElement() {
     manager.configure({
         fetchJson: async url => {
             assert.ok(initialized, "configuration must not fetch");
+            if (url === "/api/backends") return { warning: "" };
+            if (url === "/api/status") return status;
             assert.equal(url, "/api/app-update-status");
             return updateStatus;
         },
@@ -83,7 +85,7 @@ function makeElement() {
     assert.equal(manager._test, undefined);
     initialized = true;
     manager.init();
-    await Promise.resolve();
+    await manager.refreshBackends();
 
     // Replace transport after init: already-bound handlers and cross-concern
     // calls must use this client, while retaining the configured confirmation.
@@ -93,9 +95,9 @@ function makeElement() {
     } });
     const click = id => elements.get(id).listeners.click[0]();
     await click("btn-restart-app");
-    assert.deepEqual(requests.map(request => request.url), ["/api/status", "/api/restart", "/api/status"]);
+    assert.deepEqual(requests.map(request => request.url), ["/api/restart", "/api/status"]);
     assert.match(confirmations[0][1], /running llama.cpp process will be stopped first/);
-    assert.equal(requests[1].options.method, "POST");
+    assert.equal(requests[0].options.method, "POST");
     assert.equal(manager.getLatestStatus(), status);
     assert.equal(timers.length, 1);
     assert.equal(timers[0].delay, 500);

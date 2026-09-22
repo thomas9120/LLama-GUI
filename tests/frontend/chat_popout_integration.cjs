@@ -251,6 +251,7 @@ async function installApiRoutes(context, options = {}) {
         if (url.pathname === "/api/presets") return route.fulfill({ json: [] });
         if (url.pathname === "/api/presets/fingerprint") return route.fulfill({ json: { fingerprint: "phase3-fixture" } });
         if (url.pathname === "/api/releases") return route.fulfill({ json: [] });
+        if (url.pathname === "/api/backends") return route.fulfill({ json: { warning: "" } });
         if (url.pathname === "/api/remote-tunnel/status") return route.fulfill({ json: { running: false, starting: false, url: "" } });
         if (url.pathname === "/api/app-update-status") return route.fulfill({ json: { state: "up_to_date", can_update: false } });
         if (url.pathname === "/api/chat/context") {
