@@ -4259,6 +4259,100 @@ class ExtractedRouteTests(unittest.TestCase):
 
 
 class InstallRouteTests(unittest.TestCase):
+    @staticmethod
+    def cuda_release(tag, version, runtime=True):
+        assets = [{"name": f"llama-{tag}-bin-win-cuda-{version}-x64.zip"}]
+        if runtime:
+            assets.append({"name": f"cudart-llama-bin-win-cuda-{version}-x64.zip"})
+        return {"tag_name": tag, "published_at": "2026-09-15T10:59:00Z", "assets": assets}
+
+    def test_cuda_release_listing_keeps_versions_separate_and_requires_runtime(self):
+        self.ctx.services.backend_specs = llama_manager.build_backend_specs("win32", "x64")
+        releases = [
+            self.cuda_release("b10979", "13.4", runtime=False),
+            self.cuda_release("b10978", "13.4"),
+            self.cuda_release("b10976", "13.3"),
+        ]
+        for backend, expected in [("cuda-13.4", "b10978"), ("cuda-13.3", "b10976")]:
+            with self.subTest(backend=backend), mock.patch.object(
+                llama_manager, "get_releases", return_value=releases
+            ):
+                response = DummyResponse()
+                install.get_releases(
+                    Request("GET", "/api/releases", f"backend={backend}", {}), response, self.ctx
+                )
+                self.assertEqual([r["tag"] for r in response.payload], [expected])
+
+    def test_cuda_update_preserves_legacy_selection_and_skips_incomplete_releases(self):
+        self.ctx.services.backend_specs = llama_manager.build_backend_specs("win32", "x64")
+        releases = [
+            self.cuda_release("b10979", "13.4", runtime=False),
+            self.cuda_release("b10978", "13.4"),
+            self.cuda_release("b10976", "13.3"),
+        ]
+        for backend, current, expected in [
+            ("cuda-13.3", "b10976", None),
+            ("cuda-13.3", "b10975", "b10976"),
+            ("cuda-13.4", "b10977", "b10978"),
+        ]:
+            with self.subTest(backend=backend, current=current):
+                self.ctx.services.load_config = lambda: {"tag": current, "backend": backend}
+                response = DummyResponse()
+                with (
+                    mock.patch.object(llama_manager, "get_releases", return_value=releases),
+                    mock.patch.object(install.threading, "Thread", self.run_route_threads_immediately()),
+                    mock.patch.object(llama_manager, "install_release", return_value=True) as run_install,
+                ):
+                    install.start_update(Request("POST", "/api/update", "", {}, body={}), response, self.ctx)
+                if expected:
+                    self.assertEqual(response.payload["to"], expected)
+                    run_install.assert_called_once_with(self.ctx, expected, backend, self.ctx.services.backend_specs)
+                else:
+                    self.assertEqual(response.payload["status"], "already_latest")
+                    run_install.assert_not_called()
+                self.assertFalse(self.ctx.state.install_in_progress)
+
+    def test_cuda_update_stops_at_installed_release_with_removed_assets(self):
+        self.ctx.services.backend_specs = llama_manager.build_backend_specs("win32", "x64")
+        self.ctx.services.load_config = lambda: {"tag": "b10978", "backend": "cuda-13.4"}
+        releases = [
+            self.cuda_release("b10978", "13.4", runtime=False),
+            self.cuda_release("b10977", "13.4"),
+        ]
+        response = DummyResponse()
+        with mock.patch.object(llama_manager, "get_releases", return_value=releases), \
+                mock.patch.object(install.threading, "Thread") as thread:
+            install.start_update(Request("POST", "/api/update", "", {}, body={}), response, self.ctx)
+        self.assertEqual(response.payload["status"], "already_latest")
+        thread.assert_not_called()
+
+    def test_cuda_update_pages_for_compatible_release_with_bounded_lookback(self):
+        self.ctx.services.backend_specs = llama_manager.build_backend_specs("win32", "x64")
+        self.ctx.services.load_config = lambda: {"tag": "b10975", "backend": "cuda-13.3"}
+        incompatible = [self.cuda_release(f"b{12000-i}", "13.4") for i in range(100)]
+        for pages, expected_calls, expected_status in [
+            ([incompatible, [self.cuda_release("b10976", "13.3")]], 2, 200),
+            ([incompatible] * install.RELEASE_PAGE_LIMIT, install.RELEASE_PAGE_LIMIT, 400),
+            ([[]], 1, 400),
+        ]:
+            with self.subTest(expected_calls=expected_calls, expected_status=expected_status):
+                response = DummyResponse()
+                with (
+                    mock.patch.object(llama_manager, "get_releases", side_effect=pages) as lookup,
+                    mock.patch.object(install.threading, "Thread", self.run_route_threads_immediately()),
+                    mock.patch.object(llama_manager, "install_release", return_value=True) as run_install,
+                ):
+                    install.start_update(Request("POST", "/api/update", "", {}, body={}), response, self.ctx)
+                self.assertEqual(response.status, expected_status)
+                self.assertEqual(lookup.call_count, expected_calls)
+                self.assertEqual(lookup.call_args.kwargs, {"page": expected_calls, "per_page": 100})
+                if expected_status == 200:
+                    self.assertEqual(response.payload["to"], "b10976")
+                else:
+                    self.assertIn("Select another backend", response.payload["error"])
+                    run_install.assert_not_called()
+                self.assertFalse(self.ctx.state.install_in_progress)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.ctx = make_context(self.tmp.name)
@@ -4620,7 +4714,7 @@ class InstallRouteTests(unittest.TestCase):
                 "tag_name": "b2",
                 "name": "b2 release",
                 "published_at": "2024-02-01T00:00:00Z",
-                "assets": [],
+                "assets": [{"name": "llama-b2-bin-ubuntu-x64.tar.gz"}],
             }
         ]
         response = DummyResponse()
@@ -4653,7 +4747,7 @@ class InstallRouteTests(unittest.TestCase):
                 "tag_name": "b2",
                 "name": "b2 release",
                 "published_at": "2024-02-01T00:00:00Z",
-                "assets": [],
+                "assets": [{"name": "llama-b2-bin-ubuntu-x64.tar.gz"}],
             }
         ]
 
@@ -4789,6 +4883,7 @@ class InstallRouteTests(unittest.TestCase):
         self.ctx.services.backend_specs["lemonade-rocm-gfx110X"] = {
             "label": "ROCm Nightly gfx110X (Lemonade)",
             "repo_api": llama_manager.LEMONADE_ROCM_REPO_API,
+            "asset": "llama-{tag}-windows-rocm-gfx110X-x64.zip",
         }
         self.ctx.services.load_config = lambda: {
             "tag": "b1294",
@@ -4799,7 +4894,7 @@ class InstallRouteTests(unittest.TestCase):
                 "tag_name": "b1295",
                 "name": "b1295",
                 "published_at": "2024-03-01T00:00:00Z",
-                "assets": [],
+                "assets": [{"name": "llama-b1295-windows-rocm-gfx110X-x64.zip"}],
             }
         ]
         response = DummyResponse()
@@ -4816,7 +4911,7 @@ class InstallRouteTests(unittest.TestCase):
             )
         self.assertEqual(response.status, 200)
         self.assertEqual(response.payload["status"], "started")
-        gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API)
+        gr.assert_called_once_with(self.ctx, llama_manager.LEMONADE_ROCM_REPO_API, page=1, per_page=100)
 
 
     def test_activate_custom_blocks_when_install_in_progress(self):

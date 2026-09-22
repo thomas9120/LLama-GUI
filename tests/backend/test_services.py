@@ -363,6 +363,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("cpu", specs)
         self.assertIn("cuda-12.4", specs)
         self.assertIn("cuda-13.3", specs)
+        self.assertIn("cuda-13.4", specs)
         self.assertNotIn("cuda-13.1", specs)
         self.assertIn("vulkan", specs)
         self.assertIn("sycl", specs)
@@ -503,6 +504,10 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertEqual(len(specs["cuda-13.3"]["extra_assets"]), 1)
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["asset"])
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["extra_assets"][0])
+        self.assertEqual(specs["cuda-13.4"]["asset"], "llama-{tag}-bin-win-cuda-13.4-x64.zip")
+        self.assertEqual(
+            specs["cuda-13.4"]["extra_assets"], ["cudart-llama-bin-win-cuda-13.4-x64.zip"]
+        )
 
     def test_win32_x64_includes_all_lemonade_rocm_targets(self):
         specs = llama_manager.build_backend_specs("win32", "x64")
@@ -1468,6 +1473,69 @@ class ProcessStateReapTests(unittest.TestCase):
 
 
 class LlamaManagerDownloadTests(unittest.TestCase):
+    def test_cuda_install_downloads_matching_archives_and_records_selected_backend(self):
+        for tag, version in [("b10976", "13.3"), ("b10978", "13.4")]:
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as tmp:
+                ctx = make_service_context(tmp)
+                ctx.services.current_platform = "win32"
+                ctx.services.load_config = lambda: {"backend": "cuda-13.3", "tag": "b10975"}
+                ctx.services.save_config = mock.Mock()
+                specs = llama_manager.build_backend_specs("win32", "x64")
+                archives = {}
+                for name, contents in [
+                    (f"llama-{tag}-bin-win-cuda-{version}-x64.zip", {"llama-server.exe": "server"}),
+                    (f"cudart-llama-bin-win-cuda-{version}-x64.zip", {"cudart64_13.dll": version}),
+                ]:
+                    buffer = io.BytesIO()
+                    with zipfile.ZipFile(buffer, "w") as archive:
+                        for filename, content in contents.items():
+                            archive.writestr(filename, content)
+                    archives[name] = buffer.getvalue()
+                release = {
+                    "tag_name": tag,
+                    "assets": [
+                        {"name": name, "browser_download_url": f"https://example.test/{name}",
+                         "digest": "sha256:" + hashlib.sha256(data).hexdigest()}
+                        for name, data in archives.items()
+                    ],
+                }
+
+                def download_archive(_ctx, _url, dest, progress_cb=None):
+                    dest.write_bytes(archives[dest.name])
+
+                with mock.patch.object(llama_manager, "get_release_by_tag", return_value=release), \
+                        mock.patch.object(llama_manager, "download_file", side_effect=download_archive) as download:
+                    self.assertTrue(llama_manager.install_release(ctx, tag, f"cuda-{version}", specs))
+                self.assertEqual(download.call_count, 2)
+                self.assertEqual((ctx.paths.llama_bin / "cudart64_13.dll").read_text(), version)
+                saved = ctx.services.save_config.call_args.args[0]
+                self.assertEqual(saved["backend"], f"cuda-{version}")
+                self.assertEqual(saved["official_install"]["backend"], f"cuda-{version}")
+                self.assertEqual(saved["tag"], tag)
+
+    def test_cuda_install_requires_matching_runtime_before_download(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ctx = make_service_context(tmp)
+            specs = llama_manager.build_backend_specs("win32", "x64")
+            ctx.paths.llama_bin.mkdir(parents=True, exist_ok=True)
+            old_binary = ctx.paths.llama_bin / "llama-server.exe"
+            old_binary.write_text("old installation")
+            ctx.services.save_config = mock.Mock()
+            release = {
+                "tag_name": "b10978",
+                "assets": [
+                    {"name": "llama-b10978-bin-win-cuda-13.4-x64.zip"},
+                    {"name": "cudart-llama-bin-win-cuda-13.3-x64.zip"},
+                ],
+            }
+            with mock.patch.object(llama_manager, "get_release_by_tag", return_value=release), \
+                    mock.patch.object(llama_manager, "download_file") as download:
+                self.assertFalse(llama_manager.install_release(ctx, "b10978", "cuda-13.4", specs))
+            download.assert_not_called()
+            ctx.services.save_config.assert_not_called()
+            self.assertEqual(old_binary.read_text(), "old installation")
+            self.assertIn("cudart-llama-bin-win-cuda-13.4-x64.zip", ctx.state.download_progress.snapshot()["message"])
+
     def test_download_file_writes_chunks_and_reports_progress(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_service_context(tmp)

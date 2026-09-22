@@ -133,8 +133,13 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
                 "extra_assets": ["cudart-llama-bin-win-cuda-12.4-x64.zip"],
             },
+            "cuda-13.4": {
+                "label": "CUDA 13.4 (NVIDIA)",
+                "asset": "llama-{tag}-bin-win-cuda-13.4-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-13.4-x64.zip"],
+            },
             "cuda-13.3": {
-                "label": "CUDA 13.3 (NVIDIA)",
+                "label": "CUDA 13.3 (NVIDIA, legacy)",
                 "asset": "llama-{tag}-bin-win-cuda-13.3-x64.zip",
                 "extra_assets": ["cudart-llama-bin-win-cuda-13.3-x64.zip"],
             },
@@ -232,6 +237,13 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
             })
         return with_custom({})
     return with_custom({})
+
+
+def missing_release_assets(release: Mapping[str, Any], spec: Mapping[str, Any]) -> list[str]:
+    """Use the same binary/runtime requirements for listing, updating and installing."""
+    required = [spec["asset"].format(tag=release["tag_name"]), *spec.get("extra_assets", [])]
+    available = {asset["name"] for asset in release["assets"]}
+    return [name for name in required if name not in available]
 
 
 def get_releases(
@@ -1031,11 +1043,12 @@ def install_release(
         set_download_progress(ctx, downloaded=downloaded, total=total)
 
     bin_filename = backend_spec["asset"].format(tag=tag)
-    if bin_filename not in asset_map:
+    missing_assets = missing_release_assets(release, backend_spec)
+    if missing_assets:
         set_download_progress(
             ctx,
             status="error",
-            message=f"Asset {bin_filename} not found in release {tag}",
+            message=f"Asset {missing_assets[0]} not found in release {tag}",
         )
         return False
 
@@ -1071,8 +1084,6 @@ def install_release(
 
         extra_archives: list[pathlib.Path] = []
         for extra_filename in backend_spec.get("extra_assets", []):
-            if extra_filename not in asset_map:
-                continue
             extra_url = asset_map[extra_filename]["browser_download_url"]
             extra_archive = tmpdir / extra_filename
             set_download_progress(ctx, message=f"Downloading {extra_filename}...")
