@@ -6,12 +6,54 @@
     let releasesBackend = null;
     let releasesBackendInFlight = null;
     let releaseFetchRequestId = 0;
+    let backendRefreshPromise = null;
+    let backendRefreshQueued = false;
     let installPollTimer = null;
     let installPollStartTime = null;
     let installPollFailCount = 0;
     let installPollInFlight = false;
     const INSTALL_POLL_TIMEOUT_MS = 10 * 60 * 1000;
     const INSTALL_POLL_MAX_FAILS = 5;
+
+    function refreshBackends(force = false) {
+        if (backendRefreshPromise) {
+            if (force) backendRefreshQueued = true;
+            return backendRefreshPromise;
+        }
+        const hint = document.getElementById("backend-discovery-status");
+        const button = document.getElementById("refresh-releases");
+        if (hint) hint.textContent = "Checking official CUDA/ROCm versions...";
+        if (button) button.disabled = true;
+        backendRefreshPromise = (async () => {
+            do {
+                backendRefreshQueued = false;
+                try {
+                    const result = await I.dependencies.fetchJson(force ? "/api/backends?refresh=1" : "/api/backends");
+                    await I.status.checkStatus();
+                    const backend = I.backends.selectedBackendId();
+                    if (force && !I.backends.isCustomBackend(backend)) await fetchReleases(backend);
+                    if (hint) hint.textContent = result.warning || "Official CUDA/ROCm versions checked. Choose a backend to switch versions.";
+                } catch (error) {
+                    console.warn("Failed to refresh official backend versions", error);
+                    if (hint) hint.textContent = "Could not refresh official versions. Keeping existing backend options.";
+                    // The discovery service is optional; release refresh still works
+                    // for built-in and third-party backends if it is unavailable.
+                    const backend = I.backends.selectedBackendId();
+                    if (force && !I.backends.isCustomBackend(backend)) await fetchReleases(backend);
+                }
+                // A manual request during an automatic check gets one forced pass.
+                // Requests during an already-forced pass share that pass.
+                force = backendRefreshQueued && !force;
+            } while (force);
+        })().catch(error => {
+            console.warn("Unexpected backend refresh failure", error);
+        }).finally(() => {
+            backendRefreshPromise = null;
+            backendRefreshQueued = false;
+            if (button) button.disabled = false;
+        });
+        return backendRefreshPromise;
+    }
 
     async function fetchReleases(backend) {
         const sel = document.getElementById("release-select");
@@ -294,6 +336,7 @@
     }
 
     I.install = {
+        refreshBackends,
         fetchReleases,
         installRelease,
         repairInstall,

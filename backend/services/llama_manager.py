@@ -20,6 +20,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 
 from ..context import AppContext
 from ..http import sanitize_error
+from . import official_backends
 
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
@@ -241,7 +242,11 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
 
 def missing_release_assets(release: Mapping[str, Any], spec: Mapping[str, Any]) -> list[str]:
     """Use the same binary/runtime requirements for listing, updating and installing."""
-    required = [spec["asset"].format(tag=release["tag_name"]), *spec.get("extra_assets", [])]
+    spec = official_backends.resolve_release_spec(release, spec)
+    required = [
+        name.format(tag=release["tag_name"])
+        for name in [spec["asset"], *spec.get("extra_assets", [])]
+    ]
     available = {asset["name"] for asset in release["assets"]}
     return [name for name in required if name not in available]
 
@@ -1037,6 +1042,7 @@ def install_release(
         set_download_progress(ctx, status="error", message="Download failed while locating the release.")
         return False
 
+    backend_spec = official_backends.resolve_release_spec(release, backend_spec)
     asset_map = {a["name"]: a for a in release["assets"]}
 
     def progress_cb(downloaded: int, total: int) -> None:
@@ -1084,6 +1090,7 @@ def install_release(
 
         extra_archives: list[pathlib.Path] = []
         for extra_filename in backend_spec.get("extra_assets", []):
+            extra_filename = extra_filename.format(tag=tag)
             extra_url = asset_map[extra_filename]["browser_download_url"]
             extra_archive = tmpdir / extra_filename
             set_download_progress(ctx, message=f"Downloading {extra_filename}...")

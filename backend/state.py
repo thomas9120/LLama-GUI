@@ -120,6 +120,10 @@ class ServerState:
     install_in_progress: bool = False
     install_lock: threading.Lock = field(default_factory=threading.Lock)
 
+    official_backend_lock: threading.Lock = field(default_factory=threading.Lock)
+    official_backend_refresh_lock: threading.Lock = field(default_factory=threading.Lock)
+    official_backend_catalog: dict[str, Any] = field(default_factory=dict)
+
     # Git-based app update. Its own lock and slot on purpose: an update runs
     # git fetch/merge plus pip and PowerShell on the handler thread and must
     # not queue behind — or block — the install/process lock order.

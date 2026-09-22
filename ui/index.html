@@ -235,7 +235,7 @@
                         <label class="form-label">Version</label>
                         <div class="input-row">
                             <select id="release-select"><option value="">Loading...</option></select>
-                            <button id="refresh-releases" class="btn btn-sm" title="Refresh releases" aria-label="Refresh releases">
+                            <button id="refresh-releases" class="btn btn-sm" title="Refresh releases and official backends" aria-label="Refresh releases and official backends">
                                 <span class="icon icon-sm"><svg viewBox="0 0 24 24"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></span>
                             </button>
                         </div>
@@ -246,6 +246,7 @@
                         <select id="backend-select">
                             <option value="">Loading available backends...</option>
                         </select>
+                        <p id="backend-discovery-status" class="help-text" role="status">Official CUDA/ROCm versions are discovered automatically. Switching versions requires an install.</p>
                     </div>
 
                     <div id="custom-backend-info" style="display:none;">

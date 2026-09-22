@@ -1998,6 +1998,10 @@ async function runScenario(browser, port, verify) {
                 });
                 return;
             }
+            if (pathName === "/api/backends") {
+                await route.fulfill({ json: { warning: "" } });
+                return;
+            }
             if (pathName === "/api/presets") {
                 if (route.request().method() === "POST") {
                     const body = JSON.parse(route.request().postData() || "{}");
@@ -4402,6 +4406,48 @@ async function verifyStarterProfiles(page) {
     page.off("request", observe);
 }
 
+async function verifyOfficialBackendDiscovery(page) {
+    await selectSection(page, "install");
+    await page.evaluate(() => window.LlamaGui.manager.refreshBackends());
+    const base = await page.evaluate(() => window.LlamaGui.manager.getLatestStatus());
+    let discovered = false;
+    let warning = "";
+    let finish;
+    let started;
+    const inFlight = new Promise(resolve => { started = resolve; });
+    const writes = [];
+    page.on("request", request => {
+        if (request.method() === "POST" && /\/api\/(install|update)(?:[/?]|$)/.test(request.url())) writes.push(request.url());
+    });
+    await page.route("**/api/status", route => route.fulfill({ json: {
+        ...base, available_backends: [...base.available_backends,
+            ...(discovered ? [{ id: "cuda-99.1", label: "CUDA 99.1 (NVIDIA)" }] : [])],
+    } }));
+    await page.route("**/api/backends**", async route => {
+        assert.equal(new URL(route.request().url()).searchParams.get("refresh"), "1");
+        if (!discovered) {
+            await new Promise(resolve => { finish = resolve; started(); });
+            discovered = true;
+        }
+        await route.fulfill({ json: { warning } });
+    });
+    await page.click("#refresh-releases");
+    await inFlight;
+    assert.equal(await page.locator("#refresh-releases").isDisabled(), true);
+    await page.selectOption("#backend-select", "custom");
+    finish();
+    await page.waitForFunction(() => [...document.querySelector("#backend-select").options].some(option => option.value === "cuda-99.1"));
+    assert.equal(await page.inputValue("#backend-select"), "custom", "discovery preserves the pending selection");
+    assert.match(await page.textContent("#installed-backend-summary"), /CPU/);
+    await page.selectOption("#backend-select", "cuda-99.1");
+    warning = "Could not refresh official CUDA/ROCm versions. Keeping saved backend options.";
+    await page.click("#refresh-releases");
+    await page.waitForFunction(() => document.querySelector("#backend-discovery-status").textContent.includes("Keeping saved"));
+    assert.equal(await page.inputValue("#backend-select"), "cuda-99.1");
+    assert.match(await page.textContent("#installed-backend-summary"), /CPU/);
+    assert.deepEqual(writes, [], "discovery never installs or switches toolkits");
+}
+
 for (const [name, verify] of [
     ["shared controls, chat, downloads and model switcher", null],
     ["configure restart", verifyConfigureRestart],
@@ -4410,6 +4456,7 @@ for (const [name, verify] of [
     ["starter context and MTP profiles", verifyStarterProfiles],
     ["navigation and responsive shell", verifyShellPolish],
     ["chat, API and install presentation", verifySecondaryPagePolish],
+    ["official CUDA and ROCm discovery", verifyOfficialBackendDiscovery],
     ["chat responsive layout bounds", verifyChatResponsiveLayout],
     ["character card import", verifyCharacterCards],
     ["chat date and time tool", verifyChatDateTime],

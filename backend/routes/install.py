@@ -7,6 +7,7 @@ import urllib.parse
 from ..http import sanitize_error
 from ..services import llama_manager
 from ..services import process_manager
+from ..services import official_backends
 
 
 RELEASE_RESPONSE_LIMIT = 30
@@ -21,6 +22,15 @@ def _claim_install_slot(ctx):
     return process_manager.claim_install_slot(ctx)
 
 
+def get_backends(request, response, ctx):
+    try:
+        query = urllib.parse.parse_qs(request.query or "")
+        response.json(official_backends.refresh(ctx, force=query.get("refresh") == ["1"]))
+    except Exception as exc:
+        print(f"[install] backend discovery failed: {exc}", file=sys.stderr)
+        response.error(sanitize_error(exc, 500), 500)
+
+
 def get_releases(request, response, ctx):
     try:
         repo_api = None
@@ -31,7 +41,7 @@ def get_releases(request, response, ctx):
             response.json([])
             return
         if backend:
-            spec = ctx.services.backend_specs.get(backend)
+            spec = official_backends.get_backend_specs(ctx).get(backend)
             if spec is not None:
                 repo_api = llama_manager.resolve_repo_api(spec, ctx)
         result = []
@@ -68,6 +78,7 @@ def get_download_progress(request, response, ctx):
 
 
 def start_install(request, response, ctx):
+    backend_specs = official_backends.get_backend_specs(ctx)
     body = request.body or {}
     tag = body.get("tag")
     backend = body.get("backend")
@@ -78,7 +89,7 @@ def start_install(request, response, ctx):
     if llama_manager.is_custom_backend(backend):
         response.error("Use /api/activate-custom to set up the custom backend", 400)
         return
-    if backend not in ctx.services.backend_specs:
+    if backend not in backend_specs:
         response.error(f"Unsupported backend: {backend}", 400)
         return
     claim_error = _claim_install_slot(ctx)
@@ -104,7 +115,7 @@ def start_install(request, response, ctx):
 
     def _install(tag, backend):
         try:
-            llama_manager.install_release(ctx, tag, backend, ctx.services.backend_specs)
+            llama_manager.install_release(ctx, tag, backend, backend_specs)
         finally:
             with ctx.state.install_lock:
                 ctx.state.install_in_progress = False
@@ -121,6 +132,7 @@ def start_install(request, response, ctx):
 
 
 def start_update(request, response, ctx):
+    backend_specs = official_backends.get_backend_specs(ctx)
     cfg = ctx.services.load_config()
     tag = cfg.get("tag")
     backend = cfg.get("backend")
@@ -130,7 +142,7 @@ def start_update(request, response, ctx):
     if llama_manager.is_custom_backend(backend):
         response.error("Cannot auto-update a custom backend installation", 400)
         return
-    if backend not in ctx.services.backend_specs:
+    if backend not in backend_specs:
         response.error(f"Unsupported configured backend: {backend}", 400)
         return
     if process_manager.is_process_running(ctx):
@@ -147,7 +159,7 @@ def start_update(request, response, ctx):
     # install_in_progress across a slow network call would make unrelated
     # requests fail with a 409 for the whole duration of the lookup.
     try:
-        backend_spec = ctx.services.backend_specs[backend]
+        backend_spec = backend_specs[backend]
         repo_api = llama_manager.resolve_repo_api(backend_spec, ctx)
         latest = None
         for page in range(1, RELEASE_PAGE_LIMIT + 1):
@@ -187,7 +199,7 @@ def start_update(request, response, ctx):
     def _update(latest_tag, backend_name):
         try:
             llama_manager.install_release(
-                ctx, latest_tag, backend_name, ctx.services.backend_specs
+                ctx, latest_tag, backend_name, backend_specs
             )
         finally:
             with ctx.state.install_lock:

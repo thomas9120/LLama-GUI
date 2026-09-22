@@ -75,6 +75,8 @@ function makeElement() {
 const elements = new Map();
 [
     "release-select",
+    "refresh-releases",
+    "backend-discovery-status",
     "backend-select",
     "installed-backend-summary",
     "version-badge",
@@ -454,6 +456,97 @@ for (const src of scripts) {
         "Failed to check app updates: network down"
     );
 
+    // Discovery must not reset a pending selection, switch installations, or
+    // block use of saved options when the discovery request fails.
+    const discoveryManager = context.window.LlamaGui.manager;
+    let finishDiscovery;
+    const discoveryRequests = [];
+    const discoveredStatus = { ...cpuStatus, available_backends: [
+        ...availableBackends, { id: "cuda-99.1", label: "CUDA 99.1 (NVIDIA)" },
+    ] };
+    context.fetch = async url => {
+        discoveryRequests.push(url);
+        if (url.startsWith("/api/backends")) {
+            await new Promise(resolve => { finishDiscovery = resolve; });
+            return { ok: true, json: async () => ({ warning: "" }) };
+        }
+        return { ok: true, json: async () => url === "/api/status" ? discoveredStatus : fetchPayload };
+    };
+    const discovery = discoveryManager.refreshBackends();
+    assert.equal(discoveryManager.refreshBackends(), discovery, "concurrent refreshes share one request");
+    assert.equal(elements.get("refresh-releases").disabled, true);
+    backendSelect.value = "vulkan";
+    discoveryManager._test.onBackendChange();
+    finishDiscovery();
+    await discovery;
+    assert.equal(backendSelect.value, "vulkan", "discovery preserves a selection made while loading");
+    assert.ok(backendSelect.options.some(option => option.value === "cuda-99.1"));
+    assert.equal(elements.get("refresh-releases").disabled, false);
+    assert.match(elements.get("installed-backend-summary").textContent, /CPU/);
+    assert.ok(!discoveryRequests.some(url => /\/api\/(install|update)$/.test(url)));
+
+    context.fetch = async url => {
+        discoveryRequests.push(url);
+        if (url.startsWith("/api/backends")) throw new Error("offline fixture");
+        return { ok: true, json: async () => fetchPayload };
+    };
+    await discoveryManager.refreshBackends(true);
+    assert.equal(backendSelect.value, "vulkan");
+    assert.match(elements.get("backend-discovery-status").textContent, /Keeping existing/);
+    assert.equal(discoveryRequests.at(-1), "/api/releases?backend=vulkan");
+    assert.equal(elements.get("refresh-releases").disabled, false);
+
+    // A manual request overlapping an automatic check must retain forced semantics.
+    const overlapRequests = [];
+    let finishAutomatic;
+    let finishForced;
+    let signalForced;
+    const forcedStarted = new Promise(resolve => { signalForced = resolve; });
+    context.fetch = async url => {
+        overlapRequests.push(url);
+        if (url === "/api/backends") {
+            await new Promise(resolve => { finishAutomatic = resolve; });
+        } else if (url === "/api/backends?refresh=1") {
+            signalForced();
+            await new Promise(resolve => { finishForced = resolve; });
+        }
+        return { ok: true, json: async () => url.startsWith("/api/backends")
+            ? { warning: "" } : url === "/api/status" ? discoveredStatus : fetchPayload };
+    };
+    const automatic = discoveryManager.refreshBackends();
+    assert.equal(discoveryManager.refreshBackends(true), automatic);
+    assert.equal(discoveryManager.refreshBackends(true), automatic);
+    finishAutomatic();
+    await forcedStarted;
+    assert.equal(elements.get("refresh-releases").disabled, true);
+    assert.equal(discoveryManager.refreshBackends(true), automatic, "forced checks also coalesce");
+    finishForced();
+    await automatic;
+    assert.deepEqual(overlapRequests.filter(url => url.startsWith("/api/backends")),
+        ["/api/backends", "/api/backends?refresh=1"]);
+    assert.equal(overlapRequests.at(-1), "/api/releases?backend=vulkan");
+    assert.equal(elements.get("refresh-releases").disabled, false);
+
+    // Even failure in the fallback path is logged and leaves refresh usable.
+    const warnings = [];
+    context.console = { ...console, warn: (...args) => warnings.push(args) };
+    const getElementById = context.document.getElementById;
+    context.document.getElementById = id => {
+        if (id === "backend-select") throw new Error("selection fixture failure");
+        return getElementById(id);
+    };
+    context.fetch = async () => { throw new Error("offline fixture"); };
+    await assert.doesNotReject(() => discoveryManager.refreshBackends(true));
+    assert.ok(warnings.some(args => args[0] === "Unexpected backend refresh failure"
+        && args[1].message === "selection fixture failure"));
+    assert.equal(elements.get("refresh-releases").disabled, false);
+    context.document.getElementById = getElementById;
+    context.console = console;
+    context.fetch = async url => ({ ok: true, json: async () =>
+        url === "/api/status" ? discoveredStatus : { warning: "" } });
+    await discoveryManager.refreshBackends();
+    assert.match(elements.get("backend-discovery-status").textContent, /versions checked/);
+
     // Loading/configuring is inert, and init owns each listener exactly once.
     const manager = context.window.LlamaGui.manager;
     const unloadHandlers = [];
@@ -470,6 +563,9 @@ for (const src of scripts) {
         initRequests.push(url);
         if (url === "/api/update") return { status: "started", from: "old", to: "new" };
         if (url === "/api/download-progress") return { status: "error", message: "Fixture install failed" };
+        if (url === "/api/status") return discoveredStatus;
+        if (url.startsWith("/api/releases")) return fetchPayload;
+        if (url.startsWith("/api/backends")) return { warning: "" };
         return { available: false };
     } });
     assert.deepEqual(initRequests, [], "configure must not issue requests");
@@ -478,7 +574,8 @@ for (const src of scripts) {
     manager.init();
     manager.init();
     assert.equal(unloadHandlers.length, 1);
-    assert.deepEqual(initRequests, ["/api/app-update-status"]);
+    assert.deepEqual(initRequests, ["/api/app-update-status", "/api/backends"]);
+    await manager.refreshBackends();
     assert.equal(elements.get("btn-update").listeners.click.length, 1);
     await elements.get("btn-update").listeners.click[0]();
     assert.equal(initRequests.filter(url => url === "/api/update").length, 1);

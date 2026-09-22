@@ -60,6 +60,25 @@ In **Install**, select **CUDA 13.4 (NVIDIA)**, choose a release, and click
 the backend update button stays within the installed CUDA version. Both the binary
 and matching CUDA runtime archive must be available before a release can be installed.
 
+## Refreshing official CUDA and ROCm versions
+
+The Install page discovers official llama.cpp CUDA/ROCm versions for your platform
+and architecture automatically. Use the refresh button beside Version to refresh
+both releases and backend options. New options do not change your installed backend;
+select a version and click Install to switch. Official ROCm packages still need their
+separate runtime, and discovery does not check your GPU/driver compatibility.
+
+If GitHub is unavailable or rate-limited, saved options and built-in backends remain
+available. The message below Backend reports discovery failures. Automatic checks
+are cached for an hour; manual retries have a 30-second cooldown. Previously discovered
+options survive restarts in `llama/official-backends.json`, although downloading a
+release still requires a connection. Only complete CUDA binary/runtime pairs are
+offered in the release list. Lemonade options keep their existing behavior.
+Saved options can remain after upstream removes a package or its releases fall
+outside the recent-release scan, leaving an empty Version list. Discovery only
+recognizes supported package naming conventions; a new archive format or tag
+convention may require a GUI update even when the toolkit version is numeric.
+
 ## App update buttons fail
 
 Need `git` on PATH and a git clone (not a zip extract). Retry from Install and read the update status text.

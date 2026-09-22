@@ -9,6 +9,12 @@ The goal is not exhaustive coverage. Tests should make common regressions easier
 
 ## Common Commands
 
+`python -m unittest tests.backend.test_official_backends -v` (using the project
+venv) covers official CUDA/ROCm version discovery, platform/architecture filtering,
+tagged and untagged runtime pairs, cache persistence/corruption, bounded refreshes,
+offline fallback, legacy IDs, concurrent status reads, and discovered-package
+installation. These fixtures never download or launch real GPU binaries.
+
 ```powershell
 npm test
 ```
