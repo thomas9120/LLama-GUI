@@ -547,19 +547,19 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         match = server.API_ROUTER.match("GET", "/api/status")
 
         self.assertIsNotNone(match)
-        self.assertEqual(match.handler_name, "get_status")
+        self.assertIs(match.handler, backend_app.status_routes.get_status)
 
         preflight_match = server.API_ROUTER.match("POST", "/api/launch/preflight")
         self.assertIsNotNone(preflight_match)
-        self.assertEqual(preflight_match.handler_name, "preflight_launch")
+        self.assertIs(preflight_match.handler, backend_app.process_routes.preflight_launch)
 
         fingerprint_match = server.API_ROUTER.match("POST", "/api/presets/fingerprint")
         self.assertIsNotNone(fingerprint_match)
-        self.assertEqual(fingerprint_match.handler_name, "fingerprint_preset")
+        self.assertIs(fingerprint_match.handler, backend_app.process_routes.fingerprint_preset)
 
         health_match = server.API_ROUTER.match("GET", "/api/llama/health")
         self.assertIsNotNone(health_match)
-        self.assertEqual(health_match.handler_name, "get_health")
+        self.assertIs(health_match.handler, backend_app.process_routes.get_health)
 
     def test_unknown_api_route_returns_json_404(self):
         handler = self.make_handler(origin="http://localhost:5240")
@@ -603,62 +603,6 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         )
         self.assertEqual(handler.sent_response, 202)
         self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"handled": True})
-
-    def test_dispatch_calls_legacy_string_handler_route(self):
-        handler = self.make_handler(origin="http://localhost:5240")
-        parsed = server.urllib.parse.urlparse("/api/test-legacy/abc?value=1")
-        body = {"ok": True}
-        calls = {}
-
-        def handle_test_legacy(self, parsed_arg, body_arg=None, params_arg=None):
-            calls["path"] = parsed_arg.path
-            calls["query"] = parsed_arg.query
-            calls["body"] = body_arg
-            calls["params"] = params_arg
-            self.send_json({"legacy": True}, status=203)
-
-        original_router = server.API_ROUTER
-        server.API_ROUTER = server.Router().add_prefix(
-            "POST",
-            "/api/test-legacy/",
-            "handle_test_legacy",
-            "name",
-        )
-        server.Handler.handle_test_legacy = handle_test_legacy
-        try:
-            handler.dispatch_api_request("POST", parsed, body)
-        finally:
-            server.API_ROUTER = original_router
-            del server.Handler.handle_test_legacy
-
-        self.assertEqual(
-            calls,
-            {
-                "path": "/api/test-legacy/abc",
-                "query": "value=1",
-                "body": {"ok": True},
-                "params": {"name": "abc"},
-            },
-        )
-        self.assertEqual(handler.sent_response, 203)
-        self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"legacy": True})
-
-    def test_dispatch_unknown_api_route_returns_json_404(self):
-        handler = self.make_handler(origin="http://localhost:5240")
-        parsed = server.urllib.parse.urlparse("/api/test-missing")
-
-        original_router = server.API_ROUTER
-        server.API_ROUTER = server.Router()
-        try:
-            handler.dispatch_api_request("GET", parsed)
-        finally:
-            server.API_ROUTER = original_router
-
-        self.assertEqual(handler.sent_response, 404)
-        self.assertEqual(
-            json.loads(handler.wfile.getvalue().decode("utf-8")),
-            {"error": "Not found", "status": 404},
-        )
 
     def test_dispatch_unknown_non_api_route_uses_plain_404(self):
         handler = self.make_handler(origin="http://localhost:5240")

@@ -830,11 +830,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             else:
                 self.send_error(404)
             return
-        if isinstance(match.handler, str):
-            handler = getattr(self, match.handler)
-            handler(parsed, body, dict(match.params))
-            return
-
         request = Request(
             method=method,
             path=path,
