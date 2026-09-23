@@ -1,0 +1,30 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'tests/backend/test_docs_*.py'
+      - '.github/workflows/docs.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - '*.md'
+      - 'docs/**'
+      - 'tests/backend/test_docs_*.py'
+      - '.github/workflows/docs.yml'
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m unittest tests.backend.test_docs_links tests.backend.test_docs_sync -v

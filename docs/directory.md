@@ -1364,7 +1364,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
 | `docs/troubleshooting.md` | Common installation, launch, model, GPU, and connectivity problems |
 | `docs/chat-popout.md` | Chat pop-out user guide: transfer, recovery, and browser/launcher support |
-| `docs/chat-popout-capabilities.md` | Phase 1 pop-out capability fixture evidence |
+| `docs/chat-popout-capabilities.md` | Historical pop-out capability and native-browser evidence |
 | `docs/upstream-changes.md` | llama.cpp upstream changes needing coordinated GUI updates |
 | `docs/software-versioning-policy.md` | CalVer versioning and stable-release policy |
 | `docs/images/` | Screenshots used by README.md |

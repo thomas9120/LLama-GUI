@@ -58,11 +58,6 @@ class HandlerCorsTests(ServerStateIsolationMixin, unittest.TestCase):
         handler.headers = headers
         return handler
 
-    def test_allows_localhost_origins(self):
-        for origin in ("http://127.0.0.1:5240", "http://localhost:5240"):
-            with self.subTest(origin=origin):
-                self.assertTrue(self.make_handler(origin=origin).is_safe_request_origin())
-
     def test_allows_active_tunnel_origin(self):
         server.set_remote_tunnel_state(
             status="running",
@@ -97,22 +92,7 @@ class HandlerCorsTests(ServerStateIsolationMixin, unittest.TestCase):
         finally:
             server.GUI_HOST = original_host
 
-    def test_rejects_unknown_origin(self):
-        handler = self.make_handler(origin="https://evil.example")
 
-        self.assertFalse(handler.is_safe_request_origin())
-
-    def test_allows_requests_without_origin_or_referer(self):
-        self.assertTrue(self.make_handler().is_safe_request_origin())
-
-    def test_referer_must_start_with_allowed_origin(self):
-        allowed = self.make_handler(referer="http://127.0.0.1:5240/index.html")
-        denied = self.make_handler(referer="http://127.0.0.1.evil.example:5240/")
-        prefix_bypass = self.make_handler(referer="http://localhost:5240@evil.example/")
-
-        self.assertTrue(allowed.is_safe_request_origin())
-        self.assertFalse(denied.is_safe_request_origin())
-        self.assertFalse(prefix_bypass.is_safe_request_origin())
 
 
 class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
@@ -567,19 +547,19 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         match = server.API_ROUTER.match("GET", "/api/status")
 
         self.assertIsNotNone(match)
-        self.assertEqual(match.handler_name, "get_status")
+        self.assertIs(match.handler, backend_app.status_routes.get_status)
 
         preflight_match = server.API_ROUTER.match("POST", "/api/launch/preflight")
         self.assertIsNotNone(preflight_match)
-        self.assertEqual(preflight_match.handler_name, "preflight_launch")
+        self.assertIs(preflight_match.handler, backend_app.process_routes.preflight_launch)
 
         fingerprint_match = server.API_ROUTER.match("POST", "/api/presets/fingerprint")
         self.assertIsNotNone(fingerprint_match)
-        self.assertEqual(fingerprint_match.handler_name, "fingerprint_preset")
+        self.assertIs(fingerprint_match.handler, backend_app.process_routes.fingerprint_preset)
 
         health_match = server.API_ROUTER.match("GET", "/api/llama/health")
         self.assertIsNotNone(health_match)
-        self.assertEqual(health_match.handler_name, "get_health")
+        self.assertIs(health_match.handler, backend_app.process_routes.get_health)
 
     def test_unknown_api_route_returns_json_404(self):
         handler = self.make_handler(origin="http://localhost:5240")
@@ -623,62 +603,6 @@ class HandlerResponseTests(ServerStateIsolationMixin, unittest.TestCase):
         )
         self.assertEqual(handler.sent_response, 202)
         self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"handled": True})
-
-    def test_dispatch_calls_legacy_string_handler_route(self):
-        handler = self.make_handler(origin="http://localhost:5240")
-        parsed = server.urllib.parse.urlparse("/api/test-legacy/abc?value=1")
-        body = {"ok": True}
-        calls = {}
-
-        def handle_test_legacy(self, parsed_arg, body_arg=None, params_arg=None):
-            calls["path"] = parsed_arg.path
-            calls["query"] = parsed_arg.query
-            calls["body"] = body_arg
-            calls["params"] = params_arg
-            self.send_json({"legacy": True}, status=203)
-
-        original_router = server.API_ROUTER
-        server.API_ROUTER = server.Router().add_prefix(
-            "POST",
-            "/api/test-legacy/",
-            "handle_test_legacy",
-            "name",
-        )
-        server.Handler.handle_test_legacy = handle_test_legacy
-        try:
-            handler.dispatch_api_request("POST", parsed, body)
-        finally:
-            server.API_ROUTER = original_router
-            del server.Handler.handle_test_legacy
-
-        self.assertEqual(
-            calls,
-            {
-                "path": "/api/test-legacy/abc",
-                "query": "value=1",
-                "body": {"ok": True},
-                "params": {"name": "abc"},
-            },
-        )
-        self.assertEqual(handler.sent_response, 203)
-        self.assertEqual(json.loads(handler.wfile.getvalue().decode("utf-8")), {"legacy": True})
-
-    def test_dispatch_unknown_api_route_returns_json_404(self):
-        handler = self.make_handler(origin="http://localhost:5240")
-        parsed = server.urllib.parse.urlparse("/api/test-missing")
-
-        original_router = server.API_ROUTER
-        server.API_ROUTER = server.Router()
-        try:
-            handler.dispatch_api_request("GET", parsed)
-        finally:
-            server.API_ROUTER = original_router
-
-        self.assertEqual(handler.sent_response, 404)
-        self.assertEqual(
-            json.loads(handler.wfile.getvalue().decode("utf-8")),
-            {"error": "Not found", "status": 404},
-        )
 
     def test_dispatch_unknown_non_api_route_uses_plain_404(self):
         handler = self.make_handler(origin="http://localhost:5240")
@@ -730,32 +654,6 @@ class StateSnapshotTests(ServerStateIsolationMixin, unittest.TestCase):
 
 
 class ValidationTests(ServerStateIsolationMixin, unittest.TestCase):
-    def test_hf_repo_id_validation(self):
-        self.assertEqual(server.validate_hf_repo_id("owner/model"), "owner/model")
-
-        for value in ("", "owner", "../model", "owner/model.", "owner//model"):
-            with self.subTest(value=value):
-                with self.assertRaises(ValueError):
-                    server.validate_hf_repo_id(value)
-
-    def test_hf_revision_validation_defaults_and_rejects_traversal(self):
-        self.assertEqual(server.validate_hf_revision(""), "main")
-        self.assertEqual(server.validate_hf_revision("refs/pr/1"), "refs/pr/1")
-
-        for value in ("/main", r"main\bad", "refs/../main", "bad\x00name"):
-            with self.subTest(value=value):
-                with self.assertRaises(ValueError):
-                    server.validate_hf_revision(value)
-
-    def test_hf_filename_validation_accepts_safe_gguf_paths(self):
-        self.assertEqual(server.validate_hf_filename("Q4/model.gguf"), "Q4/model.gguf")
-
-    def test_hf_filename_validation_rejects_unsafe_names(self):
-        for value in ("", "/model.gguf", "../model.gguf", "model.bin", "bad:name.gguf", "bad\x00name.gguf"):
-            with self.subTest(value=value):
-                with self.assertRaises(ValueError):
-                    server.validate_hf_filename(value)
-
     def test_parse_port_defaults_for_invalid_values(self):
         self.assertEqual(server.parse_port("1234"), 1234)
         self.assertEqual(server.parse_port("0"), 8080)

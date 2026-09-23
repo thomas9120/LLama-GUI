@@ -1,26 +1,20 @@
 """Small route registry used by the stdlib HTTP entrypoint."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Callable, Dict, Mapping, Optional, Tuple
 
 
 @dataclass(frozen=True)
 class RouteMatch:
-    handler: Any
+    handler: Callable
     params: Mapping[str, str]
-
-    @property
-    def handler_name(self) -> str:
-        if isinstance(self.handler, str):
-            return self.handler
-        return getattr(self.handler, "__name__", str(self.handler))
 
 
 @dataclass(frozen=True)
 class _Route:
     method: str
     path: str
-    handler: Any
+    handler: Callable
     param_name: Optional[str] = None
     is_prefix: bool = False
 
@@ -37,7 +31,7 @@ class Router:
         self._exact: Dict[Tuple[str, str], RouteMatch] = {}
         self._prefixes: list[_Route] = []
 
-    def add(self, method: str, path: str, handler: Any) -> "Router":
+    def add(self, method: str, path: str, handler: Callable) -> "Router":
         self._exact[(method.upper(), path)] = RouteMatch(handler, {})
         return self
 
@@ -45,7 +39,7 @@ class Router:
         self,
         method: str,
         prefix: str,
-        handler: Any,
+        handler: Callable,
         param_name: Optional[str] = None,
     ) -> "Router":
         self._prefixes.append(

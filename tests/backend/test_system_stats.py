@@ -1624,7 +1624,7 @@ class RegistryTests(unittest.TestCase):
         import backend.app as backend_app
         match = backend_app.API_ROUTER.match("GET", "/api/system-stats")
         self.assertIsNotNone(match)
-        self.assertEqual(match.handler_name, "get_system_stats")
+        self.assertIs(match.handler, system_stats_route.get_system_stats)
 
 
 if __name__ == "__main__":

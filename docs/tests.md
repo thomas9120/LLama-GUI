@@ -7,6 +7,10 @@ This repo has two main test groups:
 
 The goal is not exhaustive coverage. Tests should make common regressions easier to diagnose, especially around shared launch state, command generation, route/service behavior, and UI helper logic.
 
+The Documentation workflow runs the link and route-registry documentation checks on
+Markdown and `docs/` changes, including docs-only pull requests. The full Tests
+workflow retains its documentation exclusions and Linux/Windows matrix.
+
 ## Common Commands
 
 `python -m unittest tests.backend.test_official_backends -v` (using the project
@@ -19,19 +23,13 @@ installation. These fixtures never download or launch real GPU binaries.
 npm test
 ```
 
-Runs the full frontend suite in three stages: `test:unit` (JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
+Runs the full frontend suite in three stages: `test:unit` (fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
 
 ```powershell
 npm run test:unit
 ```
 
-Runs the aggregate fast stage only — every Node unit suite plus `test:syntax`, `test:frontend:modules`, and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
-
-```powershell
-npm run test:syntax
-```
-
-Checks every frontend JavaScript file with `node --check`.
+Runs the aggregate fast stage only — every Node unit suite plus `test:frontend:modules` and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
 
 ```powershell
 npm run test:frontend:modules
@@ -68,7 +66,7 @@ npm run test:frontend
 
 Runs the Playwright smoke test for browser-level shared-state sync. This is also the only suite that can cover the Configure sampler preset panel, because `renderFlags()` destroys and rebuilds it — the `<select>` an assertion reads is a different element than the one that was clicked, which a `node:vm` harness cannot reproduce.
 
-The browser suite has named `node:test` scenarios with fresh browser contexts and API fixtures. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
+The browser suite has named `node:test` scenarios with fresh browser contexts and API fixtures. Shared controls, authentication, inference, Chat streaming/recovery/compaction, samplers, external servers, custom launch arguments, backend activation, model switching, preset focus, model folders, and Monitor behavior run independently. A scenario failure does not prevent the remaining scenarios from running. To run one scenario:
 
 ```powershell
 node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smoke.cjs
@@ -76,15 +74,9 @@ node --test --test-name-pattern="benchmark actions" tests/frontend/flag_sync_smo
 
 The smoke test also covers grouped sidebar navigation, current-page semantics, active-versus-pending runtime identity, external server details, duplicate Stop protection during transitions, mobile focus and dismissal, and maintenance access in short windows.
 
-The Phase 1 chat pop-out capability check is intentionally separate from the application smoke test:
+The retired synthetic pop-out capability probe is preserved as [historical evidence](chat-popout-capabilities.md). Current coverage loads the production Chat-window package and the real application.
 
-```powershell
-node --test tests/frontend/chat_popout_capabilities.cjs
-```
-
-It uses a disposable ephemeral fixture server and fresh Playwright contexts to verify loopback secure-context support, same-origin popup/tab references, exact origin/source/version messaging, nonce-scoped storage partitioning, exclusive Web Locks, focus-message acknowledgments, close detection, and fallback handling for blocked popups, unavailable openers/Web Locks, and blocked storage. It never loads the real UI, writes real chat history, or calls backend lifecycle routes. Native window activation is not asserted by this fixture. Windows/Chrome and Pinokio manual results are recorded under [Native smoke checks](#native-smoke-checks); Public HTTPS tunnel/trusted-certificate, second-device LAN and native macOS checks remain pending; local transport results are recorded under [Local HTTPS and LAN-address follow-up](tests.md#local-https-and-lan-address-follow-up). See `docs/chat-popout-capabilities.md` for the fixture's evidence limits.
-
-`node tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. These tests use synthetic storage and VM contexts. Both Chat-window and Chat UI
+`node --test tests/frontend/chat_window_unit.cjs` covers the host adapter's allowed settings and runtime projections, verified peer handshakes, exclusive ownership, repeated forward/reverse transfers, storage failures, durable deletion invalidations, third-page contention, and revocation during pending abort/restore. `chat_ui_unit.cjs` covers snapshot fidelity, transfer save hooks, mutation epochs, and interrupted response recovery; `chat_tools_unit.cjs` covers date/time preference ownership. The Chat-window cases are named tests with synthetic storage and a fresh VM per scenario; coordinator/adapter cleanup runs after failures as well as successful assertions. Both Chat-window and Chat UI
 VM harnesses discover the complete Chat-window package from `index.html` through
 `getPackageScripts("js/chat-window")` in `script_order.cjs`; the pop-out integration fixture serves
 that same real entrypoint.
@@ -199,7 +191,6 @@ Fast Node tests:
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases, plus reference-identity checks for the shared chat-template, reasoning-format, and main/draft KV-cache option arrays.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
 - `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
-- `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:
 

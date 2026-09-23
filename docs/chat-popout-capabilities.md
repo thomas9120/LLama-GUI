@@ -1,15 +1,15 @@
 # Chat pop-out Phase 1 capability findings
 
 Date: 2026-09-11  
-Status: Phase 1 fixture evidence (2026-09-11). The production pop-out in `ui/js/chat-window/` is covered in [Chat in a separate window](chat-popout.md) and [Tests](tests.md); this fixture itself implements no production behavior.
+Status: Historical Phase 1 evidence. The synthetic fixture was retired on 2026-09-23;
+its recorded browser and native findings remain below. Current production behavior
+and automated checks are documented in [Chat in a separate window](chat-popout.md)
+and [Tests](tests.md).
 
-The disposable check is run with:
-
-```powershell
-node tests/frontend/chat_popout_capabilities.cjs
-```
-
-The runner launches Playwright Chromium with fresh browser contexts and an ephemeral HTTP server. The server serves only the synthetic fixture page. It does not serve `ui/`, read or write `llama_gui_conversations`, accept chat requests, or expose any `/api/*` route. Each scenario uses a unique nonce and the only storage key it may create is `chat-popout-capability:<nonce>`. Closing the context removes that disposable state.
+The retired probe used fresh Chromium contexts and an ephemeral server serving a
+synthetic page, without application code, real chat history, or backend routes.
+The following fixture findings describe that 2026-09-11 experiment, not a current
+production regression suite.
 
 ## Evidence from the loopback fixture
 
@@ -35,29 +35,6 @@ Every fallback case uses a fresh browser context and keeps the source page recov
 - Storage blocked: an initialization script makes the Storage methods throw `SecurityError`; the source refuses a handoff because its storage partition cannot be probed.
 
 The blocked-popup, blocked-storage, missing-Web-Locks, and missing-opener conditions are controlled browser-context simulations. The normal popup, opener reference, same-context storage sharing, Web Locks contention, secure-context result, and close checks run against Chromium itself. Native window activation is not asserted by the headless fixture. A real embedded host that strips or changes these capabilities still needs a native check.
-
-## Bootstrap and request-setting audit
-
-The current frontend is a strict ordered global-script page. `app.js` is not a safe popup entry point to run wholesale:
-
-- Before `DOMContentLoaded`, it selects `llama-server`, replaces `flagCore` values with defaults, creates the shared inference-stat engine, and configures API, sampler-preset, preset, tunnel, external-server, Hugging Face, Quick Launch, benchmark, Monitor, process-lifecycle, and Model Switcher modules. It also subscribes to lifecycle snapshots.
-- Its `DOMContentLoaded` handler initializes the theme, tabs, tool and Configure controls, installation/API/preset/Quick Launch/Chat/benchmark/Monitor flows, model-directory controls, release fetching, command preview, endpoint rendering, launch/stop actions, polling visibility handlers, and the remaining page wiring.
-- `chatUi.configure()` is a top-level dependency injection call near the end of `app.js`; `initChatTab()` only calls `chatUi.init()`. Loading the full application in a popup would therefore risk a second configuration authority, lifecycle controller, release fetch, and polling cycle.
-
-The smallest popup bootstrap must retain the ordered dependencies required by the Chat package (`ui/js/chat/`) (`flagCore`, `chatTools`, `app-data`, `chat-rendering`, `chat-compaction`, and `character-cards`) and provide the existing Chat DOM/dependency boundary. It should inject a verified host adapter for settings, runtime identity/status, authorization behavior, and the existing baseline helper. The popup must not initialize its own lifecycle controller or external-server restore. This is an audit result for the next phase; it does not add a popup module or alter the application bootstrap.
-
-`buildChatBody(history, draft, includeUsage)` currently consumes these request inputs:
-
-- `#chat-system-prompt` and `chatTools.getInstructions()` for the system message.
-- The complete history after `chatCompaction.workingMessages(...)`, passed through `chatTools.requestMessages(...)`, plus the trimmed draft as a final user message.
-- The active model from the lifecycle snapshot first, then running status, then shared `flagCore` alias/selected model, with `local-model` as the last fallback.
-- `stream: true` and, when requested, `stream_options.include_usage: true`.
-- Shared `flagCore` sampler values: `temperature`, `top_p`, `top_k`, `min_p`, `repeat_penalty`, and `n_predict` mapped to `max_tokens` (with numeric normalization and the `-1` server-default sentinel omitted from `max_tokens`).
-- `#chat-thinking-effort` (`auto`, `off`, `low`, `medium`, `high`, or `xhigh`). Non-auto values produce the top-level `reasoning_effort` and the compatibility `chat_template_kwargs`; `off` uses `none` and disables thinking.
-- `#chat-web-search-toggle` and the clamped `#chat-web-search-max-results` value (1–10, default 5) when search is enabled.
-- `chatTools.getDefinitions()` when the configured browser tools list is non-empty.
-
-Context-preview and compaction keys also include the active runtime, external target, template capabilities, and the same request body. A popup host adapter therefore needs notifications that invalidate stale previews when the main window changes runtime or shared sampler state.
 
 ## Launch-environment limits
 
