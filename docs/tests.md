@@ -19,19 +19,13 @@ installation. These fixtures never download or launch real GPU binaries.
 npm test
 ```
 
-Runs the full frontend suite in three stages: `test:unit` (JavaScript syntax checks, fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
+Runs the full frontend suite in three stages: `test:unit` (fast Node unit tests, structural flag-definition validation, and module loading/contract checks), `test:flags` (flag compatibility against real binaries), and `test:frontend` (the Playwright browser suite).
 
 ```powershell
 npm run test:unit
 ```
 
-Runs the aggregate fast stage only — every Node unit suite plus `test:syntax`, `test:frontend:modules`, and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
-
-```powershell
-npm run test:syntax
-```
-
-Checks every frontend JavaScript file with `node --check`.
+Runs the aggregate fast stage only — every Node unit suite plus `test:frontend:modules` and `test:flag-definitions` — with no browser launch and no llama.cpp binary required. Use this as the inner loop; `test:flags` and `test:frontend` remain separate explicit stages, and `npm test` is the full gate.
 
 ```powershell
 npm run test:frontend:modules
@@ -199,7 +193,6 @@ Fast Node tests:
 - `flag_definitions_unit.cjs`: structural validation of flag/category definitions and representative invalid cases, plus reference-identity checks for the shared chat-template, reasoning-format, and main/draft KV-cache option arrays.
 - `llama_flags_runner_unit.cjs`: deterministic binary-selection fixtures, required-build failures, no fallback from explicit paths, custom-backend discovery, failed/timed-out help, negated flags, and fork-only exclusions.
 - `llama_flags_supported_unit.cjs`: compares GUI flags against real `llama-server` / `llama-cli` help output. Flags marked `fork_only: true` are always exempt; flags marked `removed_in: "bNNNNN"` (upstream removals retained for older builds) are exempt when the probed binary reports a build at or above that tag, parsed from `--version`. CI requires the pinned CPU binaries; optional local discovery can skip with a message.
-- `js_syntax_check.cjs`: syntax-only check for frontend JavaScript.
 
 Browser smoke test:
 

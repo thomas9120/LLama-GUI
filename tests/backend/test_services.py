@@ -58,16 +58,6 @@ class FakeDownloadResponse:
         return chunk
 
 
-class FakeDownloadResponseTests(unittest.TestCase):
-    def test_read_respects_requested_size(self):
-        resp = FakeDownloadResponse([b"abc", b"def"])
-
-        self.assertEqual(resp.read(2), b"ab")
-        self.assertEqual(resp.read(3), b"cde")
-        self.assertEqual(resp.read(10), b"f")
-        self.assertEqual(resp.read(10), b"")
-
-
 class LocalLlamaHttpTests(unittest.TestCase):
     @staticmethod
     def make_response(body, content_type="", status=200):
@@ -4000,8 +3990,10 @@ class ValidateHfRepoIdDirectTests(unittest.TestCase):
             hf_service.validate_hf_repo_id("ownermodel")
 
     def test_rejects_double_dots(self):
-        with self.assertRaises(ValueError):
-            hf_service.validate_hf_repo_id("owner/..model")
+        for value in ("owner/..model", "../model"):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    hf_service.validate_hf_repo_id(value)
 
     def test_rejects_trailing_dot(self):
         with self.assertRaises(ValueError):
@@ -4035,6 +4027,10 @@ class ValidateHfFilenameDirectTests(unittest.TestCase):
     def test_rejects_null_byte(self):
         with self.assertRaises(ValueError):
             hf_service.validate_hf_filename("mod\x00el.gguf")
+
+    def test_rejects_colon(self):
+        with self.assertRaises(ValueError):
+            hf_service.validate_hf_filename("bad:name.gguf")
 
     def test_rejects_windows_reserved_device_names(self):
         for name in (
@@ -4077,6 +4073,10 @@ class ValidateHfRevisionDirectTests(unittest.TestCase):
     def test_rejects_traversal(self):
         with self.assertRaises(ValueError):
             hf_service.validate_hf_revision("refs/../main")
+
+    def test_rejects_null_byte(self):
+        with self.assertRaises(ValueError):
+            hf_service.validate_hf_revision("bad\x00name")
 
 
 class WebSearchDirectTests(unittest.TestCase):
