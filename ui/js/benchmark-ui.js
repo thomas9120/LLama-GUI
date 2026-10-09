@@ -655,8 +655,7 @@
         };
     }
 
-    function benchmarkToolAvailability(tool) {
-        const status = typeof getLatestStatus === "function" ? getLatestStatus() : null;
+    function benchmarkToolAvailability(tool, status) {
         if (!status) return null;
         const systemTools = status.system_tools;
         if (systemTools && typeof systemTools === "object" && systemTools[tool]) {
@@ -672,8 +671,13 @@
 
     function renderCommand() {
         let result = buildBenchmarkArgs(getBuildOptions());
-        const unavailable = benchmarkToolAvailability(result.tool);
-        if (!result.error && unavailable === false) {
+        const latestStatus = typeof getLatestStatus === "function" ? getLatestStatus() : null;
+        const unavailable = benchmarkToolAvailability(result.tool, latestStatus);
+        // Only System selections gate the run up front: PATH guidance is
+        // specific to inherited-environment discovery. For official/Custom
+        // backends the launch endpoint stays authoritative, so fixture or
+        // transitional statuses can never wedge the button disabled.
+        if (!result.error && unavailable === false && latestStatus && latestStatus.backend === "system") {
             const feature = result.tool === "llama-bench" ? "Throughput benchmarks" : "Perplexity runs";
             result = { ...result, error: `${result.tool} was not found on the PATH inherited by Llama GUI. ${feature} need it; other features remain usable.`, command: "" };
         }

@@ -466,6 +466,14 @@ function testQuickLaunch() {
     assert.equal(elements.get("btn-quick-launch").disabled, true);
     assert.match(elements.get("btn-quick-launch").title, /PATH inherited by Llama GUI/);
 
+    // Non-System backends never gate the launch up front: the launch
+    // endpoint stays authoritative even for inconsistent statuses.
+    latestStatus = systemStatus({ backend: "cpu", version: "b1234", tag: "b1234" });
+    currentTool = "llama-cli";
+    ui.refresh();
+    assert.equal(elements.get("btn-quick-launch").disabled, false, "official backends must not be gated by frontend tool checks");
+    assert.equal(elements.get("btn-quick-launch").title, "");
+
     console.log("system quick-launch unit tests passed");
 }
 
@@ -533,6 +541,15 @@ function testBenchmark() {
     assert.match(result.error || "", /llama-bench was not found/);
     assert.equal(nodes["btn-run-benchmark"].disabled, true);
     void documentBackup;
+
+    // Non-System backends never gate the run up front: the launch endpoint
+    // stays authoritative even for inconsistent statuses.
+    context.window.LlamaGui.benchmarkUi.configure({
+        getLatestStatus: () => ({ ...systemStatus(), backend: "cpu" }),
+    });
+    const unrestricted = bench.renderCommand();
+    assert.ok(!unrestricted.error || !unrestricted.error.includes("was not found"), "official backends must not be gated by frontend tool checks");
+    assert.equal(nodes["btn-run-benchmark"].disabled, false);
 
     console.log("system benchmark unit tests passed");
 }

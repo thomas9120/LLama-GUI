@@ -73,6 +73,9 @@ class SystemBackendTests(unittest.TestCase):
         )
         with open(path, "w") as handle:
             handle.write(tool)
+        # POSIX `shutil.which()` only matches executable files, so fixtures
+        # need the bit even though the faked platform is win32.
+        os.chmod(path, 0o755)
         return path
 
     def path_env(self):

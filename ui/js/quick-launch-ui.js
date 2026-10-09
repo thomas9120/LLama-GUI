@@ -538,7 +538,11 @@
         }
         const tool = flagCore.getCurrentTool();
         const available = getToolAvailability(status, tool);
-        if (available === false) {
+        // Only System selections gate the launch up front: PATH guidance is
+        // specific to inherited-environment discovery. For official/Custom
+        // backends the launch endpoint stays authoritative, so fixture or
+        // transitional statuses can never wedge the button disabled.
+        if (available === false && status && status.backend === "system") {
             if (tool === "llama-cli") {
                 return {
                     ok: false,
