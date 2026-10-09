@@ -59,6 +59,34 @@ Restart without the variable to restore the checks.
 
 Lemonade ROCm archives include user-space ROCm libraries, but the selected `gfx` target must match the GPU and the host still needs working AMD kernel-driver access. If model loading runs unusually long, the app keeps the process stoppable and adds a persistent warning directing you to the live process output.
 
+## System (PATH) backend
+
+**System (PATH)** in Install & Update uses the llama.cpp tools already on the
+GUI process's inherited `PATH` — the OS package manager owns installation and
+updates. Only `llama-server` is required; `llama-cli`, `llama-bench`,
+`llama-perplexity`, and memory estimation are per-feature and report their own
+unavailability without blocking anything else.
+
+`llama-server was not found on the PATH inherited by Llama GUI` means the GUI
+process itself cannot see the tool. The GUI inherits `PATH` from whatever
+started it, so a terminal and a desktop/Pinokio launcher often disagree: start
+the GUI from the environment where the tools are available (e.g. `nix-shell`,
+a login shell, or the launcher profile that provides them), or restart the
+GUI after changing its launch environment. The GUI never edits shell startup
+files and never dumps the environment; check with the tool's own
+`llama-server --version` in that same environment.
+
+A `System (PATH) (unknown build)` badge means the tool runs but its
+`--version` output matches no recognized build format. Flag gates stay
+conservative (legacy argument paths) and everything else works; do not invent
+a release tag from a package version.
+
+There is no Update or Repair for System tools — update through the package
+manager, then later launches pick up the new binaries automatically (a running
+process keeps its own binary until stopped). **Remove llama.cpp Files** keeps
+an active System selection. If the server was removed or broke, status reports
+stale with the same `PATH`/`--version` guidance instead of switching backends.
+
 ## Antivirus / Defender quarantine
 
 Install looks fine but binaries are missing: check quarantine, restore blocked `llama/` files, and only add a project exclusion if you trust the source.

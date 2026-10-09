@@ -1049,6 +1049,64 @@ Both slots retain `tag` / `version: "custom"` for existing flag-compatibility be
 
 **Open llama.cpp** opens the active Custom slot's root (containing `bin` and `grammars`), or the main `llama/` directory for official builds. Official update and repair paths exclude both slots. **Remove llama.cpp Files** only removes official runtime directories and metadata; it preserves both custom directories and an active custom selection. The GitHub release importer remains deferred.
 
+## System (PATH) Backend
+
+Install & Update also offers **System (PATH)**, which uses the llama.cpp tools
+already on the GUI process's inherited `PATH` instead of a downloaded build.
+The OS package manager owns installation and updates; Llama GUI only
+discovers, launches, and stops its own child processes. This replaces the old
+workaround of symlinking system executables into `llama/custom/bin/` and fits
+NixOS packages and wrappers that supply their own runtime dependencies.
+
+Selection and discovery live in `backend/services/llama_manager.py`.
+`build_backend_specs()` appends the `system` spec (no download asset) and
+`GET /api/status` marks it with `system_path: true` in `available_backends`.
+Each known tool resolves independently with `shutil.which()` on the
+platform-aware filename: inherited `PATH` only (normal precedence, relative
+entries included), made absolute without dereferencing symlinks so
+Nix/store wrappers keep their entry point, with no shell and no fallback to
+repository installations. Discovery accepts only known llama.cpp tools;
+`llama-fit-params` is an internal memory-estimation target, never a launch
+option. A missing System tool resolves to `None` explicitly.
+
+**Activate System** sends `POST /api/activate-system` with an empty body —
+client-supplied paths are rejected. The route holds the install/launch
+interlock and requires a bounded, model-free `--version` probe of the
+discovered `llama-server` before saving config; only `llama-server` is
+required, every other tool is an independently available feature. Success
+persists just the `backend`/`tag`/`version: "system"` marker (merging with the
+latest config so model-root and other settings survive) and preserves the
+remembered official installation for the return path. Failed probing leaves
+configuration unchanged, and discovered paths/build tags are never persisted —
+restart rediscovers them from the new process's environment.
+
+Runtime validation executes the discovered entry point with a 5-second
+`--version` probe using the inherited environment and shared window-hiding
+flags. Exit 0 with an unrecognized format is a successful execution with no
+build tag (conservative flag gates apply); only failure to execute fails
+health. Results are cached under the runtime-health lock keyed by executable
+path plus file identity, so a replaced package target invalidates stale
+probes. `ldd`/`otool` never run against System entries. Launches `exec` the
+re-resolved entry point with the inherited environment plus validated
+per-launch `LLAMA_`/`GGML_` overrides; no repository binary/library directory
+is prepended. Memory estimation validates `llama-fit-params` itself and a
+missing/broken estimator never blocks server launches.
+
+`GET /api/status` reports `system_tools` (per-tool discovered path,
+availability, build tag, probe state), `system_server_error` (`None` when
+healthy), and server-only readiness — a missing CLI leaves server/Chat
+usable. The selected `version: "system"` marker stays separate from
+discovered build tags, and a removed/broken server reports stale with `PATH`
+guidance without clearing the selection. Release listing returns empty for
+System, install/update/activate-existing reject it before any download or
+mutation, cleanup preserves an active System selection while clearing removed
+official-install metadata, and Open Folder reveals the discovered server's
+directory read-only. The frontend (`ui/js/manager/manager-backends.js`,
+`ui/js/flag-core.js`) renders per-tool paths, feeds per-tool build tags into
+the shared flag-compatibility gates (unknown builds show `(unknown build)`),
+and adjusts Quick Launch and Benchmarking readiness per requested tool, with
+backend launch validation remaining authoritative.
+
 ## Auto-Update System
 
 ### How It Works

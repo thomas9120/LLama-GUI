@@ -100,6 +100,24 @@ assert.equal(selected02.exitCode, 0);
 assert.deepEqual(selected02.calls, custom02, "the second slot must take precedence over the first and PATH");
 assert.equal(run({ files: both, env: { LLAMA_CPP_BIN_DIR: "/pin" } }).exitCode, 0);
 
+const systemSelected = run({ config: { backend: "system" }, files: both, env: { PATH: "/pin" } });
+assert.equal(systemSelected.exitCode, 0);
+assert.deepEqual(systemSelected.calls, both, "a System selection must check the PATH tools");
+const systemNoRepoFallback = run({
+    config: { backend: "system" },
+    files: [...both, "/repo/llama/bin/llama-server", "/repo/llama/bin/llama-cli", "/repo/llama/llama-server"],
+    env: { PATH: "/pin" },
+});
+assert.equal(systemNoRepoFallback.exitCode, 0);
+assert.deepEqual(systemNoRepoFallback.calls, both, "a System selection must never fall back to repository binaries");
+const systemServerOnly = run({
+    config: { backend: "system" },
+    files: [both[0]],
+    env: { PATH: "/pin" },
+});
+assert.equal(systemServerOnly.exitCode, 0, "a server-only System installation still checks its server");
+assert.deepEqual(systemServerOnly.calls, [both[0]], "a missing System CLI must not fail the server check");
+
 // removed_in exemption: builds at or above the removal tag may lack the flag;
 // older builds must still advertise it; unparseable versions stay strict.
 const removedPinned = { env: { LLAMA_GUI_LLAMA_BIN_DIR: "/pin" }, files: both, flagDefs: removedFlags };

@@ -40,6 +40,22 @@ function candidateExecutables(toolName) {
     }
     const installedDirectory = ["custom", "custom-02"].includes(backend)
         ? path.join(ROOT, "llama", backend, "bin") : path.join(ROOT, "llama", "bin");
+    if (backend === "system") {
+        // A System (PATH) selection resolves each tool from the PATH
+        // inherited by the GUI process. Repository installations are never
+        // a fallback: checking them first could pin the comparison to a
+        // stale downloaded build instead of the selected system tools.
+        const seen = new Set();
+        const candidates = [];
+        for (const dir of pathEntries()) {
+            const candidate = path.resolve(dir, exeName);
+            const key = candidate.toLowerCase();
+            if (seen.has(key)) continue;
+            seen.add(key);
+            candidates.push(candidate);
+        }
+        return candidates;
+    }
     const dirs = [
         installedDirectory,
         path.join(ROOT, "llama"),
