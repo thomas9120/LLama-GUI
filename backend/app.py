@@ -979,6 +979,7 @@ API_ROUTER = (
     .add("POST", "/api/install", install_routes.start_install)
     .add("POST", "/api/update", install_routes.start_update)
     .add("POST", "/api/activate-custom", install_routes.activate_custom)
+    .add("POST", "/api/activate-system", install_routes.activate_system)
     .add("POST", "/api/launch/preflight", process_routes.preflight_launch)
     .add("POST", "/api/presets/fingerprint", process_routes.fingerprint_preset)
     .add("POST", "/api/launch", process_routes.launch)

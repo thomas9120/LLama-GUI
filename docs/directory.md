@@ -100,7 +100,7 @@
 
 ### Route Modules (`backend/routes/`)
 
-`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 49 exact routes plus one prefix route, 50 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
+`API_ROUTER` at the bottom of `backend/app.py` is the authoritative registry: 50 exact routes plus one prefix route, 51 endpoints total. Keep this table in sync with it — a route that is registered but undocumented here is the drift that is hardest to notice.
 
 | Route | Endpoints |
 |-------|-----------|
@@ -108,7 +108,7 @@
 | `external_server.py` | `GET /api/chat/target` (read the live and remembered target), `POST /api/chat/target` (register an externally started llama-server as the proxy target; `POST {"restore": true}` re-registers the address saved by an earlier session), `DELETE /api/chat/target` (clear it) |
 | `benchmarks.py` | `POST /api/benchmark/wikitext2` — ensure WikiText-2 raw test file exists |
 | `process.py` | `POST /api/launch`, `POST /api/launch/preflight`, `POST /api/presets/fingerprint`, `POST /api/estimate-memory`, generation-bound `POST /api/stop`, `POST /api/send-input`, `POST /api/cleanup-llama`, `GET /api/output`, `GET /api/llama/health`, `GET /api/llama/buffer-types` |
-| `install.py` | `GET /api/backends` — refresh the cached official CUDA/ROCm catalog (`?refresh=1` requests a manual refresh; returns a warning on fallback), `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` (optional `backend`: `custom` or `custom-02`; omitted defaults to `custom`) |
+| `install.py` | `GET /api/backends` — refresh the cached official CUDA/ROCm catalog (`?refresh=1` requests a manual refresh; returns a warning on fallback), `GET /api/releases`, `GET /api/download-progress`, `POST /api/install`, `POST /api/update`, `POST /api/activate-custom` (optional `backend`: `custom` or `custom-02`; omitted defaults to `custom`), `POST /api/activate-system` (System PATH activation; accepts no client-supplied path) |
 | `metrics.py` | `GET /api/llama/metrics`, `GET /api/llama/slots`, `GET /api/llama/props` — Prometheus proxy and template-capability props |
 | `models.py` | `GET /api/models` — list GGUF files recursively as names relative to the active model root |
 | `model_dir.py` | `POST /api/models-dir` — set or reset the active model root |

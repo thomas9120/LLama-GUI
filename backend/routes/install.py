@@ -37,7 +37,7 @@ def get_releases(request, response, ctx):
         spec = None
         query = urllib.parse.parse_qs(request.query or "")
         backend = (query.get("backend") or [""])[0].strip()
-        if llama_manager.is_custom_backend(backend):
+        if llama_manager.is_custom_backend(backend) or llama_manager.is_system_backend(backend):
             response.json([])
             return
         if backend:
@@ -88,6 +88,15 @@ def start_install(request, response, ctx):
         return
     if llama_manager.is_custom_backend(backend):
         response.error("Use /api/activate-custom to set up the custom backend", 400)
+        return
+    if llama_manager.is_system_backend(backend):
+        if activate_existing:
+            response.error("Use /api/activate-system to activate System (PATH) tools", 400)
+        else:
+            response.error(
+                "System (PATH) tools are installed by the OS package manager; "
+                "use /api/activate-system to use them", 400
+            )
         return
     if backend not in backend_specs:
         response.error(f"Unsupported backend: {backend}", 400)
@@ -141,6 +150,11 @@ def start_update(request, response, ctx):
         return
     if llama_manager.is_custom_backend(backend):
         response.error("Cannot auto-update a custom backend installation", 400)
+        return
+    if llama_manager.is_system_backend(backend):
+        response.error(
+            "System (PATH) tools are updated by the OS package manager", 400
+        )
         return
     if backend not in backend_specs:
         response.error(f"Unsupported configured backend: {backend}", 400)
@@ -214,6 +228,34 @@ def start_update(request, response, ctx):
         response.error(sanitize_error(exc, 500), 500)
         return
     response.json({"status": "started", "from": tag, "to": latest})
+
+
+def activate_system(request, response, ctx):
+    body = request.body or {}
+    if not isinstance(body, dict):
+        response.error("Invalid request body", 400)
+        return
+    for key in ("path", "executable", "executable_path", "bin_dir", "directory"):
+        if key in body:
+            response.error(
+                "System activation uses the PATH inherited by Llama GUI; "
+                "client-supplied paths are not accepted",
+                400,
+            )
+            return
+    try:
+        claim_error = _claim_install_slot(ctx)
+        if claim_error is not None:
+            response.error(*claim_error)
+            return
+        try:
+            result = llama_manager.activate_system_backend(ctx)
+            response.json(result)
+        finally:
+            process_manager.release_install_slot(ctx)
+    except Exception as e:
+        print(f"[install] activate system backend failed: {e}", file=sys.stderr)
+        response.error(sanitize_error(e, 500), 500)
 
 
 def activate_custom(request, response, ctx):

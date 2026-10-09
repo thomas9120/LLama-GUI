@@ -1715,7 +1715,10 @@ def remove_llama_files(ctx: AppContext) -> int:
 
     with ctx.state.config_lock:
         config_data = _load_config_safe(ctx)
-        if not llama_manager.is_custom_backend(config_data.get("backend")):
+        if not (
+            llama_manager.is_custom_backend(config_data.get("backend"))
+            or llama_manager.is_system_backend(config_data.get("backend"))
+        ):
             config_data.update({"version": None, "backend": None, "tag": None})
         config_data.pop("official_install", None)
         ctx.services.save_config(config_data)

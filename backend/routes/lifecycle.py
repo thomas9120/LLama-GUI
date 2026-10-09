@@ -27,9 +27,24 @@ def post_open_folder(request, response, ctx):
     try:
         if folder == "llama":
             backend = ctx.services.load_config().get("backend")
-            target = (llama_manager.get_backend_bin_dir(ctx, backend).parent
-                      if llama_manager.is_custom_backend(backend) else ctx.paths.llama)
-            target.mkdir(parents=True, exist_ok=True)
+            if llama_manager.is_system_backend(backend):
+                # Read-only policy: reveal the discovered server's directory
+                # without creating anything. A missing server reports PATH
+                # guidance instead of falling back to an application folder.
+                try:
+                    server_exe = ctx.services.find_tool_executable("llama-server")
+                except Exception:
+                    server_exe = None
+                if server_exe is None or not server_exe.is_file():
+                    response.error(llama_manager.SYSTEM_PATH_GUIDANCE, 409)
+                    return
+                target = server_exe.parent
+            elif llama_manager.is_custom_backend(backend):
+                target = llama_manager.get_backend_bin_dir(ctx, backend).parent
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target = ctx.paths.llama
+                target.mkdir(parents=True, exist_ok=True)
         else:
             target = model_dir.get_models_dir(ctx)
         lifecycle_service.open_folder_in_file_manager(target)

@@ -56,6 +56,14 @@ CUSTOM_BACKEND_SPECS = {
 SYSTEM_BACKEND_ID = "system"
 SYSTEM_BACKEND_LABEL = "System (PATH)"
 
+# Actionable guidance when the required System server entry point cannot be
+# found on the inherited PATH. Never dump the environment or offer shell edits.
+SYSTEM_PATH_GUIDANCE = (
+    "llama-server was not found on the PATH inherited by Llama GUI. "
+    "Start the GUI from the environment where it is available, or restart "
+    "the GUI after changing its launch environment."
+)
+
 # Internal PATH discovery target that is never a public launch tool. Memory
 # estimation locates it separately; Stage 1 only resolves it.
 SYSTEM_INTERNAL_TOOLS = ("llama-fit-params",)
@@ -926,12 +934,119 @@ def activate_custom_backend(ctx: AppContext, backend: str = "custom") -> dict[st
         return {"ok": False, "error": sanitize_error(e, 500)}
 
 
+def activate_system_backend(ctx: AppContext) -> dict[str, Any]:
+    """Activate System (PATH) tools after a successful server execution probe.
+
+    Discovery uses the inherited PATH only; no client-supplied path is
+    accepted (the route rejects those before calling here). Only
+    ``llama-server`` is required; every other known tool is reported as an
+    independently available feature. Configuration is unchanged unless the
+    server probe succeeds. Discovered paths and build tags are returned for
+    display but never persisted: restart rediscovers them.
+    """
+    try:
+        try:
+            tools = list(ctx.services.llama_tools or [])
+        except Exception:
+            tools = []
+        try:
+            server_filename = ctx.services.get_tool_filename("llama-server")
+        except Exception:
+            server_filename = "llama-server"
+
+        paths: dict[str, str] = {}
+        found: list[str] = []
+        missing: list[str] = []
+        for tool in tools:
+            try:
+                exe_path = resolve_system_tool_executable(ctx, tool)
+            except Exception:
+                exe_path = None
+            try:
+                exe_name = ctx.services.get_tool_filename(tool)
+            except Exception:
+                exe_name = str(tool)
+            if exe_path is None:
+                missing.append(exe_name)
+            else:
+                found.append(exe_name)
+                paths[tool] = str(exe_path)
+
+        try:
+            server_exe = resolve_system_tool_executable(ctx, "llama-server")
+        except Exception:
+            server_exe = None
+        if server_exe is None:
+            return {
+                "ok": False,
+                "found": sorted(found),
+                "missing": sorted(missing),
+                "missing_required": [server_filename],
+                "paths": paths,
+                "build_tags": {},
+                "error": SYSTEM_PATH_GUIDANCE,
+            }
+
+        probe = probe_system_tool_executable(ctx, "llama-server", server_exe)
+        if not probe.get("ok"):
+            detail = probe.get("error") or "could not be started"
+            return {
+                "ok": False,
+                "found": sorted(found),
+                "missing": sorted(missing),
+                "missing_required": [],
+                "paths": paths,
+                "build_tags": {},
+                "probe_error": detail,
+                "error": (
+                    f"{server_filename} {detail}. "
+                    f"Check that it runs with `{server_filename} --version`."
+                ),
+            }
+
+        build_tags: dict[str, str] = {}
+        if probe.get("build_tag"):
+            build_tags["llama-server"] = probe["build_tag"]
+
+        with ctx.state.config_lock:
+            cfg = dict(ctx.services.load_config())
+            if cfg.get("backend") and is_official_backend(cfg.get("backend")) and cfg.get("tag"):
+                cfg["official_install"] = {
+                    "backend": cfg["backend"],
+                    "tag": cfg["tag"],
+                    "version": cfg.get("version") or cfg["tag"],
+                }
+            cfg["version"] = SYSTEM_BACKEND_ID
+            cfg["backend"] = SYSTEM_BACKEND_ID
+            cfg["tag"] = SYSTEM_BACKEND_ID
+            ctx.services.save_config(cfg)
+        ctx.state.clear_runtime_health_cache()
+        return {
+            "ok": True,
+            "backend": SYSTEM_BACKEND_ID,
+            "tag": SYSTEM_BACKEND_ID,
+            "version": SYSTEM_BACKEND_ID,
+            "found": sorted(found),
+            "missing": sorted(missing),
+            "missing_required": [],
+            "paths": paths,
+            "build_tags": build_tags,
+            "server_path": str(server_exe),
+        }
+    except Exception as e:
+        print(f"[llama_manager] activate_system_backend failed: {e}", file=sys.stderr)
+        return {"ok": False, "error": sanitize_error(e, 500)}
+
+
 def get_official_install_status(
     ctx: AppContext, cfg: Optional[Mapping[str, Any]] = None
 ) -> dict[str, Any]:
     cfg = cfg or ctx.services.load_config()
     stored = cfg.get("official_install")
     stored = stored if isinstance(stored, Mapping) else {}
+    if is_system_backend(stored.get("backend")):
+        # System is never an official installation; ignore a stale record.
+        stored = {}
 
     backend = stored.get("backend")
     tag = stored.get("tag")
