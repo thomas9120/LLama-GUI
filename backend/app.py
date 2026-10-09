@@ -194,11 +194,17 @@ def get_tool_filename(tool):
 
 def find_tool_executable(tool):
     cfg = load_config()
-    return llama_manager_service.get_backend_bin_dir(APP_CONTEXT, cfg.get("backend")) / get_tool_filename(tool)
+    return llama_manager_service.resolve_backend_tool_executable(
+        APP_CONTEXT, cfg.get("backend"), tool
+    )
 
 
 def get_runtime_files():
     cfg = load_config()
+    if llama_manager_service.is_system_backend(cfg.get("backend")):
+        # System tools live across PATH directories; there is no single
+        # repository bin directory to enumerate.
+        return []
     search_dir = llama_manager_service.get_backend_bin_dir(APP_CONTEXT, cfg.get("backend"))
     if not search_dir.exists():
         return []

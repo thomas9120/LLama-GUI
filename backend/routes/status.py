@@ -20,7 +20,7 @@ def get_status(request, response, ctx):
         for tool in services.llama_tools:
             name = services.get_tool_filename(tool)
             executable = services.find_tool_executable(tool)
-            exes[name] = executable.is_file() and (
+            exes[name] = executable is not None and executable.is_file() and (
                 services.current_platform == "win32" or os.access(executable, os.X_OK)
             )
 

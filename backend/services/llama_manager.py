@@ -47,12 +47,43 @@ CUSTOM_BACKEND_SPECS = {
     "custom-02": {"label": "Custom 02", "folder": "custom-02"},
 }
 
+# Backend ID for llama.cpp tools resolved from the GUI process's inherited
+# PATH. The OS package manager owns installation and updates; Llama GUI only
+# discovers, launches, and stops its own child processes. Stage 1 covers
+# classification and discovery; activation/probes/launch arrive in later stages.
+SYSTEM_BACKEND_ID = "system"
+SYSTEM_BACKEND_LABEL = "System (PATH)"
+
+# Internal PATH discovery target that is never a public launch tool. Memory
+# estimation locates it separately (Stage 2); Stage 1 only resolves it.
+SYSTEM_INTERNAL_TOOLS = ("llama-fit-params",)
+
 
 def is_custom_backend(backend: Any) -> bool:
     return isinstance(backend, str) and backend in CUSTOM_BACKEND_SPECS
 
 
+def is_system_backend(backend: Any) -> bool:
+    return isinstance(backend, str) and backend == SYSTEM_BACKEND_ID
+
+
+def is_externally_managed_backend(backend: Any) -> bool:
+    """Installations owned outside the GUI (package manager, not llama/)."""
+    return is_system_backend(backend)
+
+
+def is_official_backend(backend: Any) -> bool:
+    """Downloadable llama.cpp builds managed under llama/bin/."""
+    return (
+        isinstance(backend, str)
+        and not is_custom_backend(backend)
+        and not is_system_backend(backend)
+    )
+
+
 def get_backend_bin_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
+    if is_system_backend(backend):
+        raise ValueError("System (PATH) backend has no single bin directory.")
     if backend == "custom":
         return ctx.paths.llama_custom_bin
     if is_custom_backend(backend):
@@ -61,6 +92,8 @@ def get_backend_bin_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
 
 
 def get_backend_grammars_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
+    if is_system_backend(backend):
+        raise ValueError("System (PATH) backend has no single grammars directory.")
     if backend == "custom":
         return ctx.paths.llama_custom_grammars
     if is_custom_backend(backend):
@@ -70,6 +103,93 @@ def get_backend_grammars_dir(ctx: AppContext, backend: Any) -> pathlib.Path:
 
 def custom_backend_bin_label(backend: str) -> str:
     return f"llama/{CUSTOM_BACKEND_SPECS[backend]['folder']}/bin/"
+
+
+def is_system_discovery_tool(ctx: AppContext, tool: Any) -> bool:
+    """Restrict PATH discovery to known llama.cpp tools.
+
+    Public launch tools come from ``ctx.services.llama_tools``; the memory
+    estimator is an internal target that must never become a launch option.
+    Anything else returns False so arbitrary executable names cannot pass
+    through the API into ``shutil.which()``.
+    """
+    if not isinstance(tool, str) or not tool:
+        return False
+    try:
+        allowed = tuple(ctx.services.llama_tools or ())
+    except Exception:
+        allowed = ()
+    return tool in allowed or tool in SYSTEM_INTERNAL_TOOLS
+
+
+def resolve_system_tool_executable(
+    ctx: AppContext, tool: str
+) -> Optional[pathlib.Path]:
+    """Resolve one known tool from the inherited PATH, or None if unavailable.
+
+    Uses ``shutil.which()`` on the platform-aware filename so normal PATH
+    precedence (including relative entries) applies. The result is made
+    absolute with ``os.path.abspath()`` without dereferencing symlinks, so
+    Nix/store wrappers keep their entry point. No shell is launched and no
+    repository installation directory is consulted: tools may live in
+    different directories and a missing tool never falls back elsewhere.
+    """
+    if not is_system_discovery_tool(ctx, tool):
+        return None
+    try:
+        filename = ctx.services.get_tool_filename(tool)
+    except Exception:
+        return None
+    if not isinstance(filename, str) or not filename:
+        return None
+    if "/" in filename or "\\" in filename or "\x00" in filename:
+        return None
+    if ".." in pathlib.PurePosixPath(filename).parts:
+        return None
+    try:
+        found = shutil.which(filename)
+    except Exception:
+        return None
+    if not found:
+        return None
+    path = pathlib.Path(os.path.abspath(found))
+    try:
+        if not path.is_file():
+            return None
+    except OSError:
+        return None
+    current_platform = getattr(ctx.services, "current_platform", None) or sys.platform
+    if current_platform == "unknown":
+        current_platform = sys.platform
+    if current_platform != "win32":
+        try:
+            if not os.access(path, os.X_OK):
+                return None
+        except OSError:
+            return None
+    return path
+
+
+def resolve_backend_tool_executable(
+    ctx: AppContext, backend: Any, tool: str
+) -> Optional[pathlib.Path]:
+    """Shared resolver for the selected backend's tools.
+
+    System backends resolve each known tool independently from PATH and
+    return None when it is missing or undiscoverable. Official and Custom
+    backends preserve the existing folder-path result (which callers check
+    for existence) so their behavior is unchanged.
+    """
+    if is_system_backend(backend):
+        return resolve_system_tool_executable(ctx, tool)
+    try:
+        filename = ctx.services.get_tool_filename(tool)
+    except Exception:
+        return None
+    try:
+        return get_backend_bin_dir(ctx, backend) / filename
+    except Exception:
+        return None
 
 # (gpu_target, family label) for every target upstream publishes.
 LEMONADE_ROCM_TARGETS = [
@@ -114,7 +234,7 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
     def with_custom(specs: dict[str, Any]) -> dict[str, Any]:
         return {**specs, **{
             key: {"label": spec["label"]} for key, spec in CUSTOM_BACKEND_SPECS.items()
-        }}
+        }, SYSTEM_BACKEND_ID: {"label": SYSTEM_BACKEND_LABEL}}
 
     if current_platform == "win32":
         if current_arch == "arm64":
@@ -489,11 +609,33 @@ def _validate_runtime_dependencies_uncached(
     current_platform = ctx.services.current_platform or sys.platform
     if current_platform == "unknown":
         current_platform = sys.platform
+    if is_system_backend(cfg.get("backend")):
+        # Stage 1 has no packaged-library requirement for PATH tools; the
+        # Stage 2 version probe will establish that an entry point starts.
+        # Report availability explicitly without scanning PATH directories.
+        for tool in tool_names:
+            try:
+                exe_path = ctx.services.find_tool_executable(tool)
+            except Exception:
+                exe_path = None
+            if exe_path is None:
+                missing_executables.append(ctx.services.get_tool_filename(tool))
+        return {
+            "ok": True,
+            "checked": False,
+            "checked_tools": checked_tools,
+            "unchecked_tools": unchecked_tools,
+            "checked_runtime_files": checked_runtime_files,
+            "unchecked_runtime_files": unchecked_runtime_files,
+            "required_runtime_files": [],
+            "missing_runtime_files": [],
+            "missing_executables": missing_executables,
+        }
     runtime_dir = get_backend_bin_dir(ctx, cfg.get("backend"))
 
     for tool in tool_names:
         exe_path = ctx.services.find_tool_executable(tool)
-        if not exe_path.exists():
+        if exe_path is None or not exe_path.exists():
             missing_executables.append(ctx.services.get_tool_filename(tool))
             continue
         try:
@@ -594,7 +736,7 @@ def activate_custom_backend(ctx: AppContext, backend: str = "custom") -> dict[st
 
         with ctx.state.config_lock:
             cfg = dict(ctx.services.load_config())
-            if cfg.get("backend") and not is_custom_backend(cfg.get("backend")) and cfg.get("tag"):
+            if cfg.get("backend") and is_official_backend(cfg.get("backend")) and cfg.get("tag"):
                 cfg["official_install"] = {
                     "backend": cfg["backend"],
                     "tag": cfg["tag"],
@@ -628,7 +770,7 @@ def get_official_install_status(
     backend = stored.get("backend")
     tag = stored.get("tag")
     version = stored.get("version")
-    if cfg.get("backend") and not is_custom_backend(cfg.get("backend")) and cfg.get("tag"):
+    if cfg.get("backend") and is_official_backend(cfg.get("backend")) and cfg.get("tag"):
         backend = cfg.get("backend")
         tag = cfg.get("tag")
         version = cfg.get("version") or tag

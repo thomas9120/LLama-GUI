@@ -56,7 +56,7 @@ class BackendServices:
     binary_suffix: str = ""
     current_arch: str = "unknown"
     current_platform: str = "unknown"
-    find_tool_executable: Callable[[str], Path] = _missing_service
+    find_tool_executable: Callable[[str], Optional[Path]] = _missing_service
     get_local_llama_metrics: Callable[[str, str, str], Tuple[Optional[str], str]] = _missing_service
     get_local_llama_props: Callable[[str, str, str], Tuple[Optional[str], str]] = _missing_service
     get_local_llama_slots: Callable[[str, str, str], Tuple[Optional[str], str]] = _missing_service

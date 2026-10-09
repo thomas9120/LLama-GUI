@@ -491,8 +491,10 @@ def _load_config_safe(ctx: AppContext) -> dict[str, Any]:
 
 
 def _fit_params_executable(ctx: AppContext) -> Any:
-    suffix = getattr(ctx.services, "binary_suffix", "") or ""
     cfg = _load_config_safe(ctx)
+    if llama_manager.is_system_backend(cfg.get("backend")):
+        return llama_manager.resolve_system_tool_executable(ctx, "llama-fit-params")
+    suffix = getattr(ctx.services, "binary_suffix", "") or ""
     bin_dir = llama_manager.get_backend_bin_dir(ctx, cfg.get("backend"))
     return bin_dir / f"llama-fit-params{suffix}"
 
@@ -575,7 +577,7 @@ def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
     tool = "llama-cli" if "llama-cli" in allowed_tools else (allowed_tools[0] if allowed_tools else "llama-cli")
     exe_name = ctx.services.get_tool_filename(tool)
     exe_path = ctx.services.find_tool_executable(tool)
-    if not exe_path.exists():
+    if exe_path is None or not exe_path.exists():
         return {
             "buffers": ["CPU"],
             "default": "CPU",
@@ -719,7 +721,7 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
         return {"error": f"Unknown tool: {tool!r}"}
 
     exe_path = _fit_params_executable(ctx)
-    if not exe_path.exists():
+    if exe_path is None or not exe_path.exists():
         return {"error": "llama-fit-params not found. Install or repair llama.cpp first."}
 
     runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
@@ -1063,6 +1065,11 @@ def normalize_process_env(value: Any) -> dict[str, str]:
 def _build_process_env(ctx: AppContext) -> dict[str, str]:
     env = os.environ.copy()
     cfg = _load_config_safe(ctx)
+    if llama_manager.is_system_backend(cfg.get("backend")):
+        # System tools use the inherited environment as-is; no repository
+        # binary/library directory is prepended. Per-launch LLAMA_/GGML_
+        # overrides are merged by the caller.
+        return env
     bin_dir = llama_manager.get_backend_bin_dir(ctx, cfg.get("backend"))
     runtime_paths = [str(bin_dir)]
     existing_path = env.get("PATH", "")
@@ -1145,7 +1152,7 @@ def _validate_launch_environment(
 ) -> tuple[Optional[Path], Optional[str]]:
     exe_name = ctx.services.get_tool_filename(tool)
     exe_path = ctx.services.find_tool_executable(tool)
-    if not exe_path.is_file():
+    if exe_path is None or not exe_path.is_file():
         return None, f"{exe_name} not found. Install llama.cpp first."
 
     current_platform = ctx.services.current_platform

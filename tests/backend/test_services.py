@@ -406,13 +406,13 @@ class BuildBackendSpecsTests(unittest.TestCase):
     def test_darwin_x64_returns_cpu_only(self):
         specs = llama_manager.build_backend_specs("darwin", "x64")
 
-        self.assertEqual(list(specs.keys()), ["cpu", "custom", "custom-02"])
+        self.assertEqual(list(specs.keys()), ["cpu", "custom", "custom-02", "system"])
         self.assertIn("macos-x64", specs["cpu"]["asset"])
 
     def test_darwin_unknown_arch_returns_empty(self):
         specs = llama_manager.build_backend_specs("darwin", "ppc64")
 
-        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}})
+        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}, "system": {"label": "System (PATH)"}})
 
     def test_linux_x64_returns_cpu_vulkan_rocm_openvino(self):
         specs = llama_manager.build_backend_specs("linux", "x64")
@@ -458,23 +458,23 @@ class BuildBackendSpecsTests(unittest.TestCase):
     def test_linux_s390x_returns_cpu_only(self):
         specs = llama_manager.build_backend_specs("linux", "s390x")
 
-        self.assertEqual(list(specs.keys()), ["cpu", "custom", "custom-02"])
+        self.assertEqual(list(specs.keys()), ["cpu", "custom", "custom-02", "system"])
         self.assertIn("s390x", specs["cpu"]["asset"])
 
     def test_linux_unknown_arch_returns_empty(self):
         specs = llama_manager.build_backend_specs("linux", "riscv64")
 
-        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}})
+        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}, "system": {"label": "System (PATH)"}})
 
     def test_unknown_platform_returns_empty(self):
         specs = llama_manager.build_backend_specs("freebsd", "x64")
 
-        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}})
+        self.assertEqual(specs, {"custom": {"label": "Custom"}, "custom-02": {"label": "Custom 02"}, "system": {"label": "System (PATH)"}})
 
     def test_custom_backend_available_without_prebuilt_backend(self):
         specs = llama_manager.build_backend_specs("plan9", "weird64")
 
-        self.assertEqual(list(specs.keys()), ["custom", "custom-02"])
+        self.assertEqual(list(specs.keys()), ["custom", "custom-02", "system"])
 
     def test_asset_patterns_contain_tag_placeholder(self):
         for platform_name, arch in [("win32", "x64"), ("darwin", "arm64"), ("linux", "x64")]:
