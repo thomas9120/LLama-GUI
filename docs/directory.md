@@ -1372,6 +1372,7 @@ Prefer `rg` for local search. On Windows/PowerShell, use patterns like `rg -n "p
 | `CONTRIBUTING.md` | Developer quickstart: setup, run, dev loop, tests, and PR checklist |
 | `docs/directory.md` | This file — project structure and feature reference |
 | `docs/tests.md` | Test suite layout, commands, and what each test covers |
+| `docs/system-path-backend-plan.md` | Proposed staged implementation for using system-managed llama.cpp tools from PATH (issue #399) |
 | `docs/gpu-monitoring.md` | User setup guide for NVIDIA SMI, AMD SMI, and the optional cross-vendor all-smi collector |
 | `docs/maintenance.md` | Release, dependency, compatibility, and repository maintenance guidance |
 | `docs/security.md` | Security model, trust boundaries, and reporting guidance |
