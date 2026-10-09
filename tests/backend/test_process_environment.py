@@ -51,3 +51,39 @@ class ProcessEnvironmentTests(unittest.TestCase):
         value = {"GGML_TEST": "a=b; $HOME 'quoted'", "GGML_EMPTY": ""}
         self.assertEqual(process_manager.normalize_process_env(value), value)
 
+
+class SystemProcessEnvironmentTests(unittest.TestCase):
+    def _system_ctx(self):
+        ctx = AppContext()
+        ctx.services.load_config = lambda: {"backend": "system", "tag": "system"}
+        ctx.services.llama_tools = ["llama-cli", "llama-server"]
+        ctx.services.get_tool_filename = lambda tool: tool
+        ctx.services.current_platform = "linux"
+        return ctx
+
+    def test_system_env_preserves_inherited_paths_without_repo_prepend(self):
+        ctx = self._system_ctx()
+        with mock.patch.dict(
+            os.environ,
+            {
+                "PATH": "inherited-path",
+                "LD_LIBRARY_PATH": "inherited-libs",
+                "DYLD_LIBRARY_PATH": "inherited-dyld",
+            },
+        ):
+            env = process_manager._build_process_env(ctx)
+        self.assertEqual(env["PATH"], "inherited-path")
+        self.assertEqual(env["LD_LIBRARY_PATH"], "inherited-libs")
+        self.assertEqual(env["DYLD_LIBRARY_PATH"], "inherited-dyld")
+        self.assertNotIn(str(ctx.paths.llama_bin), env["PATH"])
+        self.assertNotIn(str(ctx.paths.llama_bin), env["LD_LIBRARY_PATH"])
+
+    def test_official_env_still_prepends_repo_bin_dir(self):
+        ctx = self._system_ctx()
+        ctx.services.load_config = lambda: {"backend": "cpu", "tag": "b1"}
+        with mock.patch.dict(os.environ, {"PATH": "inherited-path"}):
+            env = process_manager._build_process_env(ctx)
+        self.assertTrue(
+            env["PATH"].startswith(str(ctx.paths.llama_bin) + os.pathsep)
+        )
+

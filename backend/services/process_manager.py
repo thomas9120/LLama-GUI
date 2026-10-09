@@ -574,7 +574,19 @@ def parse_list_devices_output(output: str) -> list[str]:
 
 def get_buffer_types(ctx: AppContext) -> dict[str, Any]:
     allowed_tools = list(ctx.services.llama_tools or [])
-    tool = "llama-cli" if "llama-cli" in allowed_tools else (allowed_tools[0] if allowed_tools else "llama-cli")
+    if llama_manager.is_system_backend(_load_config_safe(ctx).get("backend")):
+        # PATH tools need not share one directory or build: prefer an
+        # available CLI probe target and use the server when CLI is absent.
+        ordered = [tool for tool in ("llama-cli", "llama-server") if tool in allowed_tools]
+        if not ordered:
+            ordered = ["llama-cli"]
+        tool = next(
+            (candidate for candidate in ordered
+             if ctx.services.find_tool_executable(candidate) is not None),
+            ordered[0],
+        )
+    else:
+        tool = "llama-cli" if "llama-cli" in allowed_tools else (allowed_tools[0] if allowed_tools else "llama-cli")
     exe_name = ctx.services.get_tool_filename(tool)
     exe_path = ctx.services.find_tool_executable(tool)
     if exe_path is None or not exe_path.exists():
@@ -711,26 +723,33 @@ def _memory_estimate_args(args: list[str]) -> list[str]:
     return filtered_args
 
 
-def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]], env: Any = None) -> dict[str, Any]:
+def _validate_system_estimator(ctx: AppContext, exe_path: Path) -> Optional[str]:
+    """Confirm the System estimator starts; estimation never blocks launches."""
     try:
-        environment = normalize_process_env(env)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    allowed_tools = ctx.services.llama_tools or []
-    if tool not in allowed_tools:
-        return {"error": f"Unknown tool: {tool!r}"}
+        health = dict(ctx.services.validate_runtime_dependencies(["llama-fit-params"]))
+    except Exception as exc:
+        print(f"[process] system estimator probe lookup failed: {exc}", file=sys.stderr)
+        health = {}
+    probe = (health.get("system_probes") or {}).get("llama-fit-params")
+    if probe is None or probe.get("executable") != str(exe_path):
+        probe = llama_manager.probe_system_tool_executable(
+            ctx, "llama-fit-params", exe_path
+        )
+    if probe.get("ok"):
+        return None
+    detail = probe.get("error") or "could not be started"
+    return (
+        f"llama-fit-params {detail}. "
+        "Memory estimation is unavailable for this installation."
+    )
 
-    exe_path = _fit_params_executable(ctx)
-    if exe_path is None or not exe_path.exists():
-        return {"error": "llama-fit-params not found. Install or repair llama.cpp first."}
 
-    runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
-    missing_runtime_files = runtime_health.get("missing_runtime_files") or []
-    if missing_runtime_files:
-        missing = ", ".join(str(name) for name in missing_runtime_files)
-        plural = "libraries" if len(missing_runtime_files) != 1 else "library"
-        return {"error": f"Missing llama.cpp runtime {plural}: {missing}."}
-
+def _run_memory_estimate_command(
+    ctx: AppContext,
+    exe_path: Path,
+    args_list: Optional[Iterable[Any]],
+    environment: Mapping[str, str],
+) -> dict[str, Any]:
     args = flatten_launch_args(args_list)
     filtered_args = _memory_estimate_args(args)
 
@@ -774,6 +793,41 @@ def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any
         "accelerator_mib": accelerator_mib,
         "ram_mib": ram_mib,
     }
+
+
+def estimate_memory(ctx: AppContext, tool: str, args_list: Optional[Iterable[Any]], env: Any = None) -> dict[str, Any]:
+    try:
+        environment = normalize_process_env(env)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    allowed_tools = ctx.services.llama_tools or []
+    if tool not in allowed_tools:
+        return {"error": f"Unknown tool: {tool!r}"}
+
+    exe_path = _fit_params_executable(ctx)
+    backend = _load_config_safe(ctx).get("backend")
+    if exe_path is None or not exe_path.exists():
+        if llama_manager.is_system_backend(backend):
+            return {"error": (
+                "llama-fit-params was not found on the PATH inherited by Llama GUI. "
+                "Memory estimation is unavailable for this installation."
+            )}
+        return {"error": "llama-fit-params not found. Install or repair llama.cpp first."}
+
+    if llama_manager.is_system_backend(backend):
+        # Validate the estimator itself rather than the requested tool.
+        estimator_error = _validate_system_estimator(ctx, exe_path)
+        if estimator_error is not None:
+            return {"error": estimator_error}
+    else:
+        runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
+        missing_runtime_files = runtime_health.get("missing_runtime_files") or []
+        if missing_runtime_files:
+            missing = ", ".join(str(name) for name in missing_runtime_files)
+            plural = "libraries" if len(missing_runtime_files) != 1 else "library"
+            return {"error": f"Missing llama.cpp runtime {plural}: {missing}."}
+
+    return _run_memory_estimate_command(ctx, exe_path, args_list, environment)
 
 
 def _launch_api_target_values(
@@ -1147,25 +1201,60 @@ def redact_sensitive_text(text: Any, args: Iterable[Any]) -> str:
     return result
 
 
+def _validate_system_launch_probe(
+    ctx: AppContext, tool: str, exe_path: Path, exe_name: str
+) -> tuple[Optional[Path], Optional[str]]:
+    """Confirm a System entry point starts, using the cached version probe.
+
+    Falls back to a direct probe when discovery changed since the cached
+    result, so the validated entry point is always the one passed to Popen.
+    """
+    try:
+        health = dict(ctx.services.validate_runtime_dependencies([tool]))
+    except Exception as exc:
+        print(f"[process] system runtime probe lookup failed: {exc}", file=sys.stderr)
+        health = {}
+    probe = (health.get("system_probes") or {}).get(tool)
+    if probe is None or probe.get("executable") != str(exe_path):
+        probe = llama_manager.probe_system_tool_executable(ctx, tool, exe_path)
+    if probe.get("ok"):
+        return exe_path, None
+    detail = probe.get("error") or "could not be started"
+    return None, (
+        f"{exe_name} {detail}. "
+        f"Check that it runs with `{exe_name} --version`."
+    )
+
+
 def _validate_launch_environment(
     ctx: AppContext, tool: str
 ) -> tuple[Optional[Path], Optional[str]]:
     exe_name = ctx.services.get_tool_filename(tool)
     exe_path = ctx.services.find_tool_executable(tool)
+    backend = _load_config_safe(ctx).get("backend")
     if exe_path is None or not exe_path.is_file():
+        if llama_manager.is_system_backend(backend):
+            return None, (
+                f"{exe_name} was not found on the PATH inherited by Llama GUI. "
+                "Install it with your system package manager, then restart the GUI."
+            )
         return None, f"{exe_name} not found. Install llama.cpp first."
 
     current_platform = ctx.services.current_platform
     if current_platform == "unknown":
         current_platform = sys.platform
     if current_platform != "win32" and not os.access(exe_path, os.X_OK):
-        backend = _load_config_safe(ctx).get("backend")
+        if llama_manager.is_system_backend(backend):
+            return None, f"{exe_name} is not executable. Run chmod +x on {exe_path}."
         recovery = (
             f"Run chmod +x on {llama_manager.custom_backend_bin_label(backend)}{exe_name}."
             if llama_manager.is_custom_backend(backend)
             else "Use Repair Install to restore executable permissions."
         )
         return None, f"{exe_name} is not executable. {recovery}"
+
+    if llama_manager.is_system_backend(backend):
+        return _validate_system_launch_probe(ctx, tool, exe_path, exe_name)
 
     runtime_health = dict(ctx.services.validate_runtime_dependencies([tool]))
     missing_runtime_files = runtime_health.get("missing_runtime_files") or []

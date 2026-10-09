@@ -22,11 +22,13 @@ from ..config import parse_bool_env
 from ..context import AppContext
 from ..http import sanitize_error
 from . import official_backends
+from .subprocess_utils import get_no_window_creationflags
 
 
 RPATH_LIBRARY_RE = re.compile(r"^\s*@rpath/([^\s(]+)")
 LDD_NOT_FOUND_RE = re.compile(r"^\s*([^\s]+)\s+=>\s+not found\s*$")
 SHA256_DIGEST_RE = re.compile(r"^sha256:([0-9a-fA-F]{64})$")
+BUILD_TAG_RE = re.compile(r"\bbuild\s+(\d+)\b", re.I)
 
 # Runtime dependency validation shells out to otool on macOS and ldd on Linux,
 # so results are cached briefly. Config-changing operations (install, cleanup,
@@ -55,8 +57,17 @@ SYSTEM_BACKEND_ID = "system"
 SYSTEM_BACKEND_LABEL = "System (PATH)"
 
 # Internal PATH discovery target that is never a public launch tool. Memory
-# estimation locates it separately (Stage 2); Stage 1 only resolves it.
+# estimation locates it separately; Stage 1 only resolves it.
 SYSTEM_INTERNAL_TOOLS = ("llama-fit-params",)
+
+# Bounded, model-free `--version` execution check for System entry points.
+SYSTEM_VERSION_PROBE_TIMEOUT_SECONDS = 5
+
+
+def parse_llama_build_tag(output: str) -> Optional[str]:
+    """Return the normalized ``bNNNNN`` tag from `--version` output, if present."""
+    match = BUILD_TAG_RE.search(output or "")
+    return f"b{match.group(1)}" if match else None
 
 
 def is_custom_backend(backend: Any) -> bool:
@@ -190,6 +201,164 @@ def resolve_backend_tool_executable(
         return get_backend_bin_dir(ctx, backend) / filename
     except Exception:
         return None
+
+
+def probe_system_tool_executable(
+    ctx: AppContext, tool: str, exe_path: pathlib.Path
+) -> dict[str, Any]:
+    """Run a bounded, model-free `--version` check of one System entry point.
+
+    Uses the discovered entry point itself (never a resolved symlink target),
+    the inherited runtime environment, and the shared window-hiding flags.
+    A successful run with an unrecognized build format reports ``ok=True``
+    with ``build_tag=None``; that is distinct from a failure to execute.
+    """
+    try:
+        completed = subprocess.run(
+            [str(exe_path), "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ.copy(),
+            cwd=str(ctx.paths.root),
+            timeout=SYSTEM_VERSION_PROBE_TIMEOUT_SECONDS,
+            check=False,
+            creationflags=get_no_window_creationflags(),
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            f"[llama_manager] system version probe timed out for {tool}: {exe_path}",
+            file=sys.stderr,
+        )
+        return {
+            "ok": False,
+            "build_tag": None,
+            "error": f"timed out after {SYSTEM_VERSION_PROBE_TIMEOUT_SECONDS} seconds",
+            "executable": str(exe_path),
+        }
+    except OSError as exc:
+        print(
+            f"[llama_manager] system version probe failed for {tool}: {exc}",
+            file=sys.stderr,
+        )
+        return {
+            "ok": False,
+            "build_tag": None,
+            "error": f"could not start ({exc})",
+            "executable": str(exe_path),
+        }
+    if completed.returncode != 0:
+        print(
+            f"[llama_manager] system version probe exited with status "
+            f"{completed.returncode} for {tool}: {exe_path}",
+            file=sys.stderr,
+        )
+        return {
+            "ok": False,
+            "build_tag": None,
+            "error": f"exited with status {completed.returncode}",
+            "executable": str(exe_path),
+        }
+    combined = "\n".join(
+        part for part in (completed.stdout, completed.stderr) if part
+    )
+    return {
+        "ok": True,
+        "build_tag": parse_llama_build_tag(combined),
+        "error": None,
+        "executable": str(exe_path),
+    }
+
+
+def _system_executable_identity(exe_path: pathlib.Path) -> Optional[tuple[Any, ...]]:
+    """File/symlink identity for cache invalidation across package updates.
+
+    ``os.stat()`` follows the entry point, so replacing a symlink target
+    while the GUI is open changes the identity and stale probe results are
+    never reused. Returns None when the file cannot be stated.
+    """
+    try:
+        stat_result = os.stat(exe_path)
+    except OSError:
+        return None
+    return (
+        stat_result.st_dev,
+        stat_result.st_ino,
+        stat_result.st_size,
+        stat_result.st_mtime_ns,
+    )
+
+
+def _system_runtime_cache_key(
+    ctx: AppContext, backend: Any, tool_names: tuple[str, ...]
+) -> tuple[Any, ...]:
+    """Cache key including each tool's path and file identity.
+
+    Discovery itself is cheap, so resolve on every status poll and let the
+    identity detect replaced/removed tools; only cache misses spawn probes.
+    """
+    parts = []
+    for tool in tool_names:
+        try:
+            exe_path = resolve_backend_tool_executable(ctx, backend, tool)
+        except Exception:
+            exe_path = None
+        parts.append(
+            (
+                tool,
+                str(exe_path) if exe_path is not None else None,
+                _system_executable_identity(exe_path) if exe_path is not None else None,
+            )
+        )
+    return (backend, tool_names, tuple(parts))
+
+
+def _validate_system_runtime_dependencies(
+    ctx: AppContext, tool_names: tuple[str, ...]
+) -> dict[str, Any]:
+    """Execution-check health for System tools; never requires packaged libs.
+
+    A successful probe establishes that the entry point starts. It does not
+    establish model loading or GPU compatibility. Missing tools are reported
+    explicitly and never fail the check on their own; only a present tool
+    that fails to execute does.
+    """
+    checked_tools: list[str] = []
+    probe_failures: list[str] = []
+    missing_executables: list[str] = []
+    build_tags: dict[str, str] = {}
+    probes: dict[str, dict[str, Any]] = {}
+    for tool in tool_names:
+        try:
+            exe_path = resolve_backend_tool_executable(
+                ctx, SYSTEM_BACKEND_ID, tool
+            )
+        except Exception:
+            exe_path = None
+        if exe_path is None:
+            missing_executables.append(ctx.services.get_tool_filename(tool))
+            continue
+        probe = probe_system_tool_executable(ctx, tool, exe_path)
+        probes[tool] = probe
+        if probe["ok"]:
+            checked_tools.append(tool)
+            if probe["build_tag"]:
+                build_tags[tool] = probe["build_tag"]
+        else:
+            probe_failures.append(tool)
+    return {
+        "ok": not probe_failures,
+        "checked": bool(checked_tools),
+        "checked_tools": checked_tools,
+        "unchecked_tools": sorted(probe_failures),
+        "checked_runtime_files": [],
+        "unchecked_runtime_files": [],
+        "required_runtime_files": [],
+        "missing_runtime_files": [],
+        "missing_executables": missing_executables,
+        "build_tags": build_tags,
+        "system_probes": probes,
+    }
 
 # (gpu_target, family label) for every target upstream publishes.
 LEMONADE_ROCM_TARGETS = [
@@ -563,16 +732,6 @@ def validate_runtime_dependencies(
     current_platform = ctx.services.current_platform or sys.platform
     if current_platform == "unknown":
         current_platform = sys.platform
-    skipped = _linux_runtime_validation_opt_out(current_platform)
-    if skipped is not None:
-        return skipped
-    if current_platform != "darwin" and not current_platform.startswith("linux"):
-        return {
-            "ok": True,
-            "checked": False,
-            "required_runtime_files": [],
-            "missing_runtime_files": [],
-        }
 
     tool_names = tuple(tools) if tools is not None else ()
     if not tool_names:
@@ -583,6 +742,33 @@ def validate_runtime_dependencies(
     except Exception as e:
         print(f"[llama_manager] load_config failed during runtime validation: {e}", file=sys.stderr)
         cfg = {}
+
+    if is_system_backend(cfg.get("backend")):
+        # System health comes from bounded `--version` execution probes, so it
+        # runs on every platform. Neither the Linux-only ldd opt-out nor the
+        # Unix-only packaged-library gate applies here.
+        cache_key = _system_runtime_cache_key(ctx, cfg.get("backend"), tool_names)
+        now = time.monotonic()
+        with ctx.state.runtime_health_lock:
+            cached = ctx.state.runtime_health_cache.get(cache_key)
+            if cached is not None and now - cached[0] < RUNTIME_HEALTH_CACHE_TTL_SECONDS:
+                return copy.deepcopy(cached[1])
+
+        result = _validate_system_runtime_dependencies(ctx, tool_names)
+        with ctx.state.runtime_health_lock:
+            ctx.state.runtime_health_cache[cache_key] = (time.monotonic(), result)
+        return copy.deepcopy(result)
+
+    skipped = _linux_runtime_validation_opt_out(current_platform)
+    if skipped is not None:
+        return skipped
+    if current_platform != "darwin" and not current_platform.startswith("linux"):
+        return {
+            "ok": True,
+            "checked": False,
+            "required_runtime_files": [],
+            "missing_runtime_files": [],
+        }
 
     cache_key = (cfg.get("backend"), tool_names)
     now = time.monotonic()
@@ -610,27 +796,7 @@ def _validate_runtime_dependencies_uncached(
     if current_platform == "unknown":
         current_platform = sys.platform
     if is_system_backend(cfg.get("backend")):
-        # Stage 1 has no packaged-library requirement for PATH tools; the
-        # Stage 2 version probe will establish that an entry point starts.
-        # Report availability explicitly without scanning PATH directories.
-        for tool in tool_names:
-            try:
-                exe_path = ctx.services.find_tool_executable(tool)
-            except Exception:
-                exe_path = None
-            if exe_path is None:
-                missing_executables.append(ctx.services.get_tool_filename(tool))
-        return {
-            "ok": True,
-            "checked": False,
-            "checked_tools": checked_tools,
-            "unchecked_tools": unchecked_tools,
-            "checked_runtime_files": checked_runtime_files,
-            "unchecked_runtime_files": unchecked_runtime_files,
-            "required_runtime_files": [],
-            "missing_runtime_files": [],
-            "missing_executables": missing_executables,
-        }
+        return _validate_system_runtime_dependencies(ctx, tool_names)
     runtime_dir = get_backend_bin_dir(ctx, cfg.get("backend"))
 
     for tool in tool_names:
@@ -811,8 +977,7 @@ def _probe_official_build(ctx: AppContext) -> tuple[bool, Optional[str]]:
         return False, None
     if result.returncode != 0:
         return False, None
-    match = re.search(r"\bbuild\s+(\d+)\b", result.stdout + "\n" + result.stderr, re.I)
-    return True, f"b{match.group(1)}" if match else None
+    return True, parse_llama_build_tag(result.stdout + "\n" + result.stderr)
 
 
 def activate_official_backend(ctx: AppContext, backend: str) -> dict[str, Any]:
