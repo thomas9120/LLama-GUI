@@ -536,14 +536,48 @@
     // Gate for llama.cpp b10434+, where --reasoning-effort became a native
     // launch flag (upstream PR 26941). The tag comes from /api/status
     // (config.json "version"): official releases use "bNNNNN"; both custom
-    // slots use "custom". Anything unrecognized stays on the legacy
-    // --chat-template-kwargs path, which every build accepts.
+    // slots use "custom". System (PATH) backends report per-tool build tags
+    // from bounded --version probes; PATH can resolve CLI and server from
+    // different builds, so the gate uses the tag for the tool being launched.
+    // Anything unrecognized stays on the legacy --chat-template-kwargs path,
+    // which every build accepts.
     function setBinaryTag(tag) {
         binaryTag = String(tag || "");
     }
 
-    function supportsNativeReasoningEffort() {
-        const match = /^b(\d+)/.exec(binaryTag);
+    // Per-tool build tags for System (PATH) installations, keyed by full
+    // tool name ("llama-server", "llama-cli", ...). Official and Custom
+    // backends share one build, so they keep using the single binaryTag.
+    let binaryTags = {};
+
+    function normalizeBinaryToolKey(tool) {
+        const name = String(tool || "").trim();
+        if (!name) return "";
+        if (name.startsWith("llama-")) return name;
+        if (name === "server" || name === "cli" || name === "bench" || name === "perplexity") {
+            return `llama-${name}`;
+        }
+        return name;
+    }
+
+    function setBinaryTags(tags) {
+        binaryTags = {};
+        if (tags && typeof tags === "object" && !Array.isArray(tags)) {
+            for (const [tool, tag] of Object.entries(tags)) {
+                const key = normalizeBinaryToolKey(tool);
+                if (key) binaryTags[key] = String(tag || "");
+            }
+        }
+    }
+
+    function getBinaryTagForTool(tool) {
+        const key = normalizeBinaryToolKey(tool || currentTool);
+        if (key && binaryTags[key]) return binaryTags[key];
+        return binaryTag;
+    }
+
+    function supportsNativeReasoningEffort(tool) {
+        const match = /^b(\d+)/.exec(getBinaryTagForTool(tool || currentTool));
         return Boolean(match) && Number(match[1]) >= 10434;
     }
 
@@ -552,10 +586,11 @@
     // llama-cli in favor of --load-mode (upstream PR 28334). The tag comes
     // from /api/status like the reasoning-effort gate above: official
     // releases use "bNNNNN" (trailing build suffixes such as "-cuda" are
-    // accepted); custom slots use "custom". Anything unrecognized stays
-    // silent, keeping older and custom builds working.
-    function supportsLoadModeOnly() {
-        const match = /^b(\d+)/.exec(binaryTag);
+    // accepted); custom slots use "custom"; System uses the per-tool tag.
+    // Anything unrecognized stays silent, keeping older and custom builds
+    // working.
+    function supportsLoadModeOnly(tool) {
+        const match = /^b(\d+)/.exec(getBinaryTagForTool(tool || currentTool));
         return Boolean(match) && Number(match[1]) >= 10875;
     }
 
@@ -592,7 +627,7 @@
 
             if (f.id === "chat_template_reasoning_effort") {
                 if (val && val !== "auto") {
-                    if (supportsNativeReasoningEffort()) {
+                    if (supportsNativeReasoningEffort(tool)) {
                         args.push([f.flag, val]);
                     } else {
                         const kwargs = {};
@@ -614,7 +649,7 @@
                 // On the legacy path with a non-auto effort, preserve_thinking
                 // is merged into the single kwargs object emitted above.
                 const mergedIntoEffortKwargs = toolBase === "server"
-                    && !supportsNativeReasoningEffort()
+                    && !supportsNativeReasoningEffort(tool)
                     && values.chat_template_reasoning_effort
                     && values.chat_template_reasoning_effort !== "auto";
                 if (val === true && !mergedIntoEffortKwargs) {
@@ -711,7 +746,7 @@
             args.push(["-m", localModel.path]);
         }
 
-        if (supportsLoadModeOnly()) {
+        if (supportsLoadModeOnly(tool)) {
             const removedLoadFlags = new Set(["--mmap", "--no-mmap", "--mlock", "-dio", "-ndio", "--direct-io", "--no-direct-io"]);
             const hasRemovedLoadFlag = args.some((entry) => {
                 if (Array.isArray(entry)) return removedLoadFlags.has(String(entry[0]));
@@ -880,6 +915,8 @@
         captureLaunchSettings,
         compareLaunchSettings,
         setBinaryTag,
+        setBinaryTags,
+        getBinaryTagForTool,
         supportsNativeReasoningEffort,
         supportsLoadModeOnly,
         updateCommandPreview,

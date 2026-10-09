@@ -185,9 +185,17 @@
     // llama.cpp b10875 removed --mmap/--no-mmap, --mlock, and the -dio family
     // from every tool — llama-bench and llama-perplexity only advertise
     // --load-mode on such builds — so legacy load toggles must translate.
-    function isLoadModeOnlyBuild() {
+    // System (PATH) can resolve each tool from a different build, so the
+    // gate uses the tag for the benchmark tool being configured.
+    function isLoadModeOnlyBuild(tool) {
         const core = root.flagCore;
-        return Boolean(core && typeof core.supportsLoadModeOnly === "function" && core.supportsLoadModeOnly());
+        if (!core || typeof core.supportsLoadModeOnly !== "function") return false;
+        try {
+            return Boolean(core.supportsLoadModeOnly(tool || "llama-bench"));
+        } catch (e) {
+            console.debug("Load-mode gate check failed", e);
+            return false;
+        }
     }
 
     function getLoadModeArg(args) {
@@ -210,7 +218,7 @@
     // On b10875+ builds incompatible legacy toggles cannot share the single
     // --load-mode slot, so name the winner instead of a generic exclusion.
     function loadModeConflictReason(flag, args) {
-        if (!isLoadModeOnlyBuild() || !hasLoadModeArg(args)) return "";
+        if (!isLoadModeOnlyBuild("llama-bench") || !hasLoadModeArg(args)) return "";
         if (flag.id !== "mmap" && flag.id !== "mlock" && flag.id !== "direct_io") return "";
         const winner = getLoadModeArgValue(args);
         return winner
@@ -235,7 +243,7 @@
                 }
             }
             if (flag.id === "mmap") {
-                if (isLoadModeOnlyBuild()) {
+                if (isLoadModeOnlyBuild(tool)) {
                     const loadModeArg = getLoadModeArg(args);
                     if (loadModeArg) {
                         if (value && loadModeArg[1] === "mlock") {
@@ -250,7 +258,7 @@
                 args.push(["-mmp", value ? "1" : "0"]);
                 return true;
             }
-            if (flag.id === "mlock" && isLoadModeOnlyBuild()) {
+            if (flag.id === "mlock" && isLoadModeOnlyBuild(tool)) {
                 // mlock is opt-in, so only the enabled state maps onto
                 // --load-mode; off matches the new-build default behavior.
                 if (!value) return false;
@@ -266,7 +274,7 @@
                 return true;
             }
             if (flag.id === "direct_io") {
-                if (isLoadModeOnlyBuild()) {
+                if (isLoadModeOnlyBuild(tool)) {
                     // "dio off" is the default load behavior on new builds, so
                     // only the enabled state maps onto --load-mode.
                     if (!value || hasLoadModeArg(args)) return false;
@@ -424,7 +432,7 @@
                 if (flashAttention) args.push(["-fa", flashAttention]);
                 if (cacheTypeK) args.push(["-ctk", cacheTypeK]);
                 if (cacheTypeV) args.push(["-ctv", cacheTypeV]);
-                const mmapOffArg = isLoadModeOnlyBuild() ? ["--load-mode", "none"] : ["--no-mmap"];
+                const mmapOffArg = isLoadModeOnlyBuild("llama-perplexity") ? ["--load-mode", "none"] : ["--no-mmap"];
                 if (options.pplMmap === false) args.push(mmapOffArg);
                 args.push(["-f", String(options.promptFile)]);
                 if (options.chunks !== undefined && options.chunks !== "") args.push(["--chunks", String(options.chunks)]);
@@ -647,8 +655,28 @@
         };
     }
 
+    function benchmarkToolAvailability(tool) {
+        const status = typeof getLatestStatus === "function" ? getLatestStatus() : null;
+        if (!status) return null;
+        const systemTools = status.system_tools;
+        if (systemTools && typeof systemTools === "object" && systemTools[tool]) {
+            return Boolean(systemTools[tool].available);
+        }
+        const exes = status.executables;
+        if (exes && typeof exes === "object") {
+            const suffix = typeof status.executable_suffix === "string" ? status.executable_suffix : "";
+            return Boolean(exes[tool + suffix]);
+        }
+        return null;
+    }
+
     function renderCommand() {
-        const result = buildBenchmarkArgs(getBuildOptions());
+        let result = buildBenchmarkArgs(getBuildOptions());
+        const unavailable = benchmarkToolAvailability(result.tool);
+        if (!result.error && unavailable === false) {
+            const feature = result.tool === "llama-bench" ? "Throughput benchmarks" : "Perplexity runs";
+            result = { ...result, error: `${result.tool} was not found on the PATH inherited by Llama GUI. ${feature} need it; other features remain usable.`, command: "" };
+        }
         const command = byId("benchmark-command-preview");
         const status = byId("benchmark-status");
         const runBtn = byId("btn-run-benchmark");

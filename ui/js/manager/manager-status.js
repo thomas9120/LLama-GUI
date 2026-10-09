@@ -18,9 +18,16 @@
             latestStatus = status;
             // Feeds the launch-arg gate for build-dependent flags such as native
             // --reasoning-effort (llama.cpp b10434+); custom backends and older
-            // installs stay on their compatible fallback path.
+            // installs stay on their compatible fallback path. System (PATH)
+            // reports per-tool tags because PATH can resolve CLI and server
+            // from different builds; the gate uses the tag for the tool whose
+            // arguments are being generated. Unknown formats stay conservative.
             if (window.LlamaGui.flagCore && typeof window.LlamaGui.flagCore.setBinaryTag === "function") {
                 window.LlamaGui.flagCore.setBinaryTag(status.version);
+            }
+            if (window.LlamaGui.flagCore && typeof window.LlamaGui.flagCore.setBinaryTags === "function") {
+                const buildTags = status && status.runtime_health && status.runtime_health.build_tags;
+                window.LlamaGui.flagCore.setBinaryTags(buildTags && typeof buildTags === "object" ? buildTags : {});
             }
             I.modelDir.applyModelDirInfo(status);
             I.backends.updateStatusUI(status);

@@ -503,8 +503,28 @@
         }
     }
 
+    function getToolAvailability(status, tool) {
+        if (!status || !tool) return null;
+        const systemTools = status.system_tools;
+        if (systemTools && typeof systemTools === "object" && systemTools[tool]) {
+            return Boolean(systemTools[tool].available);
+        }
+        const exes = status.executables;
+        if (exes && typeof exes === "object") {
+            const suffix = typeof status.executable_suffix === "string" ? status.executable_suffix : "";
+            return Boolean(exes[tool + suffix]);
+        }
+        return null;
+    }
+
     function getQuickLaunchReadiness() {
-        if (getLatestStatus()?.installed === false) return { ok: false, type: "warning", message: "Install llama.cpp in Install and Update before launching." };
+        const status = getLatestStatus ? getLatestStatus() : null;
+        if (status && status.installed === false) {
+            if (status.backend === "system" && status.system_server_error) {
+                return { ok: false, type: "warning", message: status.system_server_error };
+            }
+            return { ok: false, type: "warning", message: "Install llama.cpp in Install and Update before launching." };
+        }
         const result = flagCore.getLaunchArgs();
         if (result.error) {
             return { ok: false, type: "error", message: result.error };
@@ -514,6 +534,31 @@
                 ok: false,
                 type: "warning",
                 message: "Select a model or provide a remote model source before launching.",
+            };
+        }
+        const tool = flagCore.getCurrentTool();
+        const available = getToolAvailability(status, tool);
+        if (available === false) {
+            if (tool === "llama-cli") {
+                return {
+                    ok: false,
+                    type: "warning",
+                    message: "llama-cli was not found on the PATH inherited by Llama GUI. Web / API server and Chat remain usable; install llama-cli with your system package manager for Terminal launches.",
+                };
+            }
+            if (tool === "llama-server") {
+                return {
+                    ok: false,
+                    type: "warning",
+                    message: status && status.system_server_error
+                        ? status.system_server_error
+                        : "llama-server was not found. Check Install and Update before launching.",
+                };
+            }
+            return {
+                ok: false,
+                type: "warning",
+                message: `${tool} was not found. Check Install and Update before launching.`,
             };
         }
         return { ok: true, type: "", message: "" };

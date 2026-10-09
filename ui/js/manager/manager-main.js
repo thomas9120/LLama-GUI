@@ -60,6 +60,7 @@
             onBackendChange: I.backends.onBackendChange,
             updateStatusUI: I.backends.updateStatusUI,
             canActivateOfficialBackend: I.backends.canActivateOfficialBackend,
+            isSystemBackend: I.backends.isSystemBackend,
             installRelease: I.install.installRelease,
             waitForServerReady: I.lifecycle.waitForServerReady,
             applyModelDirInfo: I.modelDir.applyModelDirInfo,

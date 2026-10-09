@@ -15,6 +15,17 @@
     const INSTALL_POLL_TIMEOUT_MS = 10 * 60 * 1000;
     const INSTALL_POLL_MAX_FAILS = 5;
 
+    function isSystemSelected(backend) {
+        if (I.backends && typeof I.backends.isSystemBackend === "function") {
+            try {
+                return I.backends.isSystemBackend(backend);
+            } catch (e) {
+                console.debug("System backend check failed", e);
+            }
+        }
+        return String(backend || "").trim() === "system";
+    }
+
     function refreshBackends(force = false) {
         if (backendRefreshPromise) {
             if (force) backendRefreshQueued = true;
@@ -31,7 +42,7 @@
                     const result = await I.dependencies.fetchJson(force ? "/api/backends?refresh=1" : "/api/backends");
                     await I.status.checkStatus();
                     const backend = I.backends.selectedBackendId();
-                    if (force && !I.backends.isCustomBackend(backend)) await fetchReleases(backend);
+                    if (force && !I.backends.isCustomBackend(backend) && !isSystemSelected(backend)) await fetchReleases(backend);
                     if (hint) hint.textContent = result.warning || "Official CUDA/ROCm versions checked. Choose a backend to switch versions.";
                 } catch (error) {
                     console.warn("Failed to refresh official backend versions", error);
@@ -39,7 +50,7 @@
                     // The discovery service is optional; release refresh still works
                     // for built-in and third-party backends if it is unavailable.
                     const backend = I.backends.selectedBackendId();
-                    if (force && !I.backends.isCustomBackend(backend)) await fetchReleases(backend);
+                    if (force && !I.backends.isCustomBackend(backend) && !isSystemSelected(backend)) await fetchReleases(backend);
                 }
                 // A manual request during an automatic check gets one forced pass.
                 // Requests during an already-forced pass share that pass.
@@ -59,6 +70,21 @@
         const sel = document.getElementById("release-select");
         if (!sel) return;
         const backendParam = typeof backend === "string" ? backend.trim() : "";
+        if (backendParam && I.backends && typeof I.backends.isSystemBackend === "function"
+            && I.backends.isSystemBackend(backendParam)) {
+            releaseFetchRequestId += 1;
+            cachedReleases = [];
+            releasesBackend = backendParam;
+            releasesBackendInFlight = null;
+            sel.innerHTML = "";
+            const opt = document.createElement("option");
+            opt.value = backendParam;
+            opt.textContent = "Managed by the OS package manager";
+            sel.appendChild(opt);
+            sel.value = backendParam;
+            sel.disabled = true;
+            return [];
+        }
         const url = backendParam
             ? `/api/releases?backend=${encodeURIComponent(backendParam)}`
             : "/api/releases";
@@ -102,6 +128,9 @@
         if (backendEl && I.backends.isCustomBackend(backendEl.value)) {
             return I.backends.activateCustomBackend();
         }
+        if (backendEl && isSystemSelected(backendEl.value)) {
+            return I.backends.activateSystemBackend();
+        }
         const backend = backendEl ? backendEl.value : "";
         if (I.backends.canActivateOfficialBackend(I.status.getLatestStatus(), backend)) {
             return I.backends.activateOfficialBackend(backend);
@@ -119,6 +148,10 @@
         const status = I.status.getLatestStatus() || await I.status.checkStatus();
         if (!status || !status.version || !status.backend) {
             showStatus("error", "No saved installation config found to repair.");
+            return;
+        }
+        if (isSystemSelected(status.backend)) {
+            showStatus("error", "System (PATH) tools are managed by the OS package manager; Repair is not available.");
             return;
         }
 
@@ -143,9 +176,12 @@
             return;
         }
 
+        const systemActive = status && isSystemSelected(status.backend);
         const ok = await I.dependencies.confirmAction(
             "Remove llama.cpp Files",
-            "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear official install metadata? Both Custom slots, models, and presets will be kept.",
+            systemActive
+                ? "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear official install metadata? The System (PATH) selection, both Custom slots, models, and presets will be kept."
+                : "Delete all files under llama/bin, llama/dll, and llama/grammars, and clear official install metadata? Both Custom slots, models, and presets will be kept.",
             "Remove"
         );
         if (!ok) return;
@@ -196,6 +232,11 @@
     }
 
     async function checkForUpdates() {
+        const status = I.status.getLatestStatus();
+        if (status && isSystemSelected(status.backend)) {
+            showStatus("error", "System (PATH) tools are updated by the OS package manager.");
+            return;
+        }
         showStatus("info", "Checking for updates...");
         try {
             const result = await I.dependencies.fetchJson("/api/update", { method: "POST" });
@@ -314,7 +355,10 @@
             body: JSON.stringify({ folder }),
         })
             .then(() => {
-                const label = folder === "llama" ? "llama.cpp" : "models";
+                const status = I.status.getLatestStatus();
+                const label = folder === "llama"
+                    ? (status && isSystemSelected(status.backend) ? "System tool" : "llama.cpp")
+                    : "models";
                 showStatus("info", `Opened ${label} folder.`);
             })
             .catch((e) => {

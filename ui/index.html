@@ -261,6 +261,19 @@
                         </div>
                     </div>
 
+                    <div id="system-backend-info" style="display:none;">
+                        <div class="status-box info">
+                            <strong id="system-backend-title">System (PATH) Setup:</strong><br>
+                            Uses the llama.cpp tools on the PATH inherited by Llama GUI.
+                            Installation and updates are managed by the OS package manager.<br><br>
+                            Required: <code>llama-server</code>. Optional, per feature:
+                            <code>llama-cli</code> (Terminal), <code>llama-bench</code> and
+                            <code>llama-perplexity</code> (Benchmarking).<br>
+                            <span id="system-backend-tools">Checking PATH for llama.cpp tools...</span><br><br>
+                            Stop the running llama.cpp process, then click "Activate System".
+                        </div>
+                    </div>
+
                     <div class="form-row">
                         <button id="btn-install" class="btn btn-primary">Install</button>
                         <button id="btn-update" class="btn">Check for Updates</button>
