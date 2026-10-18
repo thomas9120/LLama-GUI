@@ -6,11 +6,14 @@
     const S = I.state;
     const { CHAT_AUTO_COMPACTION_STORAGE_KEY } = I.consts;
     const compaction = window.LlamaGui.chatCompaction;
+    const IMAGE_COMPACTION_NOTICE = "Older images are no longer sent to the model. Originals remain in chat history and exports. Undo compaction to restore the previous context, or reattach an image to use it again.";
 
     function getCompactionKey() {
         const status = S.getLatestStatus ? S.getLatestStatus() : null;
+        // Track attachment references, so loading their bytes does not invalidate compaction.
         return JSON.stringify([I.getTemplateCapsKey(), status?.active_runtime, status?.external_chat_target,
-            I.buildChatBody(S.chatMessages), document.getElementById("chat-input")?.value || ""]);
+            { ...I.buildChatBody(S.chatMessages), messages: undefined }, S.chatMessages,
+            document.getElementById("chat-input")?.value || "", S.draftImages]);
     }
 
     function getChatRuntimeKey() {
@@ -21,12 +24,10 @@
     function updateCompactionControls() {
         const button = document.getElementById("btn-chat-compact");
         if (!button) return;
-        const imageBoundary = S.chatMessages.some(message => message.attachments?.length);
-        const available = !imageBoundary && compaction.boundary(S.chatMessages) > (S.chatCompactions.at(-1)?.end || 0);
+        const available = compaction.boundary(S.chatMessages) > (S.chatCompactions.at(-1)?.end || 0);
         button.disabled = !S.compactionController && (!available || S.imageImportPending || S.chatStreaming || !I.isServerRunning() || !I.workspaceMutationAllowed());
         button.textContent = S.compactionController ? "Cancel compaction" : "Compact conversation";
-        button.title = imageBoundary ? "Compaction of image-containing turns is not supported yet. Start a new chat or remove those images."
-            : "Summarize older messages; keep the transcript and last two turns unchanged.";
+        button.title = "Summarize older messages; omit older images from model context. Keep the transcript and last two turns unchanged.";
         for (const id of ["btn-chat-undo-compaction", "btn-chat-tools-undo-compaction"]) {
             const undo = document.getElementById(id);
             if (undo) undo.disabled = !I.workspaceMutationAllowed() || S.chatStreaming || Boolean(S.compactionController);
@@ -44,13 +45,15 @@
         container?.querySelectorAll(".chat-compaction-marker").forEach(el => el.remove());
         const record = S.chatCompactions.at(-1);
         if (!container || !record) return;
+        const omittedImages = S.chatMessages.slice(0, record.end).some(message => message.attachments?.length);
         const marker = document.createElement("details");
         marker.className = "chat-compaction-marker";
         const heading = document.createElement("summary");
-        heading.textContent = `Earlier ${record.end} messages compacted · View summary`;
+        heading.textContent = `Earlier ${record.end} messages compacted${omittedImages ? " · Older images omitted from model context" : ""} · View summary`;
         marker.appendChild(heading);
         const note = document.createElement("p");
         note.textContent = "The original messages remain above. Only this summary and the recent messages are sent to the model. Summaries may omit details; review before continuing.";
+        if (omittedImages) note.textContent += " " + IMAGE_COMPACTION_NOTICE;
         marker.appendChild(note);
         const summary = document.createElement("pre");
         summary.textContent = record.summary;
@@ -81,13 +84,8 @@
         return true;
     }
 
-    function compactConversation(draftOverride = null) {
+    function compactConversation(draftOverride = null, draftImagesOverride = null) {
         if (!I.workspaceMutationAllowed() || S.imageImportPending || S.chatStreaming || S.compactionController || !I.isServerRunning()) return Promise.resolve(false);
-        const imageBoundary = S.chatMessages.some(message => message.attachments?.length);
-        if (imageBoundary) {
-            I.reportImages("Compaction of image-containing turns is not supported yet. Start a new chat or remove those images.");
-            return Promise.resolve(false);
-        }
         const ownerEpoch = S.workspaceEpoch;
         const controller = new AbortController();
         S.compactionController = controller;
@@ -98,13 +96,16 @@
         const report = message => { if (status) { status.textContent = message; status.hidden = !message; } };
         report("Measuring space for a summary…");
         const draft = draftOverride === null ? document.getElementById("chat-input")?.value || "" : draftOverride;
+        const draftImages = I.copyImageRefs(draftImagesOverride === null ? S.draftImages : draftImagesOverride);
         const pending = (async () => {
             let applied = false;
             try {
+                await I.prepareImages(compaction.workingMessages(S.chatMessages, S.chatCompactions.at(-1)), draftImages);
+                controller.signal.throwIfAborted();
                 const record = await compaction.compact({
-                    messages: S.chatMessages.map(msg => ({ role: msg.role, content: msg.content, reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status, toolMessages: msg.toolMessages })),
+                    messages: S.chatMessages.map(msg => ({ role: msg.role, content: msg.content, attachments: I.copyImageRefs(msg.attachments), reasoning_content: msg.reasoning || msg.reasoning_content, sources: msg.sources, status: msg.status, toolMessages: msg.toolMessages })),
                     previous: S.chatCompactions.at(-1), body: I.buildChatBody(S.chatMessages),
-                    draft, signal: controller.signal,
+                    draft, draftImages, requestMessages: I.getChatRequestMessages, signal: controller.signal,
                     headers: S.getApiAuthorizationHeaders({ "Content-Type": "application/json" }), onProgress: report,
                 });
                 if (controller.signal.aborted || !I.workspaceMutationAllowed(ownerEpoch) || !I.isServerRunning() || S.compactionKey !== getCompactionKey()) {
@@ -117,7 +118,8 @@
                 }
                 I.requestWorkspaceCheckpoint({ reason: "compaction" });
                 renderCompactionMarker();
-                report("");
+                report(S.chatMessages.slice(0, record.end).some(message => message.attachments?.length)
+                    ? IMAGE_COMPACTION_NOTICE : "");
                 applied = true;
             } catch (error) {
                 console.debug("Chat compaction did not apply", error);
@@ -400,7 +402,7 @@
         if (!nearFull || compaction.boundary(S.chatMessages) <= (S.chatCompactions.at(-1)?.end || 0)) return true;
 
         S.autoCompactionAttempted = true;
-        const compacted = await compactConversation(draft);
+        const compacted = await compactConversation(draft, retry ? [] : S.draftImages);
         if (stale()) return false;
         if (!compacted) return false;
 
