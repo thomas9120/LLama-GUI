@@ -92,6 +92,43 @@ function compact(extra = {}) {
     assert.deepEqual(generations.flatMap(body => JSON.parse(body.messages[1].content).messages).find(msg => msg.toolMessages).toolMessages, toolMessages,
         "older tool results are included in summary data");
 
+    // Images are counted as media in working context, but summary input stays text-only.
+    setup();
+    const ref = name => ({ id: name, name: `${name}.png`, type: "image/png", size: 100 });
+    const withImages = transcript.map((message, index) => ({ ...message,
+        ...([0, 4].includes(index) ? { attachments: [ref(`image-${index}`)] } : {}) }));
+    const imageOriginal = JSON.stringify(withImages);
+    const requestMessages = messages => context.window.LlamaGui.chatTools.requestMessages(messages.map(message => ({
+        ...message, content: message.attachments?.length ? [
+            { type: "text", text: message.content },
+            ...message.attachments.map(image => ({ type: "image_url", image_url: { url: `data:image/png;base64,${image.id === "oversized" ? "A".repeat(12000) : image.id}` } })),
+        ] : message.content,
+    })));
+    const imageResult = await compact({ messages: withImages, draft: "", draftImages: [ref("draft")], requestMessages });
+    assert.equal(JSON.stringify(withImages), imageOriginal, "compaction never changes stored attachments");
+    assert.ok(Array.isArray(requests[0].messages[1].content), "before count includes old image bytes");
+    assert.ok(generations.every(body => !JSON.stringify(body).includes("data:image")));
+    const summaryData = generations.map(body => JSON.parse(body.messages[1].content).messages).flat();
+    assert.match(summaryData[0].content, /Image attached: "image-0.png"; image content unavailable/);
+    assert.equal(summaryData[0].attachments, undefined);
+    const after = requests.at(-2);
+    assert.match(after.messages[2].content, /Older images omitted[\s\S]*image-0.png/);
+    assert.ok(!JSON.stringify(after).includes("base64,image-0"));
+    assert.ok(JSON.stringify(after).includes("base64,image-4"), "recent image stays in context");
+    assert.equal(requests.at(-1).messages.at(-1).content[1].image_url.url, "data:image/png;base64,draft",
+        "final fit check includes an image-only draft");
+    setup();
+    const laterImages = [...withImages, { role: "user", content: "Next" }, { role: "assistant", content: "Answer" }];
+    const nextResult = await compact({ messages: laterImages, previous: imageResult, requestMessages });
+    const nextWorking = api.workingMessages(laterImages, nextResult);
+    assert.match(nextWorking[1].content, /image-0.png[\s\S]*image-4.png/,
+        "repeated compaction derives all omitted image placeholders from history");
+    assert.equal(JSON.stringify(withImages), imageOriginal);
+
+    setup();
+    await assert.rejects(compact({ messages: withImages, requestMessages,
+        draft: "", draftImages: [ref("oversized")] }), /recent messages still exceed context/);
+
     for (const [failure, message] of [["unavailable", /token counting/], ["too-small", /do not fit/],
         ["length", /output limit/], ["empty", /complete summary/], ["eof", /complete summary/],
         ["error", /Server unavailable/], ["no-savings", /do not fit|did not save/]]) {

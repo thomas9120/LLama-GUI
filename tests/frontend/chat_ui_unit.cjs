@@ -2266,7 +2266,7 @@ async function runAbortScenario(action) {
         assert.throws(() => I.checkImageRequest({ messages: [{ role: "user", content: [{ type: "image_url", image_url: { url: "data:image/png;base64,AA==" } }] }] }), /vision model/);
         assert.equal(I.generateConversationTitle(I.state.chatMessages), "Look");
         assert.equal(I.generateConversationTitle([{ role: "user", content: "", attachments: [ref] }]), "Image conversation");
-        assert.equal(await I.compactConversation(), false, "image-containing turns must not be serialized as summary text");
+        assert.equal(await I.compactConversation(), false, "unavailable image storage must leave context unchanged");
     }
 
     console.log("chat_ui_unit.cjs: all tests passed");

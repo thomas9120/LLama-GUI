@@ -1304,6 +1304,96 @@ test("image attachments survive pop-out, send, history reload, retry, export and
     assert.deepEqual(errors, []);
 });
 
+for (const automatic of [false, true]) test(`image ${automatic ? "automatic" : "manual"} compaction preserves originals and retains recent media`, { timeout: 90_000 }, async t => {
+    const server = await startUiServer();
+    t.after(() => server.close());
+    const browser = await chromium.launch({ headless: true });
+    t.after(() => browser.close());
+    const context = await browser.newContext({ acceptDownloads: true });
+    const { calls } = await installApiRoutes(context);
+    await context.route("**/api/chat/context", async route => {
+        const body = route.request().postDataJSON();
+        calls.push({ pathname: "/api/chat/context", body });
+        const media = body.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+            .filter(part => part.type === "image_url").length;
+        const prompt = Math.ceil(JSON.stringify(body.messages).length / 4) + media * 512;
+        const remaining = 8192 - prompt - (body.max_tokens || 0);
+        return route.fulfill({ json: { status: automatic && media === 3 ? "warning" : remaining < 0 ? "overflow" : "ok",
+            capacity: 8192, prompt_tokens: prompt, remaining } });
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(server.baseUrl);
+    await selectChat(page);
+    for (let turn = 0; turn < 3; turn++) {
+        if (turn < 2) {
+            await page.locator("#chat-image-file").setInputFiles(imageFile(turn ? "recent.png" : "older.png"));
+            await waitForImageDraft(page);
+        }
+        await page.locator("#chat-input").fill(`Turn ${turn}: ` + "Preserve these discussed details. ".repeat(100));
+        await page.locator("#btn-chat-send").click();
+        await page.waitForFunction(count => document.querySelectorAll("#chat-messages .chat-message").length === count
+            && !document.querySelector("#btn-chat-send").disabled, (turn + 1) * 2);
+    }
+    const original = (await readStoredConversations(page))[0].messages;
+    await page.locator("#chat-image-file").setInputFiles(imageFile("draft.png"));
+    await waitForImageDraft(page);
+    await page.locator("#btn-chat-tools").click();
+    if (automatic) {
+        await page.locator("#chat-auto-compact-toggle").check();
+        await page.locator("#btn-chat-tools").click();
+        await page.locator("#btn-chat-send").click();
+    } else {
+        await page.locator("#btn-chat-compact").click();
+    }
+    await page.waitForFunction(() => window.LlamaGui.chatUi.captureSnapshot().compactions.length === 1
+        && !window.LlamaGui._chatInternal.state.compactionController && !window.LlamaGui._chatInternal.state.chatStreaming);
+    assert.match(await page.locator("#chat-compaction-status").textContent(), /Older images are no longer sent/);
+    assert.match(await page.locator(".chat-compaction-marker").textContent(), /Undo compaction to restore/);
+    const compacted = callsFor(calls, "/api/chat/context").map(call => call.body)
+        .filter(body => JSON.stringify(body.messages).includes("Older images omitted"));
+    assert.ok(compacted.some(body => body.messages.at(-1).content?.[0]?.type === "image_url"), "count image-only draft");
+    assert.ok(compacted.every(body => body.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])
+        .filter(part => part.type === "image_url").length <= 2), "older image leaves working context");
+    const summaries = callsFor(calls, "/api/chat/completions").filter(call => call.body.gui_require_context);
+    assert.equal(summaries.length, 1);
+    assert.ok(!JSON.stringify(summaries[0].body).includes("data:image"));
+    assert.match(JSON.parse(summaries[0].body.messages[1].content).messages[0].content, /older.png/);
+    if (!automatic) {
+        await page.locator("#btn-chat-tools").click();
+        await page.locator("#btn-chat-send").click();
+        await page.waitForFunction(() => !window.LlamaGui._chatInternal.state.chatStreaming
+            && window.LlamaGui.chatUi.captureSnapshot().messages.length === 8);
+    }
+    assert.deepEqual((await readStoredConversations(page))[0].messages.slice(0, 6), original);
+    await page.reload();
+    await selectChat(page);
+    await page.locator("#btn-open-history").click();
+    await page.locator(".chat-history-item-title").first().click();
+    await page.locator(".chat-compaction-marker").waitFor();
+    const downloadPromise = page.waitForEvent("download");
+    await page.locator(".chat-history-item-export").click();
+    const exported = JSON.parse(fs.readFileSync(await (await downloadPromise).path(), "utf8"));
+    assert.equal(Object.keys(exported.images).length, 3);
+    assert.deepEqual(exported.messages.slice(0, 6), original);
+    // A second compaction drops the next older image; Undo restores each boundary.
+    await page.locator("#btn-chat-tools").click();
+    await page.locator("#btn-chat-compact").click();
+    await page.waitForFunction(() => window.LlamaGui.chatUi.captureSnapshot().compactions.length === 2
+        && !window.LlamaGui._chatInternal.state.compactionController);
+    assert.match(await page.evaluate(() => JSON.stringify(window.LlamaGui._chatInternal.buildChatBody(
+        window.LlamaGui._chatInternal.state.chatMessages))), /older.png[\s\S]*recent.png/);
+    for (const expected of [1, 0]) {
+        await page.locator("#btn-chat-tools-undo-compaction").click();
+        assert.equal(await page.evaluate(() => window.LlamaGui.chatUi.captureSnapshot().compactions.length), expected);
+        if (expected) await page.locator("#btn-chat-tools").click();
+    }
+    assert.equal(await page.evaluate(() => window.LlamaGui._chatInternal.buildChatBody(window.LlamaGui._chatInternal.state.chatMessages)
+        .messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === "image_url").length), 3);
+    assert.deepEqual(errors, []);
+});
+
 test("image validation, missing storage and text-only models fail visibly", { timeout: 90_000 }, async t => {
     const server = await startUiServer();
     t.after(() => server.close());

@@ -1339,6 +1339,8 @@ Upstream behavior checked against [server-context.cpp](https://github.com/ggml-o
 
 The same menu contains the opt-in automatic-compaction toggle. Manual and automatic compaction share the same reversible summary records and transcript-preservation rules.
 
+Chats with images use the same boundary: images in the last two user turns and pending draft stay in model context. Summary input replaces older attachments with text placeholders; the working summary also includes a deterministic list of omitted images derived from the original messages. No visual descriptions are generated, so visual details survive only when discussed in the conversation. Token checks include the actual retained images and draft attachments. The compaction marker and status explain when older images leave model context; Undo restores the previous context, or an image can be reattached. Saved history and exports retain the originals.
+
 `chat-compaction.js` counts each summary request, including its instructions and a fixed output reserve (up to 1,024 tokens, at most a quarter of capacity). Oversized history is processed in progressively smaller message chunks, merging the previous summary each time. A single message that cannot fit causes an actionable failure; no text is silently truncated. Search is off for summaries, and reasoning is requested off without changing the user's settings. Only complete, nonempty summaries that reduce tokens and fit the recent history, draft, and reply reserve are applied.
 
 The existing `/api/chat/completions` route strips `gui_require_context` and refuses summary generation when counting is unavailable. Ordinary chat retains its existing unavailable-count fallback. Web results are still checked at send time.
