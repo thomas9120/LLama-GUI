@@ -1174,6 +1174,34 @@ vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', 
         vm.runInContext(fs.readFileSync(path.join(ROOT, file), "utf8"), context, { filename: file });
     }
 
+    // Fresh launches use upstream's new default; loading saved presets must not
+    // change their addresses, including old presets that omitted the port.
+    const core = context.window.LlamaGui.flagCore;
+    const presets = context.window.LlamaGui.presets;
+    core.replaceFlagValues(vm.runInContext("getDefaultValues()", context));
+    assert.equal(core.getFlagValues().port, 9931);
+    assert.equal(flatLaunchArgs()[flatLaunchArgs().indexOf("--port") + 1], "9931");
+    const freshPreset = JSON.parse(JSON.stringify(vm.runInContext("buildCurrentPresetData()", context)));
+    assert.equal(freshPreset.flags.port, 9931);
+    for (const [preset, expectedPort] of [
+        [{ flags: { host: "127.0.0.2", port: 8080 } }, 8080],
+        [{ flags: { port: 9050 } }, 9050],
+        [{ flags: { temperature: 0.7 } }, 8080],
+        [{ temperature: 0.7 }, 8080],
+        [freshPreset, 9931],
+    ]) {
+        const before = JSON.stringify(preset);
+        core.replaceFlagValues(vm.runInContext("getDefaultValues()", context));
+        presets.applyPresetData(preset);
+        assert.equal(core.getFlagValues().port, expectedPort);
+        if (preset.flags?.host) assert.equal(core.getFlagValues().host, preset.flags.host);
+        const args = flatLaunchArgs();
+        assert.equal(args[args.indexOf("--port") + 1], String(expectedPort));
+        assert.equal(vm.runInContext("buildCurrentPresetData().flags.port", context), expectedPort);
+        assert.equal(JSON.stringify(preset), before, "loading must not mutate saved preset data");
+    }
+    core.replaceFlagValues(vm.runInContext("getDefaultValues()", context));
+
     const loadModeFlag = vm.runInContext(
         "FLAGS.find((flag) => flag.id === 'load_mode')",
         context
