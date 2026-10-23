@@ -70,7 +70,7 @@ apiTab.configure({
 flagValues = { host: "", port: "bad" };
 assert.equal(
     JSON.stringify(apiTab.getServerEndpointConfig()),
-    JSON.stringify({ host: "127.0.0.1", port: 8080, baseUrl: "http://127.0.0.1:8080" }),
+    JSON.stringify({ host: "127.0.0.1", port: 9931, baseUrl: "http://127.0.0.1:9931" }),
     "API endpoint config should fall back for blank host and invalid port"
 );
 

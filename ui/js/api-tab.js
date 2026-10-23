@@ -211,7 +211,7 @@
         const values = flagCore.getFlagValues();
         const host = String((runtime && runtime.host) || values.host || "127.0.0.1").trim() || "127.0.0.1";
         const parsedPort = Number((runtime && runtime.port) || values.port);
-        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 8080;
+        const port = Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 9931;
         return {
             host,
             port,

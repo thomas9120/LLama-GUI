@@ -2255,8 +2255,8 @@ async function runScenario(browser, port, verify) {
                 assert.equal(sourceSecurity[1].href, "https://example.com/path");
 
                 await page.waitForFunction(() => (
-                    document.querySelector("#server-url")?.textContent === "http://127.0.0.1:8080" &&
-                    document.querySelector("#quick-server-url")?.textContent === "http://127.0.0.1:8080"
+                    document.querySelector("#server-url")?.textContent === "http://127.0.0.1:9931" &&
+                    document.querySelector("#quick-server-url")?.textContent === "http://127.0.0.1:9931"
                 ));
                 const serverAddresses = await page.evaluate(() => ({
                     configure: {
@@ -2269,8 +2269,8 @@ async function runScenario(browser, port, verify) {
                     },
                 }));
                 assert.deepEqual(serverAddresses, {
-                    configure: { url: "http://127.0.0.1:8080", webUi: "http://127.0.0.1:8080/" },
-                    quickLaunch: { url: "http://127.0.0.1:8080", webUi: "http://127.0.0.1:8080/" },
+                    configure: { url: "http://127.0.0.1:9931", webUi: "http://127.0.0.1:9931/" },
+                    quickLaunch: { url: "http://127.0.0.1:9931", webUi: "http://127.0.0.1:9931/" },
                 });
             },
             async "mirrored launch controls and Configure search"() {

@@ -19,7 +19,7 @@
 - **Frontend:** Vanilla HTML/CSS/JS loaded as ordered global `<script>` tags (no bundler, no ES modules). Each module attaches to `window.LlamaGui`.
 - **Entry point:** `python server.py` → compat wrapper with early crash logging → delegates to `backend/app.py`.
 - **GUI server:** `127.0.0.1:5240` by default; `LLAMA_GUI_HOST` and `LLAMA_GUI_PORT` can override the bind address for headless/LAN access.
-- **llama-server:** Runs separately (default port 8080) as a subprocess.
+- **llama-server:** Runs separately (default port 9931) as a subprocess. Saved preset ports are preserved; presets without a port retain the historical 8080 default.
 - **Dependencies:** `certifi` (SSL cert bundle), `ddgs` (DuckDuckGo web search), `huggingface_hub` (HF model downloads), `hf-xet` (Xet-accelerated HF transfers).
 - **State persistence:** `config.json` (installed version, active backend, tag).
 - **Thread safety:** All stateful operations (process, download, tunnel, install) use threading locks.

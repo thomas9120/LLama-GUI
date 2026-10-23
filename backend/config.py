@@ -72,7 +72,7 @@ GUI_PORT = parse_gui_port(os.environ.get("LLAMA_GUI_PORT"), DEFAULT_GUI_PORT)
 GUI_ALLOWED_HOSTS = parse_gui_allowed_hosts(os.environ.get("LLAMA_GUI_ALLOWED_HOSTS"))
 SUPERVISED = parse_bool_env(os.environ.get("LLAMA_GUI_SUPERVISED"))
 LLAMA_HOST = "127.0.0.1"
-LLAMA_PORT = 8080
+LLAMA_PORT = 9931
 
 WEB_SEARCH_MAX_RESULTS = 5
 WEB_SEARCH_FETCH_BYTES = 512 * 1024

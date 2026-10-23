@@ -223,7 +223,7 @@ assert.equal(applied[2][1].ctx_size, 4096);
 // Saved-preset comparisons use the load path's defaults and model resolution,
 // but deliberately exclude API keys and the retired draft-context flag.
 {
-    let current = { ctx_size: "4096", temperature: "0.8", api_key: "session-secret", ctx_size_draft: 99, devices: ["0", "1"] };
+    let current = { port: 8080, ctx_size: "4096", temperature: "0.8", api_key: "session-secret", ctx_size_draft: 99, devices: ["0", "1"] };
     context.window.LlamaGui.manager = { getKnownModelNames: () => new Set(["vendor/model.gguf"]) };
     const core = context.window.LlamaGui.flagCore;
     Object.assign(core, {

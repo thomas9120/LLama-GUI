@@ -62,12 +62,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
   - The PR description body contains a typo (`--spec-draft-n-min-adpative`); the actual flag name is `--spec-draft-n-min-adaptive`.
   - The PR is still open and could be reshaped by maintainer review (a related adaptive-length effort exists in PR #25726 / Us5rName's rolling-window branch); re-verify exact flag names, defaults, and help text against the merged commit before implementing.
 
-### llama-server default port: 8080 to 9931
-
-- **Upstream:** [ggml-org/llama.cpp#26508](https://github.com/ggml-org/llama.cpp/pull/26508)
-- **Status:** The advance-warning notice merged on 2026-08-03; the actual default-port change is still pending.
-- **Current impact:** None. Llama-GUI explicitly launches `llama-server` with `--port 8080`.
-- **Recheck when:** Upstream changes the actual default or a bundled llama.cpp release includes that change.
-- **Local decision:** Either keep Llama-GUI's explicit 8080 default or change the frontend, backend target fallback, external-server form, tests, and documentation to 9931 together.
-
 Last checked: 2026-08-31.

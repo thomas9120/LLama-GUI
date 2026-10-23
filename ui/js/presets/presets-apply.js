@@ -57,7 +57,9 @@ function preparePresetLaunchState(data, options = {}) {
     if (typeof flagCore.buildEffectiveFlagValues !== "function") {
         throw new Error("Flag defaults are not available.");
     }
-    const flags = flagCore.buildEffectiveFlagValues(normalized.flags);
+    // Presets without a saved port used the historical 8080 default. New
+    // configurations save their explicit port, including the new 9931 default.
+    const flags = flagCore.buildEffectiveFlagValues({ port: 8080, ...normalized.flags });
     if (preserveApiKey) {
         const currentValues = flagCore.getFlagValues();
         for (const id of SENSITIVE_PRESET_FLAG_IDS) {
