@@ -3811,7 +3811,9 @@ async function runScenario(browser, port, verify) {
                 await page.waitForFunction(() => document.querySelector("#install-status")?.textContent.includes("Custom backend activated"));
                 assert.equal(activateCustomRequests.length, 1);
                 assert.deepEqual(activateCustomRequests[0], { backend: "custom", bin_dir: "D:\\Custom & Build" });
-                assert.equal(await page.textContent("#custom-backend-folder"), "D:\\Custom & Build");
+                // The success message appears before the status refresh re-renders
+                // the folder label, so wait for the authoritative value.
+                await page.waitForFunction(() => document.querySelector("#custom-backend-folder")?.textContent === "D:\\Custom & Build");
                 assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
 
                 const flagsBeforeSwitch = await page.evaluate(() => JSON.stringify(window.LlamaGui.flagCore.getFlagValues()));
