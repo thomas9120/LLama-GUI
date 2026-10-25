@@ -362,7 +362,7 @@ const FLAG_DEFINITIONS_SERVER = [
 		type: "enum",
 		label: "Lazy Mode",
 		short_desc: "Read eligible model tensors from disk on demand to reduce resident RAM use.",
-		desc: "Controls on-demand reading for tensors marked as eligible by the model architecture, such as large per-layer embedding tables. Auto uses llama.cpp's default behavior (lazy only above 4 GiB); On reads eligible tensors on demand using mmap; Off keeps them resident. On Direct reads per-layer embedding rows explicitly and may improve uncached prompt processing. Experimental: requires a custom build with llama.cpp PR #28136; current upstream builds reject on-direct. The PR currently falls back to lazy mmap reads on Windows.",
+		desc: "Controls on-demand reading for tensors marked as eligible by the model architecture, such as large per-layer embedding tables. Auto uses llama.cpp's default behavior (lazy only above 4 GiB); On reads eligible tensors on demand using mmap; Off keeps them resident. On Direct reads per-layer embedding rows explicitly and may improve uncached prompt processing. Experimental, custom builds only: llama.cpp PRs #28136 and #29030 were closed without merging and the merged replacement (#29599) exposes no on-direct mode, so upstream builds accept only on, auto, and off.",
 		tool: "both",
 		default: "",
 		options: [

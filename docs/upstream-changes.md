@@ -4,20 +4,19 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
-### Draft physical batch size — release compatibility window
+### Draft physical batch size — release compatibility window -- implemented
 
 - **Upstream:** [ggml-org/llama.cpp#30459](https://github.com/ggml-org/llama.cpp/pull/30459), merged October 14, 2026 as `3fb4767`.
 - **Local handling:** Configure → Speculative Decoding exposes **Draft Physical Batch Size** (`--spec-draft-n-ubatch`) for server and CLI. Blank omits the argument; 0 inherits the target physical batch size. Smaller values can reduce draft compute-buffer VRAM. The setting is retained but omitted when speculation is disabled or only ngram methods are active.
-- **Compatibility:** Verified the official b11617 Windows CPU server and CLI do not advertise this flag. Use a build containing the merge; leave the field blank on older binaries. The definition's temporary `introduced_after: "b11617"` allows known older builds (including the CI pin) to omit it in the compatibility check; newer and unknown builds remain strict. This records a last known unsupported build, not a promised first supported release.
-- **Remaining:** Verify the first release advertising the flag, update the CI binary pin with its checksum, and remove `introduced_after` and its compatibility exemption once the supported floor includes it.
+- **Compatibility:** Verified against upstream `common/arg.cpp` at each release tag (2026-10-25): releases b11515 through b11628 do not contain the flag, b11629 was never published, and **b11630 is the first release advertising it**. The definition's temporary `introduced_after: "b11628"` allows known older builds (including the CI pin b11515) to omit it in the compatibility check; newer and unknown builds remain strict.
+- **Remaining:** Update the CI binary pin (`tests/llama-cpp-pin.json`, still b11515) to a release at or above b11630 with its checksum and a compat run, then remove `introduced_after` and its compatibility exemption once the supported floor includes b11630.
 
-### Direct reads for lazy embedding tables (`--lazy-mode on-direct`)
+### Direct reads for lazy embedding tables (`--lazy-mode on-direct`) - - - Done
 
 - **Upstream:** [ggml-org/llama.cpp#28136](https://github.com/ggml-org/llama.cpp/pull/28136).
-- **Status:** Open, not merged (checked 2026-09-14). Current upstream [`common/arg.cpp`](https://github.com/ggml-org/llama.cpp/blob/master/common/arg.cpp) accepts only `auto`, `on`, and `off` for `--lazy-mode` / `-lzm`; it rejects `on-direct`. Using the proposed value currently requires a custom build containing the PR.
+- **Status:** Resolved as declined upstream (verified 2026-10-25). The PR chain ended without the enum value: #28136 was closed 2026-09-25 superseded by [#29030](https://github.com/ggml-org/llama.cpp/pull/29030), which was closed 2026-10-06 superseded by [#29599](https://github.com/ggml-org/llama.cpp/pull/29599) ("llama: llama_prefetch_rows"), merged 2026-09-30 as `185103d`. The merged result adds an internal row-prefetch API only; upstream `--lazy-mode` / `-lzm` still accepts just `on`, `auto`, and `off`, so `on-direct` will never appear in an official release.
 - **Behavior:** Reads needed rows from eligible per-layer embedding tables explicitly instead of relying on memory-mapped page faults. This aims to improve prompt processing when the tables are not already cached; performance depends on hardware and workload.
-- **Local handling:** Added `on-direct` to the existing Configure → Advanced **Lazy Mode** dropdown (`tensor_read_lazy` in `ui/js/flags/definitions-server.js`) on 2026-09-14 at the maintainer's request, ahead of upstream merge. The option is labelled experimental and requires a custom build; Auto remains the default. Help text explains that current upstream builds reject the value and the PR currently falls back to lazy mmap reads on Windows. The existing `--lazy-mode` flag remains available for upstream-supported values.
-- **Recheck after merge:** Verify the final enum values, platform support, load-mode requirements, and first supported release, then update the experimental label and help text. Confirm support using the installed binary's `--help` and account for older builds that reject the value.
+- **Local handling:** The `on-direct` option stays in the Configure → Advanced **Lazy Mode** dropdown (`tensor_read_lazy` in `ui/js/flags/definitions-server.js`) for custom builds that carry the author's branch, labelled experimental; Auto remains the default. Help text was corrected (2026-10-25) to state the PRs were closed without merging and upstream accepts only `on`/`auto`/`off`. Remove the option if it should be limited to upstream-supported values.
 
 ### Legacy load flags removed in favor of --load-mode - - - Done
 
@@ -41,8 +40,8 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ### Adaptive MTP draft depth (`draft-mtp-adaptive`)
 
-- **Upstream:** [ggml-org/llama.cpp#27210](https://github.com/ggml-org/llama.cpp/pull/27210) (branch `stew675:adaptive-mtp`, 3 commits, head `77cd0e8`). The range `08ae079..77cd0e8` linked in tracking is the final commit: it gates the adaptive range validation on adaptive mode so plain `draft-mtp` no longer aborts when the effective `n_max` is below the default floor of 3 (e.g. `--spec-draft-n-max 2`), and improves the abort message when `n_max` was capped by the model's MTP layer count.
-- **Status:** Open, not merged (2026-08-18). Awaiting review from `ggerganov`; labels `server`, `testing`. Third-party backports already exist (e.g. giveen/llama-cpp-turboquant `4be91d6`), so flag spellings are circulating before an upstream release.
+- **Upstream:** [ggml-org/llama.cpp#27210](https://github.com/ggml-org/llama.cpp/pull/27210) (branch `stew675:adaptive-mtp`; head moved `77cd0e8` → `c1c2b28` since this was first tracked). The `08ae079..77cd0e8` range linked in tracking is a final commit: it gates the adaptive range validation on adaptive mode so plain `draft-mtp` no longer aborts when the effective `n_max` is below the default floor of 3 (e.g. `--spec-draft-n-max 2`), and improves the abort message when `n_max` was capped by the model's MTP layer count.
+- **Status:** Open, not merged (re-checked 2026-10-25; head `c1c2b28`). Awaiting review from `ggerganov`; labels `server`, `testing`. Third-party backports already exist (e.g. giveen/llama-cpp-turboquant `4be91d6`), so flag spellings are circulating before an upstream release. The flag surface below was verified against head `77cd0e8`; re-verify against the merged commit.
 - **Why this matters:** Adaptive MTP draft depth auto-tunes speculative depth per workload: deep drafts for highly predictable content (code recall, repeated phrasing) and shallow drafts for hard prose/reasoning where deep drafts mostly miss. PR benchmarks show coding throughput ~86 t/s adaptive vs ~79 t/s fixed depth 3 (Qwen3.8-27B Q8_0, ROCm), with no regression floor on prose. Recommended upstream config: `--spec-type draft-mtp-adaptive --spec-draft-n-max 12`.
 - **New user-facing CLI surface (verified against PR head `common/arg.cpp`):**
   1. **New `--spec-type` enum value `draft-mtp-adaptive`.** Maps to the new `COMMON_SPECULATIVE_TYPE_DRAFT_MTP_ADAPTIVE` enum (type count 11 → 12; `--spec-type` help is generated from the type list, so the new value appears automatically). Available in `llama-speculative`, `llama-server`, `llama-cli`; env `LLAMA_ARG_SPEC_TYPE`. Like `draft-mtp`, it sets `load_mtp` so MTP layers load from the main model (no separate draft model). The type works alongside the other `--spec-type` combinability rules (comma-separated list).
@@ -62,4 +61,11 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
   - The PR description body contains a typo (`--spec-draft-n-min-adpative`); the actual flag name is `--spec-draft-n-min-adaptive`.
   - The PR is still open and could be reshaped by maintainer review (a related adaptive-length effort exists in PR #25726 / Us5rName's rolling-window branch); re-verify exact flag names, defaults, and help text against the merged commit before implementing.
 
-Last checked: 2026-08-31.
+### MoE host-cache CPU share (`--moe-cache-cpu-share`)
+
+- **Upstream:** [ggml-org/llama.cpp#30966](https://github.com/ggml-org/llama.cpp/pull/30966) ("Add controllable MoE CPU cache share"), open and approved as of 2026-10-25 (head `4899779`). It builds on the merged `--moe-cache-mib` GPU cache for host-resident experts (#29887).
+- **New flag surface (verified against the PR diff):** one new CLI flag, `--moe-cache-cpu-share F` (float, validated `0..1`, default `0`, env `LLAMA_ARG_MOE_CACHE_CPU_SHARE`), marked `[EXPERIMENTAL]` and threaded through `common_params` → `llama_context_params` → `llama_cparams`. It splits the MoE expert cache between GPU and host-resident capacity. `--moe-cache-mib` itself is pre-existing upstream.
+- **Not GUI flag surface:** the PR also adds a `LLAMA_MOE_CACHE_TRACE` env var (diagnostics only) and, upstream, a tuning script (`moe-cache-tune.py`) plus documentation (`moe-cache.md`) — none of which becomes a Llama-GUI control.
+- **Local handling:** not yet implemented; nothing to do until the PR merges. When it merges and a released binary advertises the flag, add an int/float definition beside `moe_cache_mib` in `ui/js/flags/definitions-hardware.js` (0–1, blank/0 omits), reusing the existing MoE cache visibility gating.
+
+Last checked: 2026-10-25.
