@@ -1637,6 +1637,42 @@ async function verifyBenchmarkActions(page) {
     await page.waitForFunction(() => document.querySelector("#benchmark-output-terminal").textContent.includes("Benchmark stopped"));
 }
 
+// A Playwright timeout says only "Timeout 30000ms exceeded."; the caller frames
+// that name the stalled wait live in its stack, and the shared state it was
+// polling explains why it never became true.
+function stackFrames(error) {
+    const frames = String(error && error.stack ? error.stack : "")
+        .split("\n")
+        .filter((line) => /^\s+at\s/.test(line));
+    return frames.length ? frames.join("\n") : "(no stack frames)";
+}
+
+async function capturePageState(page) {
+    try {
+        return await page.evaluate(() => {
+            const core = window.LlamaGui && window.LlamaGui.flagCore;
+            const values = core ? core.getFlagValues() : {};
+            const keys = ["ctx_size", "fit_ctx", "temperature", "top_p", "gpu_layers", "metrics",
+                "chat_template", "override_tensor", "spec_type", "chat_template_reasoning_effort"];
+            const visiblePanel = Array.from(document.querySelectorAll(".section-panel"))
+                .find((panel) => panel.style.display !== "none");
+            return {
+                section: visiblePanel ? visiblePanel.id : "(none)",
+                tool: core ? core.getCurrentTool() : "(no flagCore)",
+                configSearch: document.getElementById("config-search")?.value ?? null,
+                activeElement: document.activeElement
+                    ? (document.activeElement.id || document.activeElement.tagName) : null,
+                flags: Object.fromEntries(keys.map((key) => [key, values[key] ?? null])),
+                commandPreview: (document.getElementById("command-preview-text")?.textContent || "")
+                    .slice(0, 400),
+            };
+        });
+    } catch (error) {
+        console.debug(`Page state snapshot unavailable: ${error.message}`);
+        return null;
+    }
+}
+
 async function runScenario(browser, port, verify) {
     const page = await browser.newPage();
     await page.addInitScript(() => { window.__LLAMA_GUI_TEST_HOOKS__ = true; });
@@ -4380,8 +4416,20 @@ async function runScenario(browser, port, verify) {
 
         assert.equal(pageErrors.length, 0, pageErrors.join("\n"));
     } catch (error) {
-        throw new Error(`${error.message}\nPage errors:\n${pageErrors.join("\n") || "(none captured)"}`
-            + `\nFailed requests:\n${failedRequests.join("\n") || "(none captured)"}`, { cause: error });
+        const message = error && error.message ? error.message : String(error);
+        const timedOut = /Timeout \d+ms exceeded/.test(message);
+        // Never let a hung page turn failure reporting into a second long wait.
+        const state = timedOut
+            ? await Promise.race([capturePageState(page), wait(5000).then(() => null)])
+            : null;
+        throw new Error([
+            message,
+            ...(state ? ["Page state at timeout:", JSON.stringify(state, null, 2)] : []),
+            "Stack:",
+            stackFrames(error),
+            `Page errors:\n${pageErrors.join("\n") || "(none captured)"}`,
+            `Failed requests:\n${failedRequests.join("\n") || "(none captured)"}`,
+        ].join("\n"), { cause: error });
     } finally {
         await page.close();
     }
