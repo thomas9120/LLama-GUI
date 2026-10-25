@@ -41,11 +41,11 @@ const FLAG_DEFINITIONS_SPECULATIVE = [
 	{
 		id: "draft_ubatch_size",
 		flag: "--spec-draft-n-ubatch",
-		introduced_after: "b11617",
+		introduced_after: "b11628",
 		category: "speculative",
 		type: "int",
 		label: "Draft Physical Batch Size",
-		desc: "Physical maximum batch size of the draft context. Smaller values can reduce draft compute-buffer VRAM use. 0 inherits the main model's Physical Batch Size (-ub). Requires a build containing PR #30459 (not available in b11617 or earlier); leave blank for older builds.",
+		desc: "Physical maximum batch size of the draft context. Smaller values can reduce draft compute-buffer VRAM use. 0 inherits the main model's Physical Batch Size (-ub). Requires a build containing PR #30459 (first released in b11630); leave blank for older builds.",
 		tool: "both",
 		min: 0,
 		placeholder: "0 (inherit main batch size)",
