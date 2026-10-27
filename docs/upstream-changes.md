@@ -4,6 +4,13 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### Router device memory margin (`--models-memory-margin`) - - - Done (declined)
+
+- **Upstream:** [ggml-org/llama.cpp#21231](https://github.com/ggml-org/llama.cpp/pull/21231), merged October 27, 2026 as `85cc432e`; **first release b11930**.
+- **New flag surface:** `--models-memory-margin N` — `llama-server` only, router mode, int MiB of device memory kept free per device (default `0` = disabled), env `LLAMA_ARG_MODELS_MEMORY_MARGIN`. It drives the new `common/fit.cpp` accounting: LRU router models are unloaded until the incoming model fits.
+- **Local handling:** deliberately declined (2026-10-27). Llama-GUI launches `llama-server` in single-model mode and exposes no router flags (`--models-dir`, `--models-preset`, `--models-max`, `--models-autoload` are all absent from `ui/js/` and the launch path), so no control is needed. If router/multi-model support is added, expose this beside `--models-max` with an `introduced_after: "b11930"` gate.
+- **Out-of-window check (2026-10-20 → 2026-10-27):** flag sets parsed from `common/arg.cpp` at b11747 (511 flags) and at master (512) differ by this flag only — no removals, renames, or enum value changes. Non-flag behavior worth knowing: `-sm` / `--split-mode tensor` is now denied for the `MELLUM` and `FLINT` architectures (`30322097`), and grammar/Jinja/JSON-schema handling is hard-capped at 128 nesting levels (`48c9f08b`).
+
 ### Draft physical batch size — release compatibility window -- implemented
 
 - **Upstream:** [ggml-org/llama.cpp#30459](https://github.com/ggml-org/llama.cpp/pull/30459), merged October 14, 2026 as `3fb4767`.
@@ -68,4 +75,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Not GUI flag surface:** the PR also adds a `LLAMA_MOE_CACHE_TRACE` env var (diagnostics only) and, upstream, a tuning script (`moe-cache-tune.py`) plus documentation (`moe-cache.md`) — none of which becomes a Llama-GUI control.
 - **Local handling:** not yet implemented; nothing to do until the PR merges. When it merges and a released binary advertises the flag, add an int/float definition beside `moe_cache_mib` in `ui/js/flags/definitions-hardware.js` (0–1, blank/0 omits), reusing the existing MoE cache visibility gating.
 
-Last checked: 2026-10-25.
+Last checked: 2026-10-27.
