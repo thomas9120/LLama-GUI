@@ -4,6 +4,17 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### TTS voice selection (`--tts-voice`) - - - Done (declined)
+
+- **Upstream:** [ggml-org/llama.cpp#31257](https://github.com/ggml-org/llama.cpp/pull/31257), merged October 27, 2026 as `19ff817`.
+- **New flag surface:** `--tts-voice VOICE` (string, model-dependent; `female` / `male` for LFM3-Audio). It is registered with `LLAMA_EXAMPLE_TTS` only, so it never appears in `llama-server --help`. The same commit adds an optional `voice` field to `POST /tts` and documents model-specific `--tts-lang` codes (no flag change).
+- **Local handling:** declined (2026-10-30). Llama-GUI launches `llama-server` only and has no TTS / `llama-tts` path, so there is no control or launch argument. Revisit only if audio generation is added.
+
+### Windows argv encoding relies on the app manifest
+
+- **Upstream:** `d63fbfe` ([#31329](https://github.com/ggml-org/llama.cpp/pull/31329), October 30, 2026) embeds an app manifest in all Windows executables; `aa588a3` ([#31417](https://github.com/ggml-org/llama.cpp/pull/31417)) then removes the runtime `CommandLineToArgvW` reconstruction from `common/arg.cpp`.
+- **Effect:** Windows builds at or above these commits get UTF-8 `argv` from the manifest, while older or custom binaries built without it lose the runtime repair. Llama-GUI needs no change, but non-ASCII model paths on custom Windows builds may regress.
+
 ### Router device memory margin (`--models-memory-margin`) - - - Done (declined)
 
 - **Upstream:** [ggml-org/llama.cpp#21231](https://github.com/ggml-org/llama.cpp/pull/21231), merged October 27, 2026 as `85cc432e`; **first release b11930**.
@@ -75,4 +86,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Not GUI flag surface:** the PR also adds a `LLAMA_MOE_CACHE_TRACE` env var (diagnostics only) and, upstream, a tuning script (`moe-cache-tune.py`) plus documentation (`moe-cache.md`) — none of which becomes a Llama-GUI control.
 - **Local handling:** not yet implemented; nothing to do until the PR merges. When it merges and a released binary advertises the flag, add an int/float definition beside `moe_cache_mib` in `ui/js/flags/definitions-hardware.js` (0–1, blank/0 omits), reusing the existing MoE cache visibility gating.
 
-Last checked: 2026-10-27.
+Last checked: 2026-10-30 (window 2026-10-23 → 2026-10-30: flag set at `common/arg.cpp` changed by `--models-memory-margin` and `--tts-voice` only; no removals, renames, or enum/default changes).
