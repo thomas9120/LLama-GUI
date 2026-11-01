@@ -37,6 +37,9 @@ def get_status(request, response, ctx):
         model_dir_info = model_dir.get_models_dir_info(ctx)
         backend_specs = official_backends.get_backend_specs(ctx)
         official_install = llama_manager.get_official_install_status(ctx, cfg)
+        # A custom backend keeps the official install it replaced, so both the
+        # active id and the recorded official id stay resolvable.
+        configured_backends = {cfg.get("backend"), official_install.get("backend")}
         try:
             api_target = dict(services.get_llama_api_target())
         except Exception as exc:
@@ -75,6 +78,9 @@ def get_status(request, response, ctx):
                            if llama_manager.is_custom_backend(key) else {}),
                     }
                     for key, spec in backend_specs.items()
+                    # Upstream-retired packages stay resolvable for the
+                    # configured install but are not offered for new installs.
+                    if key in configured_backends or not spec.get("legacy")
                 ],
             }
         )

@@ -4,6 +4,11 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### CUDA 13.3 and ROCm 7.14 packages retired from releases - - - Done
+
+- **Upstream:** The last release with a CUDA 13.3 package was b11070 (2026-09-21); the last with a ROCm 7.14 package was b10766 (2026-09-02). Recent releases, including b12024 (2026-10-31), publish only CUDA 12.4 (Windows x64), CUDA 12.8 (Linux x64), CUDA 13.4 (Windows/Linux, x64 and arm64), and ROCm 10.0 (Windows/Linux x64).
+- **Local handling:** `build_backend_specs()` marks `cuda-13.3`, `hip` (Windows ROCm 7.14), and `rocm` (Linux ROCm 7.14) with `legacy: True`. The specs remain so saved installs can update, repair, and activate, but `/api/status` drops them from `available_backends` unless the id is the active `backend` or the `official_install.backend` that switching to a custom backend records; that keeps **Activate Existing** reachable for a retired official install. Discovery marks the retired package IDs itself (`official_backends.RETIRED_PACKAGES`), so release records retained in `llama/official-backends.json` cannot resurrect them on platforms without built-in specs (Linux x64, Windows arm64). Remove an ID from that set if upstream republishes the package.
+
 ### TTS voice selection (`--tts-voice`) - - - Done (declined)
 
 - **Upstream:** [ggml-org/llama.cpp#31257](https://github.com/ggml-org/llama.cpp/pull/31257), merged October 27, 2026 as `19ff817`.

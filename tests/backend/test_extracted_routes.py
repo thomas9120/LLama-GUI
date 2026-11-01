@@ -1247,6 +1247,68 @@ class ExtractedRouteTests(unittest.TestCase):
             self.assertFalse(response.payload["api_auth_configured"])
             self.assertEqual(response.payload["last_exit_code"], 7)
 
+    def test_status_route_hides_retired_backends_unless_configured(self):
+        specs = {
+            "cpu": {"label": "CPU"},
+            "cuda-13.4": {"label": "CUDA 13.4 (NVIDIA)"},
+            "cuda-13.3": {"label": "CUDA 13.3 (NVIDIA, legacy)", "legacy": True},
+            "hip": {
+                "label": "ROCm 7.14 (AMD, Official; legacy; separate runtime required)",
+                "legacy": True,
+            },
+            "rocm-10.0": {"label": "ROCm 10.0 (AMD, Official; separate runtime required)"},
+        }
+        cases = [
+            ({"tag": "b1", "backend": "rocm-10.0"}, ["cpu", "cuda-13.4", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "cuda-13.3"}, ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "hip"}, ["cpu", "cuda-13.4", "hip", "rocm-10.0"]),
+            # Incomplete configs still keep their chosen backend selectable.
+            ({"backend": "cuda-13.3"}, ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"]),
+            # A custom backend records the official install it replaced, and
+            # that install stays activatable from the Backend dropdown.
+            (
+                {"tag": "custom", "backend": "custom",
+                 "official_install": {"backend": "cuda-13.3", "tag": "b11070"}},
+                ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"],
+            ),
+            (
+                {"tag": "custom", "backend": "custom",
+                 "official_install": {"backend": "hip", "tag": "b10766"}},
+                ["cpu", "cuda-13.4", "hip", "rocm-10.0"],
+            ),
+            # The recorded official install does not resurrect retired packages.
+            (
+                {"tag": "custom", "backend": "custom",
+                 "official_install": {"backend": "cuda-13.4", "tag": "b12024"}},
+                ["cpu", "cuda-13.4", "rocm-10.0"],
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for config, expected_ids in cases:
+                with self.subTest(config=config):
+                    ctx = make_context(tmp)
+                    ctx.services = BackendServices(
+                        backend_specs=specs,
+                        binary_suffix=".exe",
+                        current_arch="x64",
+                        current_platform="win32",
+                        find_tool_executable=lambda tool: ctx.paths.llama_bin / f"{tool}.exe",
+                        get_platform_label=lambda: "Windows",
+                        get_runtime_files=lambda: [],
+                        get_tool_filename=lambda tool: f"{tool}.exe",
+                        is_process_running=lambda: False,
+                        llama_tools=["llama-cli", "llama-server"],
+                        load_config=lambda config=config: dict(config),
+                    )
+                    response = DummyResponse()
+
+                    status.get_status(Request("GET", "/api/status", "", {}), response, ctx)
+
+                    self.assertEqual(
+                        [item["id"] for item in response.payload["available_backends"]],
+                        expected_ids,
+                    )
+
     def test_status_route_reports_unavailable_custom_models_folder(self):
         with tempfile.TemporaryDirectory() as tmp:
             ctx = make_context(tmp)

@@ -88,7 +88,7 @@
 - Runs `llama-server`, `llama-cli`, `llama-bench`, or `llama-perplexity` as a subprocess and streams stdout/stderr.
 - Downloads the official WikiText-2 raw test file for Benchmarking clean perplexity runs.
 - Handles preset, model file, and Hugging Face download APIs.
-- Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.4`, legacy `cuda-13.3`, `vulkan`, `hip`, `sycl`, `openvino`, `metal`). Release listing and updates require both the binary and any companion runtime archives; updates retain the installed backend selection.
+- Selects binary based on platform (`win32`/`darwin`/`linux`) and backend type (e.g., `cuda-12.4`, `cuda-13.4`, `vulkan`, `hip`, `rocm-10.0`, `sycl`, `openvino`, `metal`). Release listing and updates require both the binary and any companion runtime archives; updates retain the installed backend selection. Upstream retired the CUDA 13.3 and ROCm 7.14 packages, so those specs are marked `legacy` wherever they appear (built-in or discovered from releases), and `/api/status` omits them from `available_backends` unless the id is the active `backend` or the `official_install.backend` a custom backend keeps; existing installs stay updatable, repairable, and activatable without offering retired backends for new installs.
 - Proxies OpenAI-compatible chat completions (`/v1/chat/completions`) to `llama-server` with streaming SSE support.
 - Built-in web search via DuckDuckGo (`ddgs` + page fetching with HTML-to-text parsing), with an optional self-hosted SearXNG backend (`LLAMA_GUI_SEARXNG_URL`) that is preferred when set and falls back to `ddgs`.
 - Cloudflare tunnel management (auto-downloads `cloudflared`, starts/stops tunnel, returns public URL).
