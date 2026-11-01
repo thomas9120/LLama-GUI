@@ -4,6 +4,22 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### CUDA 13.3 and ROCm 7.14 packages retired from releases - - - Done
+
+- **Upstream:** The last release with a CUDA 13.3 package was b11070 (2026-09-21); the last with a ROCm 7.14 package was b10766 (2026-09-02). Recent releases, including b12024 (2026-10-31), publish only CUDA 12.4 (Windows x64), CUDA 12.8 (Linux x64), CUDA 13.4 (Windows/Linux, x64 and arm64), and ROCm 10.0 (Windows/Linux x64).
+- **Local handling:** `build_backend_specs()` marks `cuda-13.3`, `hip` (Windows ROCm 7.14), and `rocm` (Linux ROCm 7.14) with `legacy: True`. The specs remain so saved installs can update, repair, and activate, but `/api/status` drops them from `available_backends` unless the id is the active `backend` or the `official_install.backend` that switching to a custom backend records; that keeps **Activate Existing** reachable for a retired official install. Discovery marks the retired package IDs itself (`official_backends.RETIRED_PACKAGES`), so release records retained in `llama/official-backends.json` cannot resurrect them on platforms without built-in specs (Linux x64, Windows arm64). Remove an ID from that set if upstream republishes the package.
+
+### TTS voice selection (`--tts-voice`) - - - Done (declined)
+
+- **Upstream:** [ggml-org/llama.cpp#31257](https://github.com/ggml-org/llama.cpp/pull/31257), merged October 27, 2026 as `19ff817`.
+- **New flag surface:** `--tts-voice VOICE` (string, model-dependent; `female` / `male` for LFM3-Audio). It is registered with `LLAMA_EXAMPLE_TTS` only, so it never appears in `llama-server --help`. The same commit adds an optional `voice` field to `POST /tts` and documents model-specific `--tts-lang` codes (no flag change).
+- **Local handling:** declined (2026-10-30). Llama-GUI launches `llama-server` only and has no TTS / `llama-tts` path, so there is no control or launch argument. Revisit only if audio generation is added.
+
+### Windows argv encoding relies on the app manifest
+
+- **Upstream:** `d63fbfe` ([#31329](https://github.com/ggml-org/llama.cpp/pull/31329), October 30, 2026) embeds an app manifest in all Windows executables; `aa588a3` ([#31417](https://github.com/ggml-org/llama.cpp/pull/31417)) then removes the runtime `CommandLineToArgvW` reconstruction from `common/arg.cpp`.
+- **Effect:** Windows builds at or above these commits get UTF-8 `argv` from the manifest, while older or custom binaries built without it lose the runtime repair. Llama-GUI needs no change, but non-ASCII model paths on custom Windows builds may regress.
+
 ### Router device memory margin (`--models-memory-margin`) - - - Done (declined)
 
 - **Upstream:** [ggml-org/llama.cpp#21231](https://github.com/ggml-org/llama.cpp/pull/21231), merged October 27, 2026 as `85cc432e`; **first release b11930**.
@@ -75,4 +91,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Not GUI flag surface:** the PR also adds a `LLAMA_MOE_CACHE_TRACE` env var (diagnostics only) and, upstream, a tuning script (`moe-cache-tune.py`) plus documentation (`moe-cache.md`) — none of which becomes a Llama-GUI control.
 - **Local handling:** not yet implemented; nothing to do until the PR merges. When it merges and a released binary advertises the flag, add an int/float definition beside `moe_cache_mib` in `ui/js/flags/definitions-hardware.js` (0–1, blank/0 omits), reusing the existing MoE cache visibility gating.
 
-Last checked: 2026-10-27.
+Last checked: 2026-10-30 (window 2026-10-23 → 2026-10-30: flag set at `common/arg.cpp` changed by `--models-memory-margin` and `--tts-voice` only; no removals, renames, or enum/default changes).

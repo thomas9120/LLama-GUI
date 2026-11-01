@@ -361,6 +361,8 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("rocm-10.0", specs)
         self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
+        self.assertTrue(specs["cuda-13.3"].get("legacy"))
+        self.assertTrue(specs["hip"].get("legacy"))
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
         self.assertEqual(
@@ -423,6 +425,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("rocm-10.0", specs)
         self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
+        self.assertTrue(specs["rocm"].get("legacy"))
         self.assertEqual(
             specs["rocm"]["label"],
             "ROCm 7.14 (AMD, Official; legacy; separate runtime required)",

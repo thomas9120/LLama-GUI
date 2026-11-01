@@ -189,6 +189,33 @@ class OfficialBackendsTests(unittest.TestCase):
         self.assertIn("hip", specs)
         self.assertNotIn("rocm-7.14", specs)
         self.assertEqual(specs["hip"]["official_package"]["id"], "rocm-7.14")
+        self.assertTrue(specs["hip"].get("legacy"))
+
+    def test_retired_packages_stay_hidden_without_builtin_specs(self):
+        # Linux x64 and Windows arm64 have no built-in CUDA 13.3 spec to carry a
+        # marker and the ROCm alias differs per platform, so release_specs()
+        # marks retired package ids itself rather than relying on the built-in
+        # table it merges into.
+        cases = [
+            ("linux", "ubuntu", "x64", "cuda", "13.3", "cuda-13.3"),
+            ("win32", "win", "arm64", "cuda", "13.3", "cuda-13.3"),
+            ("linux", "ubuntu", "x64", "rocm", "7.14", "rocm"),
+            ("win32", "win", "x64", "cuda", "13.3", "cuda-13.3"),
+        ]
+        for platform, system, arch, family, version, key in cases:
+            with self.subTest(platform=platform, arch=arch, key=key):
+                self.ctx.services.current_platform = platform
+                self.ctx.services.current_arch = arch
+                self.ctx.services.backend_specs = llama_manager.build_backend_specs(platform, arch)
+                self.ctx.state.official_backend_catalog = {}
+                self.refresh([release(family=family, version=version, platform=system, arch=arch)])
+                spec = catalog.get_backend_specs(self.ctx)[key]
+                self.assertTrue(spec.get("legacy"))
+                self.assertIn("legacy", spec["label"])
+        # Current packages are still offered for new installs.
+        self.ctx.state.official_backend_catalog = {}
+        self.refresh([release(version="13.4")])
+        self.assertNotIn("legacy", catalog.get_backend_specs(self.ctx)["cuda-13.4"])
 
     def test_status_snapshot_remains_available_while_refresh_is_in_progress(self):
         entered, proceed = threading.Event(), threading.Event()

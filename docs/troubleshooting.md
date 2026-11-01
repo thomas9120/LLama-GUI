@@ -69,8 +69,10 @@ Upstream Windows x64 releases switched from CUDA 13.3 to 13.4 in
 [b10978](https://github.com/ggml-org/llama.cpp/releases/tag/b10978).
 In **Install**, select **CUDA 13.4 (NVIDIA)**, choose a release, and click
 **Install**. Existing CUDA 13.3 configurations remain supported for older builds;
-the backend update button stays within the installed CUDA version. Both the binary
-and matching CUDA runtime archive must be available before a release can be installed.
+the backend update button stays within the installed CUDA version, and the CUDA
+13.3 option stays selectable while it is the configured backend (including the
+official install a custom backend replaced). Both the binary and matching CUDA
+runtime archive must be available before a release can be installed.
 
 ## Refreshing official CUDA and ROCm versions
 
@@ -87,9 +89,15 @@ options survive restarts in `llama/official-backends.json`, although downloading
 release still requires a connection. Only complete CUDA binary/runtime pairs are
 offered in the release list. Lemonade options keep their existing behavior.
 Saved options can remain after upstream removes a package or its releases fall
-outside the recent-release scan, leaving an empty Version list. Discovery only
-recognizes supported package naming conventions; a new archive format or tag
-convention may require a GUI update even when the toolkit version is numeric.
+outside the recent-release scan, leaving an empty Version list. Backends that
+upstream retired outright (currently CUDA 13.3, last published in b11070, and
+ROCm 7.14, last published in b10766) are marked legacy and hidden from the
+Backend dropdown for new installs; one reappears only while it is the active
+backend or the official install recorded in `official_install` (kept when a
+custom backend takes over), so existing installs can still update, repair, and
+switch back. Discovery only recognizes supported package naming conventions; a
+new archive format or tag convention may require a GUI update even when the
+toolkit version is numeric.
 
 ## App update buttons fail
 
