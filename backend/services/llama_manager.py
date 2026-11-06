@@ -157,15 +157,21 @@ def build_backend_specs(current_platform: str, current_arch: str) -> dict[str, A
                 "asset": "llama-{tag}-bin-win-cuda-12.4-x64.zip",
                 "extra_assets": ["cudart-llama-bin-win-cuda-12.4-x64.zip"],
             },
-            "cuda-13.4": {
-                "label": "CUDA 13.4 (NVIDIA)",
-                "asset": "llama-{tag}-bin-win-cuda-13.4-x64.zip",
-                "extra_assets": ["cudart-llama-bin-win-cuda-13.4-x64.zip"],
+            "cuda-13.5": {
+                "label": "CUDA 13.5 (NVIDIA)",
+                "asset": "llama-{tag}-bin-win-cuda-13.5-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-13.5-x64.zip"],
             },
             # Upstream stopped publishing these packages (CUDA 13.3 after
-            # b11070, ROCm 7.14 after b10766). Keep the specs for saved
-            # installs, but mark them so /api/status hides them from the
-            # Install dropdown unless the current install already uses one.
+            # b11070, CUDA 13.4 after b12167, ROCm 7.14 after b10766). Keep the
+            # specs for saved installs, but mark them so /api/status hides them
+            # from the Install dropdown unless the current install already uses one.
+            "cuda-13.4": {
+                "label": "CUDA 13.4 (NVIDIA, legacy)",
+                "asset": "llama-{tag}-bin-win-cuda-13.4-x64.zip",
+                "extra_assets": ["cudart-llama-bin-win-cuda-13.4-x64.zip"],
+                "legacy": True,
+            },
             "cuda-13.3": {
                 "label": "CUDA 13.3 (NVIDIA, legacy)",
                 "asset": "llama-{tag}-bin-win-cuda-13.3-x64.zip",

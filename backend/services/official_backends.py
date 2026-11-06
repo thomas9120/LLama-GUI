@@ -16,12 +16,12 @@ TAG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PACKAGE_RE = re.compile(
     r"(win|ubuntu)-(cuda|rocm)-(\d+(?:\.\d+){1,2})-(x64|arm64)\.(zip|tar\.gz)"
 )
-# Upstream stopped publishing these packages (CUDA 13.3 after b11070, ROCm 7.14
-# after b10766). Marking them here covers discovery on platforms whose built-in
-# spec table has no matching key (Linux x64, Windows arm64), where retained
-# release records would otherwise keep offering a retired package for a new
-# install. Drop an id if upstream starts publishing it again.
-RETIRED_PACKAGES = frozenset({"cuda-13.3", "rocm-7.14"})
+# Upstream stopped publishing these packages (CUDA 13.3 after b11070, CUDA 13.4
+# after b12167, ROCm 7.14 after b10766). Marking them here covers discovery on
+# platforms whose built-in spec table has no matching key (Linux x64, Windows
+# arm64), where retained release records would otherwise keep offering a retired
+# package for a new install. Drop an id if upstream starts publishing it again.
+RETIRED_PACKAGES = frozenset({"cuda-13.3", "cuda-13.4", "rocm-7.14"})
 
 
 def release_specs(release, platform, arch):

@@ -63,16 +63,18 @@ Lemonade ROCm archives include user-space ROCm libraries, but the selected `gfx`
 
 Install looks fine but binaries are missing: check quarantine, restore blocked `llama/` files, and only add a project exclusion if you trust the source.
 
-## Windows CUDA updates stop at b10976
+## Windows CUDA updates stop at an older build
 
 Upstream Windows x64 releases switched from CUDA 13.3 to 13.4 in
-[b10978](https://github.com/ggml-org/llama.cpp/releases/tag/b10978).
-In **Install**, select **CUDA 13.4 (NVIDIA)**, choose a release, and click
-**Install**. Existing CUDA 13.3 configurations remain supported for older builds;
-the backend update button stays within the installed CUDA version, and the CUDA
-13.3 option stays selectable while it is the configured backend (including the
-official install a custom backend replaced). Both the binary and matching CUDA
-runtime archive must be available before a release can be installed.
+[b10978](https://github.com/ggml-org/llama.cpp/releases/tag/b10978) and from
+13.4 to 13.5 in [b12170](https://github.com/ggml-org/llama.cpp/releases/tag/b12170).
+In **Install**, select **CUDA 13.5 (NVIDIA)**, choose a release, and click
+**Install**. The backend update button stays within the installed CUDA version,
+which stops receiving new releases once upstream retires that package; the last
+published packages were CUDA 13.3 in b11070 and CUDA 13.4 in b12167. Retired
+options stay selectable only while they are the configured backend (including
+the official install a custom backend replaced). Both the binary and matching
+CUDA runtime archive must be available before a release can be installed.
 
 ## Refreshing official CUDA and ROCm versions
 
@@ -90,14 +92,15 @@ release still requires a connection. Only complete CUDA binary/runtime pairs are
 offered in the release list. Lemonade options keep their existing behavior.
 Saved options can remain after upstream removes a package or its releases fall
 outside the recent-release scan, leaving an empty Version list. Backends that
-upstream retired outright (currently CUDA 13.3, last published in b11070, and
-ROCm 7.14, last published in b10766) are marked legacy and hidden from the
-Backend dropdown for new installs; one reappears only while it is the active
-backend or the official install recorded in `official_install` (kept when a
-custom backend takes over), so existing installs can still update, repair, and
-switch back. Discovery only recognizes supported package naming conventions; a
-new archive format or tag convention may require a GUI update even when the
-toolkit version is numeric.
+upstream retired outright (currently CUDA 13.3, last published in b11070; CUDA
+13.4, last published in b12167; and ROCm 7.14, last published in b10766) are
+marked legacy and hidden from the Backend dropdown for new installs; one
+reappears only while it is the active backend or the official install recorded
+in `official_install` (kept when a custom backend takes over), so existing
+installs can still repair and activate, and they keep updating only while their
+last published package is inside the recent-release scan. Discovery only
+recognizes supported package naming conventions; a new archive format or tag
+convention may require a GUI update even when the toolkit version is numeric.
 
 ## App update buttons fail
 

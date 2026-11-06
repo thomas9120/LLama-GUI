@@ -1250,7 +1250,8 @@ class ExtractedRouteTests(unittest.TestCase):
     def test_status_route_hides_retired_backends_unless_configured(self):
         specs = {
             "cpu": {"label": "CPU"},
-            "cuda-13.4": {"label": "CUDA 13.4 (NVIDIA)"},
+            "cuda-13.5": {"label": "CUDA 13.5 (NVIDIA)"},
+            "cuda-13.4": {"label": "CUDA 13.4 (NVIDIA, legacy)", "legacy": True},
             "cuda-13.3": {"label": "CUDA 13.3 (NVIDIA, legacy)", "legacy": True},
             "hip": {
                 "label": "ROCm 7.14 (AMD, Official; legacy; separate runtime required)",
@@ -1259,28 +1260,31 @@ class ExtractedRouteTests(unittest.TestCase):
             "rocm-10.0": {"label": "ROCm 10.0 (AMD, Official; separate runtime required)"},
         }
         cases = [
-            ({"tag": "b1", "backend": "rocm-10.0"}, ["cpu", "cuda-13.4", "rocm-10.0"]),
-            ({"tag": "b1", "backend": "cuda-13.3"}, ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"]),
-            ({"tag": "b1", "backend": "hip"}, ["cpu", "cuda-13.4", "hip", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "rocm-10.0"}, ["cpu", "cuda-13.5", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "cuda-13.3"}, ["cpu", "cuda-13.5", "cuda-13.3", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "cuda-13.4"}, ["cpu", "cuda-13.5", "cuda-13.4", "rocm-10.0"]),
+            ({"tag": "b1", "backend": "hip"}, ["cpu", "cuda-13.5", "hip", "rocm-10.0"]),
             # Incomplete configs still keep their chosen backend selectable.
-            ({"backend": "cuda-13.3"}, ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"]),
+            ({"backend": "cuda-13.3"}, ["cpu", "cuda-13.5", "cuda-13.3", "rocm-10.0"]),
+            ({"backend": "cuda-13.4"}, ["cpu", "cuda-13.5", "cuda-13.4", "rocm-10.0"]),
             # A custom backend records the official install it replaced, and
             # that install stays activatable from the Backend dropdown.
             (
                 {"tag": "custom", "backend": "custom",
                  "official_install": {"backend": "cuda-13.3", "tag": "b11070"}},
-                ["cpu", "cuda-13.4", "cuda-13.3", "rocm-10.0"],
+                ["cpu", "cuda-13.5", "cuda-13.3", "rocm-10.0"],
             ),
             (
                 {"tag": "custom", "backend": "custom",
                  "official_install": {"backend": "hip", "tag": "b10766"}},
-                ["cpu", "cuda-13.4", "hip", "rocm-10.0"],
+                ["cpu", "cuda-13.5", "hip", "rocm-10.0"],
             ),
-            # The recorded official install does not resurrect retired packages.
+            # The recorded official install does not resurrect retired packages;
+            # it only keeps that one id reachable.
             (
                 {"tag": "custom", "backend": "custom",
-                 "official_install": {"backend": "cuda-13.4", "tag": "b12024"}},
-                ["cpu", "cuda-13.4", "rocm-10.0"],
+                 "official_install": {"backend": "cuda-13.4", "tag": "b12167"}},
+                ["cpu", "cuda-13.5", "cuda-13.4", "rocm-10.0"],
             ),
         ]
         with tempfile.TemporaryDirectory() as tmp:
