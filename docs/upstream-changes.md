@@ -4,9 +4,19 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### Flag surface audit, 2026-10-30 → 2026-11-06 - - - No local changes needed
+
+- **Result:** flag sets parsed from `common/arg.cpp` at the window-start commit 36a0e2ff, b12024, b12167, b12173, and master are identical — 513 names, no additions, removals, renames, enum-value changes, or `set_examples` group changes. `common/sampling.{h,cpp}` are also unchanged, so the GUI's sampler option list needs no update. The only `arg.cpp` edits in the window are plumbing: HF token restricted to `huggingface.co` hosts (`bbc2e4b6`), path-helper removals (`a34de861`, `52e53a76`), and the Windows argv-manifest change already tracked below (`aa588a34`). Pre-window additions (`--tts-voice`, `--models-memory-margin`) remain documented below.
+
+### CUDA 13.4 packages retired in favor of 13.5 - - - Done
+
+- **Upstream:** `3ed7284f` ([#31788](https://github.com/ggml-org/llama.cpp/pull/31788), 2026-11-06) bumps CUDA 13 release builds from 13.4 to 13.5. The last release publishing `cuda-13.4` is b12167 (2026-11-06 09:45Z); the first publishing `cuda-13.5` is **b12170** (2026-11-06 13:50Z). CUDA 12.4 (Windows x64) and 12.8 (Linux x64) are unchanged.
+- **Local handling (2026-11-06):** `build_backend_specs()` adds a non-legacy `cuda-13.5` spec for Windows x64 and marks `cuda-13.4` with `legacy: True`; discovery covers Linux x64 and Windows arm64. `official_backends.RETIRED_PACKAGES` now includes `cuda-13.4`, so retained release records cannot keep offering it for new installs. CUDA 13.5 is the only non-legacy CUDA entry offered for new installs; the Backend dropdown keeps the previous or installed selection rather than auto-selecting 13.5, and `/api/status` hides 13.4 unless it is the configured backend or the recorded `official_install.backend`.
+- **Saved 13.4 installs:** there are no newer 13.4 assets, so the spec now preserves repair and activate only. Updates resolve up to b12167 while that release is inside the 300-release lookback; after that the update route reports "No compatible release found for the installed backend" and directs the user to Install to switch to 13.5. No automatic backend migration is performed.
+
 ### CUDA 13.3 and ROCm 7.14 packages retired from releases - - - Done
 
-- **Upstream:** The last release with a CUDA 13.3 package was b11070 (2026-09-21); the last with a ROCm 7.14 package was b10766 (2026-09-02). Recent releases, including b12024 (2026-10-31), publish only CUDA 12.4 (Windows x64), CUDA 12.8 (Linux x64), CUDA 13.4 (Windows/Linux, x64 and arm64), and ROCm 10.0 (Windows/Linux x64).
+- **Upstream:** The last release with a CUDA 13.3 package was b11070 (2026-09-21); the last with a ROCm 7.14 package was b10766 (2026-09-02). Recent releases, including b12024 (2026-10-31), publish only CUDA 12.4 (Windows x64), CUDA 12.8 (Linux x64), CUDA 13.4 (Windows/Linux, x64 and arm64; 13.5 from b12170), and ROCm 10.0 (Windows/Linux x64).
 - **Local handling:** `build_backend_specs()` marks `cuda-13.3`, `hip` (Windows ROCm 7.14), and `rocm` (Linux ROCm 7.14) with `legacy: True`. The specs remain so saved installs can update, repair, and activate, but `/api/status` drops them from `available_backends` unless the id is the active `backend` or the `official_install.backend` that switching to a custom backend records; that keeps **Activate Existing** reachable for a retired official install. Discovery marks the retired package IDs itself (`official_backends.RETIRED_PACKAGES`), so release records retained in `llama/official-backends.json` cannot resurrect them on platforms without built-in specs (Linux x64, Windows arm64). Remove an ID from that set if upstream republishes the package.
 
 ### TTS voice selection (`--tts-voice`) - - - Done (declined)
@@ -91,4 +101,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Not GUI flag surface:** the PR also adds a `LLAMA_MOE_CACHE_TRACE` env var (diagnostics only) and, upstream, a tuning script (`moe-cache-tune.py`) plus documentation (`moe-cache.md`) — none of which becomes a Llama-GUI control.
 - **Local handling:** not yet implemented; nothing to do until the PR merges. When it merges and a released binary advertises the flag, add an int/float definition beside `moe_cache_mib` in `ui/js/flags/definitions-hardware.js` (0–1, blank/0 omits), reusing the existing MoE cache visibility gating.
 
-Last checked: 2026-10-30 (window 2026-10-23 → 2026-10-30: flag set at `common/arg.cpp` changed by `--models-memory-margin` and `--tts-voice` only; no removals, renames, or enum/default changes).
+Last checked: 2026-11-06 (window 2026-10-30 → 2026-11-06: flag set at `common/arg.cpp` unchanged across 36a0e2ff, b12024, b12167, b12173, and master; only plumbing edits, with no additions, removals, renames, or enum/default changes).

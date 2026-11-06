@@ -354,6 +354,7 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("cuda-12.4", specs)
         self.assertIn("cuda-13.3", specs)
         self.assertIn("cuda-13.4", specs)
+        self.assertIn("cuda-13.5", specs)
         self.assertNotIn("cuda-13.1", specs)
         self.assertIn("vulkan", specs)
         self.assertIn("sycl", specs)
@@ -362,6 +363,9 @@ class BuildBackendSpecsTests(unittest.TestCase):
         self.assertIn("lemonade-rocm-10.0", specs)
         self.assertIn("openvino", specs)
         self.assertTrue(specs["cuda-13.3"].get("legacy"))
+        self.assertTrue(specs["cuda-13.4"].get("legacy"))
+        self.assertEqual(specs["cuda-13.4"]["label"], "CUDA 13.4 (NVIDIA, legacy)")
+        self.assertNotIn("legacy", specs["cuda-13.5"])
         self.assertTrue(specs["hip"].get("legacy"))
         self.assertEqual(specs["cpu"]["label"], "CPU")
         self.assertIn("win-cpu-x64", specs["cpu"]["asset"])
@@ -493,14 +497,20 @@ class BuildBackendSpecsTests(unittest.TestCase):
 
         self.assertIn("extra_assets", specs["cuda-12.4"])
         self.assertIn("extra_assets", specs["cuda-13.3"])
+        self.assertIn("extra_assets", specs["cuda-13.5"])
         self.assertEqual(len(specs["cuda-12.4"]["extra_assets"]), 1)
         self.assertEqual(len(specs["cuda-13.3"]["extra_assets"]), 1)
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["asset"])
         self.assertIn("cuda-13.3", specs["cuda-13.3"]["extra_assets"][0])
+        self.assertEqual(specs["cuda-13.5"]["asset"], "llama-{tag}-bin-win-cuda-13.5-x64.zip")
+        self.assertEqual(
+            specs["cuda-13.5"]["extra_assets"], ["cudart-llama-bin-win-cuda-13.5-x64.zip"]
+        )
         self.assertEqual(specs["cuda-13.4"]["asset"], "llama-{tag}-bin-win-cuda-13.4-x64.zip")
         self.assertEqual(
             specs["cuda-13.4"]["extra_assets"], ["cudart-llama-bin-win-cuda-13.4-x64.zip"]
         )
+        self.assertTrue(specs["cuda-13.4"].get("legacy"))
 
     def test_win32_x64_includes_all_lemonade_rocm_targets(self):
         specs = llama_manager.build_backend_specs("win32", "x64")
