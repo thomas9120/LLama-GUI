@@ -295,7 +295,8 @@
                 seq,
                 sources: {
                     metrics: metricsOk ? "ok" : "unavailable",
-                    slots: slotsOk ? "ok" : "unavailable",
+                    slots: slotsOk ? "ok" : ["sleeping", "idle", "paused"].includes(input?.slotsState)
+                        ? input.slotsState : "unavailable",
                 },
                 session: { prompt: sessionPrompt, generated: sessionGen, total: sessionTotal },
                 context,
