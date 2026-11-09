@@ -76,6 +76,26 @@ function launchResult() {
 }
 
 {
+    for (const tool of ["llama-server", "llama-cli"]) {
+        vm.runInContext(`window.LlamaGui.flagCore.setCurrentToolValue(${JSON.stringify(tool)})`, context);
+        assert.ok(!flatLaunchArgs().includes("--moe-cache-cpu-share"));
+        for (const share of [0.35, 1, 0, ""]) {
+            vm.runInContext(`window.LlamaGui.flagCore.setFlagValue("moe_cache_cpu_share", ${JSON.stringify(share)})`, context);
+            const args = flatLaunchArgs();
+            const index = args.indexOf("--moe-cache-cpu-share");
+            if (share === 0 || share === "") {
+                assert.equal(index, -1, "disabled or blank CPU share must be omitted");
+            } else {
+                assert.notEqual(index, -1);
+                assert.equal(args[index + 1], String(share));
+            }
+        }
+        vm.runInContext("window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues())", context);
+    }
+    vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', context);
+}
+
+{
     assert.ok(!flatLaunchArgs().includes("--spec-draft-adaptive"));
     vm.runInContext(
         'window.LlamaGui.flagCore.setFlagValue("spec_draft_adaptive", true)',

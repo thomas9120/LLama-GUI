@@ -2361,6 +2361,16 @@ async function runScenario(browser, port, verify) {
                 await verifyNgramSimple(page);
                 await verifyReasoningPreserve(page);
 
+                await page.fill("#config-search", "moe-cache-cpu-share");
+                await page.waitForSelector("#flag-moe_cache_cpu_share", { state: "visible" });
+                assert.equal(await page.getAttribute("#flag-moe_cache_cpu_share", "min"), "0");
+                assert.equal(await page.getAttribute("#flag-moe_cache_cpu_share", "max"), "1");
+                await page.fill("#flag-moe_cache_cpu_share", "0.35");
+                await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().moe_cache_cpu_share === 0.35);
+                assert.match(await page.textContent("#command-preview-text"), /--moe-cache-cpu-share 0\.35/);
+                await page.fill("#flag-moe_cache_cpu_share", "0");
+                assert.doesNotMatch(await page.textContent("#command-preview-text"), /--moe-cache-cpu-share/);
+
                 // Typed one key at a time on purpose. Every keystroke writes flag state,
                 // which loops back into restoreFlagInputs(); when that rewrote el.value
                 // unconditionally, type="number" reported the partial "0." as "" and the

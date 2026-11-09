@@ -346,6 +346,7 @@
             reasoning_format: "auto",
             cache_reuse: 0,
             moe_cache_mib: 0,
+            moe_cache_cpu_share: 0,
             ctx_checkpoints: 32,
             checkpoint_every_n_tokens: 256,
         };
