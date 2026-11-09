@@ -1205,21 +1205,6 @@ Live performance metrics are polled from `llama-server`'s Prometheus endpoint.
 3. The backend proxies to `llama-server`'s `/metrics` endpoint.
 4. Metrics are parsed from Prometheus text format.
 
-Each poll also reads `/props` without waking the model. When the server reports
-`is_sleeping`, `/slots` is sampled only while `/metrics` reports a positive
-`llamacpp:requests_processing` count. Idle slot polls would reset the server's
-sleep timer; sleeping slot polls would wake it. Slot/context readings therefore
-pause while idle or asleep, clear the previous context reading, and resume on
-active requests. Monitor explains these pauses and shows a Sleeping badge.
-If sleep state cannot be checked, or activity is unknown on a sleep-capable
-server (including disabled `--metrics`), slot sampling pauses safely while metrics
-continue independently. Older servers whose valid props omit `is_sleeping` keep
-independent slot sampling, including when metrics are unavailable.
-
-The local slots proxy allows 30 seconds for a model/context reload after sleep;
-metrics and props retain their 3-second timeouts. Polls do not overlap, and target
-changes or visibility pauses invalidate pending observations.
-
 ### Displayed Metrics
 
 - **Prompt tokens processed**: Total tokens processed in prompts (delta since baseline)

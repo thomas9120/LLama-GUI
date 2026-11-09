@@ -17,8 +17,6 @@ function fixture(overrides = {}) {
     const calls = [], targets = [], results = [];
     let key = null;
     let lifecycle = { ready: false };
-    let propsResponse = async () => ({ ok: true, json: async () => ({}) });
-    const propsCalls = [];
     const poller = h.api.inferencePolling.create({
         inferenceStats: {
             getTargetKey: () => key,
@@ -26,10 +24,6 @@ function fixture(overrides = {}) {
             applyPollResult: result => results.push(result),
         },
         fetch: (url, options) => {
-            if (url.includes("/props?")) {
-                propsCalls.push({ url, options });
-                return propsResponse();
-            }
             const gate = deferred();
             calls.push({ url, options, ...gate });
             return gate.promise;
@@ -43,8 +37,7 @@ function fixture(overrides = {}) {
         calls[offset + 1].resolve({ ok: true, json: async () => [] });
     }
     const external = { external_chat_target: { connected: true, host: "Fixture.LOCAL", port: 8080 } };
-    return { ...h, poller, calls, propsCalls, targets, results, respond, external,
-        setProps: value => { propsResponse = value; },
+    return { ...h, poller, calls, targets, results, respond, external,
         state: () => poller._test.getState(),
         setLifecycle: value => { lifecycle = value; } };
 }
@@ -109,7 +102,6 @@ test("visibility pause retains the baseline and rejects aborted work without rev
     assert.equal(h.calls.length, 2);
     const targetsBeforeResume = h.targets.length;
     h.poller.setActive(true);
-    await flush();
     assert.equal(h.calls.length, 4, "resume polls immediately");
     assert.equal(h.targets.length, targetsBeforeResume, "resume does not reset the baseline");
     h.respond(2); await flush();
@@ -197,116 +189,5 @@ test("transport and parsing failures remain per-source and subsequent polls reco
     h.respond(2); await flush();
     assert.equal(h.results[1].metricsOk, true);
     assert.equal(h.results[1].slotsOk, true);
-    h.poller.stop();
-});
-
-test("sleep-aware polling leaves idle and sleeping models alone and resumes for active work", async () => {
-    const h = fixture();
-    let sleeping = true;
-    h.setProps(async () => ({ ok: true, json: async () => ({ is_sleeping: sleeping }) }));
-    h.poller.reconcileTarget(h.external);
-    await h.tick(2000);
-    h.calls[0].resolve({ ok: true, text: async () => "llamacpp:requests_processing 0" });
-    await flush();
-    assert.equal(h.calls.length, 1, "sleeping observation must never request slots");
-    assert.equal(h.results.at(-1).slotsState, "sleeping");
-    assert.equal(h.results.at(-1).metricsOk, true);
-    assert.equal(h.propsCalls[0].options.headers.Authorization, "Bearer fixture-secret");
-
-    sleeping = false;
-    await h.tick(3000);
-    h.calls[1].resolve({ ok: true, text: async () => "llamacpp:requests_processing 0" });
-    await flush();
-    assert.equal(h.calls.length, 2, "idle observation must not reset the idle timer");
-    assert.equal(h.results.at(-1).slotsState, "idle");
-    assert.equal(h.results.at(-1).slotsOk, false);
-
-    await h.tick(3000);
-    h.calls[2].resolve({ ok: true, text: async () => "llamacpp:requests_processing 1" });
-    await flush();
-    assert.equal(h.calls.length, 4);
-    assert.match(h.calls[3].url, /slots\?/);
-    h.calls[3].resolve({ ok: true, json: async () => [{ id: 0, is_processing: true }] });
-    await flush();
-    assert.equal(h.results.at(-1).slotsOk, true);
-    assert.equal(h.results.at(-1).slotsNormalized.processing, 1);
-
-    await h.tick(3000);
-    h.calls[4].resolve({ ok: true, text: async () => "llamacpp:requests_processing 0" });
-    await flush();
-    assert.equal(h.calls.length, 5);
-    assert.equal(h.results.at(-1).slotsState, "idle");
-    assert.equal(h.results.at(-1).slotsNormalized, null, "do not carry active context into idle readings");
-    sleeping = true;
-    await h.tick(3000);
-    h.calls[5].resolve({ ok: true, text: async () => "llamacpp:requests_processing 0" });
-    await flush();
-    assert.equal(h.calls.length, 6);
-    assert.equal(h.results.at(-1).slotsState, "sleeping");
-    h.poller.stop();
-});
-
-for (const metrics of [null, "", "llamacpp:requests_processing -1"]) {
-    test(`sleep-aware slots pause when activity is unknown (${metrics})`, async () => {
-        const h = fixture();
-        h.setProps(async () => ({ ok: true, json: async () => ({ is_sleeping: false }) }));
-        h.poller.reconcileTarget(h.external);
-        await h.tick(2000);
-        h.calls[0].resolve({ ok: metrics !== null, text: async () => metrics });
-        await flush();
-        assert.equal(h.calls.length, 1);
-        assert.equal(h.results.at(-1).slotsState, "paused");
-        assert.equal(h.state().hasTimer, true, "keep observing for activity recovery");
-        h.poller.stop();
-    });
-}
-
-test("failed or malformed sleep checks do not suppress metrics or wake a model", async () => {
-    const h = fixture({ console: { debug() {} } });
-    h.poller.reconcileTarget(h.external);
-    for (const response of [
-        { ok: false },
-        { ok: true, json: async () => { throw new Error("not JSON"); } },
-        { ok: true, json: async () => null },
-        { ok: true, json: async () => [] },
-        { ok: true, json: async () => ({ is_sleeping: "false" }) },
-    ]) {
-        h.setProps(async () => response);
-        await h.tick(h.calls.length ? 3000 : 2000);
-        h.calls.at(-1).resolve({ ok: true, text: async () => "llamacpp:requests_processing 1" });
-        await flush();
-        assert.equal(h.results.at(-1).metricsOk, true);
-        assert.equal(h.results.at(-1).slotsState, "paused");
-        assert.equal(h.calls.length, h.results.length, "only metrics requests are issued");
-    }
-    h.poller.stop();
-});
-
-test("a late sleep check cannot issue a slots request for a superseded target", async () => {
-    const h = fixture();
-    const props = deferred();
-    h.setProps(() => props.promise);
-    h.poller.reconcileTarget(h.external);
-    await h.tick(2000);
-    h.calls[0].resolve({ ok: true, text: async () => "llamacpp:requests_processing 1" });
-    h.poller.stop();
-    props.resolve({ ok: true, json: async () => ({ is_sleeping: false }) });
-    await flush();
-    assert.equal(h.calls.length, 1);
-    assert.equal(h.results.length, 0);
-    assert.equal(h.timers.size, 0);
-});
-
-test("late activity cannot start slot sampling after visibility pauses", async () => {
-    const h = fixture();
-    h.setProps(async () => ({ ok: true, json: async () => ({ is_sleeping: false }) }));
-    h.poller.reconcileTarget(h.external);
-    await h.tick(2000);
-    h.poller.setActive(false);
-    h.calls[0].resolve({ ok: true, text: async () => "llamacpp:requests_processing 1" });
-    await flush();
-    assert.equal(h.calls.length, 1);
-    assert.equal(h.results.length, 0);
-    assert.equal(h.timers.size, 0);
     h.poller.stop();
 });

@@ -18,8 +18,6 @@ def _fetch_local_llama_endpoint(
     accept,
     label,
     authorization="",
-    *,
-    timeout=3,
 ):
     try:
         parsed_port = int(port or config.LLAMA_PORT)
@@ -41,7 +39,7 @@ def _fetch_local_llama_endpoint(
             # Resolves and pins the address here, at connect time, so a hostname
             # that passed validation cannot re-resolve somewhere off-machine.
             response = open_pinned_local_request(
-                proxy_host, parsed_port, path, headers=headers, timeout=timeout
+                proxy_host, parsed_port, path, headers=headers, timeout=3
             )
         except ValueError as exc:
             return None, str(exc)
@@ -79,8 +77,6 @@ def get_local_llama_slots(host, port, authorization=""):
         "application/json",
         "slots",
         authorization,
-        # A single-model server may need to reload its model/context after sleep.
-        timeout=30,
     )
 
 

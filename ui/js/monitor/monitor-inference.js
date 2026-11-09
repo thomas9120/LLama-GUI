@@ -24,11 +24,7 @@
         } else {
             const notes = [];
             if (snapshot.sources?.metrics !== "ok") notes.push("Session counters unavailable: check the server connection and whether --metrics is enabled.");
-            const slotsState = snapshot.sources?.slots;
-            if (slotsState === "sleeping") notes.push("The model is sleeping. Slot and context sampling is paused to avoid waking it.");
-            else if (slotsState === "idle") notes.push("Slot and context sampling is paused while idle so the model can sleep. Sampling resumes during active requests.");
-            else if (slotsState === "paused") notes.push("Slot and context sampling is paused because sleep or activity state is unknown. Check the server connection and enable --metrics for active-request sampling.");
-            else if (slotsState !== "ok") notes.push("Slot activity and context unavailable: check the server connection and whether /slots is enabled.");
+            if (snapshot.sources?.slots !== "ok") notes.push("Slot activity and context unavailable: check the server connection and whether /slots is enabled.");
             message = notes.join(" ");
         }
         I.dom.setText(I.dom.byId("monitor-inference-note"), message);
@@ -56,14 +52,13 @@
 
         const processing = snapshot.requests ? snapshot.requests.processingBest : null;
         const activityUnknown = processing === null || processing === undefined;
-        const stateText = snapshot.sources?.slots === "sleeping" ? "Sleeping"
-            : activityUnknown ? "Activity unknown" : processing > 0 ? "Processing" : "Idle";
+        const stateText = activityUnknown ? "Activity unknown" : processing > 0 ? "Processing" : "Idle";
         const external = String(snapshot.targetKey).startsWith("ext:");
         const target = external ? I.dependencies.getLatestStatus?.()?.external_chat_target : null;
         kicker.textContent = external && target?.host && target?.port
             ? `External llama-server · ${target.host}:${target.port}`
             : `Llama server · ${stateText}`;
-        if (stateText !== "Sleeping" && processing !== null && processing > 0) {
+        if (processing !== null && processing > 0) {
             badge.textContent = `${processing} active`;
             badge.classList.remove("badge-dim", "badge-neutral");
             badge.classList.add("badge-green");

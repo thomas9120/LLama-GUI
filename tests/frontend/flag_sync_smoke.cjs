@@ -2606,42 +2606,6 @@ async function runScenario(browser, port, verify) {
                 await selectSection(page, "quick-launch");
                 assert.equal(await page.inputValue("#quick-api-key"), "first-secret, second-secret");
             },
-            async "inference monitoring respects idle sleep"() {
-                let sleeping = false;
-                await page.route("**/api/llama/props**", route => route.fulfill({
-                    json: { is_sleeping: sleeping },
-                }));
-                await selectSection(page, "monitor");
-                await page.evaluate(async () => {
-                    await refreshRuntimeStatusPanels();
-                    inferencePolling.start({ generation: 1 }, { operation: "manual-launch" });
-                });
-                statsMetrics.processing = 1;
-                statsSlots = [{ id: 0, is_processing: true, n_ctx: 1000, n_prompt_tokens: 60 }];
-                await page.evaluate(() => inferencePolling._test.poll());
-                assert.equal(await page.textContent("#monitor-inference-context-reading"), "60 / 1,000 \u00b7 940 remaining");
-                const activeSlotRequests = slotsHeaders.length;
-                assert.ok(activeSlotRequests > 0);
-
-                statsMetrics.processing = 0;
-                await page.evaluate(() => inferencePolling._test.poll());
-                assert.equal(slotsHeaders.length, activeSlotRequests, "idle sampling does not reset the sleep timer");
-                assert.match(await page.textContent("#monitor-inference-note"), /paused while idle/);
-                assert.equal(await page.textContent("#monitor-inference-context-reading"), "Not available");
-
-                sleeping = true;
-                await page.evaluate(() => inferencePolling._test.poll());
-                assert.equal(slotsHeaders.length, activeSlotRequests, "sleeping observation cannot wake the model");
-                assert.equal(await page.textContent("#monitor-inference-state-badge"), "Sleeping");
-                assert.match(await page.textContent("#monitor-inference-note"), /avoid waking/);
-
-                sleeping = false;
-                statsMetrics.processing = 1;
-                await page.evaluate(() => inferencePolling._test.poll());
-                assert.equal(slotsHeaders.length, activeSlotRequests + 1);
-                assert.equal(await page.textContent("#monitor-inference-context-reading"), "60 / 1,000 \u00b7 940 remaining");
-                await page.evaluate(() => inferencePolling.stop());
-            },
             async "inference rates and authenticated polling"() {
                 await page.evaluate(() => window.LlamaGui.flagCore.setFlagValue("api_key", "first-secret, second-secret"));
                 await selectSection(page, "quick-launch");
@@ -4701,7 +4665,6 @@ for (const [name, verify = name] of [
     ["mirrored launch controls and Configure search"],
     ["API key controls and masked command previews"],
     ["inference rates and authenticated polling"],
-    ["inference monitoring respects idle sleep"],
     ["failed Stop recovery and independent inference sources"],
     ["Chat settings panel responsive collapse"],
     ["Chat availability and shared request settings"],

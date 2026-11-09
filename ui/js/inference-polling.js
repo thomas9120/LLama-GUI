@@ -78,79 +78,57 @@
                 const { host, port } = getServerEndpointConfig();
                 const params = new URLSearchParams({ host, port: String(port) });
                 const headers = getApiAuthorizationHeaders();
-                const options = { headers, signal: controller.signal };
-                const metricsPromise = (async () => {
-                    try {
-                        const response = await fetch(`/api/llama/metrics?${params.toString()}`, options);
-                        if (!response.ok) return null;
-                        return root.inferenceStats.parseMetricsText(await response.text());
-                    } catch (error) {
+                // Fetch /metrics and /slots independently: a disabled or unavailable
+                // metrics endpoint must not suppress slot-based context, and vice versa.
+                const [metricsResp, slotsResp] = await Promise.all([
+                    fetch(`/api/llama/metrics?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
                         if (error && error.name !== "AbortError" && epoch === statsEpoch) {
                             console.debug("Failed to fetch llama-server metric stats", error);
                         }
                         return null;
-                    }
-                })();
-                let slotsState = "unavailable";
-                const slotsPromise = (async () => {
-                    let props;
-                    try {
-                        const response = await fetch(`/api/llama/props?${params.toString()}`, options);
-                        props = response.ok ? await response.json() : null;
-                    } catch (error) {
-                        if (error && error.name !== "AbortError" && epoch === statsEpoch) {
-                            console.debug("Failed to check llama-server sleep state", error);
-                        }
-                    }
-                    if (epoch !== statsEpoch) return null;
-                    // Never wake a sleeping model, or keep an idle one awake, just
-                    // to observe it. Unknown sleep/activity state is not permission
-                    // to send a wakeful request. Older servers omit is_sleeping.
-                    if (!props || typeof props !== "object" || Array.isArray(props)) {
-                        slotsState = "paused";
-                        return null;
-                    }
-                    if ("is_sleeping" in props && typeof props.is_sleeping !== "boolean") {
-                        slotsState = "paused";
-                        return null;
-                    }
-                    if (props.is_sleeping === true) {
-                        slotsState = "sleeping";
-                        return null;
-                    }
-                    if (props.is_sleeping === false) {
-                        const metrics = await metricsPromise;
-                        if (epoch !== statsEpoch) return null;
-                        const processing = metrics?.["llamacpp:requests_processing"];
-                        if (!Number.isFinite(processing) || processing < 0) {
-                            slotsState = "paused";
-                            return null;
-                        }
-                        if (processing === 0) {
-                            slotsState = "idle";
-                            return null;
-                        }
-                    }
-                    try {
-                        const response = await fetch(`/api/llama/slots?${params.toString()}`, options);
-                        if (!response.ok) return null;
-                        return root.inferenceStats.normalizeSlots(await response.json());
-                    } catch (error) {
+                    }),
+                    fetch(`/api/llama/slots?${params.toString()}`, { headers, signal: controller.signal }).catch(error => {
                         if (error && error.name !== "AbortError" && epoch === statsEpoch) {
                             console.debug("Failed to fetch llama-server slot stats", error);
                         }
                         return null;
+                    }),
+                ]);
+                if (epoch !== statsEpoch) return;
+
+                let metricsOk = false;
+                let metricsValues = null;
+                if (metricsResp && metricsResp.ok) {
+                    try {
+                        const text = await metricsResp.text();
+                        if (epoch !== statsEpoch) return;
+                        metricsValues = root.inferenceStats.parseMetricsText(text);
+                        metricsOk = true;
+                    } catch (e) {
+                        console.debug("Failed to parse llama-server metric stats", e);
                     }
-                })();
-                const [metricsValues, slotsNormalized] = await Promise.all([metricsPromise, slotsPromise]);
+                }
+
+                let slotsOk = false;
+                let slotsNormalized = null;
+                if (slotsResp && slotsResp.ok) {
+                    let slotsPayload = null;
+                    try {
+                        slotsPayload = await slotsResp.json();
+                    } catch (e) {
+                        console.debug("Failed to parse llama-server slot stats", e);
+                    }
+                    if (epoch !== statsEpoch) return;
+                    slotsNormalized = root.inferenceStats.normalizeSlots(slotsPayload);
+                    slotsOk = slotsNormalized !== null;
+                }
 
                 if (epoch !== statsEpoch) return;
                 inferenceStats.applyPollResult({
-                    metricsOk: metricsValues !== null,
+                    metricsOk,
                     metricsValues,
-                    slotsOk: slotsNormalized !== null,
+                    slotsOk,
                     slotsNormalized,
-                    slotsState,
                     now: Date.now(),
                 });
                 scheduleNextInferencePoll(epoch);

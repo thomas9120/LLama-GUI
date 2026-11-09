@@ -26,31 +26,6 @@ test("fixed bar renders only into the supplied detached document", (t) => {
     assert.equal(host.documentStub.getElementById("stats-context").textContent, "untouched");
 });
 
-test("sleep and idle sampling pauses have explicit notes and clear old context", (t) => {
-    const fixture = createMonitorHarness();
-    t.after(fixture.dispose);
-    const { monitorUi, documentStub } = fixture;
-    const engine = monitorUi.createInferenceStats({});
-    engine.setTarget("gui:1", { zeroBaseline: true });
-    for (const [slotsState, note] of [
-        ["sleeping", /sleeping.*avoid waking/],
-        ["idle", /paused while idle.*can sleep/],
-        ["paused", /state is unknown.*--metrics/],
-    ]) {
-        const snapshot = engine.applyPollResult({
-            metricsOk: true, metricsValues: { "llamacpp:requests_processing": 0 },
-            slotsOk: false, slotsState, slotsNormalized: null, now: 1000,
-        });
-        assert.equal(snapshot.sources.slots, slotsState);
-        monitorUi.renderInferenceSnapshot(snapshot);
-        assert.match(documentStub.getElementById("monitor-inference-note").textContent, note);
-        assert.equal(documentStub.getElementById("monitor-inference-context-reading").textContent, "Not available");
-        if (slotsState === "sleeping") {
-            assert.equal(documentStub.getElementById("monitor-inference-state-badge").textContent, "Sleeping");
-        }
-    }
-});
-
 test("snapshot rendering", async (t) => {
     const fixture = createMonitorHarness();
     t.after(fixture.dispose);

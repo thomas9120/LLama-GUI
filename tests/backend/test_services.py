@@ -149,21 +149,6 @@ class LocalLlamaHttpTests(unittest.TestCase):
         self.assertEqual(open_pinned.call_args.args, ("127.0.0.1", 8080, "/slots"))
         self.assertEqual(open_pinned.call_args.kwargs["headers"], {"Accept": "application/json"})
 
-    def test_only_slots_allows_a_long_model_wake_timeout(self):
-        for fetch, timeout in (
-            (local_llama_http.get_local_llama_metrics, 3),
-            (local_llama_http.get_local_llama_props, 3),
-            (local_llama_http.get_local_llama_slots, 30),
-        ):
-            with self.subTest(fetch=fetch.__name__), mock.patch.object(
-                local_llama_http, "open_pinned_local_request",
-                return_value=self.make_response(b"[]"),
-            ) as open_pinned:
-                text, error = fetch("127.0.0.1", 8080, "Bearer key")
-                self.assertEqual((text, error), ("[]", ""))
-                self.assertEqual(open_pinned.call_args.kwargs["timeout"], timeout)
-                self.assertEqual(open_pinned.call_args.kwargs["headers"]["Authorization"], "Bearer key")
-
     def test_app_delegates_and_default_service_wiring_are_preserved(self):
         from backend import app
 

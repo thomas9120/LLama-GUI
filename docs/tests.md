@@ -7,13 +7,6 @@ This repo has two main test groups:
 
 The goal is not exhaustive coverage. Tests should make common regressions easier to diagnose, especially around shared launch state, command generation, route/service behavior, and UI helper logic.
 
-Idle-sleep regressions are covered by `inference_polling_unit.cjs` (non-waking
-sleep/idle observation, active-work resumption, unknown activity, legacy servers,
-and stale sleep probes), `monitor_inference_rendering_unit.cjs` (pause notes,
-Sleeping badge, and cleared context), and the browser scenario `inference
-monitoring respects idle sleep`. `LocalLlamaHttpTests` in `test_services.py`
-checks that only slots gets the longer model-wake timeout.
-
 The Documentation workflow runs the link and route-registry documentation checks on
 Markdown and `docs/` changes, including docs-only pull requests. The full Tests
 workflow retains its documentation exclusions and Linux/Windows matrix.
