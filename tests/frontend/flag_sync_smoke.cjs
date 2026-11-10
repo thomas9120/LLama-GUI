@@ -137,6 +137,88 @@ async function verifyReasoningPreserve(page) {
     await page.fill("#config-search", "");
 }
 
+async function verifyShardFileList(page) {
+    await selectSection(page, "configure");
+    await page.fill("#config-search", "engram");
+    const list = page.locator("#flag-model_shards");
+    const inputs = list.locator("input");
+    const rows = list.locator(".flag-path-list-row");
+    await list.waitFor({ state: "visible" });
+    assert.equal(await list.getAttribute("role"), "group");
+    assert.equal(await inputs.count(), 1);
+    const first = String.raw`D:\My Models\engrams.gguf`;
+    const second = "/mnt/fast/part,2.gguf";
+    await inputs.first().fill(first);
+    await list.getByRole("button", { name: "Add file", exact: true }).click();
+    assert.equal(await inputs.nth(1).evaluate(el => el === document.activeElement), true);
+    await inputs.nth(1).pressSequentially(second, { delay: 1 });
+    const getPaths = () => page.evaluate(() => window.LlamaGui.flagCore.getFlagValues().model_shards);
+    assert.deepEqual(await getPaths(), [first, second]);
+    assert.equal(await inputs.nth(1).inputValue(), second, "sync must preserve typing and focus");
+    const shardArgs = await page.evaluate(() => window.LlamaGui.flagCore.getLaunchArgs().args.filter(arg => arg[0] === "--shard"));
+    assert.deepEqual(shardArgs, [["--shard", first], ["--shard", '"/mnt/fast/part,2.gguf"']]);
+    assert.ok((await page.textContent("#command-preview-text")).includes('--shard "D:\\My Models\\engrams.gguf"'));
+
+    for (const query of ["context", "PLE", "shard"]) {
+        await page.fill("#config-search", query);
+        await page.waitForTimeout(250);
+    }
+    assert.deepEqual(await inputs.evaluateAll(fields => fields.map(field => field.value)), [first, second]);
+    await page.selectOption("#tool-select", "llama-cli");
+    assert.deepEqual(await inputs.evaluateAll(fields => fields.map(field => field.value)), [first, second]);
+
+    let selection = { selected: false, path: "" };
+    let pickerRequests = 0;
+    let releasePicker;
+    let pickerGate = null;
+    await page.route("**/api/select-file", async route => {
+        pickerRequests++;
+        assert.equal(route.request().postDataJSON().purpose, "model_shards");
+        if (pickerGate) await pickerGate;
+        await route.fulfill({ json: selection });
+    });
+    await rows.first().getByRole("button", { name: /Browse/ }).click();
+    await page.waitForFunction(() => !document.querySelector("#flag-model_shards button").disabled);
+    assert.deepEqual(await getPaths(), [first, second], "picker cancellation preserves paths");
+    selection = { selected: true, path: "/fast/replacement.gguf" };
+    await rows.first().getByRole("button", { name: /Browse/ }).click();
+    await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().model_shards[0] === "/fast/replacement.gguf");
+    assert.equal(await inputs.first().evaluate(el => el === document.activeElement), true);
+
+    // An open native picker must not overwrite a newly applied preset.
+    pickerGate = new Promise(resolve => { releasePicker = resolve; });
+    await rows.first().getByRole("button", { name: /Browse/ }).click();
+    await page.waitForFunction(() => document.querySelector("#flag-model_shards button").disabled);
+    await page.evaluate(() => window.LlamaGui.flagCore.applyFlagValues({ model_shards: ["preset.gguf"] }));
+    const response = page.waitForResponse("**/api/select-file");
+    releasePicker();
+    await response;
+    await page.waitForTimeout(50);
+    assert.deepEqual(await getPaths(), ["preset.gguf"]);
+    assert.equal(pickerRequests, 3);
+    await page.unroute("**/api/select-file");
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    const overflowing = await list.locator("input, button").evaluateAll(elements => elements.some(el => {
+        const rect = el.getBoundingClientRect();
+        const bounds = el.closest(".flag-row").getBoundingClientRect();
+        return rect.left < bounds.left - 1 || rect.right > bounds.right + 1;
+    }));
+    assert.equal(overflowing, false, "file-list controls fit on mobile");
+    await rows.first().getByRole("button", { name: /Remove/ }).click();
+    assert.equal(await getPaths(), undefined);
+    assert.equal(await inputs.count(), 1);
+    assert.equal(await inputs.first().inputValue(), "");
+    assert.equal(await inputs.first().evaluate(el => el === document.activeElement), true);
+    assert.doesNotMatch(await page.textContent("#command-preview-text"), /--shard/);
+    await page.evaluate(() => window.LlamaGui.flagCore.applyFlagValues({ model_shards: ["reset.gguf"] }));
+    await page.click("#btn-config-reset");
+    await page.locator('#config-reset-dialog [value="reset"]').click();
+    await page.waitForFunction(() => window.LlamaGui.flagCore.getFlagValues().model_shards === undefined);
+    assert.equal(await getPaths(), undefined);
+    assert.equal(await inputs.first().inputValue(), "");
+}
+
 async function verifyDraftBatchSize(page) {
     await selectSection(page, "configure");
     await page.fill("#config-search", "draft physical batch");
@@ -4696,6 +4778,7 @@ for (const phase of ["startup", "reload"]) {
 }
 
 for (const [name, verify = name] of [
+    ["additional GGUF shard file list", verifyShardFileList],
     ["draft physical batch size", verifyDraftBatchSize],
     ["preset imports and safe notifications"],
     ["mirrored launch controls and Configure search"],

@@ -5,7 +5,7 @@ const vm = require("node:vm");
 
 const { ROOT, getPackageScripts } = require("./script_order.cjs");
 const SUPPORTED_TOOLS = new Set(["server", "cli", "both"]);
-const SUPPORTED_TYPES = new Set(["bool", "int", "float", "text", "text_list", "path", "enum", "multi_enum"]);
+const SUPPORTED_TYPES = new Set(["bool", "int", "float", "text", "text_list", "path", "path_list", "enum", "multi_enum"]);
 
 function hasText(value) {
     return typeof value === "string" && value.trim().length > 0;
@@ -33,6 +33,8 @@ function validateDefaultValue(flag, addWarning) {
         addWarning(`default for "${flag.id}" should be a finite number-compatible value.`);
     } else if ((flag.type === "text" || flag.type === "path") && typeof value !== "string" && value !== undefined) {
         addWarning(`default for "${flag.id}" should be a string for ${flag.type} flags.`);
+    } else if (flag.type === "path_list" && (!Array.isArray(value) || value.some(item => typeof item !== "string"))) {
+        addWarning(`default for "${flag.id}" should be an array of paths for path_list flags.`);
     } else if (flag.type === "text_list" && !Array.isArray(value) && typeof value !== "string") {
         addWarning(`default for "${flag.id}" should be an array or newline-separated string for text_list flags.`);
     } else if (flag.type === "enum") {

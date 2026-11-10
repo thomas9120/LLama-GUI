@@ -446,7 +446,7 @@
         row.className = "flag-row";
         row.dataset.flagId = f.id;
         if (f.sensitive) row.dataset.comparisonExcluded = "true";
-        if (["path", "text_list", "multi_enum"].includes(f.type) || f.sensitive || f.id === "override_tensor") {
+        if (["path", "path_list", "text_list", "multi_enum"].includes(f.type) || f.sensitive || f.id === "override_tensor") {
             row.classList.add("flag-row-wide");
         }
 
@@ -460,6 +460,7 @@
             multi_enum: createMultiEnumInput,
             text_list: createTextListInput,
             path: createPathInput,
+            path_list: createPathListInput,
             int: createIntInput,
             float: createFloatInput,
             text: createTextInput,
@@ -469,6 +470,7 @@
         const control = input.querySelector(`#flag-${f.id}`);
         const description = label.querySelector(".flag-desc");
         if (control) {
+            if (f.type === "path_list") control.setAttribute("role", "group");
             control.setAttribute("aria-labelledby", `flag-label-${f.id} flag-switch-${f.id}`);
             if (description) control.setAttribute("aria-describedby", description.id);
         } else if (f.type === "multi_enum") {
@@ -647,10 +649,11 @@
         const titleRow = document.createElement("div");
         titleRow.className = "flag-title-row";
 
-        const settingName = document.createElement(f.type === "multi_enum" ? "span" : "label");
+        const grouped = f.type === "multi_enum" || f.type === "path_list";
+        const settingName = document.createElement(grouped ? "span" : "label");
         settingName.className = "flag-setting-name";
         settingName.id = `flag-label-${f.id}`;
-        if (f.type !== "multi_enum") settingName.htmlFor = `flag-${f.id}`;
+        if (!grouped) settingName.htmlFor = `flag-${f.id}`;
         settingName.textContent = f.label || f.flag;
         titleRow.appendChild(settingName);
 
@@ -906,6 +909,89 @@
         input.appendChild(textField);
         input.appendChild(browseBtn);
         return input;
+    }
+
+    function createPathListInput(f) {
+        const control = document.createElement("div");
+        control.id = "flag-" + f.id;
+        control.className = "flag-path-list";
+        control.tabIndex = -1;
+        const rows = document.createElement("div");
+        rows.className = "flag-path-list-rows";
+        control.appendChild(rows);
+        const add = document.createElement("button");
+        add.type = "button";
+        add.className = "btn btn-sm";
+        add.textContent = "Add file";
+        add.addEventListener("click", () => appendPathListRow(control, f, "").focus());
+        control.appendChild(add);
+        restorePathListInput(control, f, getFlagValues()[f.id], true);
+        return control;
+    }
+
+    function pathListValues(control) {
+        return Array.from(control.querySelectorAll("input"), field => field.value.trim()).filter(Boolean);
+    }
+
+    function appendPathListRow(control, f, value) {
+        const row = document.createElement("div");
+        row.className = "flag-path-list-row";
+        const field = document.createElement("input");
+        field.type = "text";
+        field.value = value;
+        field.placeholder = "Path to GGUF file...";
+        field.dataset.flagId = f.id;
+        field.dataset.flagType = "path_list";
+        field.setAttribute("aria-label", `${f.label} file path`);
+        const save = () => {
+            const paths = pathListValues(control);
+            getFlagCore().setFlagValue(f.id, paths.length ? paths : undefined);
+        };
+        field.addEventListener("input", save);
+        const browse = document.createElement("button");
+        browse.type = "button";
+        browse.className = "btn btn-sm";
+        browse.textContent = "Browse";
+        browse.setAttribute("aria-label", `Browse for ${f.label} file`);
+        browse.addEventListener("click", async () => {
+            const previousValue = field.value;
+            browse.disabled = true;
+            try {
+                const selected = await dependencies.browseForPathFlag(f);
+                // A preset load, reset or row removal supersedes the open picker.
+                if (!selected || !field.isConnected || field.value !== previousValue) return;
+                field.value = selected;
+                save();
+                field.focus();
+            } catch (error) {
+                dependencies.showStatus("error", "Failed to select file: " + error.message);
+            } finally {
+                browse.disabled = false;
+            }
+        });
+        const remove = document.createElement("button");
+        remove.type = "button";
+        remove.className = "btn btn-sm btn-ghost";
+        remove.textContent = "Remove";
+        remove.setAttribute("aria-label", `Remove ${f.label} file`);
+        remove.addEventListener("click", () => {
+            const next = row.nextElementSibling || row.previousElementSibling;
+            row.remove();
+            const target = next ? next.querySelector("input") : appendPathListRow(control, f, "");
+            save();
+            target.focus();
+        });
+        row.append(field, browse, remove);
+        control.querySelector(".flag-path-list-rows").appendChild(row);
+        return field;
+    }
+
+    function restorePathListInput(control, f, value, force) {
+        const paths = (Array.isArray(value) ? value : []).map(path => String(path).trim()).filter(Boolean);
+        // Preserve blank draft rows, caret position and partial typing during sync.
+        if (!force && JSON.stringify(pathListValues(control)) === JSON.stringify(paths)) return;
+        control.querySelector(".flag-path-list-rows").replaceChildren();
+        for (const path of paths.length ? paths : [""]) appendPathListRow(control, f, path);
     }
 
     function createIntInput(f) {
@@ -1270,6 +1356,10 @@
         for (const f of getFlags()) {
             const el = document.getElementById("flag-" + f.id);
             const val = values[f.id];
+            if (f.type === "path_list") {
+                if (el) restorePathListInput(el, f, val, force);
+                continue;
+            }
             if (f.type === "multi_enum") {
                 const selected = normalizeMultiEnumValue(val);
                 const multiInputs = document.querySelectorAll(`input[data-flag-id="${f.id}"][data-flag-type="multi_enum"]`);

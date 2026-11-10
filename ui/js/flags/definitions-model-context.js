@@ -31,6 +31,18 @@ const FLAG_DEFINITIONS_MODEL_CONTEXT = [
 		tool: "both",
 	},
 	{
+		id: "model_shards",
+		flag: "--shard",
+		aliases: ["--ple"],
+		introduced_after: "b12191",
+		category: "model",
+		type: "path_list",
+		label: "Additional GGUF Shards / PLE",
+		short_desc: "Load additional GGUF shards, including a separate PLE / engram table.",
+		desc: "Add one file per row. Files may live on different drives. Leave empty for normal model loading. --ple is an alias for --shard. Requires a llama.cpp build containing PR #31185 (merged November 9, 2026); b12191 and older do not support it.",
+		tool: "both",
+	},
+	{
 		id: "model_draft",
 		flag: "-md",
 		category: "model",

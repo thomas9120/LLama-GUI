@@ -1351,3 +1351,52 @@ vm.runInContext('window.LlamaGui.flagCore.setCurrentToolValue("llama-server")', 
 }
 
 console.log("load-mode preset round-trip tests passed");
+
+{
+    const core = context.window.LlamaGui.flagCore;
+    const paths = [String.raw`D:\My Models\engrams.gguf`, '/mnt/fast/part,2.gguf', '/mnt/fast/a"b.gguf'];
+    const expected = [
+        ["--shard", paths[0]],
+        ["--shard", '"/mnt/fast/part,2.gguf"'],
+        ["--shard", '"/mnt/fast/a""b.gguf"'],
+    ];
+    for (const tool of ["llama-server", "llama-cli"]) {
+        core.setCurrentToolValue(tool);
+        core.setSelectedModelValue("main.gguf");
+        core.applyFlagValues({ model_shards: paths });
+        assert.deepEqual(JSON.parse(JSON.stringify(core.getLaunchArgs().args.filter(arg => arg[0] === "--shard"))), expected);
+        assert.ok(flatLaunchArgs().includes("models/main.gguf"), "shards must not replace the main model");
+        assert.ok(!flatLaunchArgs().includes("--ple"), "emit only the canonical flag");
+        const saved = vm.runInContext("buildCurrentPresetData()", context);
+        assert.deepEqual(Array.from(saved.flags.model_shards), paths);
+        core.applyFlagValues({});
+        context.window.LlamaGui.presets.applyPresetData(JSON.parse(JSON.stringify(saved)));
+        assert.deepEqual(Array.from(core.getFlagValues().model_shards), paths, "paths survive a preset JSON round-trip");
+        saved.flags.model_shards.push("mutated.gguf");
+        assert.deepEqual(Array.from(core.getFlagValues().model_shards), paths, "presets cannot mutate shared array state");
+        const baseline = { tool, launch_settings: core.captureLaunchSettings() };
+        assert.equal(core.compareLaunchSettings(baseline).changes.length, 0);
+        core.setFlagValue("model_shards", paths.slice().reverse());
+        assert.ok(core.compareLaunchSettings(baseline).changes.some(entry => entry.flag.id === "model_shards"));
+        for (const custom of ["--shard extra.gguf", "--ple=extra.gguf"]) {
+            core.setFlagValue("custom_args", custom);
+            assert.ok(core.getLaunchArgs().warnings.some(warning => /duplicate UI-managed flags/.test(warning)));
+        }
+        core.setBinaryTag("b12191");
+        assert.ok(core.getLaunchArgs().warnings.some(warning => /update llama.cpp/.test(warning)));
+        for (const tag of ["custom", "", "b99999"]) {
+            core.setBinaryTag(tag);
+            assert.ok(!core.getLaunchArgs().warnings.some(warning => /update llama.cpp/.test(warning)));
+        }
+        core.setFlagValue("custom_args", undefined);
+        for (const empty of [undefined, [], ["", " "]]) {
+            core.setFlagValue("model_shards", empty);
+            assert.ok(!flatLaunchArgs().includes("--shard"));
+        }
+    }
+    core.setCurrentToolValue("llama-server");
+    core.setSelectedModelValue("");
+    core.setBinaryTag("");
+    core.applyFlagValues({});
+}
+console.log("shard file-list launch and preset round-trip tests passed");

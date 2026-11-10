@@ -225,6 +225,15 @@ The frontend loads scripts in a strict dependency order via `ui/index.html`:
 
 `flag-core.js` exposes its API via `window.LlamaGui.flagCore`. Other modules access shared state through this namespace, not by importing or referencing private closure variables.
 
+Configure → Model includes **Additional GGUF Shards / PLE**, before Draft Model.
+Its `path_list` control stores an ordered `model_shards` array in shared flag state
+and presets. Each row supports typing, Browse and Remove; Add file appends a row.
+Launch and command preview emit repeated `--shard` arguments, CSV-escaping each
+path for llama.cpp's parser. `--ple` is an alias recognized by custom-argument
+duplicate warnings. The existing native picker uses the model folder and GGUF
+filter for `model_shards`. Known builds through b12191 show an update warning
+when shard arguments are used; empty lists emit nothing.
+
 Manager consumers use `window.LlamaGui.manager`; each concern owns its mutable state
 in a separate closure. The package-only `window.LlamaGui._managerInternal` holds
 named method groups and injected dependencies, with no shared domain-state bag.
@@ -471,7 +480,7 @@ Each flag has:
 
 - `id`, `flag` (CLI name), `category`, `type`, `label`, `desc`, `tool`, `default`
 - `tool` field: `"both"`, `"server"`, `"cli"` — controls visibility
-- Types: `bool`, `int`, `float`, `text`, `text_list`, `path`, `enum`, `multi_enum`
+- Types: `bool`, `int`, `float`, `text`, `text_list`, `path`, `path_list`, `enum`, `multi_enum`
 - Categories: model, context, cpu, gpu, auto_fit, sampling, rope, conversation, lora, kv, speculative, server, mcp, grammar, logging, advanced
 - `false_flag` for boolean negation (e.g., `--mmap` / `--no-mmap`)
 
@@ -482,6 +491,7 @@ Each flag has:
 - **`float`**: Decimal input with min/max/step constraints.
 - **`text`**: Free-form text input.
 - **`text_list`**: One value per line; emits the same CLI flag once for each value.
+- **`path_list`**: Ordered file rows with Browse/Add/Remove; stores an array and emits a repeated CLI flag with each path CSV-escaped for llama.cpp.
 - **`path`**: Text input with native file picker "Browse" button (tkinter).
 - **`enum`**: Dropdown select from a predefined options list.
 - **`multi_enum`**: Multiple checkboxes for selecting zero or more values. Supports an `all` shortcut and `risk: "high"` badges with warnings for dangerous options (e.g., shell command execution).

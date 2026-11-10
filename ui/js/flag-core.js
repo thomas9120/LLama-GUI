@@ -464,6 +464,7 @@
         for (const f of getFlags()) {
             if (f.flag) names.add(String(f.flag));
             if (f.false_flag) names.add(String(f.false_flag));
+            for (const alias of f.aliases || []) names.add(alias);
         }
         // Model flags are not in FLAGS but the app emits them.
         for (const f of ["-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url"]) {
@@ -645,6 +646,13 @@
                 if (supportedValues.length > 0) {
                     args.push([f.flag, supportedValues.join(",")]);
                 }
+            } else if (f.type === "path_list") {
+                for (const path of Array.isArray(val) ? val : []) {
+                    const normalized = String(path).trim();
+                    // Upstream parses each occurrence as CSV, even for one file.
+                    const csvPath = /[,"]/.test(normalized) ? `"${normalized.replace(/"/g, '""')}"` : normalized;
+                    if (normalized) args.push([f.flag, csvPath]);
+                }
             } else if (f.type === "text_list") {
                 const items = Array.isArray(val) ? val : String(val).split(/\r?\n/);
                 for (const item of items) {
@@ -725,6 +733,13 @@
             }
         }
 
+        const build = /^b(\d+)/.exec(binaryTag);
+        if (build && Number(build[1]) <= 12191 && args.some(entry => {
+            const name = Array.isArray(entry) ? entry[0] : getCustomArgFlagName(entry);
+            return name === "--shard" || name === "--ple";
+        })) {
+            warnings.push("Additional GGUF shards / PLE require a newer llama.cpp build containing PR #31185. This build (b12191 or older) does not support --shard / --ple; update llama.cpp before launching.");
+        }
         return { args, env: environment.env, error: null, warnings };
     }
 
@@ -789,7 +804,7 @@
         if (flag.id === "reasoning_preserve") return normalizeReasoningPreserveValue(value);
         if (flag.type === "bool") return value === true;
         if (flag.type === "multi_enum") return [...normalizeMultiEnumValue(value)].sort();
-        if (flag.type === "text_list") {
+        if (flag.type === "text_list" || flag.type === "path_list") {
             return (Array.isArray(value) ? value : String(value || "").split(/\r?\n/))
                 .map(item => String(item).trim()).filter(Boolean);
         }

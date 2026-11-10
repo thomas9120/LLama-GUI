@@ -255,6 +255,22 @@ dialog.config-reset-dialog {
 .flag-row-wide .flag-input > :only-child { width: 100%; }
 .flag-row-wide .flag-input > .btn { flex-shrink: 0; }
 
+.flag-path-list,
+.flag-path-list-rows {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.flag-path-list > .btn { align-self: flex-start; }
+.flag-path-list-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    min-width: 0;
+}
+.flag-path-list-row input { flex-basis: 160px; }
+
 .override-tensor-control {
     display: flex;
     flex-direction: column;

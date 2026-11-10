@@ -7,6 +7,13 @@ This repo has two main test groups:
 
 The goal is not exhaustive coverage. Tests should make common regressions easier to diagnose, especially around shared launch state, command generation, route/service behavior, and UI helper logic.
 
+Additional GGUF shards / PLE are covered by `launch_args_unit.cjs` (repeated
+arguments, spaces, CSV escaping, both tools, preset round-trips, array isolation,
+runtime comparisons, aliases and older-build warnings) and the browser scenario
+`additional GGUF shard file list` (typing, adding/removing files, picker cancellation,
+selection and stale results, filtering, tool changes, preset restoration, reset,
+focus and narrow layouts).
+
 Idle-sleep regressions are covered by `inference_polling_unit.cjs` (non-waking
 sleep/idle observation, active-work resumption, unknown activity, legacy servers,
 and stale sleep probes), `monitor_inference_rendering_unit.cjs` (pause notes,
