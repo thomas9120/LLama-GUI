@@ -102,4 +102,10 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Compatibility:** b12190's `common/arg.cpp` does not advertise this flag. Temporary `introduced_after: "b12190"` permits known older builds (including the CI pin b11515) to omit it in compatibility checks; newer and unknown builds remain strict. Remove this exemption after advancing the supported binary floor and CI pin to b12191 or newer.
 - **Not GUI flag surface:** `LLAMA_MOE_CACHE_TRACE`, [moe-cache-tune.py](https://github.com/ggml-org/llama.cpp/blob/b12191/scripts/moe-cache-tune.py), and upstream cache documentation remain upstream diagnostics/tuning tools.
 
-Last checked: 2026-11-06 (window 2026-10-30 → 2026-11-06: flag set at `common/arg.cpp` unchanged across 36a0e2ff, b12024, b12167, b12173, and master; only plumbing edits, with no additions, removals, renames, or enum/default changes).
+### Additional GGUF shards / PLE (`--shard`, alias `--ple`)
+
+- **Upstream:** [ggml-org/llama.cpp#31185](https://github.com/ggml-org/llama.cpp/pull/31185), merged November 9, 2026 as `5f490d7bfe78844e6390c869454c149fd7e003a8`. Verified against that commit's `common/arg.cpp`: both aliases accept CSV paths, repeated occurrences append files, and the environment variable is `LLAMA_ARG_SHARD`.
+- **Local handling:** Configure → Model exposes an ordered file list before Draft Model, saved as `model_shards`. Both CLI and server emit repeated `--shard` arguments with each path CSV-escaped. Blank lists emit nothing; custom argument warnings recognize `--ple` as UI-managed too. The removed proposal for a shard-count mismatch flag is not exposed.
+- **Compatibility:** b12191's `common/arg.cpp` does not advertise the flag. Temporary `introduced_after: "b12191"` allows known older binaries, including CI's b11515 pin, to lack it; newer and unknown binaries remain strict. Known builds through b12191 show an update warning when either alias is used. Custom builds are allowed for backports. Remove the exemption when the supported binary floor includes this change.
+
+Last checked: 2026-11-10 (`--shard` / `--ple` verified against merged PR #31185; b12191 verified without the flag).

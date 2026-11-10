@@ -187,7 +187,7 @@ def select_folder_in_native_dialog(
 # `purpose` is the flag id (see getPathPickerRequest in ui/js/app.js). "model" has
 # no path flag today - the main model is a dropdown over models/ - but it is kept
 # here so a future model path flag gets the models/ folder and filter by default.
-MODEL_FILE_PURPOSES = frozenset({"model", "model_draft", "mmproj"})
+MODEL_FILE_PURPOSES = frozenset({"model", "model_shards", "model_draft", "mmproj"})
 
 
 def get_select_file_options(ctx: AppContext, purpose: Any, title: Any) -> tuple[str, Path, FileTypes]:
