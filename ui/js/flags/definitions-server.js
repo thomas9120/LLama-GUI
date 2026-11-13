@@ -162,7 +162,7 @@ const FLAG_DEFINITIONS_SERVER = [
 		type: "bool",
 		label: "UI MCP Proxy",
 		short_desc: "Enable MCP CORS proxy support for the Web UI.",
-		desc: "Experimental. Allows the Web UI to proxy MCP requests via CORS. This replaces the deprecated --webui-mcp-proxy alias. Do not enable in untrusted environments.",
+		desc: "Experimental. Lets the Web UI reach public MCP servers that do not send CORS headers; local and private addresses are refused. This replaces the deprecated --webui-mcp-proxy alias. For security, it also limits CORS origins to localhost by default. Do not enable in untrusted environments.",
 		tool: "server",
 		default: false,
 	},
@@ -175,7 +175,7 @@ const FLAG_DEFINITIONS_SERVER = [
 		short_desc: "Enable local file/shell tools for AI agents in the Web UI.",
 		beginner_tip:
 			"Use 'all' only on trusted machines. In shared environments, list only what you need.",
-		desc: "Experimental. Enables built-in agent tools exposed to the model through llama-server. Select one or more tools below, or choose 'all' to enable every tool.",
+		desc: "Experimental. Enables built-in agent tools exposed to the model through llama-server. Select one or more tools below, or choose 'all' to enable every tool. On a non-loopback host, llama.cpp b12340+ requires an API key unless Allow Unauthenticated Tools is enabled.",
 		tool: "server",
 		options: [
 			{ value: "all", label: "All tools", risk: "high" },
@@ -191,6 +191,18 @@ const FLAG_DEFINITIONS_SERVER = [
 			{ value: "edit_file", label: "Edit File", risk: "high" },
 			{ value: "get_info", label: "Get Runtime Info" },
 		],
+	},
+	{
+		id: "allow_unauthenticated_tools",
+		flag: "--allow-unauthenticated-tools",
+		category: "mcp",
+		type: "bool",
+		label: "Allow Unauthenticated Tools",
+		short_desc: "Allow tools on a non-loopback host without an API key.",
+		desc: "Permits built-in tools, MCP servers, or the MCP proxy on a non-loopback address without an API key. llama.cpp b12340+ refuses that combination by default; enable only on a trusted network.",
+		tool: "server",
+		default: false,
+		introduced_after: "b12339",
 	},
 	{
 		id: "embedding",

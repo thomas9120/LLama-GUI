@@ -87,8 +87,6 @@ _ESTIMATE_VALUE_FLAGS = {
     "--cache-type-k",
     "-ctv",
     "--cache-type-v",
-    "-dt",
-    "--defrag-thold",
     "-np",
     "--parallel",
     "--rpc",

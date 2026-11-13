@@ -4,6 +4,35 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 
 ## Pending
 
+### Flag surface audit, 2026-11-06 → 2026-11-13 - - - Handled
+
+- **Result:** `common/arg.cpp` at window start `bbc2e4b657` (Nov 6; 515 unique option names) and master (Nov 13; 518) differ by two additions and one removal. The remaining deltas are the already-tracked `--moe-cache-cpu-share`, `--ple`, and `--shard`.
+  - Added `--allow-unauthenticated-tools` (server; env `LLAMA_ARG_ALLOW_UNAUTHENTICATED_TOOLS`) in `a1a68eb7` ([#32113](https://github.com/ggml-org/llama.cpp/pull/32113), Nov 12) — first release **b12340**.
+  - Added `--media-allow-private-urls` (server; env `LLAMA_ARG_MEDIA_ALLOW_PRIVATE_URLS`) in `8954f194` ([#32115](https://github.com/ggml-org/llama.cpp/pull/32115), Nov 12) — first release **b12340**.
+  - Removed `-dt` / `--defrag-thold` in `8ca5a800` ([#30565](https://github.com/ggml-org/llama.cpp/pull/30565), Nov 12) — first release **b12347**.
+- **Enum and `set_examples` changes:** `f8_e4m3` joined the `--cache-type-k` / `--cache-type-v` and draft cache type values (first release **b12274**). `--tts-lang` and `--tts-voice` now include `LLAMA_EXAMPLE_SERVER` (first release **b12261**), so `llama-server --help` advertises them. `--ui-mcp-proxy` and `--cors-origins` help text changed without option-name changes.
+- **No local action:** `common/sampling.{h,cpp}` are identical across the window, and the `--tools` value list and built-in `--chat-template` list are unchanged.
+
+### Server tools on non-loopback hosts require authentication (`--allow-unauthenticated-tools`) - - - Done
+
+- **Upstream:** `a1a68eb7` ([#32113](https://github.com/ggml-org/llama.cpp/pull/32113), Nov 12), first release **b12340**. `llama-server` now exits at startup when built-in tools, MCP servers (`--mcp-servers-config` / `--mcp-servers-json`), or `--ui-mcp-proxy` are enabled, every `--host` is non-loopback, and no `--api-key` is set. Loopback means `localhost`, `::1`, `127.*`, or a `.sock` path. The new flag opts out of that refusal.
+- **Local handling (2026-11-13):** MCP Settings exposes **Allow Unauthenticated Tools** (`allow_unauthenticated_tools`, default off, `introduced_after: "b12339"` so older builds stay below the compatibility exemption). The command preview warns on b12340+ when the launch would be rejected and names the three fixes (API key, loopback host, or the new flag), and warns when the opt-in flag is enabled on an older build that does not accept it. The **Built-in Tools** and **UI MCP Proxy** descriptions document the requirement.
+
+### FP8 KV cache types (`f8_e4m3`) - - - Done
+
+- **Upstream:** `202c1a22` ([#28392](https://github.com/ggml-org/llama.cpp/pull/28392), Nov 10), first release **b12274**. `f8_e4m3` is accepted by `--cache-type-k` / `-ctk`, `--cache-type-v` / `-ctv`, and the draft equivalents. The model must carry K/V cache scale tensors; MLA and the direct-cache-consumer architectures abort with "FP8 cache is not supported for architecture", and quantized V still requires Flash Attention.
+- **Local handling (2026-11-13):** `CACHE_TYPE_OPTIONS` now includes **FP8 (E4M3)**, which updates the main and draft cache type controls from the single shared list. The command preview warns when `f8_e4m3` is selected on a build older than b12274. Model compatibility cannot be checked from the GUI; unsupported architectures fail at server start with upstream's error.
+
+### Private media URLs (`--media-allow-private-urls`) - - - Done (declined)
+
+- **Upstream:** `8954f194` ([#32115](https://github.com/ggml-org/llama.cpp/pull/32115), Nov 12), first release **b12340**. `http(s)` media URLs (`image_url`, `input_audio`, `input_video`) must now resolve to public addresses; local and private addresses are refused unless this server-only flag is passed. `--ui-mcp-proxy` similarly refuses local and private MCP addresses.
+- **Local handling:** declined (2026-11-13). Chat sends image attachments as base64 `data:` URLs (`ui/js/chat/chat-images.js`) and never asks `llama-server` to fetch an `http(s)` media URL, so the new restriction cannot reject a GUI request. Revisit if URL-based attachments are added.
+
+### Deprecated KV defragmentation threshold removed (`-dt` / `--defrag-thold`) - - - Done
+
+- **Upstream:** `8ca5a800` ([#30565](https://github.com/ggml-org/llama.cpp/pull/30565), Nov 12), first release **b12347**. The long-deprecated no-op option is gone from `common/arg.cpp`.
+- **Local handling (2026-11-13):** Llama-GUI never exposed it. `-dt` / `--defrag-thold` were removed from `_ESTIMATE_VALUE_FLAGS` in `backend/services/process_manager.py`, so custom-argument usage is dropped before the `llama-fit-params` memory estimate instead of being forwarded to a newer binary that rejects it.
+
 ### Flag surface audit, 2026-10-30 → 2026-11-06 - - - No local changes needed
 
 - **Result:** flag sets parsed from `common/arg.cpp` at the window-start commit 36a0e2ff, b12024, b12167, b12173, and master are identical — 513 names, no additions, removals, renames, enum-value changes, or `set_examples` group changes. `common/sampling.{h,cpp}` are also unchanged, so the GUI's sampler option list needs no update. The only `arg.cpp` edits in the window are plumbing: HF token restricted to `huggingface.co` hosts (`bbc2e4b6`), path-helper removals (`a34de861`, `52e53a76`), and the Windows argv-manifest change already tracked below (`aa588a34`). Pre-window additions (`--tts-voice`, `--models-memory-margin`) remain documented below.
@@ -22,8 +51,8 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 ### TTS voice selection (`--tts-voice`) - - - Done (declined)
 
 - **Upstream:** [ggml-org/llama.cpp#31257](https://github.com/ggml-org/llama.cpp/pull/31257), merged October 27, 2026 as `19ff817`.
-- **New flag surface:** `--tts-voice VOICE` (string, model-dependent; `female` / `male` for LFM3-Audio). It is registered with `LLAMA_EXAMPLE_TTS` only, so it never appears in `llama-server --help`. The same commit adds an optional `voice` field to `POST /tts` and documents model-specific `--tts-lang` codes (no flag change).
-- **Local handling:** declined (2026-10-30). Llama-GUI launches `llama-server` only and has no TTS / `llama-tts` path, so there is no control or launch argument. Revisit only if audio generation is added.
+- **New flag surface:** `--tts-voice VOICE` (string, model-dependent; `female` / `male` for LFM3-Audio). It was originally registered with `LLAMA_EXAMPLE_TTS` only; `203b5f40` ([#31982](https://github.com/ggml-org/llama.cpp/pull/31982), Nov 10) added `LLAMA_EXAMPLE_SERVER`, so releases from **b12261** advertise `--tts-lang`, `--tts-voice`, and the other `--tts-*` flags in `llama-server --help`. `08f945ff` ([#31763](https://github.com/ggml-org/llama.cpp/pull/31763)) also added the OpenAI-compatible `/v1/audio/speech` endpoint. The original commit adds an optional `voice` field to `POST /tts` and documents model-specific `--tts-lang` codes (no flag change).
+- **Local handling:** declined (2026-10-30, re-confirmed 2026-11-13). Llama-GUI launches `llama-server` but has no TTS / audio playback path, so there is no control or launch argument. Revisit only if audio generation is added.
 
 ### Windows argv encoding relies on the app manifest
 
@@ -108,4 +137,4 @@ Track announced llama.cpp changes that may require coordinated Llama-GUI updates
 - **Local handling:** Configure → Model exposes an ordered file list before Draft Model, saved as `model_shards`. Both CLI and server emit repeated `--shard` arguments with each path CSV-escaped. Blank lists emit nothing; custom argument warnings recognize `--ple` as UI-managed too. The removed proposal for a shard-count mismatch flag is not exposed.
 - **Compatibility:** b12191's `common/arg.cpp` does not advertise the flag. Temporary `introduced_after: "b12191"` allows known older binaries, including CI's b11515 pin, to lack it; newer and unknown binaries remain strict. Known builds through b12191 show an update warning when either alias is used. Custom builds are allowed for backports. Remove the exemption when the supported binary floor includes this change.
 
-Last checked: 2026-11-10 (`--shard` / `--ple` verified against merged PR #31185; b12191 verified without the flag).
+Last checked: 2026-11-13 (flag surface audited `bbc2e4b657` → master; new flags verified against release tags b12261, b12274, b12340, and b12347).

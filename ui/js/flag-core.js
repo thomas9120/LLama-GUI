@@ -480,6 +480,61 @@
         return eqIndex > 0 ? value.slice(0, eqIndex) : value;
     }
 
+    // llama.cpp uses CSV for hosts, keys and built-in tools, including quoted
+    // fields (for example a UNIX socket path containing a comma).
+    function parseLaunchCsv(value) {
+        const fields = [];
+        let field = "";
+        let quoted = false;
+        for (let i = 0; i < value.length; i += 1) {
+            const ch = value[i];
+            if (ch === '"') {
+                if (!quoted && field !== "") field += ch;
+                else if (quoted && value[i + 1] === '"') { field += '"'; i += 1; }
+                else quoted = !quoted;
+            } else if (ch === "," && !quoted) {
+                fields.push(field);
+                field = "";
+            } else field += ch;
+        }
+        fields.push(field);
+        return fields;
+    }
+
+    function getToolsAuthenticationState(args) {
+        const state = { host: "127.0.0.1", tools: false, proxy: false, config: "", json: "", hasKey: false, allow: false };
+        const valueFlags = new Set(["--host", "--tools", "--tools-runtime", "--mcp-servers-config", "--mcp-servers-json", "--api-key", "--api-key-file", "--alias", "-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url"]);
+        for (const flag of getFlags()) {
+            if (flag.type === "bool") continue;
+            for (const name of [flag.flag, ...(flag.aliases || [])]) valueFlags.add(name);
+        }
+        // Preserve UI pairs and consume custom values so a quoted value such as
+        // --alias '--allow-unauthenticated-tools' cannot masquerade as a flag.
+        for (let i = 0; i < args.length; i += 1) {
+            const entry = args[i];
+            const token = String(Array.isArray(entry) ? entry[0] : entry);
+            const name = getCustomArgFlagName(token);
+            const eq = token.indexOf("=");
+            let value = Array.isArray(entry) ? String(entry[1] ?? "") : eq > 0 ? token.slice(eq + 1) : "";
+            if (!Array.isArray(entry) && eq < 0 && typeof args[i + 1] === "string"
+                && (valueFlags.has(name) || !args[i + 1].startsWith("-"))) value = args[++i];
+            if (name === "--host") state.host = value;
+            // Even --tools '' produces a nonempty upstream vector ([""]).
+            else if (name === "--tools") state.tools = true;
+            else if (name === "--mcp-servers-config") state.config = value;
+            else if (name === "--mcp-servers-json") state.json = value;
+            else if (name === "--api-key") state.hasKey ||= parseLaunchCsv(value).some(key => key !== "");
+            else if (name === "--api-key-file") state.hasKey ||= value !== "";
+            else if (name === "--allow-unauthenticated-tools") state.allow = true;
+            else if (name === "--ui-mcp-proxy" || name === "--webui-mcp-proxy") state.proxy = true;
+            else if (name === "--no-ui-mcp-proxy" || name === "--no-webui-mcp-proxy") state.proxy = false;
+            else if (["--agent", "-ag", "--no-agent", "-no-ag"].includes(name)) {
+                state.tools = state.proxy = name === "--agent" || name === "-ag";
+            }
+        }
+        return state;
+    }
+
     function getSensitiveCliFlags() {
         return new Set(["--api-key", "-hft", "--hf-token", ...getFlags()
             .filter(flag => flag && flag.sensitive && flag.flag)
@@ -739,6 +794,32 @@
             return name === "--shard" || name === "--ple";
         })) {
             warnings.push("Additional GGUF shards / PLE require a newer llama.cpp build containing PR #31185. This build (b12191 or older) does not support --shard / --ple; update llama.cpp before launching.");
+        }
+
+        // FP8 KV cache types entered the shared -ctk/-ctv option list in
+        // b12274 and need model-side FP8 scales. Older builds reject the value.
+        // Check emitted pairs so a draft cache type left over from a disabled
+        // draft model does not warn about an argument that is never sent.
+        const fp8CacheFlags = new Set(["-ctk", "--cache-type-k", "-ctv", "--cache-type-v", "-ctkd", "--cache-type-k-draft", "-ctvd", "--cache-type-v-draft"]);
+        const usesFp8Cache = args.some(entry => Array.isArray(entry)
+            && fp8CacheFlags.has(String(entry[0])) && String(entry[1]) === "f8_e4m3");
+        if (build && Number(build[1]) < 12274 && usesFp8Cache) {
+            warnings.push("FP8 KV cache (f8_e4m3) requires llama.cpp b12274 or newer. This build does not support it; choose another cache type or update llama.cpp.");
+        }
+
+        // llama.cpp b12340+ refuses tools, MCP servers, or the MCP proxy on a
+        // non-loopback host without an API key (upstream PR 32113). Warn before
+        // launch instead of letting the server exit with a startup error.
+        const auth = getToolsAuthenticationState(args);
+        const loopbackHost = parseLaunchCsv(auth.host).map(host => host.trim()).filter(Boolean).every(host =>
+            host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.") || host.endsWith(".sock"));
+        const toolsEnabled = auth.tools || auth.proxy || auth.config !== "" || auth.json !== "";
+        if (build && Number(build[1]) < 12340 && auth.allow) {
+            warnings.push("Allow Unauthenticated Tools requires llama.cpp b12340 or newer. This build does not support --allow-unauthenticated-tools; update llama.cpp.");
+        }
+        if (toolBase === "server" && build && Number(build[1]) >= 12340
+            && toolsEnabled && !loopbackHost && !auth.hasKey && !auth.allow) {
+            warnings.push("llama.cpp b12340+ refuses tools, MCP servers, or the MCP proxy on a non-loopback host without an API key. Set an API Key, bind to 127.0.0.1, or enable Allow Unauthenticated Tools.");
         }
         return { args, env: environment.env, error: null, warnings };
     }

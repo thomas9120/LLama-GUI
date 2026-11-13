@@ -1692,6 +1692,8 @@ class ExtractedRouteTests(unittest.TestCase):
             (["-np"], [], "a trailing -np is simply dropped"),
             (["-np", "-1", "--verbose"], ["--verbose"], "a negative value is still its value"),
             (["-np", "999", "--verbose"], ["--verbose"], "an out-of-range value drops both"),
+            (["-dt", "0.1", "--verbose"], ["--verbose"], "the removed defrag-thold flag and its value are dropped"),
+            (["--defrag-thold=0.1", "--verbose"], ["--verbose"], "the removed inline form is dropped"),
         ]
         for args, expected, why in cases:
             with self.subTest(args=args):

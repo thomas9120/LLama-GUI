@@ -1400,3 +1400,116 @@ console.log("load-mode preset round-trip tests passed");
     core.applyFlagValues({});
 }
 console.log("shard file-list launch and preset round-trip tests passed");
+
+{
+    // llama.cpp b12340+ exits when tools, MCP servers, or the MCP proxy are
+    // enabled on a non-loopback host without an API key (PR #32113).
+    const core = context.window.LlamaGui.flagCore;
+    const reset = () => vm.runInContext("window.LlamaGui.flagCore.replaceFlagValues(getDefaultValues())", context);
+    const authWarnings = () => core.getLaunchArgs().warnings.filter(warning => String(warning).includes("b12340"));
+
+    reset();
+    for (const tag of ["b12339", "custom", ""]) {
+        core.setBinaryTag(tag);
+        core.applyFlagValues({ host: "0.0.0.0", tools: ["get_info"] });
+        assert.equal(authWarnings().length, 0, `${tag || "empty tag"} must not warn about the tools auth check`);
+    }
+
+    core.setBinaryTag("b12340");
+    core.applyFlagValues({ host: "0.0.0.0", tools: ["get_info"] });
+    assert.equal(authWarnings().length, 1, "non-loopback tools without an API key must warn on b12340+");
+
+    core.applyFlagValues({ host: "0.0.0.0", tools: ["get_info"], api_key: "secret" });
+    assert.equal(authWarnings().length, 0, "an API key satisfies the auth check");
+
+    core.applyFlagValues({ host: "0.0.0.0", tools: ["get_info"], allow_unauthenticated_tools: true });
+    assert.equal(authWarnings().length, 0, "the opt-in flag satisfies the auth check");
+
+    core.applyFlagValues({ host: "0.0.0.0", webui_mcp_proxy: true });
+    assert.equal(authWarnings().length, 1, "the MCP proxy counts as tools");
+
+    core.applyFlagValues({ host: "127.0.0.1", tools: ["get_info"] });
+    assert.equal(authWarnings().length, 0, "loopback hosts are exempt");
+
+    core.applyFlagValues({ host: "localhost", tools: ["get_info"] });
+    assert.equal(authWarnings().length, 0, "localhost is exempt");
+    core.applyFlagValues({ host: "127.0.0.2", tools: ["get_info"] });
+    assert.equal(authWarnings().length, 0, "127.0.0.0/8 is exempt");
+    core.applyFlagValues({ host: "0.0.0.0" });
+    assert.equal(authWarnings().length, 0, "no tools means no auth check");
+
+    const authCases = [
+        [{ host: "127.0.0.1,0.0.0.0", tools: ["get_info"] }, 1, "a public host after loopback must warn"],
+        [{ host: "0.0.0.0,127.0.0.1", tools: ["get_info"] }, 1, "a public host before loopback must warn"],
+        [{ host: " localhost, ::1, [::1], 127.0.0.2, /tmp/llama.sock ", tools: ["get_info"] }, 0, "all-loopback host lists are exempt"],
+        [{ host: '"/tmp/llama,server.sock", localhost', tools: ["get_info"] }, 0, "quoted socket paths can contain commas"],
+        [{ host: '"127.0.0.1","0.0.0.0"', tools: ["get_info"] }, 1, "quoted host lists still detect public addresses"],
+        [{ host: "0.0.0.0", custom_args: "--mcp-servers-json {}" }, 1, "custom MCP JSON enables the auth check"],
+        [{ host: "0.0.0.0", custom_args: "--mcp-servers-config='mcp config.json'" }, 1, "custom MCP config supports inline values and spaces"],
+        [{ host: "0.0.0.0", custom_args: "--mcp-servers-json {} --mcp-servers-json ''" }, 0, "the last MCP config value wins"],
+        [{ host: "0.0.0.0", custom_args: "--tools=get_info" }, 1, "custom tools enable the auth check"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--tools ''" }, 1, "an empty tools CSV still creates an upstream tool entry"],
+        [{ host: "0.0.0.0", custom_args: "--ui-mcp-proxy" }, 1, "custom proxy enables the auth check"],
+        [{ host: "0.0.0.0", custom_args: "--webui-mcp-proxy" }, 1, "the legacy proxy alias enables the auth check"],
+        [{ host: "0.0.0.0", webui_mcp_proxy: true, custom_args: "--no-ui-mcp-proxy" }, 0, "custom arguments can disable the UI proxy"],
+        [{ host: "0.0.0.0", custom_args: "--webui-mcp-proxy --no-webui-mcp-proxy" }, 0, "the last proxy alias wins"],
+        [{ host: "0.0.0.0", custom_args: "--agent" }, 1, "agent mode enables tools and proxy"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "-no-ag" }, 0, "the negative agent alias clears tools and proxy"],
+        [{ host: "localhost", tools: ["get_info"], custom_args: "--host=0.0.0.0" }, 1, "custom hosts override the UI host"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--host localhost" }, 0, "custom loopback hosts override public UI hosts"],
+        [{ host: "localhost", tools: ["get_info"], custom_args: "--host localhost --host '127.0.0.1, 0.0.0.0'" }, 1, "the last custom host list wins"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--api-key example" }, 0, "a custom API key satisfies authentication"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--api-key=example" }, 0, "an inline custom API key satisfies authentication"],
+        [{ host: "0.0.0.0", tools: ["get_info"], api_key: "example", custom_args: "--api-key ''" }, 0, "API keys accumulate rather than replacing earlier keys"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--api-key=,," }, 1, "empty CSV fields do not provide authentication"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--api-key-file 'keys file.txt'" }, 0, "a custom API key file supplies authentication"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--allow-unauthenticated-tools" }, 0, "custom opt-in satisfies the auth check"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--alias '--allow-unauthenticated-tools'" }, 1, "a flag-like value is not an opt-in"],
+        [{ host: "0.0.0.0", tools: ["get_info"], custom_args: "--alias '--api-key'" }, 1, "a flag-like value is not authentication"],
+        [{ host: "0.0.0.0", custom_args: "--alias '--tools'" }, 0, "a flag-like value does not enable tools"],
+        [{ host: "0.0.0.0", tools: ["unsupported-stale-tool"] }, 0, "omitted unsupported tools do not enable the auth check"],
+    ];
+    for (const [flags, expected, why] of authCases) {
+        core.applyFlagValues(flags);
+        assert.equal(authWarnings().length, expected, why);
+    }
+
+    core.applyFlagValues({ host: "0.0.0.0", allow_unauthenticated_tools: true });
+    assert.ok(flatLaunchArgs().includes("--allow-unauthenticated-tools"), "the opt-in flag must reach the launch args");
+    core.applyFlagValues({ allow_unauthenticated_tools: false });
+    assert.ok(!flatLaunchArgs().includes("--allow-unauthenticated-tools"), "the opt-in flag is omitted when disabled");
+
+    core.setBinaryTag("b12339");
+    core.applyFlagValues({ allow_unauthenticated_tools: true });
+    assert.ok(core.getLaunchArgs().warnings.some(warning => String(warning).includes("--allow-unauthenticated-tools")),
+        "older builds must warn about the unsupported opt-in flag");
+    core.applyFlagValues({ custom_args: "--allow-unauthenticated-tools" });
+    assert.ok(authWarnings().length > 0, "older builds must also warn about a custom opt-in flag");
+    core.setCurrentToolValue("llama-cli");
+    core.applyFlagValues({ allow_unauthenticated_tools: true });
+    assert.equal(authWarnings().length, 0, "an omitted server-only flag must not warn for CLI");
+    core.setCurrentToolValue("llama-server");
+
+    // FP8 KV cache types require b12274+; older builds reject the value.
+    const fp8Warnings = () => core.getLaunchArgs().warnings.filter(warning => String(warning).includes("b12274"));
+    core.setBinaryTag("b12273");
+    core.applyFlagValues({ cache_type_k: "f8_e4m3" });
+    assert.equal(fp8Warnings().length, 1, "older builds must warn about FP8 cache types");
+    assert.ok(flatLaunchArgs().includes("f8_e4m3"));
+    core.applyFlagValues({ draft_cache_type_k: "f8_e4m3" });
+    assert.equal(fp8Warnings().length, 0, "an omitted draft cache type must not warn");
+    assert.ok(!flatLaunchArgs().includes("f8_e4m3"), "a draft cache type without a draft model must stay omitted");
+    core.setBinaryTag("b12274");
+    core.applyFlagValues({ cache_type_k: "f8_e4m3" });
+    assert.equal(fp8Warnings().length, 0, "b12274 accepts FP8 cache types");
+    core.applyFlagValues({ draft_cache_type_v: "f8_e4m3" });
+    assert.equal(fp8Warnings().length, 0, "draft FP8 cache types use the same gate");
+    core.setBinaryTag("custom");
+    core.applyFlagValues({ cache_type_v: "f8_e4m3" });
+    assert.equal(fp8Warnings().length, 0, "custom builds stay silent");
+
+    core.setBinaryTag("");
+    reset();
+    core.setSelectedModelValue("");
+}
+console.log("tools authentication and FP8 cache launch warning tests passed");
