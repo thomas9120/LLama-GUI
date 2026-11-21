@@ -1513,3 +1513,45 @@ console.log("shard file-list launch and preset round-trip tests passed");
     core.setSelectedModelValue("");
 }
 console.log("tools authentication and FP8 cache launch warning tests passed");
+
+{
+    const core = context.window.LlamaGui.flagCore;
+    const conflict = /Ignore EOS.*grammar or JSON schema/;
+    const build = (tag, flags, tool = "llama-server") => {
+        core.setBinaryTag(tag);
+        return core.buildLaunchArgs({ tool, flags });
+    };
+
+    for (const tool of ["llama-server", "llama-cli"]) {
+        for (const [id, value] of [
+            ["grammar", 'root ::= "ok"'],
+            ["grammar_file", "rules.gbnf"],
+            ["json_schema", "{}"],
+            ["json_schema_file", "schema.json"],
+        ]) {
+            assert.match(build("b12489-cuda", { ignore_eos: true, [id]: value }, tool).error, conflict);
+        }
+    }
+
+    const flags = { ignore_eos: true, grammar: 'root ::= "ok"' };
+    assert.equal(build("b12488", flags).error, null);
+    assert.ok(!build("b12488", flags).warnings.some(warning => conflict.test(warning)));
+    for (const tag of ["custom", ""]) {
+        const result = build(tag, flags);
+        assert.equal(result.error, null);
+        assert.ok(result.warnings.some(warning => conflict.test(warning)));
+    }
+
+    assert.match(build("b12489", { custom_args: "--ignore_eos --json_schema '{}'" }).error, conflict);
+    assert.match(build("b12489", { grammar_file: "rules.gbnf", custom_args: "--ignore-eos" }).error, conflict);
+    assert.equal(build("b12489", { ...flags, custom_args: "--grammar ''" }).error, null);
+    assert.match(build("b12489", {
+        ...flags,
+        custom_args: "--grammar '' --json-schema-file schema.json",
+    }).error, conflict);
+    assert.equal(build("b12489", { grammar: flags.grammar, custom_args: "--alias '--ignore-eos'" }).error, null);
+    assert.equal(build("b12489", { ignore_eos: true, custom_args: "--alias '--grammar'" }).error, null);
+    assert.equal(build("b12489", { ignore_eos: true }).error, null);
+    core.setBinaryTag("");
+}
+console.log("Ignore EOS and grammar launch validation tests passed");

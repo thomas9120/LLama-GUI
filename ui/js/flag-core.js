@@ -501,9 +501,10 @@
         return fields;
     }
 
-    function getToolsAuthenticationState(args) {
-        const state = { host: "127.0.0.1", tools: false, proxy: false, config: "", json: "", hasKey: false, allow: false };
-        const valueFlags = new Set(["--host", "--tools", "--tools-runtime", "--mcp-servers-config", "--mcp-servers-json", "--api-key", "--api-key-file", "--alias", "-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url"]);
+    function getLaunchValidationState(args) {
+        const state = { host: "127.0.0.1", tools: false, proxy: false, config: "", json: "", hasKey: false, allow: false, ignoreEos: false, hasGrammar: false };
+        const grammarFlags = ["--grammar", "--grammar-file", "-j", "--json-schema", "-jf", "--json-schema-file"];
+        const valueFlags = new Set(["--host", "--tools", "--tools-runtime", "--mcp-servers-config", "--mcp-servers-json", "--api-key", "--api-key-file", "--alias", "-m", "--model", "-hf", "--hf-repo", "-mu", "--model-url", "-p", "--prompt", "-sys", "--system-prompt", ...grammarFlags]);
         for (const flag of getFlags()) {
             if (flag.type === "bool") continue;
             for (const name of [flag.flag, ...(flag.aliases || [])]) valueFlags.add(name);
@@ -514,10 +515,15 @@
             const entry = args[i];
             const token = String(Array.isArray(entry) ? entry[0] : entry);
             const name = getCustomArgFlagName(token);
+            const normalizedName = name.startsWith("--") ? name.replaceAll("_", "-") : name;
             const eq = token.indexOf("=");
             let value = Array.isArray(entry) ? String(entry[1] ?? "") : eq > 0 ? token.slice(eq + 1) : "";
             if (!Array.isArray(entry) && eq < 0 && typeof args[i + 1] === "string"
-                && (valueFlags.has(name) || !args[i + 1].startsWith("-"))) value = args[++i];
+                && (valueFlags.has(normalizedName) || !args[i + 1].startsWith("-"))) value = args[++i];
+            if (normalizedName === "--ignore-eos") state.ignoreEos = true;
+            // Upstream stores all constraint options in one field. The last
+            // one wins, including an explicit empty inline grammar.
+            if (grammarFlags.includes(normalizedName)) state.hasGrammar = value !== "";
             if (name === "--host") state.host = value;
             // Even --tools '' produces a nonempty upstream vector ([""]).
             else if (name === "--tools") state.tools = true;
@@ -807,18 +813,24 @@
             warnings.push("FP8 KV cache (f8_e4m3) requires llama.cpp b12274 or newer. This build does not support it; choose another cache type or update llama.cpp.");
         }
 
+        const validation = getLaunchValidationState(args);
+        if (validation.ignoreEos && validation.hasGrammar) {
+            const error = "Turn off Ignore EOS (--ignore-eos) or remove the grammar or JSON schema. llama.cpp b12489 and newer reject this combination.";
+            if (build && Number(build[1]) >= 12489) return { args, env: environment.env, error, warnings };
+            if (!build) warnings.push(error);
+        }
+
         // llama.cpp b12340+ refuses tools, MCP servers, or the MCP proxy on a
         // non-loopback host without an API key (upstream PR 32113). Warn before
         // launch instead of letting the server exit with a startup error.
-        const auth = getToolsAuthenticationState(args);
-        const loopbackHost = parseLaunchCsv(auth.host).map(host => host.trim()).filter(Boolean).every(host =>
+        const loopbackHost = parseLaunchCsv(validation.host).map(host => host.trim()).filter(Boolean).every(host =>
             host === "localhost" || host === "::1" || host === "[::1]" || host.startsWith("127.") || host.endsWith(".sock"));
-        const toolsEnabled = auth.tools || auth.proxy || auth.config !== "" || auth.json !== "";
-        if (build && Number(build[1]) < 12340 && auth.allow) {
+        const toolsEnabled = validation.tools || validation.proxy || validation.config !== "" || validation.json !== "";
+        if (build && Number(build[1]) < 12340 && validation.allow) {
             warnings.push("Allow Unauthenticated Tools requires llama.cpp b12340 or newer. This build does not support --allow-unauthenticated-tools; update llama.cpp.");
         }
         if (toolBase === "server" && build && Number(build[1]) >= 12340
-            && toolsEnabled && !loopbackHost && !auth.hasKey && !auth.allow) {
+            && toolsEnabled && !loopbackHost && !validation.hasKey && !validation.allow) {
             warnings.push("llama.cpp b12340+ refuses tools, MCP servers, or the MCP proxy on a non-loopback host without an API key. Set an API Key, bind to 127.0.0.1, or enable Allow Unauthenticated Tools.");
         }
         return { args, env: environment.env, error: null, warnings };
