@@ -829,6 +829,77 @@ async function verifyConfigureRestart(page) {
     for (const [url, handler] of Object.entries(routes)) await page.unroute(url, handler);
 }
 
+async function verifyMinimalReasoningRecovery(page) {
+    const baseStatus = await page.evaluate(() => window.LlamaGui.apiClient.fetchJson("/api/status"));
+    let runtime = null;
+    const events = [];
+    const launches = [];
+    let preflightError = "";
+    const routes = {
+        "**/api/status": route => route.fulfill({ json: {
+            ...baseStatus, running: Boolean(runtime), active_process_tool: runtime?.tool, active_runtime: runtime,
+        } }),
+        "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
+        "**/api/llama/props": route => route.fulfill({ json: {
+            chat_template_caps: { reasoning_effort_levels: ["low", "high"], reasoning_effort_rejected: ["minimal"] },
+        } }),
+        "**/api/launch/preflight": async route => {
+            events.push("preflight");
+            await route.fulfill({ json: preflightError ? { error: preflightError } : { ok: true } });
+        },
+        "**/api/stop": async route => {
+            events.push("stop");
+            assert.equal(route.request().postDataJSON().expected_generation, runtime.generation);
+            runtime = null;
+            await route.fulfill({ json: { stopped: true } });
+        },
+        "**/api/launch": async route => {
+            events.push("launch");
+            assert.equal(runtime, null);
+            const request = route.request().postDataJSON();
+            launches.push(request);
+            runtime = {
+                generation: 510 + launches.length, tool: request.tool, model: "models/smoke-model.gguf",
+                host: "127.0.0.1", port: 8080, launch_settings: request.launch_settings,
+            };
+            await route.fulfill({ json: { pid: 510, output_cursor: 0, active_runtime: runtime } });
+        },
+    };
+    for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
+    await selectSection(page, "quick-launch");
+    await page.evaluate(async () => {
+        flagCore.setCurrentTool("llama-server");
+        flagCore.applyFlagValues({ api_key: "session-key", ctx_size: 16000 });
+        await window.LlamaGui.manager.refreshModels();
+    });
+    await page.selectOption("#quick-model-select", "smoke-model.gguf");
+    await page.locator("details:has(#quick-reasoning-effort) > summary").click();
+    await page.selectOption("#quick-reasoning-effort", "minimal");
+    await page.click("#btn-quick-launch");
+    const warning = page.locator("#runtime-reasoning-warning");
+    await warning.waitFor({ state: "visible" });
+    assert.ok(launches[0].args.some(arg => Array.isArray(arg) && arg[0] === "--reasoning-effort" && arg[1] === "minimal"));
+    assert.ok(launches[0].args.flat().includes("session-key"));
+    assert.deepEqual(events, ["launch"], "recovery requires an explicit click");
+
+    await selectSection(page, "configure");
+    await page.evaluate(() => flagCore.setFlagValue("ctx_size", 32000));
+    const restart = warning.getByRole("button", { name: "Restart with Auto" });
+    preflightError = "Recovery preflight failed.";
+    await restart.click();
+    await page.locator("#toast-container").getByText(preflightError, { exact: true }).waitFor();
+    assert.deepEqual(events, ["launch", "preflight"], "failed recovery preflight must leave the active server running");
+    preflightError = "";
+    await restart.click();
+    await page.waitForFunction(() => processLifecycle.getSnapshot().activeRuntime?.generation === 512 && !processLifecycle.getSnapshot().busy);
+    assert.deepEqual(events, ["launch", "preflight", "preflight", "stop", "launch"]);
+    assert.deepEqual(launches[1].args, launches[0].args.filter(arg => !Array.isArray(arg) || arg[0] !== "--reasoning-effort"));
+    assert.equal(launches[1].launch_settings.flags.chat_template_reasoning_effort, "auto");
+    assert.equal(await page.evaluate(() => flagCore.getFlagValues().ctx_size), 32000);
+    assert.equal(await page.locator("#quick-reasoning-effort").inputValue(), "minimal");
+    assert.equal(await warning.isVisible(), false);
+}
+
 async function verifyShellPolish(page) {
     await page.evaluate(() => document.querySelectorAll("#toast-container .toast").forEach(toast => toast.remove()));
     const viewport = page.viewportSize();
@@ -1785,6 +1856,7 @@ async function runScenario(browser, port, verify) {
         let rememberedTarget = null;
         const externalTargetRequests = [];
         let installedBackend = "cpu";
+        const officialBuild = verify === verifyMinimalReasoningRecovery ? "b12489" : "smoke";
         const customBackendDirs = {};
         let customFolderSelection = { selected: true, path: "D:\\Custom & Build" };
         const customFolderRequests = [];
@@ -2079,9 +2151,9 @@ async function runScenario(browser, port, verify) {
                         active_runtime: statusActiveRuntime,
                         external_chat_target: externalChatTarget,
                         backend: installedBackend,
-                        version: installedBackend.startsWith("custom") ? "custom" : "smoke",
-                        tag: installedBackend.startsWith("custom") ? "custom" : "smoke",
-                        official_install: { backend: "cpu", tag: "smoke", version: "smoke", files_present: true },
+                        version: installedBackend.startsWith("custom") ? "custom" : officialBuild,
+                        tag: installedBackend.startsWith("custom") ? "custom" : officialBuild,
+                        official_install: { backend: "cpu", tag: officialBuild, version: officialBuild, files_present: true },
                         available_backends: [
                             { id: "cpu", label: "CPU" },
                             ...["custom", "custom-02"].map(id => ({
@@ -2569,7 +2641,7 @@ async function runScenario(browser, port, verify) {
                     await page.locator("#flag-chat_template_reasoning_effort option").evaluateAll((options) => (
                         options.map((option) => option.value)
                     )),
-                    ["auto", "low", "medium", "high", "xhigh"]
+                    ["auto", "minimal", "low", "medium", "high", "xhigh"]
                 );
                 assert.match(
                     await page.textContent('.flag-row[data-flag-id="chat_template_reasoning_effort"] .flag-desc'),
@@ -2991,7 +3063,7 @@ async function runScenario(browser, port, verify) {
                 assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("min"), "1");
                 assert.equal(await page.locator("#chat-web-search-max-results").getAttribute("max"), "10");
                 assert.deepEqual(await page.locator("#chat-thinking-effort option").allTextContents(), [
-                    "Auto (model default)", "Off", "Low", "Medium", "High", "XHigh",
+                    "Auto (model default)", "Off", "Minimal", "Low", "Medium", "High", "XHigh",
                 ]);
                 if (await page.locator("#chat-sidebar").evaluate(el => el.classList.contains("collapsed"))) {
                     await page.locator("#btn-open-sidebar").click();
@@ -4804,6 +4876,7 @@ for (const [name, verify = name] of [
     ["models folder changes refresh shared selection"],
     ["Monitor cards output and shared inference baseline"],
     ["configure restart", verifyConfigureRestart],
+    ["restart with Auto after explicit rejection of Minimal", verifyMinimalReasoningRecovery],
     ["configure reset to defaults", verifyConfigureReset],
     ["quick launch presentation", verifyQuickLaunchPolish],
     ["starter context and MTP profiles", verifyStarterProfiles],

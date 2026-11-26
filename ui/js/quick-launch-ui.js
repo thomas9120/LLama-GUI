@@ -194,6 +194,20 @@
         }
     }
 
+    function populateReasoningEffortOptions() {
+        const select = document.getElementById("quick-reasoning-effort");
+        if (!select) return;
+
+        select.innerHTML = "";
+        const reasoningFlag = FLAGS.find((f) => f.id === "chat_template_reasoning_effort");
+        for (const option of reasoningFlag?.options || []) {
+            const opt = document.createElement("option");
+            opt.value = option.value;
+            opt.textContent = option.label;
+            select.appendChild(opt);
+        }
+    }
+
     function syncModelOptions() {
         const mainSelect = document.getElementById("model-select");
         const quickSelect = document.getElementById("quick-model-select");
@@ -653,6 +667,15 @@
                 : "Auto Fit is off. Manual memory settings apply.";
         }
 
+        const reasoningEffort = document.getElementById("quick-reasoning-effort");
+        const reasoningEffortGroup = document.getElementById("quick-reasoning-effort-group");
+        if (reasoningEffort) {
+            reasoningEffort.value = values.chat_template_reasoning_effort ?? "auto";
+        }
+        if (reasoningEffortGroup) {
+            reasoningEffortGroup.classList.toggle("hidden", tool !== "llama-server");
+        }
+
         const templateSelect = document.getElementById("quick-template-pack");
         const templateSummary = document.getElementById("quick-template-summary");
         const selectedTemplateValue = getSelectedChatTemplateDropdownValue();
@@ -750,6 +773,7 @@
         configFlagsUi.initializeSensitiveTextInput(document.getElementById("hf-token-input"));
 
         populateTemplatePackOptions();
+        populateReasoningEffortOptions();
         populateProfileOptions();
         refreshSamplerPresetSelect();
         syncModelOptions();
@@ -867,6 +891,10 @@
         on("btn-quick-fit-sync", "click", () => {
             const values = flagCore.getFlagValues();
             flagCore.setFlagValue("fit_ctx", values.ctx_size ?? getDefaultCtxSize(), { quickLaunchFitCtxLinked: true });
+        });
+
+        on("quick-reasoning-effort", "change", (e) => {
+            flagCore.setFlagValue("chat_template_reasoning_effort", e.target.value);
         });
 
         on("quick-template-pack", "change", (e) => {

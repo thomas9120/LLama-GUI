@@ -309,6 +309,7 @@ async function resolveModelSwitchTarget(slotId) {
         tool: "llama-server",
         args: launch.args,
         env: launch.env,
+        autoReasoningArgs: launch.autoReasoningArgs,
         launch_settings: launchSettings,
         launch_context: {
             source: "model-switcher",
@@ -620,7 +621,14 @@ async function loadStartupPresetFromUrl() {
 }
 
 function initTabs() {
-    window.LlamaGui.shellUi.init({ switchTab, getLifecycleSnapshot: () => processLifecycle.getSnapshot(), getLatestStatus: manager.getLatestStatus });
+    window.LlamaGui.shellUi.init({
+        switchTab,
+        getLifecycleSnapshot: () => processLifecycle.getSnapshot(),
+        getLatestStatus: manager.getLatestStatus,
+        restartWithAuto: processLifecycle.restartWithAuto,
+        resumeRuntimePolling,
+        showToast,
+    });
 }
 
 function switchTab(tabId) {
@@ -848,7 +856,10 @@ function buildManualLaunchRequest() {
     if (!flagCore.hasLaunchModelArg(args)) {
         throw new Error("Select a model or provide a remote model source before launching.");
     }
-    return { tool, args, env: result.env, launch_settings: flagCore.captureLaunchSettings() };
+    return {
+        tool, args, env: result.env, autoReasoningArgs: result.autoReasoningArgs,
+        launch_settings: flagCore.captureLaunchSettings(),
+    };
 }
 
 async function launchLlama() {

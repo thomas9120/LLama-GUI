@@ -162,27 +162,8 @@
         errorMessage.textContent = "";
         errorMessage.classList.add("hidden");
         try {
-            const outcome = await lifecycle.switchRuntime({
-                operation: "restart",
-                expectedGeneration: generation,
-                resolveTarget: async () => {
-                    const request = dependencies.buildLaunchRequest();
-                    const preflight = await dependencies.fetchJson("/api/launch/preflight", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            tool: request.tool,
-                            args: request.args,
-                            env: request.env,
-                            fingerprint_data: { tool: request.tool, model: request.launch_settings?.model || "" },
-                        }),
-                    });
-                    if (!preflight || !preflight.ok) throw new Error(preflight?.error || "Could not validate the pending configuration.");
-                    return request;
-                },
-                // Launch the validated snapshot; later edits remain pending.
-                applyTarget: () => {},
-            });
+            // Launch the validated snapshot; later edits remain pending.
+            const outcome = await lifecycle.restart(dependencies.buildLaunchRequest, generation);
             if (!outcome.ok && !outcome.cancelled) {
                 errorMessage.textContent = outcome.error || "Could not restart the server.";
                 errorMessage.classList.remove("hidden");

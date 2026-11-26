@@ -73,6 +73,13 @@
             const external = !state.activeRuntime && state.phase === "idle" && dependencies.getLatestStatus()?.external_chat_target?.connected;
             dependencies.switchTab(external ? "api" : "monitor");
         });
+        document.getElementById("btn-restart-auto-reasoning")?.addEventListener("click", async () => {
+            const outcome = await dependencies.restartWithAuto();
+            if (!outcome.ok && !outcome.cancelled) {
+                dependencies.showToast(outcome.error || "Could not restart the server.", "error", { duration: 0 });
+                if (outcome.status?.running && !outcome.conflict) dependencies.resumeRuntimePolling(outcome.status);
+            }
+        });
         setNavigationOpen(false);
         renderRuntime();
     }
@@ -80,6 +87,11 @@
     function renderRuntime() {
         if (!dependencies.getLifecycleSnapshot) return;
         const state = dependencies.getLifecycleSnapshot();
+        const reasoningWarning = document.getElementById("runtime-reasoning-warning");
+        if (reasoningWarning) {
+            reasoningWarning.hidden = !state.minimalReasoningRejected;
+            document.getElementById("btn-restart-auto-reasoning").disabled = Boolean(state.busy);
+        }
         const runtime = state.activeRuntime;
         const target = dependencies.getLatestStatus()?.external_chat_target;
         const external = !runtime && state.phase === "idle" && target?.connected;

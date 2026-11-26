@@ -627,6 +627,8 @@
     function buildLaunchArgs(state) {
         const args = [];
         const warnings = [];
+        let minimalEffortArg = null;
+        let legacyAutoEffortArg = null;
         const launchState = state && typeof state === "object" && !Array.isArray(state) ? state : {};
         const tool = launchState.tool;
         const values = launchState.flags && typeof launchState.flags === "object" && !Array.isArray(launchState.flags)
@@ -664,7 +666,11 @@
                         if (values.preserve_thinking === true) kwargs.preserve_thinking = true;
                         kwargs.reasoning_effort = val;
                         args.push(["--chat-template-kwargs", JSON.stringify(kwargs)]);
+                        if (val === "minimal" && kwargs.preserve_thinking) {
+                            legacyAutoEffortArg = ["--chat-template-kwargs", '{"preserve_thinking":true}'];
+                        }
                     }
+                    if (val === "minimal") minimalEffortArg = args[args.length - 1];
                 }
                 continue;
             }
@@ -774,6 +780,10 @@
             if (duplicates.length > 0) {
                 warnings.push(`Custom launch args duplicate UI-managed flags: ${duplicates.join(", ")}`);
             }
+            if (minimalEffortArg && parsedCustom.tokens.some(token => {
+                const name = getCustomArgFlagName(token);
+                return name === "--reasoning-effort" || name === "--chat-template-kwargs";
+            })) minimalEffortArg = null;
             args.push(...parsedCustom.tokens);
         }
 
@@ -833,7 +843,17 @@
             && toolsEnabled && !loopbackHost && !validation.hasKey && !validation.allow) {
             warnings.push("llama.cpp b12340+ refuses tools, MCP servers, or the MCP proxy on a non-loopback host without an API key. Set an API Key, bind to 127.0.0.1, or enable Allow Unauthenticated Tools.");
         }
-        return { args, env: environment.env, error: null, warnings };
+        const result = { args, env: environment.env, error: null, warnings };
+        if (minimalEffortArg) {
+            const jinjaFlag = args.map(arg => Array.isArray(arg) ? arg[0] : arg)
+                .reverse().find(arg => arg === "--jinja" || arg === "--no-jinja");
+            if (jinjaFlag !== "--no-jinja") {
+                result.autoReasoningArgs = args
+                    .map(arg => arg === minimalEffortArg ? legacyAutoEffortArg : arg)
+                    .filter(arg => arg !== null);
+            }
+        }
+        return result;
     }
 
     function parseEnvironmentVariables(raw) {

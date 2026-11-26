@@ -11,6 +11,7 @@
     let deps = {};
     let transitionId = 0;
     let snapshot = createSnapshot();
+    let reasoningRecovery = null;
 
     function createSnapshot(overrides = {}) {
         return Object.assign({
@@ -37,7 +38,9 @@
     }
 
     function getSnapshot() {
-        return copySnapshot();
+        const state = copySnapshot();
+        state.minimalReasoningRejected = reasoningRecovery !== null;
+        return state;
     }
 
     function notify() {
@@ -102,6 +105,9 @@
         snapshot = Object.assign({}, snapshot, patch, { transitionId });
         if (Object.prototype.hasOwnProperty.call(patch, "activeRuntime")) {
             snapshot.activeRuntime = copyRuntime(patch.activeRuntime);
+            if (reasoningRecovery && runtimeGeneration(snapshot.activeRuntime) !== reasoningRecovery.generation) {
+                reasoningRecovery = null;
+            }
         }
         if (changed) notify();
         return true;
@@ -228,7 +234,37 @@
         return result(false, { error: message, status });
     }
 
-    async function waitForReady(id, runtime, options = {}) {
+    async function checkMinimalReasoning(id, generation, request) {
+        if (!request?.autoReasoningArgs || !isCurrent(id)) return;
+        try {
+            const props = await deps.fetchJson("/api/llama/props");
+            const rejected = props?.chat_template_caps?.reasoning_effort_rejected;
+            if (!Array.isArray(rejected) || !rejected.includes("minimal") || !isCurrent(id)) return;
+
+            const status = await refreshStatus();
+            if (!isCurrent(id) || !statusIsRunning(status) || !statusMatchesGeneration(status, generation)) return;
+
+            const settings = request.launch_settings;
+            reasoningRecovery = {
+                generation,
+                request: {
+                    tool: request.tool,
+                    args: request.autoReasoningArgs,
+                    env: request.env,
+                    // The revised settings no longer match the original preset fingerprint.
+                    launch_settings: settings && {
+                        ...settings,
+                        flags: { ...settings.flags, chat_template_reasoning_effort: "auto" },
+                    },
+                },
+            };
+            notify();
+        } catch (error) {
+            console.debug("Could not read launch reasoning-effort compatibility", error);
+        }
+    }
+
+    async function waitForReady(id, runtime, options = {}, request) {
         const generation = runtimeGeneration(runtime);
         if (generation === null) {
             return settleAsFailed(id, "Launch did not provide a runtime generation.", options);
@@ -293,6 +329,7 @@
                 await callOptionalHook(options, "postReady", authoritativeRuntime, getSnapshot());
                 if (!isCurrent(id)) return result(false, { cancelled: true });
                 finishTransition(id);
+                void checkMinimalReasoning(id, generation, request);
                 return result(true, { runtime: copyRuntime(authoritativeRuntime), status, health });
             }
 
@@ -435,7 +472,7 @@
         await callOptionalHook(options, "startOutput", launchResult.output_cursor, runtime, getSnapshot(), launchResult);
 
         const waitForServer = options.waitForReady !== false && request.tool === "llama-server";
-        if (waitForServer) return waitForReady(id, runtime, options);
+        if (waitForServer) return waitForReady(id, runtime, options, request);
 
         updateSnapshot({
             phase: "running",
@@ -539,6 +576,35 @@
             throw new Error(String(value.error || "Target preflight failed."));
         }
         return value && Object.prototype.hasOwnProperty.call(value, "target") ? value.target : value;
+    }
+
+    function restart(resolveRequest, expectedGeneration) {
+        return switchRuntime({
+            operation: "restart",
+            expectedGeneration,
+            resolveTarget: async () => {
+                const request = await resolveRequest();
+                const preflight = await deps.fetchJson("/api/launch/preflight", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        tool: request.tool,
+                        args: request.args,
+                        env: request.env,
+                        fingerprint_data: { tool: request.tool, model: request.launch_settings?.model || "" },
+                    }),
+                });
+                if (!preflight?.ok) throw new Error(preflight?.error || "Could not validate the restart configuration.");
+                return request;
+            },
+            applyTarget: () => {},
+        });
+    }
+
+    async function restartWithAuto() {
+        const recovery = reasoningRecovery;
+        if (!recovery) return result(false, { cancelled: true });
+        return restart(() => recovery.request, recovery.generation);
     }
 
     async function switchRuntime(options = {}) {
@@ -674,6 +740,8 @@
         launch,
         stop,
         switchRuntime,
+        restart,
+        restartWithAuto,
         reconcile,
     };
 })();

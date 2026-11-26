@@ -212,6 +212,10 @@
     </aside>
 
     <div class="main-content">
+        <div class="runtime-reasoning-warning" id="runtime-reasoning-warning" hidden>
+            <p role="status">The running model’s chat template rejects Minimal reasoning effort.</p>
+            <button class="btn btn-sm" id="btn-restart-auto-reasoning" type="button">Restart with Auto</button>
+        </div>
 
         <!-- ═══ INSTALL ═══ -->
         <div class="section-panel" id="section-install" style="display:none;">
@@ -545,6 +549,21 @@
                     <summary><span>Server &amp; template settings</span><span id="quick-server-summary" class="quick-disclosure-summary"></span>
                     </summary>
                     <div class="quick-server-grid">
+                        <div class="quick-template-section">
+                            <div class="quick-subsection-label">Instruction Template</div>
+                            <div class="form-group">
+                                <label class="form-label" for="quick-template-pack">Template Pack</label>
+                                <select id="quick-template-pack">
+                                </select>
+                            </div>
+                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
+                            <div class="form-group" id="quick-reasoning-effort-group">
+                                <label class="form-label" for="quick-reasoning-effort">Reasoning Effort</label>
+                                <select id="quick-reasoning-effort">
+                                </select>
+                                <p class="help-text">Server-wide default for Chat, API clients, and external harnesses. Auto leaves the model template default unchanged.</p>
+                            </div>
+                        </div>
                         <div id="quick-server-fields">
                             <div class="form-group">
                                 <label class="form-label" for="quick-port">Port <code>--port</code>
@@ -563,15 +582,6 @@
                             </div>
                             <label class="checkbox-group">
                                 <input type="checkbox" id="quick-metrics-toggle" checked> Enable metrics &amp; stats bar</label>
-                        </div>
-                        <div class="quick-template-section">
-                            <div class="quick-subsection-label">Instruction Template</div>
-                            <div class="form-group">
-                                <label class="form-label" for="quick-template-pack">Template Pack</label>
-                                <select id="quick-template-pack">
-                                </select>
-                            </div>
-                            <p id="quick-template-summary" class="help-text">Choose a pack that matches your model family or desired thinking style.</p>
                         </div>
                     </div>
                 </details>
@@ -1282,6 +1292,7 @@
                                 <select id="chat-thinking-effort">
                                     <option value="auto">Auto (model default)</option>
                                     <option value="off">Off</option>
+                                    <option value="minimal">Minimal</option>
                                     <option value="low">Low</option>
                                     <option value="medium">Medium</option>
                                     <option value="high">High</option>
