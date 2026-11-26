@@ -608,6 +608,35 @@ function launchResult() {
 }
 
 {
+    // Recovery removes the same managed argument on both emission paths.
+    for (const tag of ["custom", "b12489"]) {
+        const result = vm.runInContext(`
+            window.LlamaGui.flagCore.setBinaryTag(${JSON.stringify(tag)});
+            window.LlamaGui.flagCore.buildLaunchArgs({
+                tool: "llama-server",
+                flags: { preserve_thinking: true, chat_template_reasoning_effort: "minimal" },
+            });
+        `, context);
+        assert.deepEqual(Array.from(result.autoReasoningArgs.flat()), ["--chat-template-kwargs", '{"preserve_thinking":true}']);
+    }
+    const customOverride = vm.runInContext(`
+        window.LlamaGui.flagCore.buildLaunchArgs({
+            tool: "llama-server",
+            flags: { chat_template_reasoning_effort: "minimal", custom_args: "--reasoning-effort=high" },
+        });
+    `, context);
+    assert.equal(customOverride.autoReasoningArgs, undefined, "recovery must leave competing custom overrides alone");
+    const jinjaDisabled = vm.runInContext(`
+        window.LlamaGui.flagCore.buildLaunchArgs({
+            tool: "llama-server",
+            flags: { jinja: false, chat_template_reasoning_effort: "minimal" },
+        });
+    `, context);
+    assert.equal(jinjaDisabled.autoReasoningArgs, undefined);
+    vm.runInContext('window.LlamaGui.flagCore.setBinaryTag("b10502")', context);
+}
+
+{
     // llama.cpp b10875+ removed --mmap/--no-mmap, --mlock, and
     // -dio/--direct-io/--no-direct-io from llama-server/llama-cli (PR #28334).
     // Legacy controls stay for older builds; new builds get a warn-only hint.

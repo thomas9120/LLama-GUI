@@ -83,7 +83,7 @@
         CHAT_WEB_SEARCH_DEFAULT_MAX_RESULTS: 5,
         CHAT_WEB_SEARCH_MIN_RESULTS: 1,
         CHAT_WEB_SEARCH_MAX_RESULTS: 10,
-        CHAT_THINKING_EFFORTS: ["auto", "off", "low", "medium", "high", "xhigh"],
+        CHAT_THINKING_EFFORTS: ["auto", "off", "minimal", "low", "medium", "high", "xhigh"],
         CHAT_MAX_STORED_CONVERSATIONS: 50,
         CHAT_CONSTRAINED_LAYOUT_QUERY: "(max-width: 1320px)",
         CHAT_WORKSPACE_SCHEMA_VERSION: 1,

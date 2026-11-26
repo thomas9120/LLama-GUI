@@ -744,6 +744,45 @@ async function main() {
         );
     }
 
+    async function testMinimalRecoveryNeedsCurrentExplicitRejection() {
+        for (const [props, replaceRuntime] of [
+            [{ chat_template_caps: { reasoning_effort_levels: ["low", "high"] } }, false],
+            [{ chat_template_caps: { reasoning_effort_levels: ["minimal"] } }, false],
+            [{ chat_template_caps: { reasoning_effort_rejected: ["minimal"] } }, true],
+        ]) {
+            const { lifecycle } = loadLifecycle();
+            let activeRuntime = runtime(1);
+            const propsResponse = deferred();
+            let propsRequested = false;
+            lifecycle.configure({
+                refreshStatus: async () => runningStatus(activeRuntime),
+                fetchJson: async url => {
+                    if (url === "/api/launch") return { active_runtime: activeRuntime };
+                    if (url === "/api/llama/props") {
+                        propsRequested = true;
+                        return propsResponse.promise;
+                    }
+                    if (url.startsWith("/api/llama/health?")) {
+                        return { state: "ready", ready: true, generation: activeRuntime.generation };
+                    }
+                    throw new Error(`Unexpected request: ${url}`);
+                },
+            });
+            const outcome = await lifecycle.launch({
+                tool: "llama-server",
+                args: [["--reasoning-effort", "minimal"]],
+                autoReasoningArgs: [],
+            });
+            assert.equal(outcome.ok, true, "a pending capability probe must not delay readiness");
+            assert.equal(propsRequested, true);
+            if (replaceRuntime) activeRuntime = runtime(2);
+            propsResponse.resolve(props);
+            await new Promise(resolve => setImmediate(resolve));
+            assert.equal(lifecycle.getSnapshot().minimalReasoningRejected, false);
+            assert.equal((await lifecycle.restartWithAuto()).cancelled, true);
+        }
+    }
+
     const tests = [
         ["readiness progression", testReadinessProgression],
         ["no-op polling notifications", testRepeatedLoadingPollsDoNotRenotify],
@@ -751,6 +790,7 @@ async function main() {
         ["authoritative restore", testRestoreUsesAuthoritativeRuntimeAndHealth],
         ["invalid preflight", testInvalidPreflightDoesNotStop],
         ["restart generation guard", testRestartRejectsChangedGeneration],
+        ["Minimal recovery requires current explicit rejection", testMinimalRecoveryNeedsCurrentExplicitRejection],
         ["stop refusal", testStopRefusalPreventsApplyAndLaunch],
         ["switch stop exception notification", testSwitchStopExceptionNotifiesOnce],
         ["switch ordering", testSwitchOrdersPreflightStopApplyAndLaunch],
