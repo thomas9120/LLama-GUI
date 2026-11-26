@@ -837,7 +837,7 @@ async function verifyMinimalReasoningRecovery(page) {
     let preflightError = "";
     const routes = {
         "**/api/status": route => route.fulfill({ json: {
-            ...baseStatus, tag: "b12489", running: Boolean(runtime), active_process_tool: runtime?.tool, active_runtime: runtime,
+            ...baseStatus, running: Boolean(runtime), active_process_tool: runtime?.tool, active_runtime: runtime,
         } }),
         "**/api/llama/health?*": route => route.fulfill({ json: { state: "ready", ready: true, generation: runtime?.generation } }),
         "**/api/llama/props": route => route.fulfill({ json: {
@@ -868,7 +868,6 @@ async function verifyMinimalReasoningRecovery(page) {
     for (const [url, handler] of Object.entries(routes)) await page.route(url, handler);
     await selectSection(page, "quick-launch");
     await page.evaluate(async () => {
-        flagCore.setBinaryTag("b12489");
         flagCore.setCurrentTool("llama-server");
         flagCore.applyFlagValues({ api_key: "session-key", ctx_size: 16000 });
         await window.LlamaGui.manager.refreshModels();
@@ -1857,6 +1856,7 @@ async function runScenario(browser, port, verify) {
         let rememberedTarget = null;
         const externalTargetRequests = [];
         let installedBackend = "cpu";
+        const officialBuild = verify === verifyMinimalReasoningRecovery ? "b12489" : "smoke";
         const customBackendDirs = {};
         let customFolderSelection = { selected: true, path: "D:\\Custom & Build" };
         const customFolderRequests = [];
@@ -2151,9 +2151,9 @@ async function runScenario(browser, port, verify) {
                         active_runtime: statusActiveRuntime,
                         external_chat_target: externalChatTarget,
                         backend: installedBackend,
-                        version: installedBackend.startsWith("custom") ? "custom" : "smoke",
-                        tag: installedBackend.startsWith("custom") ? "custom" : "smoke",
-                        official_install: { backend: "cpu", tag: "smoke", version: "smoke", files_present: true },
+                        version: installedBackend.startsWith("custom") ? "custom" : officialBuild,
+                        tag: installedBackend.startsWith("custom") ? "custom" : officialBuild,
+                        official_install: { backend: "cpu", tag: officialBuild, version: officialBuild, files_present: true },
                         available_backends: [
                             { id: "cpu", label: "CPU" },
                             ...["custom", "custom-02"].map(id => ({
