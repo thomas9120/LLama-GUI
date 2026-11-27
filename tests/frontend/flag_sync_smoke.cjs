@@ -1949,6 +1949,12 @@ async function runScenario(browser, port, verify) {
                 failedRequests.push(`${request.method()} ${request.url()}: ${failure}`);
             }
         });
+        // Keep browser smoke startup independent of external font network latency.
+        await page.route(/^https:\/\/fonts\.(?:googleapis|gstatic)\.com\//, route => route.fulfill({
+            status: 200,
+            contentType: route.request().url().includes("fonts.googleapis.com") ? "text/css" : "application/octet-stream",
+            body: "",
+        }));
         await page.route("**/api/**", async (route) => {
             const url = new URL(route.request().url());
             const pathName = url.pathname;
@@ -4813,7 +4819,7 @@ async function verifyOfficialBackendDiscovery(page) {
 }
 
 for (const phase of ["startup", "reload"]) {
-    test(`${phase} timeouts report page errors`, { timeout: 45000 }, async () => {
+    test(`${phase} timeouts report page errors`, { timeout: 60000 }, async () => {
         const failStartup = () => {
             document.addEventListener("DOMContentLoaded", () => {
                 window.LlamaGui.configFlagsUi.renderFlags = () => {
@@ -4825,6 +4831,9 @@ for (const phase of ["startup", "reload"]) {
             async newPage() {
                 const page = await browser.newPage();
                 page.setDefaultTimeout(5000);
+                // Keep Playwright's full navigation timeout so cold/slow page loads
+                // reach DOMContentLoaded and fail on #flag-ctx_size as intended.
+                page.setDefaultNavigationTimeout(30000);
                 await page.route("**/css/tokens.css*", route => route.abort("connectionreset"));
                 if (phase === "startup") await page.addInitScript(failStartup);
                 return page;
